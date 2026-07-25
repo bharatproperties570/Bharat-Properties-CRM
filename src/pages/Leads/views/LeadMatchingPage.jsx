@@ -66,8 +66,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 // Fetch templates
                 const tmplRes = await systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null);
                 if (tmplRes?.data?.value) {
-                    const filtered = tmplRes.data.value.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short'));
+                    const filtered = tmplRes.data.value.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short') || t.systemContext?.includes('deal_match_modal'));
                     setMarketingTemplates(filtered);
+                    if (filtered.length > 0) setSelectedTemplateId(filtered[0].name || filtered[0].id);
+                    else setSelectedTemplateId('free_text');
                 }
                 
                 if (emailRes.status === 'fulfilled') {
@@ -1603,7 +1605,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 outline: 'none', cursor: 'pointer'
                             }}
                         >
-                            <option value="">Auto-Select Template</option>
                             <option value="free_text">No Template (Active Chat Session Only)</option>
                             {marketingTemplates.map(t => (
                                 <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>

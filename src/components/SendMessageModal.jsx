@@ -159,11 +159,17 @@ const SendMessageModal = ({
             });
 
             if (templates && templates.length > 0) {
-                setWhatsappTemplates(templates);
+                let validTemplates = templates.filter(t => t.status === 'APPROVED' || !t.id);
+                if (triggerContext) {
+                    validTemplates = validTemplates.filter(t => t.systemContext?.includes(triggerContext));
+                }
+                setWhatsappTemplates(validTemplates);
+                
                 if (triggerContext && !initialTemplateId && isOpen) {
-                    const match = templates.find(t => t.systemContext?.includes(triggerContext));
-                    if (match && channel === 'WHATSAPP') {
-                        setTemplateId(match.name || match.id || match._id);
+                    if (validTemplates.length > 0 && channel === 'WHATSAPP') {
+                        setTemplateId(validTemplates[0].name || validTemplates[0].id);
+                    } else {
+                        setTemplateId('free_text');
                     }
                 }
             } else {
@@ -640,10 +646,9 @@ const SendMessageModal = ({
                                         style={inputStyle}
                                         disabled={isLoadingWhatsApp}
                                     >
-                                        <option value="">-- {isLoadingWhatsApp ? 'Loading...' : 'Choose a WhatsApp Template'} --</option>
                                         <option value="free_text">No Template (Active Chat Session Only)</option>
                                         {whatsappTemplates.map(t => (
-                                            <option key={t.id || t.name} value={t.name}>{t.name} ({t.language})</option>
+                                            <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.language})</option>
                                         ))}
                                     </select>
                                 </div>

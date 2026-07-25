@@ -92,7 +92,13 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         templates.push(localTpl);
                     }
                 });
-                setMarketingTemplates(templates.filter(t => t.status === 'APPROVED' || !t.id));
+                const validTpls = templates.filter(t => (t.status === 'APPROVED' || !t.id) && (t.systemContext?.includes('deal_match') || t.systemContext?.includes('deal_match_modal')));
+                setMarketingTemplates(validTpls);
+                if (validTpls.length > 0) {
+                    setSelectedTemplateId(validTpls[0].name || validTpls[0].id);
+                } else {
+                    setSelectedTemplateId('free_text');
+                }
             } catch (err) {
                 console.error('Failed to load templates:', err);
             }
@@ -666,7 +672,6 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                 outline: 'none', cursor: 'pointer'
                             }}
                         >
-                            <option value="">Auto-Select Template</option>
                             <option value="free_text">No Template (Active Chat Session Only)</option>
                             {marketingTemplates.map(t => (
                                 <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
