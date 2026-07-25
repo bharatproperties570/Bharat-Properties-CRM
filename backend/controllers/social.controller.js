@@ -498,7 +498,11 @@ export const receiveWebhook = async (req, res) => {
                         entityType = 'Lead';
                     }
 
-                    console.log(`[SocialController] ✅ Entity Resolved: ${entityType} | ID: ${match._id}`);
+                    // 3. Resolve Participant Info
+                    const participantName = match.fullName || match.firstName || `WA: ${rawPhone}`;
+                    const entityId = match._id;
+
+                    console.log(`[SocialController] ✅ Entity Resolved: ${entityType} | ID: ${entityId}`);
 
                     // --- Enterprise Rule: Auto-Pause Nurture Flow on Inbound WhatsApp Message ---
                     if (match && entityType === 'Lead' && match.customFields?.nurtureState !== 'HANDOFF') {
@@ -510,10 +514,6 @@ export const receiveWebhook = async (req, res) => {
                         });
                         console.log(`[NurtureEngine] ⏸️ Auto-paused automated nurture flow for Lead ${entityId} due to incoming message.`);
                     }
-
-                    // 3. Resolve Participant Info
-                    const participantName = match.fullName || match.firstName || `WA: ${rawPhone}`;
-                    const entityId = match._id;
 
                     // 4. Find or Create Conversation (Senior Professional Sync)
                     let conversation = await Conversation.findOne({ 
