@@ -27,6 +27,15 @@ import ContactDependencyModal from '../../components/modals/ContactDependencyMod
 import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
 
+const renderAddressField = (val, getLookupValue, lookupType = null) => {
+    if (val === null || val === undefined || val === '') return '';
+    if (typeof val === 'object') return val.lookup_value || val.name || val.label || val.value || '';
+    if (typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val) && getLookupValue && lookupType) {
+        return getLookupValue(lookupType, val) || '';
+    }
+    return String(val); // Handles strings AND numbers safely
+};
+
 // ─── DEBOUNCE UTILITY ──────────────────────────────────────────────────────────
 const useDebounce = (value, delay) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -114,17 +123,17 @@ const ContactRow = memo(function ContactRow({
                     item.personalAddress?.hNo,
                     item.personalAddress?.street,
                     item.personalAddress?.area,
-                    renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.location) ? item.personalAddress.location : ""))
+                    renderAddressField(item.personalAddress?.location, getLookupValue, 'Location')
                   ].filter(Boolean).join(', ')}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   {[
-                    renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.city) ? item.personalAddress.city : "")),
-                    renderValue(getLookupValue("Tehsil", item.personalAddress?.tehsil), item.personalAddress?.tehsil?.lookup_value || (typeof item.personalAddress?.tehsil === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.tehsil) ? item.personalAddress.tehsil : "")),
-                    renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : "")),
-                    renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.country) ? item.personalAddress.country : "")),
-                    renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.postOffice) ? item.personalAddress.postOffice : "")),
-                    renderValue(getLookupValue("Pincode", item.personalAddress?.pincode || item.personalAddress?.pinCode), (item.personalAddress?.pincode || item.personalAddress?.pinCode)?.lookup_value || (typeof (item.personalAddress?.pincode || item.personalAddress?.pinCode) === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress?.pincode || item.personalAddress?.pinCode) ? (item.personalAddress?.pincode || item.personalAddress?.pinCode) : ""))
+                    renderAddressField(item.personalAddress?.city, getLookupValue, 'City'),
+                    renderAddressField(item.personalAddress?.tehsil, getLookupValue, 'Tehsil'),
+                    renderAddressField(item.personalAddress?.state, getLookupValue, 'State'),
+                    renderAddressField(item.personalAddress?.country, getLookupValue, 'Country'),
+                    renderAddressField(item.personalAddress?.postOffice, getLookupValue, 'PostOffice'),
+                    renderAddressField(item.personalAddress?.pincode || item.personalAddress?.pinCode, getLookupValue, 'Pincode')
                   ].filter(Boolean).join(', ')}
                 </div>
               </div>
@@ -324,13 +333,13 @@ const ContactCard = memo(function ContactCard({
                     item.personalAddress?.hNo,
                     item.personalAddress?.street,
                     item.personalAddress?.area,
-                    renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : '')),
-                    renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : '')),
-                    renderValue(getLookupValue("Tehsil", item.personalAddress?.tehsil), item.personalAddress?.tehsil?.lookup_value || (typeof item.personalAddress?.tehsil === 'string' ? item.personalAddress.tehsil : '')),
-                    renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : '')),
-                    renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' ? item.personalAddress.country : '')),
-                    renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' ? item.personalAddress.postOffice : '')),
-                    renderValue(getLookupValue("Pincode", item.personalAddress?.pincode || item.personalAddress?.pinCode), (item.personalAddress?.pincode || item.personalAddress?.pinCode)?.lookup_value || (typeof (item.personalAddress?.pincode || item.personalAddress?.pinCode) === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress?.pincode || item.personalAddress?.pinCode) ? (item.personalAddress?.pincode || item.personalAddress?.pinCode) : ""))
+                    renderAddressField(item.personalAddress?.location, getLookupValue, 'Location'),
+                    renderAddressField(item.personalAddress?.city, getLookupValue, 'City'),
+                    renderAddressField(item.personalAddress?.tehsil, getLookupValue, 'Tehsil'),
+                    renderAddressField(item.personalAddress?.state, getLookupValue, 'State'),
+                    renderAddressField(item.personalAddress?.country, getLookupValue, 'Country'),
+                    renderAddressField(item.personalAddress?.postOffice, getLookupValue, 'PostOffice'),
+                    renderAddressField(item.personalAddress?.pincode || item.personalAddress?.pinCode, getLookupValue, 'Pincode')
                   ].filter(Boolean).join(', ')
                 : item?.address || "Address not listed"}
             </div>

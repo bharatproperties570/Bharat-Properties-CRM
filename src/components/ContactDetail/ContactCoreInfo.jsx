@@ -2,6 +2,15 @@ import { useTheme } from '../../context/ThemeContext';
 
 import React from 'react';
 
+const renderAddressField = (val, renderLookup) => {
+    if (val === null || val === undefined || val === '') return '';
+    if (typeof val === 'object') return val.lookup_value || val.name || val.label || val.value || '';
+    if (typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val) && renderLookup) {
+        return renderLookup(val, '') || '';
+    }
+    return String(val); // Safely returns strings and numbers (like pincode or house number)
+};
+
 const ContactCoreInfo = React.memo(function ContactCoreInfo({
     contact,
     recordType,
@@ -223,14 +232,14 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 contact.personalAddress?.hNo,
                                 contact.personalAddress?.street,
                                 contact.personalAddress?.area,
-                                renderLookup(contact.personalAddress?.location, ''),
-                                renderLookup(contact.personalAddress?.city, ''),
-                                renderLookup(contact.personalAddress?.tehsil, ''),
-                                renderLookup(contact.personalAddress?.state, ''),
-                                renderLookup(contact.personalAddress?.country, ''),
-                                renderLookup(contact.personalAddress?.postOffice, ''),
-                                renderLookup(contact.personalAddress?.pincode || contact.personalAddress?.pinCode, '')
-                            ].filter(Boolean).join(', ') || 'No Permanent Address Provided'}
+                                contact.personalAddress?.location,
+                                contact.personalAddress?.city,
+                                contact.personalAddress?.tehsil,
+                                contact.personalAddress?.state,
+                                contact.personalAddress?.country,
+                                contact.personalAddress?.postOffice,
+                                contact.personalAddress?.pincode || contact.personalAddress?.pinCode
+                            ].map(v => renderAddressField(v, renderLookup)).filter(Boolean).join(', ') || 'No Permanent Address Provided'}
                         </div>
                     </div>
                     <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
@@ -240,14 +249,14 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 contact.correspondenceAddress?.hNo,
                                 contact.correspondenceAddress?.street,
                                 contact.correspondenceAddress?.area,
-                                renderLookup(contact.correspondenceAddress?.location, ''),
-                                renderLookup(contact.correspondenceAddress?.city, ''),
-                                renderLookup(contact.correspondenceAddress?.tehsil, ''),
-                                renderLookup(contact.correspondenceAddress?.state, ''),
-                                renderLookup(contact.correspondenceAddress?.country, ''),
-                                renderLookup(contact.correspondenceAddress?.postOffice, ''),
-                                renderLookup(contact.correspondenceAddress?.pincode || contact.correspondenceAddress?.pinCode, '')
-                            ].filter(Boolean).join(', ') || 'No Correspondence Address Provided'}
+                                contact.correspondenceAddress?.location,
+                                contact.correspondenceAddress?.city,
+                                contact.correspondenceAddress?.tehsil,
+                                contact.correspondenceAddress?.state,
+                                contact.correspondenceAddress?.country,
+                                contact.correspondenceAddress?.postOffice,
+                                contact.correspondenceAddress?.pincode || contact.correspondenceAddress?.pinCode
+                            ].map(v => renderAddressField(v, renderLookup)).filter(Boolean).join(', ') || 'No Correspondence Address Provided'}
                         </div>
                     </div>
                 </div>
