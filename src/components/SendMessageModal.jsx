@@ -139,14 +139,31 @@ const SendMessageModal = ({
     const loadWhatsAppTemplates = async () => {
         setIsLoadingWhatsApp(true);
         try {
-            const res = await whatsappService.getTemplates();
-            const templates = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
+            const [metaRes, localRes] = await Promise.all([
+                whatsappService.getTemplates(),
+                systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null)
+            ]);
+            
+            const metaTemplates = Array.isArray(metaRes) ? metaRes : (metaRes && Array.isArray(metaRes.templates) ? metaRes.templates : []);
+            const localTemplates = localRes?.data?.value || [];
+            
+            // Merge meta templates with local templates to preserve systemContext and local overrides
+            const templates = [...metaTemplates];
+            localTemplates.forEach(localTpl => {
+                const idx = templates.findIndex(t => (t.id && String(t.id) === String(localTpl.id)) || (t.name && t.name === localTpl.name));
+                if (idx >= 0) {
+                    templates[idx] = { ...templates[idx], ...localTpl };
+                } else {
+                    templates.push(localTpl);
+                }
+            });
+
             if (templates && templates.length > 0) {
                 setWhatsappTemplates(templates);
                 if (triggerContext && !initialTemplateId && isOpen) {
                     const match = templates.find(t => t.systemContext?.includes(triggerContext));
                     if (match && channel === 'WHATSAPP') {
-                        setTemplateId(match.id || match._id);
+                        setTemplateId(match.name || match.id || match._id);
                     }
                 }
             } else {
