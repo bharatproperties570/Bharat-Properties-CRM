@@ -225,8 +225,11 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 contact.personalAddress?.area,
                                 renderLookup(contact.personalAddress?.location, ''),
                                 renderLookup(contact.personalAddress?.city, ''),
+                                renderLookup(contact.personalAddress?.tehsil, ''),
                                 renderLookup(contact.personalAddress?.state, ''),
-                                contact.personalAddress?.pinCode
+                                renderLookup(contact.personalAddress?.country, ''),
+                                renderLookup(contact.personalAddress?.postOffice, ''),
+                                contact.personalAddress?.pincode || contact.personalAddress?.pinCode
                             ].filter(Boolean).join(', ') || 'No Permanent Address Provided'}
                         </div>
                     </div>
@@ -239,8 +242,11 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 contact.correspondenceAddress?.area,
                                 renderLookup(contact.correspondenceAddress?.location, ''),
                                 renderLookup(contact.correspondenceAddress?.city, ''),
+                                renderLookup(contact.correspondenceAddress?.tehsil, ''),
                                 renderLookup(contact.correspondenceAddress?.state, ''),
-                                contact.correspondenceAddress?.pinCode
+                                renderLookup(contact.correspondenceAddress?.country, ''),
+                                renderLookup(contact.correspondenceAddress?.postOffice, ''),
+                                contact.correspondenceAddress?.pincode || contact.correspondenceAddress?.pinCode
                             ].filter(Boolean).join(', ') || 'No Correspondence Address Provided'}
                         </div>
                     </div>

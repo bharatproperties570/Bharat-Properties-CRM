@@ -10,6 +10,7 @@ import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 import { renderValue } from '../utils/renderUtils';
+import toast from 'react-hot-toast';
 
 // 3.4 MB Unused data removed for performance
 // DIRECTION_OPTIONS import removed if unused

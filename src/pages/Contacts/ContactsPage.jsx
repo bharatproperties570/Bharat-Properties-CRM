@@ -109,9 +109,23 @@ const ContactRow = memo(function ContactRow({
           <div className="address-clamp" style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500, lineHeight: 1.4 }}>
             {item?.personalAddress ? (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.location) ? item.personalAddress.location : ""))}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                <div>
+                  {[
+                    item.personalAddress?.hNo,
+                    item.personalAddress?.street,
+                    item.personalAddress?.area,
+                    renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.location) ? item.personalAddress.location : ""))
+                  ].filter(Boolean).join(', ')}
+                </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  {`${item.personalAddress?.area || ""}, ${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.city) ? item.personalAddress.city : ""))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : ""))}${item.personalAddress?.pinCode ? " " + item.personalAddress.pinCode : ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                  {[
+                    renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.city) ? item.personalAddress.city : "")),
+                    renderValue(getLookupValue("Tehsil", item.personalAddress?.tehsil), item.personalAddress?.tehsil?.lookup_value || (typeof item.personalAddress?.tehsil === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.tehsil) ? item.personalAddress.tehsil : "")),
+                    renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : "")),
+                    renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.country) ? item.personalAddress.country : "")),
+                    renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.postOffice) ? item.personalAddress.postOffice : "")),
+                    item.personalAddress?.pincode || item.personalAddress?.pinCode
+                  ].filter(Boolean).join(', ')}
                 </div>
               </div>
             ) : (typeof item?.address === 'string' ? item.address : "Address not listed")}
@@ -305,8 +319,19 @@ const ContactCard = memo(function ContactCard({
           <div style={{ display: "flex", alignItems: "start", gap: "6px" }}>
             <i className="fas fa-map-marker-alt" style={{ color: "#ef4444", fontSize: "0.75rem", marginTop: "2px" }}></i>
             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-              {item?.personalAddress?.city
-                ? `${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : ''))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : ''))}`
+              {item?.personalAddress
+                ? [
+                    item.personalAddress?.hNo,
+                    item.personalAddress?.street,
+                    item.personalAddress?.area,
+                    renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : '')),
+                    renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : '')),
+                    renderValue(getLookupValue("Tehsil", item.personalAddress?.tehsil), item.personalAddress?.tehsil?.lookup_value || (typeof item.personalAddress?.tehsil === 'string' ? item.personalAddress.tehsil : '')),
+                    renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : '')),
+                    renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' ? item.personalAddress.country : '')),
+                    renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' ? item.personalAddress.postOffice : '')),
+                    item.personalAddress?.pincode || item.personalAddress?.pinCode
+                  ].filter(Boolean).join(', ')
                 : item?.address || "Address not listed"}
             </div>
           </div>
