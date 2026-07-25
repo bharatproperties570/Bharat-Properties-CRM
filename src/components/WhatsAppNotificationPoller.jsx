@@ -96,7 +96,7 @@ const WhatsAppNotificationPoller = ({ onNavigate }) => {
         return () => {
             if (pollerRef.current) clearInterval(pollerRef.current);
         };
-    }, [currentUser, navigate]);
+    }, [currentUser, onNavigate]);
 
     return null; // Silent component
 };
