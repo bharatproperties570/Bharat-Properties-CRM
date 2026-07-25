@@ -6,6 +6,8 @@ import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
+import whatsappService from '../../../services/whatsappService';
+import systemSettingsAPI from '../../../services/systemSettingsAPI';
 
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
@@ -22,6 +24,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [excludedCount, setExcludedCount] = useState(0);
     const [loading, setLoading]             = useState(true);
     const [matchingLoading, setMatchingLoading] = useState(false);
+    const [marketingTemplates, setMarketingTemplates] = useState([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
 
     // Omnichannel UI State
     const [budgetFlexibility, setBudgetFlexibility] = useState(20);
@@ -70,6 +74,30 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
         };
         fetchDeal();
+
+        const fetchTemplates = async () => {
+            try {
+                const [metaRes, localRes] = await Promise.all([
+                    whatsappService.getTemplates(),
+                    systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null)
+                ]);
+                const metaTemplates = Array.isArray(metaRes) ? metaRes : (metaRes && Array.isArray(metaRes.templates) ? metaRes.templates : []);
+                const localTemplates = localRes?.data?.value || [];
+                const templates = [...metaTemplates];
+                localTemplates.forEach(localTpl => {
+                    const idx = templates.findIndex(t => (t.id && String(t.id) === String(localTpl.id)) || (t.name && t.name === localTpl.name));
+                    if (idx >= 0) {
+                        templates[idx] = { ...templates[idx], ...localTpl };
+                    } else {
+                        templates.push(localTpl);
+                    }
+                });
+                setMarketingTemplates(templates.filter(t => t.status === 'APPROVED' || !t.id));
+            } catch (err) {
+                console.error('Failed to load templates:', err);
+            }
+        };
+        fetchTemplates();
     }, [dealId]);
 
     // 2. Matching Engine
@@ -161,6 +189,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         hidePrice,
                         hideLocation,
                         hideUnit,
+                        templateId: selectedTemplateId || undefined,
                         matchContext: showOnlyPreferred ? 'perfect' : 'top'
                     })
                 );
@@ -628,6 +657,21 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'space-between', paddingTop: '12px', borderTop: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)' }}>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+                        <select 
+                            value={selectedTemplateId}
+                            onChange={(e) => setSelectedTemplateId(e.target.value)}
+                            style={{
+                                background: '#1e293b', color: '#fff', border: '1px solid #475569', 
+                                padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600,
+                                outline: 'none', cursor: 'pointer'
+                            }}
+                        >
+                            <option value="">Auto-Select Template</option>
+                            <option value="free_text">No Template (Active Chat Session Only)</option>
+                            {marketingTemplates.map(t => (
+                                <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
+                            ))}
+                        </select>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt, whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={hidePrice} onChange={e => setHidePrice(e.target.checked)} style={{ cursor: 'pointer' }} />
                             Hide Price
