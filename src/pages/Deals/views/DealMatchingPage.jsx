@@ -7,7 +7,7 @@ import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import whatsappService from '../../../services/whatsappService';
-import systemSettingsAPI from '../../../services/systemSettingsAPI';
+import { systemSettingsAPI } from '../../../utils/api';
 
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
