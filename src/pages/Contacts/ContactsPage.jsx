@@ -124,7 +124,7 @@ const ContactRow = memo(function ContactRow({
                     renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : "")),
                     renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.country) ? item.personalAddress.country : "")),
                     renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.postOffice) ? item.personalAddress.postOffice : "")),
-                    item.personalAddress?.pincode || item.personalAddress?.pinCode
+                    renderValue(getLookupValue("Pincode", item.personalAddress?.pincode || item.personalAddress?.pinCode), (item.personalAddress?.pincode || item.personalAddress?.pinCode)?.lookup_value || (typeof (item.personalAddress?.pincode || item.personalAddress?.pinCode) === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress?.pincode || item.personalAddress?.pinCode) ? (item.personalAddress?.pincode || item.personalAddress?.pinCode) : ""))
                   ].filter(Boolean).join(', ')}
                 </div>
               </div>
@@ -330,7 +330,7 @@ const ContactCard = memo(function ContactCard({
                     renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : '')),
                     renderValue(getLookupValue("Country", item.personalAddress?.country), item.personalAddress?.country?.lookup_value || (typeof item.personalAddress?.country === 'string' ? item.personalAddress.country : '')),
                     renderValue(getLookupValue("PostOffice", item.personalAddress?.postOffice), item.personalAddress?.postOffice?.lookup_value || (typeof item.personalAddress?.postOffice === 'string' ? item.personalAddress.postOffice : '')),
-                    item.personalAddress?.pincode || item.personalAddress?.pinCode
+                    renderValue(getLookupValue("Pincode", item.personalAddress?.pincode || item.personalAddress?.pinCode), (item.personalAddress?.pincode || item.personalAddress?.pinCode)?.lookup_value || (typeof (item.personalAddress?.pincode || item.personalAddress?.pinCode) === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress?.pincode || item.personalAddress?.pinCode) ? (item.personalAddress?.pincode || item.personalAddress?.pinCode) : ""))
                   ].filter(Boolean).join(', ')
                 : item?.address || "Address not listed"}
             </div>
