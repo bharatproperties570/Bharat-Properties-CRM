@@ -329,6 +329,12 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     waId: messageObj.id,
                     metadata: { attachment }
                 });
+                
+                // Increment unreadCount for Real-Time Polling Notifications
+                conversation.metadata = conversation.metadata || {};
+                conversation.metadata.unreadCount = (conversation.metadata.unreadCount || 0) + 1;
+                conversation.metadata.lastMessageAt = new Date();
+                
                 await conversation.save();
 
                 const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
