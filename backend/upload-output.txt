@@ -1,0 +1,18 @@
+Uploading to Google Drive...
+Error in getOrCreateFolder for System: Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API.
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: EPERM: operation not permitted, open '/Users/bharatproperties/.gemini/antigravity/brain/a96f7ba8-b8e4-414d-ad69-ef981df11aa4/.user_uploaded/media__1785217254672.png'
+Emitted 'error' event on ReadStream instance at:
+    at emitErrorNT (node:internal/streams/destroy:170:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  errno: -1,
+  code: 'EPERM',
+  syscall: 'open',
+  path: '/Users/bharatproperties/.gemini/antigravity/brain/a96f7ba8-b8e4-414d-ad69-ef981df11aa4/.user_uploaded/media__1785217254672.png'
+}
+
+Node.js v24.13.0

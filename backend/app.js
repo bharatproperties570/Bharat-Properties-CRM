@@ -5,6 +5,9 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
 
@@ -117,7 +120,8 @@ app.use(compression({
         return compression.filter(req, res);
     }
 }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 app.use(mongoSanitize({
     allowDots: true,      // REQUIRED: Meta sends hub.mode, hub.verify_token as dot-notation query params
@@ -138,6 +142,16 @@ const globalLimiter = rateLimit({
 app.use("/api", globalLimiter);
 
 // Health Check Endpoint
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Serve Local Uploads Fallback
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+app.use('/uploads', express.static(uploadsDir));
 app.get("/api/health", (req, res) => {
     res.status(200).json({
         success: true,
@@ -243,10 +257,6 @@ app.all("*", (req, res, next) => {
     console.error(`[404_FALLBACK] Missing Route: ${req.method} ${req.originalUrl}`);
     next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
 });
-
-
-import fs from 'fs';
-import path from 'path';
 
 // Error Handling
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars

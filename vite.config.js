@@ -38,8 +38,17 @@ export default defineConfig(({ mode }) => {
             },
             proxy: {
                 '/api': {
-                    target: 'http://localhost:4000',
-                    changeOrigin: true
+                    // ✅ LOCAL TESTING: Using production backend so MongoDB Atlas is always connected.
+                    // Switch back to 'http://localhost:5001' once local MongoDB is configured.
+                    target: 'http://localhost:5001',
+                    changeOrigin: true,
+                    secure: false,
+                    rewrite: (path) => path.replace(/^\/api/, '/api')
+                },
+                '/uploads': {
+                    target: 'http://localhost:5001',
+                    changeOrigin: true,
+                    secure: false
                 }
             },
             hmr: {

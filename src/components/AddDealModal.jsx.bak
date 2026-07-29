@@ -1,0 +1,1764 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useFieldRules } from '../context/FieldRulesContext';
+import { useTriggers } from '../context/TriggersContext';
+import { useUserContext } from '../context/UserContext';
+import { useDistribution } from '../context/DistributionContext';
+import { useSequences } from '../context/SequenceContext';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { numberToIndianWords } from '../utils/numberToWords';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
+import SendMessageModal from './SendMessageModal';
+
+const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
+    const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
+    const { validateAsync } = useFieldRules();
+    const { fireEvent } = useTriggers();
+    const { executeDistribution } = useDistribution();
+    const { users, teams } = useUserContext();
+    const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
+
+
+    
+    
+    // AI Lead Matching State
+    const [channelSchedules, setChannelSchedules] = useState({});
+    const [isMessageOpen, setIsMessageOpen] = useState(false);
+    const [messageRecipients, setMessageRecipients] = useState([]);
+    const [messageInitialChannel, setMessageInitialChannel] = useState('SMS');
+    const [createdDealContext, setCreatedDealContext] = useState(null);
+
+    const [isSaving, setIsSaving] = useState(false);
+
+    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const [projects, setProjects] = useState([]);
+    const [units, setUnits] = useState([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+    const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+
+    const [formData, setFormData] = useState({
+        projectName: '',
+        block: '',
+        unitNo: '',
+        unitType: 'Ordinary',
+        propertyType: 'Plot(Residential)',
+        category: '',
+        subCategory: '',
+        size: '',
+        sizeUnit: 'Sq Yard',
+        location: '',
+        intent: 'Sell', // Sell, Rent, Lease
+
+        // Inheritance fields
+        inventoryId: null,
+        unitSpecification: {},
+        locationDetails: {},
+        builtupDetails: [],
+        furnishing: {},
+        documents: [],
+
+        // Pricing
+        price: '',
+        quotePrice: '',
+        pricingMode: 'Total', // Total, Rate
+        priceUnit: 'SqYard', // Metric: SqYard, sqMeter, sq feet, marla, kananl, acre, hectare
+        ratePrice: '', // Per selected metric
+        quoteRatePrice: '', 
+        priceInWords: '',
+        quotePriceInWords: '',
+        pricingNature: {
+            negotiable: false,
+            fixed: false
+        },
+
+        // Rent/Lease specifics
+        securityDeposit: '',
+        lockInMonths: '',
+        leaseTermMonths: '',
+
+        status: 'Open', // Open, Quote, Negotiation, Booked, Won, Lost
+
+        // New Fields
+        dealType: 'Registry case', // Registry case, Transfer case, GPA, Society case, Lease/Rent, Other
+        transactionType: 'Full White', // Full White, Collector Rate, Flexible
+        flexiblePercentage: 50, // Default 50% if Flexible
+        source: 'Walk-in', // New paper, 99 acrer, social media, walkin, Cold calling, own website
+
+        // Contact Selection
+        isOwnerSelected: false,
+        isAssociateSelected: false,
+
+        // Publish On Toggles
+        publishOn: {
+            website: false,
+            facebook: false,
+            instagram: false,
+            whatsapp: false,
+            linkedin: false,
+            x: false
+        },
+
+        // Website Integration Settings
+        websiteMetadata: {
+            shareUnitNumber: true,
+            shareLocation: true
+        },
+
+        // Send Matched Deal
+        sendMatchedDeal: {
+            sms: false,
+            whatsapp: false,
+            whatsapp_app: false,
+            email: false,
+            rcs: false
+        },
+
+        // Contacts
+        owner: { name: '', phone: '', email: '' },
+        associatedContact: { name: '', phone: '', email: '' },
+
+        // Assignment
+        team: '',
+        assignedTo: '',
+        visibleTo: 'Public',
+
+        remarks: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0]
+    });
+
+    // Live Match Preview State
+    const [liveMatchCount, setLiveMatchCount] = useState(null);
+    const [isLiveMatching, setIsLiveMatching] = useState(false);
+    const [liveMatchedLeads, setLiveMatchedLeads] = useState([]);
+
+    useEffect(() => {
+        const fetchMatches = async () => {
+            if (!formData.projectName && !formData.price && !formData.location) {
+                setLiveMatchCount(null);
+                setLiveMatchedLeads([]);
+                return;
+            }
+            setIsLiveMatching(true);
+            try {
+                // We use POST to send the draft deal data
+                const matchRes = await api.post('leads/match', { deal: formData });
+                if (matchRes.data?.success) {
+                    setLiveMatchCount(matchRes.data.count || 0);
+                    setLiveMatchedLeads(matchRes.data.matchingLeads || []);
+                } else {
+                    setLiveMatchCount(0);
+                    setLiveMatchedLeads([]);
+                }
+            } catch(e) {
+                setLiveMatchCount(0);
+                setLiveMatchedLeads([]);
+            } finally {
+                setIsLiveMatching(false);
+            }
+        };
+        const timer = setTimeout(fetchMatches, 800);
+        return () => clearTimeout(timer);
+    }, [formData.projectName, formData.price, formData.location, formData.category, formData.subCategory, formData.propertyType, formData.size]);
+
+    const METRIC_FACTORS = {
+        'SqYard': 1,
+        'sqMeter': 1.19599,
+        'sq feet': 0.111111,
+        'marla': 25,
+        'kananl': 500,
+        'acre': 4840,
+        'hectare': 11959.9
+    };
+
+    const getUnitLabel = (size) => {
+        return formData.priceUnit || "SqYard";
+    };
+
+    const unitLabel = getUnitLabel(formData.size);
+
+    const renderValue = (val) => {
+        if (!val) return '-';
+        if (typeof val === 'object') {
+            return val.lookup_value || val.name || val.label || val.value || val.unit || '-';
+        }
+        return val;
+    };
+
+    const initialInheritanceRef = useRef(false);
+    const [existingDeals, setExistingDeals] = useState([]);
+    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+    const fetchExistingDeals = useCallback(async (invId) => {
+        if (!invId) {
+            setExistingDeals([]);
+            return;
+        }
+        setIsCheckingDuplicate(true);
+        try {
+            const response = await api.get('/deals', { 
+                params: { 
+                    inventoryId: invId, 
+                    limit: 10,
+                    stage: 'Open,Quote,Negotiation,Booked,Closed Won' 
+                } 
+            });
+            if (response.data && response.data.success) {
+                setExistingDeals(response.data.records || []);
+            }
+        } catch (error) {
+            console.error("Error checking duplicate deals:", error);
+        } finally {
+            setIsCheckingDuplicate(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!isOpen) {
+            initialInheritanceRef.current = false;
+            setExistingDeals([]);
+        } else if (formData.inventoryId) {
+            fetchExistingDeals(formData.inventoryId);
+        }
+    }, [isOpen, formData.inventoryId, fetchExistingDeals]);
+
+    const duplicateDeal = formData.intent === 'Sell' ? existingDeals.find(d => {
+        const dIntent = (d.intent?.lookup_value || d.intent || '').toLowerCase();
+        return dIntent === 'sell' && d._id !== deal?._id;
+    }) : null;
+
+    const isFormLocked = !!duplicateDeal;
+
+    const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
+
+    useEffect(() => {
+        if (deal && isOpen) {
+            // Handle nested price objects from inventory
+            const getPriceValue = (priceObj) => {
+                if (!priceObj) return '';
+                if (typeof priceObj === 'object') {
+                    return priceObj.value || priceObj.total || '';
+                }
+                return priceObj;
+            };
+
+            const intent = deal.intent || 'Sell';
+            const inventoryPrice = intent === 'Rent' ? deal.rentPrice : (intent === 'Lease' ? deal.leasePrice : deal.price || deal.sellPrice);
+            const initialPrice = getPriceValue(inventoryPrice);
+
+            setFormData(prev => {
+                const newOwner = typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner);
+                const newAssociate = typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact);
+                
+                const finalPrice = initialPrice || deal.price || prev.price;
+                const finalQuotePrice = deal.quotePrice || prev.quotePrice;
+
+                const updated = {
+                    ...prev,
+                    ...deal,
+                    projectName: deal.projectName || prev.projectName,
+                    block: deal.block || prev.block,
+                    unitNo: deal.unitNo || prev.unitNo,
+                    price: finalPrice,
+                    priceInWords: numberToIndianWords(finalPrice),
+                    quotePrice: finalQuotePrice,
+                    quotePriceInWords: numberToIndianWords(finalQuotePrice),
+                    intent: intent,
+                    owner: newOwner,
+                    associatedContact: newAssociate,
+                    assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
+                    team: normalizeId(deal.team) || prev.team,
+                    category: getLookupValue('Category', deal.category) || deal.category,
+                    subCategory: getLookupValue('SubCategory', deal.subCategory) || deal.subCategory,
+                    propertyType: getLookupValue('PropertyType', deal.propertyType) || deal.propertyType,
+                    status: deal.status || 'Open',
+                    description: deal.description || deal.websiteMetadata?.description || prev.description || '',
+                    isOwnerSelected: !!newOwner._id || !!newOwner.name,
+                    isAssociateSelected: !!newAssociate._id || !!newAssociate.name,
+                    websiteMetadata: {
+                        shareUnitNumber: deal.websiteMetadata?.shareUnitNumber !== false,
+                        shareLocation: deal.websiteMetadata?.shareLocation !== false,
+                        description: deal.description || deal.websiteMetadata?.description || ''
+                    }
+                };
+
+                return updated;
+            });
+
+            // If we have unit data but not inventoryId, it's likely a direct inventory-to-deal transition
+            // We should give handleUnitChange a chance to run once units are loaded
+        }
+    }, [deal, isOpen, getLookupValue]);
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const handleInputChange = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleNestedInputChange = (parent, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            [parent]: { ...prev[parent], [field]: value }
+        }));
+    };
+
+    const handleProjectChange = useCallback((projectName) => {
+        const project = projects.find(p => p.name === projectName);
+        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : b.name) : [];
+        const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
+
+        let assignedTo = formData.assignedTo;
+        let team = formData.team;
+
+        const result = executeDistribution('deals', { ...formData, projectName, block: defaultBlock });
+        if (result && result.success) {
+            assignedTo = result.assignedTo;
+            team = result.team || team;
+            toast.success(`Deal automatically assigned to ${result.assignedTo}`);
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            projectName,
+            block: defaultBlock,
+            unitNo: '', // Reset unit when project changes
+            propertyType: '', // Reset unit-dependent fields
+            size: '',
+            owner: { name: '', phone: '', email: '' },
+            associatedContact: { name: '', phone: '', email: '' },
+            assignedTo,
+            team
+        }));
+    }, [projects, formData, executeDistribution]);
+
+    const handleUnitChange = useCallback((unitNo) => {
+        const unit = units.find(i =>
+            (i.unitNo === unitNo || i.unitNumber === unitNo)
+        );
+
+        if (unit) {
+            // Fetch existing deals for duplicate check
+            fetchExistingDeals(unit._id);
+
+            setFormData(prev => {
+                const newSize = unit.size || prev.size;
+
+                // Recalculate prices if size changes and we have rates/totals
+                let updates = {
+                    unitNo,
+                    inventoryId: unit._id,
+                    propertyType: getLookupValue('PropertyType', unit.type || unit.category) || prev.propertyType,
+                    category: getLookupValue('Category', unit.category) || '',
+                    subCategory: getLookupValue('SubCategory', unit.subCategory) || '',
+                    size: newSize,
+                    sizeUnit: unit.sizeUnit || prev.sizeUnit,
+
+                    // Detailed Data Inheritance
+                    unitSpecification: {
+                        facing: unit.facing,
+                        direction: unit.direction,
+                        orientation: unit.orientation,
+                        roadWidth: unit.roadWidth,
+                        builtupType: unit.builtupType,
+                        ownership: unit.ownership,
+                        length: unit.length,
+                        width: unit.width,
+                        sizeLabel: unit.sizeLabel,
+                        totalSaleableArea: unit.totalSaleableArea,
+                        builtUpArea: unit.builtUpArea,
+                        carpetArea: unit.carpetArea
+                    },
+                    locationDetails: unit.address || {},
+                    builtupDetails: unit.builtupDetails || [],
+                    furnishing: {
+                        furnishType: unit.furnishType,
+                        furnishedItems: unit.furnishedItems,
+                        possessionStatus: unit.possessionStatus,
+                        constructionAge: unit.constructionAge || unit.ageOfConstruction
+                    },
+                    documents: unit.inventoryDocuments || [],
+
+                    owner: {
+                        _id: unit.owners?.[0]?._id || null,
+                        name: unit.owners?.[0]?.name || unit.ownerName || '',
+                        phone: unit.owners?.[0]?.phones?.[0]?.number || unit.owners?.[0]?.phone || unit.ownerPhone || '',
+                        email: unit.owners?.[0]?.emails?.[0]?.address || unit.owners?.[0]?.email || unit.ownerEmail || ''
+                    },
+                    associatedContact: {
+                        _id: unit.associates?.[0]?.contact?._id || unit.associates?.[0]?._id || null,
+                        name: unit.associates?.[0]?.contact?.name || unit.associates?.[0]?.name || unit.associatedContact || '',
+                        phone: unit.associates?.[0]?.contact?.phones?.[0]?.number || unit.associates?.[0]?.mobile || unit.associatedPhone || '',
+                        email: unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail || ''
+                    },
+                    isOwnerSelected: (unit.owners?.[0]?._id || unit.ownerName) ? true : false,
+                    isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false
+                };
+
+                // Trigger Recalculation logic if size changed
+                if (newSize && newSize !== prev.size) {
+                    const sizeValSqYard = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
+                    const factor = METRIC_FACTORS[prev.priceUnit] || 1;
+                    const sizeInMetric = sizeValSqYard / factor;
+
+                    if (sizeValSqYard > 0) {
+                        // Recalculate based on current Pricing Mode
+                        if (prev.pricingMode === 'Rate') {
+                            if (prev.ratePrice) {
+                                const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice || 0));
+                                updates.price = total.toString();
+                                updates.priceInWords = numberToIndianWords(total);
+                            }
+                            if (prev.quoteRatePrice) {
+                                const totalQuote = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice || 0));
+                                updates.quotePrice = totalQuote.toString();
+                                updates.quotePriceInWords = numberToIndianWords(totalQuote);
+                            }
+                        } else {
+                            if (prev.price) {
+                                const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
+                                updates.ratePrice = rate.toString();
+                                updates.priceInWords = numberToIndianWords(prev.price);
+                            }
+                            if (prev.quotePrice) {
+                                const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
+                                updates.quoteRatePrice = rateQuote.toString();
+                                updates.quotePriceInWords = numberToIndianWords(prev.quotePrice);
+                            }
+                        }
+                    }
+                }
+
+                return { ...prev, ...updates };
+            });
+            toast.success(`Inherited details for Unit ${unitNo}`);
+        } else {
+            // Safe fallback if handleInputChange is available
+            setFormData(prev => ({ ...prev, unitNo }));
+        }
+    }, [units]);
+
+    // Pricing Logic Helpers
+    const calculatePriceValues = (type, value, currentSize, mode, metric) => {
+        const sizeValSqYard = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
+        const numValue = parseFloat(value || '0');
+        const factor = METRIC_FACTORS[metric || formData.priceUnit] || 1;
+
+        let updates = {};
+
+        if (mode === 'Rate') {
+            // User entered RATE (per Metric)
+            updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = value;
+
+            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
+                // Total Price = (Size in Metric) * Rate
+                // Size in Metric = Size in SqYard / Factor
+                const sizeInMetric = sizeValSqYard / factor;
+                const total = Math.round(sizeInMetric * numValue);
+                updates[type === 'expected' ? 'price' : 'quotePrice'] = total.toString();
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(total);
+            } else {
+                updates[type === 'expected' ? 'price' : 'quotePrice'] = '';
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = '';
+            }
+        } else {
+            // User entered TOTAL
+            updates[type === 'expected' ? 'price' : 'quotePrice'] = value;
+            updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(value);
+
+            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
+                // Rate = Total / Size in Metric
+                const sizeInMetric = sizeValSqYard / factor;
+                const rate = Math.round(numValue / sizeInMetric);
+                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
+            } else {
+                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = '';
+            }
+        }
+        return updates;
+    };
+
+    const handlePriceChange = useCallback((field, value) => {
+        setFormData(prev => {
+            try {
+                const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
+                const type = isQuote ? 'quote' : 'expected';
+                const updates = calculatePriceValues(
+                    type,
+                    value,
+                    prev.size,
+                    prev.pricingMode,
+                    prev.priceUnit
+                );
+                return { ...prev, ...updates };
+            } catch (error) {
+                console.error("Error in handlePriceChange:", error);
+                return prev;
+            }
+        });
+    }, [calculatePriceValues]);
+
+    const handleMetricChange = (metric) => {
+        setFormData(prev => {
+            const updates = calculatePriceValues('expected', prev.price, prev.size, 'Total', metric);
+            const quoteUpdates = calculatePriceValues('quote', prev.quotePrice, prev.size, 'Total', metric);
+            return { ...prev, ...updates, ...quoteUpdates, priceUnit: metric };
+        });
+    };
+
+    const handlePricingNatureChange = (type) => {
+        setFormData(prev => ({
+            ...prev,
+            pricingNature: {
+                negotiable: type === 'negotiable' ? !prev.pricingNature.negotiable : false,
+                fixed: type === 'fixed' ? !prev.pricingNature.fixed : false
+            }
+        }));
+    };
+
+    // Fetch Projects on Mount
+    useEffect(() => {
+        const fetchProjects = async () => {
+            if (restrictToProperties && restrictToProperties.length > 0) {
+                // Derive projects from restricted list
+                const projectNames = [...new Set(restrictToProperties.map(p => p.area))].filter(Boolean);
+                const derivedProjects = projectNames.map(name => ({
+                    _id: name,
+                    name: name,
+                    blocks: [...new Set(restrictToProperties.filter(p => p.area === name).map(p => p.location))].filter(Boolean)
+                }));
+                setProjects(derivedProjects);
+                return;
+            }
+
+            setIsLoadingProjects(true);
+            try {
+                const response = await api.get('/projects');
+                if (response.data && response.data.success) {
+                    setProjects(response.data.data);
+                }
+            } catch (error) {
+                console.error("Error fetching projects:", error);
+                toast.error("Failed to load projects");
+            } finally {
+                setIsLoadingProjects(false);
+            }
+        };
+        if (isOpen) fetchProjects();
+    }, [isOpen, restrictToProperties]);
+
+    // Fetch Units when Project or Block changes
+    useEffect(() => {
+        const fetchUnits = async () => {
+            if (!formData.projectName) {
+                setUnits([]);
+                return;
+            }
+
+            if (restrictToProperties && restrictToProperties.length > 0) {
+                // Filter units from restricted list
+                const filteredUnits = restrictToProperties.filter(p =>
+                    p.area === formData.projectName &&
+                    (!formData.block || p.location === formData.block)
+                );
+                setUnits(filteredUnits);
+                return;
+            }
+
+            setIsLoadingUnits(true);
+            try {
+                const params = new URLSearchParams();
+                params.append('area', formData.projectName);
+                params.append('statusCategory', 'Active'); // Only show active units in Add Deal modal
+                if (formData.block) {
+                    params.append('location', formData.block);
+                }
+                const response = await api.get(`/inventory?${params.toString()}`);
+                if (response.data && response.data.success) {
+                    const fetchedUnits = response.data.records || response.data.data || [];
+                    setUnits(fetchedUnits);
+                }
+            } catch (error) {
+                console.error("Error fetching units:", error);
+            } finally {
+                setIsLoadingUnits(false);
+            }
+        };
+        if (isOpen && formData.projectName) fetchUnits();
+    }, [formData.projectName, formData.block, isOpen, restrictToProperties]);
+
+    useEffect(() => {
+        if (isOpen && formData.unitNo && units.length > 0 && !initialInheritanceRef.current) {
+            const searchVal = String(formData.unitNo).toLowerCase().trim();
+            const unit = units.find(u => 
+                String(u.unitNo || u.unitNumber || '').toLowerCase().trim() === searchVal
+            );
+            
+            if (unit) {
+                console.log('[AddDealModal] Auto-selecting unit:', unit.unitNo);
+                initialInheritanceRef.current = true;
+                handleUnitChange(unit.unitNo || unit.unitNumber);
+            }
+        }
+    }, [units, isOpen, formData.unitNo, handleUnitChange]);
+
+
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        const toastId = toast.loading('Saving deal...');
+
+        try {
+            if (isFormLocked) {
+                toast.error("Cannot save: A Sell deal already exists for this unit.");
+                setIsSaving(false);
+                return;
+            }
+            if (validateAsync) {
+                const validationResult = await validateAsync('deals', formData);
+                if (!validationResult.isValid) {
+                    toast.error(`Validation Failed: ${Object.values(validationResult.errors).join(', ')}`, { id: toastId });
+                    setIsSaving(false);
+                    return;
+                }
+            }
+
+            // Transform names to IDs for Lookup fields
+            const transformedData = {
+                ...formData,
+                category: getLookupId('Category', formData.category),
+                subCategory: getLookupId('SubCategory', formData.subCategory),
+                propertyType: getLookupId('PropertyType', formData.propertyType),
+                source: getLookupId('Source', formData.source),
+                team: formData.team || null,
+                assignedTo: formData.assignedTo || null,
+                status: formData.status,
+                // Ensure inherited data is saved
+                unitSpecification: formData.unitSpecification,
+                locationDetails: formData.locationDetails,
+                builtupDetails: formData.builtupDetails,
+                furnishing: formData.furnishing,
+                documents: formData.documents,
+                publishOn: formData.publishOn,
+                description: formData.description,
+                websiteMetadata: {
+                    ...formData.websiteMetadata,
+                    description: formData.description
+                },
+                sendMatchedDeal: formData.sendMatchedDeal,
+                financialDetails: {
+                    securityDeposit: formData.securityDeposit,
+                    lockInMonths: formData.lockInMonths,
+                    leaseTermMonths: formData.leaseTermMonths,
+                    monthlyRent: (formData.intent === 'Rent' || formData.intent === 'Lease') ? formData.price : null
+                }
+            };
+
+            if (formData.isOwnerSelected && formData.owner?._id) {
+                transformedData.owner = formData.owner._id;
+            } else {
+                transformedData.owner = null;
+            }
+            
+            if (formData.isAssociateSelected && formData.associatedContact?._id) {
+                transformedData.associatedContact = formData.associatedContact._id;
+            } else {
+                transformedData.associatedContact = null;
+            }
+
+            // Real API call
+            let response;
+            if (deal && deal._id) {
+                response = await api.put(`/deals/${deal._id}`, transformedData);
+            } else {
+                response = await api.post('/deals', transformedData);
+            }
+
+            if (!response.data || !response.data.success) {
+                throw new Error(response.data?.error || 'Failed to save deal');
+            }
+
+            const savedData = response.data.data;
+
+            toast.success('Deal Saved!', { id: toastId });
+
+            if (deal) {
+                fireEvent('deal_updated', savedData, { entityType: 'deals', previousEntity: deal });
+                window.dispatchEvent(new CustomEvent('deal-updated', { detail: { dealId: savedData._id } }));
+            } else {
+                fireEvent('deal_created', savedData, { entityType: 'deals' });
+                window.dispatchEvent(new CustomEvent('deal-updated', { detail: { dealId: savedData._id } }));
+
+                // Enroll linked contacts into sequences
+                if (formData.owner.phone) {
+                    evaluateAndEnroll({ ...formData.owner, mobile: formData.owner.phone }, 'contacts');
+                }
+                if (formData.associatedContact.phone) {
+                    evaluateAndEnroll({ ...formData.associatedContact, mobile: formData.associatedContact.phone }, 'contacts');
+                }
+            }
+
+            // 🎯 TRIGGER AI LEAD MATCHING & OUTREACH
+            const activeChannels = Object.keys(formData.sendMatchedDeal || {}).filter(k => formData.sendMatchedDeal[k]);
+            if (!deal && activeChannels.length > 0 && savedData._id) {
+                const loadToast = toast.loading(`Matching Deal with Leads for ${activeChannels.length} channel(s)...`);
+                try {
+                    const matchRes = await api.get('leads/match', { params: { dealId: savedData._id } });
+                    if (matchRes.data?.success && matchRes.data?.matchingLeads?.length > 0) {
+                        let matches = matchRes.data.matchingLeads;
+                        
+                        const scheduledChannels = activeChannels.filter(ch => channelSchedules[ch]);
+                        const nowChannels = activeChannels.filter(ch => !channelSchedules[ch] && ch !== 'whatsapp_app');
+                        const hasWhatsappApp = activeChannels.includes('whatsapp_app');
+
+                        // 1. Dispatch Scheduled Channels in Background
+                        for (let ch of scheduledChannels) {
+                            try {
+                                await api.post('marketing/send-manual', {
+                                    dealIds: [savedData._id],
+                                    leadIds: matches.map(m => m._id),
+                                    toggles: { [ch]: true },
+                                    scheduledAt: channelSchedules[ch],
+                                    matchContext: 'perfect'
+                                });
+                            } catch(e) { console.error(`Failed to schedule ${ch}`, e); }
+                        }
+
+                        if (hasWhatsappApp) {
+                            // Only send to Top 1 for WA App
+                            const topMatch = matches[0];
+                            if (topMatch) {
+                                const textPayload = `Hi ${topMatch.firstName || 'there'}! I have a highly recommended premium deal for you:
+
+${savedData.projectName || 'Premium Property'}${savedData.size ? ` (${savedData.size} ${savedData.sizeUnit})` : ''}
+Price: ${savedData.price ? '₹'+new Intl.NumberFormat('en-IN').format(savedData.price) : 'On Request'}`;
+                                const phone = (topMatch.mobile || topMatch.phone || '').replace(/\D/g, '');
+                                const formattedPhone = phone.length === 10 ? `91${phone}` : phone;
+                                window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
+                            }
+                        }
+
+                        // 2. Open Modal for Send Now Channels
+                        if (nowChannels.length > 0) {
+                            let primaryChannel = 'SMS';
+                            if (nowChannels.includes('whatsapp')) primaryChannel = 'WHATSAPP';
+                            else if (nowChannels.includes('email')) primaryChannel = 'EMAIL';
+                            else if (nowChannels.includes('rcs')) primaryChannel = 'RCS';
+
+                            toast.success(`Found ${matches.length} matches! Opening console for immediate channels...`, { id: loadToast });
+                            
+                            setMessageRecipients(matches.map(m => ({
+                                id: m._id,
+                                name: m.firstName + (m.lastName ? ' ' + m.lastName : ''),
+                                phone: m.mobile || m.phone,
+                                email: m.email
+                            })));
+                            setMessageInitialChannel(primaryChannel);
+                            setCreatedDealContext(savedData);
+                            setIsMessageOpen(true);
+                            
+                            onSave && onSave(savedData);
+                            return; // Exit early
+                        } else {
+                            toast.success(`Found ${matches.length} matches! Background schedules set successfully.`, { id: loadToast });
+                        }
+                    } else {
+                        toast.success(`No matching leads found. Skipping outreach.`, { id: loadToast, icon: 'ℹ️' });
+                    }
+                } catch (e) {
+                    console.error("Match & Dispatch error", e);
+                    toast.error('Dispatch encountered an issue.', { id: loadToast });
+                }
+            }
+
+            onSave && onSave(savedData);
+            onClose();
+        } catch (error) {
+            console.error("Save Error:", error);
+            const errorMessage = error.response?.data?.error || error.message || "Failed to save deal";
+            toast.error(errorMessage, { id: toastId, duration: 5000 });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleGenerateAiDescription = async () => {
+        if (!formData.projectName) {
+            toast.error("Please select a Project Name first to generate description.");
+            return;
+        }
+        
+        setIsGeneratingAi(true);
+        const toastId = toast.loading('AI is drafting a premium property description...');
+
+        try {
+            const unitDetailStr = `Project: ${formData.projectName}${formData.block ? `, Block: ${formData.block}` : ''}${formData.unitNo ? `, Unit No: ${formData.unitNo}` : ''} (${formData.propertyType || 'Residential'})`;
+            const locationStr = `${formData.locationDetails?.locality || formData.location || ''} ${formData.locationDetails?.city || 'Kurukshetra'}`.trim();
+            
+            // Builtup Area
+            const carpet = formData.unitSpecification?.carpetArea;
+            const builtup = formData.unitSpecification?.builtUpArea;
+            const saleable = formData.unitSpecification?.totalSaleableArea;
+            const builtupStr = `Size: ${formData.size} ${formData.sizeUnit}${builtup ? `, Built-up Area: ${builtup} Sq.Ft.` : ''}${carpet ? `, Carpet Area: ${carpet} Sq.Ft.` : ''}${saleable ? `, Saleable Area: ${saleable} Sq.Ft.` : ''}`;
+            
+            // Expected Price
+            const priceVal = formData.price || formData.quotePrice;
+            const expectedPriceStr = priceVal ? `₹${new Intl.NumberFormat('en-IN').format(priceVal)} ${formData.pricingMode === 'Rate' ? `per ${formData.priceUnit || 'Sq.Ft.'}` : '(Total Expected Price)'}` : 'Price on Request';
+            
+            // 4 Deal Details Fields
+            const dealDetailsStr = `Deal Status: ${formData.status}, Deal Type: ${formData.dealType}, Transaction Type: ${formData.transactionType}, Lead/Deal Source: ${formData.source}`;
+
+            // Furnishing details
+            const furnishType = formData.furnishing?.furnishType || '';
+            const possessionStatus = formData.furnishing?.possessionStatus || '';
+            const constructionAge = formData.furnishing?.constructionAge || '';
+            const furnishedItems = Array.isArray(formData.furnishing?.furnishedItems) ? formData.furnishing.furnishedItems.filter(Boolean).join(', ') : '';
+            const furnishingStr = [
+                furnishType ? `Furnishing Status: ${furnishType}` : '',
+                possessionStatus ? `Possession: ${possessionStatus}` : '',
+                constructionAge ? `Age of Construction: ${constructionAge} years` : '',
+                furnishedItems ? `Amenities/Furnished Items: ${furnishedItems}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Specification details
+            const facing = formData.unitSpecification?.facing || '';
+            const orientation = formData.unitSpecification?.orientation || '';
+            const roadWidth = formData.unitSpecification?.roadWidth || '';
+            const ownership = formData.unitSpecification?.ownership || '';
+            const specsStr = [
+                facing ? `Facing: ${facing}` : '',
+                orientation ? `Orientation: ${orientation}` : '',
+                roadWidth ? `Road Width: ${roadWidth}` : '',
+                ownership ? `Ownership: ${ownership}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Category and Intent
+            const intent = formData.intent || '';
+            const category = formData.category || '';
+            const subCategory = formData.subCategory || '';
+            const categoryStr = [
+                intent ? `Transaction Intent: For ${intent}` : '',
+                category ? `Category: ${category}` : '',
+                subCategory ? `Sub-category: ${subCategory}` : ''
+            ].filter(Boolean).join(', ');
+
+            const systemPrompt = `You are a world-class luxury real estate copywriter and SEO expert. Write a highly engaging, sophisticated, and professional description for a property listing that ranks high on Google Search.
+
+CRITICAL FORMATTING & WRITING RULES:
+1. PARAGRAPH LENGTH: Write ONLY short, concise paragraphs (maximum 2-3 sentences per paragraph). Use 3-4 short paragraphs in total.
+2. SEO OPTIMIZATION: Seamlessly integrate relevant keywords like project name, locality, city, property type, and key features so the listing ranks high on Google Search.
+3. TONE & STYLE: Premium, high-converting, and elegant (SaaS Real Estate standard). Emphasize key selling points, prime location attributes, built-up configuration, pricing value, furnishing, and transaction clarity. Do not use generic placeholders or templates.
+4. CALL TO ACTION: Include a brief, compelling, professional call to action at the end to get in touch.
+
+Return ONLY the final description. Do not include any intro, metadata, or titles.`;
+
+            const userPrompt = `Draft a premium, SEO-friendly, high-converting real estate description based on these property specifications:
+- **Unit Details**: ${unitDetailStr}
+- **Location**: ${locationStr}${formData.locationDetails?.landmark ? ` (Landmark: ${formData.locationDetails.landmark})` : ''}
+- **Built-up Details**: ${builtupStr}
+- **Expected Price**: ${expectedPriceStr}
+- **Transaction Details**: ${categoryStr}
+- **Furnishing & Possession**: ${furnishingStr || 'Not Specified'}
+- **Property Specifications**: ${specsStr || 'Not Specified'}
+- **Deal Details (Status, Type, Transaction, Source)**: ${dealDetailsStr}
+- **Additional Context / Remarks**: ${formData.remarks || 'Prime property with excellent connectivity.'}
+
+Write a highly engaging, SEO-optimized description with short, readable paragraphs (maximum 2-3 sentences each) suitable for publication on our public website directory.`;
+
+            const response = await api.post('/marketing/generate-with-model', {
+                provider: 'claude',
+                model: 'claude-3-haiku-20240307',
+                prompt: userPrompt,
+                systemPrompt: systemPrompt
+            });
+
+            if (response.data && response.data.success && response.data.content) {
+                const generatedText = response.data.content;
+                setFormData(prev => ({ ...prev, description: generatedText }));
+                toast.success('Description successfully generated!', { id: toastId });
+            } else {
+                throw new Error("Could not extract generated content");
+            }
+        } catch (error) {
+            console.error("AI Generation Error:", error);
+            toast.error("Failed to generate description with AI. Please try again.", { id: toastId });
+        } finally {
+            setIsGeneratingAi(false);
+        }
+    };
+
+    const sectionStyle = {
+        background: '#fff',
+        padding: '24px',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        marginBottom: '24px'
+    };
+
+    const labelStyle = {
+        display: 'block',
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        color: '#64748b',
+        marginBottom: '8px'
+    };
+
+    const inputStyle = {
+        width: '100%',
+        padding: '10px 12px',
+        borderRadius: '8px',
+        border: '1px solid #cbd5e1',
+        fontSize: '0.9rem',
+        outline: 'none',
+        transition: 'border-color 0.2s'
+    };
+
+    const selectStyle = {
+        ...inputStyle,
+        appearance: 'none',
+        cursor: 'pointer'
+    };
+
+    const customSelectStyleDisabled = { ...selectStyle, background: '#f1f5f9', cursor: 'not-allowed', color: '#94a3b8' };
+
+    if (!isOpen) return null;
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
+            <div style={{ background: '#fff', width: '90%', maxWidth: '900px', height: '85vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                {/* Header */}
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className="fas fa-handshake" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
+                        </div>
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                {title || (deal ? 'Update Deal' : 'Add New Deal')}
+                            </h2>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    {currentTime.toLocaleString()}
+                                </span>
+                                {deal && (
+                                    <>
+                                        <span style={{ color: '#e2e8f0' }}>|</span>
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#2563eb', backgroundColor: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
+                                            {String(formData.projectName)} - {String(formData.unitNo)}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc' }}>
+                    <div style={sectionStyle}>
+                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Property & Intent</h4>
+                        {/* Intent Group (Full Width) - Moved to Top */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={labelStyle}>I want to</label>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                {[
+                                    { label: 'Sell', icon: 'fas fa-tag' },
+                                    { label: 'Rent', icon: 'fas fa-key' },
+                                    { label: 'Lease', icon: 'fas fa-file-signature' }
+                                ].map(option => (
+                                    <button
+                                        key={option.label}
+                                        onClick={() => handleInputChange('intent', option.label)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px',
+                                            borderRadius: '10px',
+                                            border: `2px solid ${formData.intent === option.label ? '#2563eb' : '#e2e8f0'}`,
+                                            background: formData.intent === option.label ? '#eff6ff' : '#fff',
+                                            color: formData.intent === option.label ? '#2563eb' : '#64748b',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            fontSize: '0.9rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '8px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        <i className={option.icon}></i>
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Project Details Group (Inline - 3 Columns) */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
+                            <div>
+                                <label style={labelStyle}>Project Name</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.projectName}
+                                    onChange={e => handleProjectChange(e.target.value)}
+                                    disabled={isLoadingProjects}
+                                >
+                                    <option value="">{isLoadingProjects ? 'Loading...' : 'Select Project'}</option>
+                                    {projects.map(p => (
+                                        <option 
+                                            key={p._id || p.id} 
+                                            value={p.name}
+                                            selected={formData.projectName && p.name && p.name.trim().toLowerCase() === formData.projectName.trim().toLowerCase()}
+                                        >
+                                            {p.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Block</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.block}
+                                    onChange={e => {
+                                        const block = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            block,
+                                            unitNo: '', // RESET UNIT WHEN BLOCK CHANGES
+                                            propertyType: '',
+                                            size: '',
+                                            owner: { name: '', phone: '', email: '' },
+                                            associatedContact: { name: '', phone: '', email: '' }
+                                        }));
+                                    }}
+                                    disabled={!formData.projectName}
+                                >
+                                    <option value="">{isLoadingUnits ? 'Refreshing Units...' : 'Select Block'}</option>
+                                    {projects.find(p => p.name === formData.projectName)?.blocks?.map(block => (
+                                        <option key={typeof block === 'string' ? block : block.name} value={typeof block === 'string' ? block : block.name}>
+                                            {typeof block === 'string' ? block : block.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Unit Number</label>
+                                <select
+                                    style={!formData.block ? customSelectStyleDisabled : selectStyle}
+                                    value={formData.unitNo}
+                                    disabled={!formData.block || isLoadingUnits}
+                                    onChange={e => handleUnitChange(e.target.value)}
+                                >
+                                    <option value="">{isLoadingUnits ? 'Loading units...' : 'Select Unit'}</option>
+                                    {units.map(unit => (
+                                        <option key={unit._id} value={unit.unitNo || unit.unitNumber}>{unit.unitNo || unit.unitNumber}</option>
+                                    ))
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+
+                        {/* Owner & Associate Details (Read-only with Selection) */}
+                        {formData.unitNo && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
+                                {/* Owner Selection Card */}
+                                <div
+                                    onClick={() => handleInputChange('isOwnerSelected', !formData.isOwnerSelected)}
+                                    style={{
+                                        padding: '12px 16px', borderRadius: '12px', border: `2px solid ${formData.isOwnerSelected ? '#2563eb' : '#e2e8f0'}`,
+                                        background: formData.isOwnerSelected ? '#eff6ff' : '#fff', cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
+                                    }}
+                                >
+                                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                                        <input type="checkbox" checked={formData.isOwnerSelected} readOnly style={{ width: '18px', height: '18px', accentColor: '#2563eb' }} />
+                                    </div>
+                                    <label style={{ ...labelStyle, marginBottom: '12px', color: formData.isOwnerSelected ? '#2563eb' : '#64748b' }}>
+                                        <i className="fas fa-user-tie mr-2"></i> Property Owner
+                                    </label>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{formData.owner.name || 'N/A'}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>{formData.owner.phone || 'N/A'}</div>
+                                </div>
+
+                                {/* Associate Selection Card */}
+                                <div
+                                    onClick={() => handleInputChange('isAssociateSelected', !formData.isAssociateSelected)}
+                                    style={{
+                                        padding: '12px 16px', borderRadius: '12px', border: `2px solid ${formData.isAssociateSelected ? '#2563eb' : '#e2e8f0'}`,
+                                        background: formData.isAssociateSelected ? '#eff6ff' : '#fff', cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
+                                    }}
+                                >
+                                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                                        <input type="checkbox" checked={formData.isAssociateSelected} readOnly style={{ width: '18px', height: '18px', accentColor: '#2563eb' }} />
+                                    </div>
+                                    <label style={{ ...labelStyle, marginBottom: '12px', color: formData.isAssociateSelected ? '#2563eb' : '#64748b' }}>
+                                        <i className="fas fa-user-friends mr-2"></i> Associated Contact (Dealer)
+                                    </label>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{formData.associatedContact.name || 'N/A'}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>{formData.associatedContact.phone || 'N/A'}</div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={sectionStyle}>
+                        {isFormLocked && (
+                            <div style={{
+                                backgroundColor: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px',
+                                padding: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px',
+                                animation: 'slideDown 0.3s ease-out'
+                            }}>
+                                <div style={{ backgroundColor: '#ef4444', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                                    <i className="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <h5 style={{ margin: '0 0 4px 0', color: '#991b1b', fontWeight: 700, fontSize: '0.95rem' }}>Duplicate Deal Detected</h5>
+                                    <p style={{ margin: 0, color: '#b91c1c', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        A "Sell" deal already exists for this unit. Pricing and key fields are locked to prevent duplicates. 
+                                        {duplicateDeal.dealId && <span style={{ marginLeft: '5px', fontWeight: 700 }}>(Ref: {duplicateDeal.dealId})</span>}
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData(prev => ({ ...prev, intent: 'Rent' }))}
+                                    style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: '#fff', color: '#ef4444', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
+                                >
+                                    Switch to Rent
+                                </button>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Pricing</h4>
+                                {formData.size && (
+                                    <span style={{ fontSize: '0.8rem', color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #c7d2fe' }}>
+                                        <i className="fas fa-expand-arrows-alt mr-1"></i> Size: {renderValue(formData.size)}
+                                    </span>
+                                )}
+                                {(formData.unitSpecification?.sizeLabel || formData.sizeLabel) && (
+                                    <span style={{ fontSize: '0.8rem', color: '#8b5cf6', background: '#f5f3ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #ddd6fe' }}>
+                                        <i className="fas fa-ruler-combined mr-1"></i> Label: {renderValue(getLookupValue('Size', formData.unitSpecification?.sizeLabel || formData.sizeLabel))}
+                                    </span>
+                                )}
+                                {formData.propertyType && (
+                                    <span style={{ fontSize: '0.8rem', color: '#0284c7', background: '#f0f9ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #bae6fd' }}>
+                                        <i className="fas fa-tag mr-1"></i> Type: {renderValue(formData.propertyType)}
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                                    <button
+                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
+                                        style={{
+                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
+                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Total' ? '#fff' : 'transparent',
+                                            color: formData.pricingMode === 'Total' ? '#0f172a' : '#64748b',
+                                            boxShadow: formData.pricingMode === 'Total' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
+                                        }}
+                                    >
+                                        Total Amount
+                                    </button>
+                                    <button
+                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
+                                        style={{
+                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
+                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Rate' ? '#fff' : 'transparent',
+                                            color: formData.pricingMode === 'Rate' ? '#0f172a' : '#64748b',
+                                            boxShadow: formData.pricingMode === 'Rate' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
+                                        }}
+                                    >
+                                        Price Per Unit
+                                    </button>
+                                </div>
+                                {formData.pricingMode === 'Rate' && (
+                                    <select
+                                        value={formData.priceUnit}
+                                        onChange={(e) => handleMetricChange(e.target.value)}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem',
+                                            fontWeight: 600, backgroundColor: '#fff', color: '#0f172a', outline: 'none', cursor: 'pointer'
+                                        }}
+                                    >
+                                        {Object.keys(METRIC_FACTORS).map(metric => (
+                                            <option key={metric} value={metric}>{metric}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Expected Price Row */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent' : 'Expected Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                                </label>
+                                {formData.priceInWords && (
+                                    <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 500, fontStyle: 'italic' }}>
+                                        ({formData.priceInWords} Rupees Only)
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
+                                    value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
+                                    onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
+                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
+                                    readOnly={isFormLocked}
+                                />
+                                {formData.pricingMode === 'Total' && formData.ratePrice && (
+                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                        ₹{formData.ratePrice}/{unitLabel}
+                                    </div>
+                                )}
+                                {formData.pricingMode === 'Rate' && formData.price && (
+                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#16a34a', fontWeight: 700, background: '#f0fdf4', padding: '4px 10px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
+                                        TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.price)}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Quote Price Row */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent' : 'Quote Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                                </label>
+                                {formData.quotePriceInWords && (
+                                    <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 500, fontStyle: 'italic' }}>
+                                        ({formData.quotePriceInWords} Rupees Only)
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
+                                    value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
+                                    onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
+                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
+                                    readOnly={isFormLocked}
+                                />
+                                {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
+                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                        ₹{formData.quoteRatePrice}/{unitLabel}
+                                    </div>
+                                )}
+                                {formData.pricingMode === 'Rate' && formData.quotePrice && (
+                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#2563eb', fontWeight: 700, background: '#eff6ff', padding: '4px 10px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                                        TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.quotePrice)}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        {/* Rent Specific Fields */}
+                        {(formData.intent === 'Rent' || formData.intent === 'Lease') && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '24px', animation: 'fadeIn 0.3s ease-in-out' }}>
+                                <div>
+                                    <label style={labelStyle}>Security Amount</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.securityDeposit}
+                                        onChange={e => handleInputChange('securityDeposit', e.target.value)}
+                                        placeholder="Enter Security"
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Term (Months)</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.leaseTermMonths}
+                                        onChange={e => handleInputChange('leaseTermMonths', e.target.value)}
+                                        placeholder="Lease Period"
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Lock-in (Months)</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.lockInMonths}
+                                        onChange={e => handleInputChange('lockInMonths', e.target.value)}
+                                        placeholder="Lock-in Period"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Negotiable Checkboxes */}
+                        <div style={{ display: 'flex', gap: '24px', marginTop: '20px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={formData.pricingNature.negotiable}
+                                    onChange={() => handlePricingNatureChange('negotiable')}
+                                    style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                                />
+                                Negotiable
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={formData.pricingNature.fixed}
+                                    onChange={() => handlePricingNatureChange('fixed')}
+                                    style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                                />
+                                Fixed Price
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* New Fields Section: Deal Type, Transaction Type, Source */}
+                    <div style={sectionStyle}>
+                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Deal Details</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+                            <div>
+                                <label style={labelStyle}>Deal Status</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.status}
+                                    onChange={e => handleInputChange('status', e.target.value)}
+                                >
+                                    <option value="Open">Open</option>
+                                    <option value="Quote">Quote</option>
+                                    <option value="Negotiation">Negotiation</option>
+                                    <option value="Booked">Booked</option>
+                                    <option value="Won">Won</option>
+                                    <option value="Lost">Lost</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Deal Type</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.dealType}
+                                    onChange={e => handleInputChange('dealType', e.target.value)}
+                                >
+                                    {dealMasterFields?.dealTypes?.map(type => (
+                                        <option key={type} value={type}>{type}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Source</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.source}
+                                    onChange={e => handleInputChange('source', e.target.value)}
+                                >
+                                    <option value="Walk-in">Walk-in</option>
+                                    <option value="Newspaper">Newspaper</option>
+                                    <option value="99acres">99acres</option>
+                                    <option value="Social Media">Social Media</option>
+                                    <option value="Cold Calling">Cold Calling</option>
+                                    <option value="Own Website">Own Website</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Transaction Type</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.transactionType}
+                                    onChange={e => handleInputChange('transactionType', e.target.value)}
+                                >
+                                    <option value="Full White">Full White</option>
+                                    <option value="Collector Rate">Collector Rate</option>
+                                    <option value="Flexible">Flexible</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Flexible Percentage Bar */}
+                        {formData.transactionType === 'Flexible' && (
+                            <div style={{ marginTop: '20px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <label style={{ ...labelStyle, marginBottom: 0 }}>White Component</label>
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#2563eb' }}>{formData.flexiblePercentage}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    value={formData.flexiblePercentage}
+                                    onChange={e => handleInputChange('flexiblePercentage', e.target.value)}
+                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#2563eb' }}
+                                />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    <span>0% (Full Cash)</span>
+                                    <span>100% (Full White)</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Marketing Command Center Section */}
+                    <div style={{ marginBottom: '30px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                            <div style={{ background: '#EEF2FF', padding: '10px', borderRadius: '12px' }}>
+                                <i className="fas fa-rocket" style={{ color: '#6366f1', fontSize: '1.2rem' }}></i>
+                            </div>
+                            <div>
+                                <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Marketing Command Center</h4>
+                                <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Select platforms to automatically publish this deal. Our AI engine will generate platform-specific content.</p>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
+                            <div style={sectionStyle}>
+                                <h5 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>📢 Publish On</h5>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
+                                    {[
+                                        { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
+                                        { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
+                                        { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
+                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
+                                        { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
+                                        { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#000000' }
+                                    ].map(platform => (
+                                        <button
+                                            key={platform.id}
+                                            type="button"
+                                            onClick={() => handleNestedInputChange('publishOn', platform.id, !formData.publishOn[platform.id])}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px', padding: '10px',
+                                                borderRadius: '8px', border: `1px solid ${formData.publishOn[platform.id] ? platform.color : '#e2e8f0'}`,
+                                                background: formData.publishOn[platform.id] ? `${platform.color}15` : '#fff',
+                                                cursor: 'pointer', transition: 'all 0.2s',
+                                                color: formData.publishOn[platform.id] ? platform.color : '#64748b',
+                                                fontSize: '0.85rem'
+                                            }}
+                                        >
+                                            <i className={platform.icon}></i>
+                                            <span style={{ fontWeight: 600 }}>{platform.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {formData.publishOn.website && (
+                                    <div style={{
+                                        marginTop: '15px',
+                                        padding: '12px 16px',
+                                        borderRadius: '10px',
+                                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                                        border: '1px solid #e2e8f0',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                                        animation: 'fadeIn 0.3s ease-in-out'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Website Privacy & Display Settings
+                                        </h5>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Unit Number</span>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Show the exact unit number on the public website.</span>
+                                                </div>
+                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={formData.websiteMetadata?.shareUnitNumber !== false}
+                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareUnitNumber', e.target.checked)}
+                                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                                    />
+                                                    <span className="slider round" style={{
+                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                        backgroundColor: (formData.websiteMetadata?.shareUnitNumber !== false) ? '#2563eb' : '#cbd5e1',
+                                                        transition: '.4s', borderRadius: '20px'
+                                                    }}>
+                                                        <span style={{
+                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareUnitNumber !== false) ? '22px' : '3px', bottom: '3px',
+                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                        }} />
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Map Location</span>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Share precise geographical latitude/longitude on website maps.</span>
+                                                </div>
+                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={formData.websiteMetadata?.shareLocation !== false}
+                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareLocation', e.target.checked)}
+                                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                                    />
+                                                    <span className="slider round" style={{
+                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                        backgroundColor: (formData.websiteMetadata?.shareLocation !== false) ? '#2563eb' : '#cbd5e1',
+                                                        transition: '.4s', borderRadius: '20px'
+                                                    }}>
+                                                        <span style={{
+                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareLocation !== false) ? '22px' : '3px', bottom: '3px',
+                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                        }} />
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={sectionStyle}>
+                                <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <h5 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>🎯 AI Lead Matching & Outreach</h5>
+                                            {isLiveMatching ? (
+                                                <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}><i className="fas fa-spinner fa-spin"></i> Calculating...</span>
+                                            ) : liveMatchCount !== null && (
+                                                <span style={{ 
+                                                    fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                                                    color: liveMatchCount > 0 ? '#059669' : '#ef4444',
+                                                    background: liveMatchCount > 0 ? '#d1fae5' : '#fee2e2'
+                                                }}>
+                                                    {liveMatchCount} {liveMatchCount === 1 ? 'Match' : 'Matches'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Automatically notify matching leads via selected channels upon deal creation.</p>
+                                    </div>
+                                    {Object.values(formData.sendMatchedDeal || {}).some(v => v) && (
+                                        <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>Auto-Dispatch Active</span>
+                                    )}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    {[
+                                        { id: 'sms', icon: 'fas fa-comment-dots', label: 'SMS', color: '#6366f1' },
+                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp (API)', color: '#25d366' },
+                                        { id: 'whatsapp_app', icon: 'fas fa-comment', label: 'WA App (Native)', color: '#059669' },
+                                        { id: 'email', icon: 'fas fa-envelope', label: 'Email', color: '#ef4444' },
+                                        { id: 'rcs', icon: 'fas fa-comment-alt', label: 'RCS', color: '#3b82f6' }
+                                    ].map(option => {
+                                        const isDisabled = liveMatchCount === 0;
+                                        return (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            onClick={() => !isDisabled && handleNestedInputChange('sendMatchedDeal', option.id, !formData.sendMatchedDeal[option.id])}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
+                                                borderRadius: '10px', border: `2px solid ${formData.sendMatchedDeal[option.id] ? option.color : '#e2e8f0'}`,
+                                                background: formData.sendMatchedDeal[option.id] ? `${option.color}10` : '#fff',
+                                                cursor: isDisabled ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
+                                                color: formData.sendMatchedDeal[option.id] ? option.color : '#64748b',
+                                                opacity: isDisabled ? 0.5 : 1
+                                            }}
+                                        >
+                                            <i className={option.icon}></i>
+                                            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{option.label}</span>
+                                            {formData.sendMatchedDeal[option.id] && <i className="fas fa-check-circle" style={{ marginLeft: 'auto' }}></i>}
+                                        </button>
+                                    );})}
+                                </div>
+                                {Object.values(formData.sendMatchedDeal || {}).some(v => v) && (
+                                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Dispatch Schedule</div>
+                                        
+                                        {['whatsapp', 'whatsapp_app', 'email', 'sms', 'rcs'].map(ch => {
+                                            if (!formData.sendMatchedDeal[ch]) return null;
+                                            const labels = { whatsapp: 'WhatsApp', whatsapp_app: 'WA App (Native)', email: 'Email', sms: 'SMS', rcs: 'RCS' };
+                                            
+                                            return (
+                                                <div key={ch} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
+                                                        <i className={`fas ${ch === 'whatsapp' ? 'fa-whatsapp' : ch === 'whatsapp_app' ? 'fa-comment' : ch === 'email' ? 'fa-envelope' : ch === 'sms' ? 'fa-comment-dots' : 'fa-comment-alt'}`}></i>
+                                                        {labels[ch]}
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        {ch === 'whatsapp_app' ? (
+                                                            <div style={{ fontSize: '0.7rem', color: '#059669', fontStyle: 'italic' }}>Immediate Top-1 Match Only</div>
+                                                        ) : (
+                                                        <select 
+                                                            value={channelSchedules[ch] ? 'schedule' : 'now'} 
+                                                            onChange={(e) => {
+                                                                if (e.target.value === 'now') {
+                                                                    setChannelSchedules(prev => ({...prev, [ch]: ''}));
+                                                                } else {
+                                                                    const date = new Date();
+                                                                    date.setHours(date.getHours() + 1);
+                                                                    setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
+                                                                }
+                                                            }}
+                                                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                                        >
+                                                            <option value="now">Send Now (with Preview)</option>
+                                                            <option value="schedule">Schedule Later</option>
+                                                        </select>
+                                                        
+                                                        )}
+                                                        {channelSchedules[ch] && (
+                                                            <input 
+                                                                type="datetime-local"
+                                                                value={channelSchedules[ch]}
+                                                                onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
+                                                                style={{ padding: '3px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={sectionStyle}>
+                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>System Assignment</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+                            <div>
+                                <label style={labelStyle}>Team</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.team}
+                                    onChange={e => {
+                                        const newTeam = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            team: newTeam,
+                                            assignedTo: '' // Reset assigned agent when team changes
+                                        }));
+                                    }}
+                                >
+                                    <option value="">Select Team</option>
+                                    {teams?.map(team => (
+                                        <option key={team._id} value={team._id}>{team.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Assign</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.assignedTo}
+                                    onChange={e => handleInputChange('assignedTo', e.target.value)}
+                                >
+                                    <option value="">Select Agent</option>
+                                    {users
+                                        .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                        .map(user => (
+                                            <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                        ))
+                                    }
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Visibility</label>
+                                <select style={selectStyle} value={formData.visibleTo} onChange={e => handleInputChange('visibleTo', e.target.value)}>
+                                    <option value="Private">Private</option>
+                                    <option value="Team">Team</option>
+                                    <option value="Everyone">Everyone</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <label style={labelStyle}>Notes / Remarks</label>
+                            <textarea
+                                style={{ ...inputStyle, minHeight: '100px', resize: 'vertical' }}
+                                value={formData.remarks}
+                                onChange={e => handleInputChange('remarks', e.target.value)}
+                                placeholder="Any additional information..."
+                            />
+                        </div>
+
+                        {/* Premium AI-Assisted Website Listing Description Box */}
+                        <div style={{ ...sectionStyle, border: '1px solid #cbd5e1', background: '#f8fafc', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '150px', height: '150px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', fontWeight: 700 }}>
+                                    <i className="fas fa-globe text-blue-600" style={{ fontSize: '1rem' }}></i> Public Website Listing Description
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateAiDescription}
+                                    disabled={isGeneratingAi}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '6px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #c7d2fe',
+                                        background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
+                                        color: '#4f46e5',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        boxShadow: '0 2px 4px rgba(79, 70, 229, 0.1)',
+                                        transition: 'all 0.2s',
+                                        opacity: isGeneratingAi ? 0.7 : 1
+                                    }}
+                                >
+                                    <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+                                    {isGeneratingAi ? "Generating listing..." : "Generate with AI"}
+                                </button>
+                            </div>
+                            
+                            <textarea
+                                style={{ ...inputStyle, minHeight: '180px', resize: 'vertical', background: '#fff', border: '1px solid #cbd5e1', lineHeight: '1.5' }}
+                                value={formData.description}
+                                onChange={e => handleInputChange('description', e.target.value)}
+                                placeholder="Write a premium description for the public website. (Tip: Use the AI Generator above to draft an engaging, high-converting listing automatically using your selected property details!)"
+                            />
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                <i className="fas fa-info-circle text-blue-500"></i>
+                                <span>This description will be published to the public portal for prospective buyers.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        style={{
+                            padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer',
+                            opacity: isSaving ? 0.7 : 1
+                        }}
+                    >
+                        {isSaving ? 'Saving...' : (deal ? 'Update Deal' : 'Save Deal')}
+                    </button>
+                </div>
+            </div>
+
+            {isMessageOpen && (
+                <SendMessageModal triggerContext='deal_match_modal'
+                    isOpen={isMessageOpen}
+                    onClose={() => {
+                        setIsMessageOpen(false);
+                        onClose(); // Close the deal modal now that message modal is done
+                    }}
+                    onSend={() => {
+                        setIsMessageOpen(false);
+                        onClose();
+                    }}
+                    initialRecipients={messageRecipients}
+                    initialChannel={messageInitialChannel}
+                    initialProperty={createdDealContext}
+                />
+            )}
+        </div>
+    );
+};
+
+export default AddDealModal;

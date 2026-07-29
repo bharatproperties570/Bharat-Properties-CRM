@@ -13,18 +13,28 @@ import { api, emailAPI } from './api';
 // ─── WhatsApp ───────────────────────────────────────────────────────────────
 // POST /api/whatsapp-config/send
 // payload: { mobile, message }
-export const dispatchWhatsApp = async ({ phone, message }) => {
+export const dispatchWhatsApp = async ({ phone, message, templateId, templateComponents, headerImageUrl }) => {
     const cleanPhone = (phone || '').trim();
-    if (!cleanPhone || !message) {
-        console.warn('[Dispatcher] WhatsApp skipped: missing phone or message');
+    // When templateId is provided, message body is optional — Meta uses the approved template body
+    if (!cleanPhone || (!message && !templateId)) {
+        console.warn('[Dispatcher] WhatsApp skipped: missing phone or message/template');
         return { success: false, channel: 'whatsapp', error: 'Missing phone or message' };
     }
     try {
-        const response = await api.post('whatsapp-config/send', {
+        const payload = {
             mobile: cleanPhone,
             message: message,
-            type: 'text'
-        });
+            type: templateId ? 'template' : 'text'
+        };
+        
+        // If template is used, we must pass the ID and components so Meta adds buttons
+        if (templateId) {
+            payload.templateId = templateId;
+            payload.templateComponents = templateComponents || [];
+            if (headerImageUrl) payload.headerImageUrl = headerImageUrl;
+        }
+
+        const response = await api.post('whatsapp-config/send', payload);
         console.log('[Dispatcher] ✅ WhatsApp sent to', cleanPhone);
         return { success: true, channel: 'whatsapp', data: response.data };
     } catch (err) {
@@ -111,11 +121,17 @@ export const dispatchEmail = async ({ email, message, subject: explicitSubject }
  * @param {string} params.smsTemplateId    - Optional SMS template ID for DLT compliance
  * @returns {Promise<Array>}               - Array of dispatch results per channel
  */
-export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubjects = {}, phone, email, smsTemplateId }) => {
+export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubjects = {}, phone, email, smsTemplateId, waTemplateId, waTemplateComponents, waHeaderImageUrl }) => {
     const results = [];
 
-    if (activeTriggers.whatsapp && channelMessages.whatsapp) {
-        const result = await dispatchWhatsApp({ phone, message: channelMessages.whatsapp });
+    if (activeTriggers.whatsapp && (channelMessages.whatsapp || waTemplateId)) {
+        const result = await dispatchWhatsApp({ 
+            phone, 
+            message: channelMessages.whatsapp || '', // body preview text (can be empty for Meta templates)
+            templateId: waTemplateId,
+            templateComponents: waTemplateComponents,
+            headerImageUrl: waHeaderImageUrl
+        });
         results.push(result);
     }
 

@@ -221,207 +221,21 @@ export const TriggersProvider = ({ children }) => {
 
         // ─── INVENTORY FEEDBACK RULES ───────────────────────────────────────
         {
-            id: 'trigger_fb_hot',
-            name: 'Feedback: Interested (Hot) — Send Priority WhatsApp',
+            id: 'trigger_fb_universal',
+            name: 'Property Owner Feedback Submitted',
             module: 'inventory',
             event: 'inventory_feedback_submitted',
             priority: 10,
             isActive: true,
             conditions: {
                 operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Interested / Hot' }
-                ]
+                rules: []
             },
             actions: [
                 {
                     type: 'send_communication',
                     channel: 'whatsapp',
-                    templateId: 'fb_interested_hot_wa'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_warm',
-            name: 'Feedback: Interested (Warm) — Send WhatsApp',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 11,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Interested / Warm' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'whatsapp',
-                    templateId: 'fb_interested_warm_wa'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_callback',
-            name: 'Feedback: Request Call Back — Send SMS',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 12,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Request Call Back' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'sms',
-                    templateId: 'fb_callback_sms'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_not_interested',
-            name: 'Feedback: Not Interested — Send WhatsApp',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 13,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Not Interested' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'whatsapp',
-                    templateId: 'fb_not_interested_wa'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_busy',
-            name: 'Feedback: Busy / Driving — Send SMS',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 14,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Busy / Driving' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'sms',
-                    templateId: 'fb_busy_driving_sms'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_market',
-            name: 'Feedback: Market Feedback — Send WhatsApp',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 15,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Market Feedback' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'whatsapp',
-                    templateId: 'fb_market_feedback_wa'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_switch_off',
-            name: 'Feedback: Switch Off / Unreachable — No Message (Log Only)',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 16,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Switch Off / Unreachable' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_notification',
-                    target: 'owner',
-                    message: 'Owner {{ownerName}} of Unit {{unitNo}} is unreachable. Please retry later.'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_wrong_number',
-            name: 'Feedback: Wrong Number — Internal Alert',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 17,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'Wrong Number / Invalid' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_notification',
-                    target: 'manager',
-                    message: 'Invalid number detected for Unit {{unitNo}}. Please verify owner contact details.'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_fb_general',
-            name: 'Feedback: General Inquiry — Log Follow-up',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 18,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'outcome', operator: '==', value: 'General Inquiry' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_notification',
-                    target: 'owner',
-                    message: 'A general inquiry has been logged for Unit {{unitNo}}. Please address the requested information.'
+                    templateId: 'inventory_feedback_update'
                 }
             ],
             createdAt: new Date().toISOString(),

@@ -25,6 +25,7 @@ import axios from 'axios';
 import IntegrationSettings from '../models/IntegrationSettings.js';
 import { normalizePhone } from '../utils/normalization.js';
 import Contact from '../models/Contact.js';
+import Inventory from '../models/Inventory.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import fs from 'fs';
@@ -240,6 +241,48 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         messageText = interactive.button_reply?.title || '';
                     } else if (interactive.type === 'list_reply') {
                         messageText = interactive.list_reply?.title || interactive.list_reply?.description || '';
+                    } else if (interactive.type === 'nfm_reply') {
+                        // META FLOW JSON SUBMISSION (Static Form)
+                        const responseJsonStr = interactive.nfm_reply?.response_json || '{}';
+                        try {
+                            const parsedResponse = JSON.parse(responseJsonStr);
+                            let flowSummary = '📝 WhatsApp Flow Feedback:\\n';
+                            if (parsedResponse.interested) flowSummary += `• Interested: ${parsedResponse.interested}\\n`;
+                            if (parsedResponse.not_interested) flowSummary += `• Not Interested: ${parsedResponse.not_interested}\\n`;
+                            if (parsedResponse.call_date) flowSummary += `• Call Date: ${parsedResponse.call_date}\\n`;
+                            if (parsedResponse.call_time) flowSummary += `• Call Time: ${parsedResponse.call_time}\\n`;
+                            if (parsedResponse.message) flowSummary += `• Notes: ${parsedResponse.message}\\n`;
+                            
+                            messageText = flowSummary;
+
+                            // Update Inventory History Directly
+                            const normalizedMobile = normalizePhone(fromNumber);
+                            const customerContact = await Contact.findOne({ 'phones.number': normalizedMobile }).lean();
+                            
+                            if (customerContact) {
+                                // Find their most recently updated inventory
+                                const latestInventory = await Inventory.findOne({
+                                    owners: customerContact._id
+                                }).sort({ updatedAt: -1 });
+
+                                if (latestInventory) {
+                                    latestInventory.history = latestInventory.history || [];
+                                    latestInventory.history.push({
+                                        date: new Date(),
+                                        actor: 'System (Meta Flow)',
+                                        type: 'Feedback',
+                                        note: flowSummary,
+                                        details: parsedResponse
+                                    });
+                                    latestInventory.lastContactedAt = new Date();
+                                    await latestInventory.save();
+                                    console.log(`[WhatsApp Webhook] Applied Flow Feedback to Inventory ${latestInventory._id}`);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('[WhatsApp Webhook] Error parsing nfm_reply JSON:', err);
+                            messageText = '[Meta Flow Form Submitted]';
+                        }
                     }
                 }
 

@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import { useTriggers } from '../context/TriggersContext';
-import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
+import { useUserContext } from '../context/UserContext';
+import { useWhatsAppTemplates } from '../context/WhatsAppTemplateContext';
+import { whatsappTemplates as legacyWaTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 import { renderValue } from '../utils/renderUtils';
 import { api } from '../utils/api';
 import { dispatchAll } from '../utils/communicationDispatcher';
@@ -11,7 +13,9 @@ import toast from 'react-hot-toast';
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
     const { masterFields } = usePropertyConfig();
     const { addActivity } = useActivities(); 
-    const { fireEvent } = useTriggers();
+    const { fireEvent, triggers } = useTriggers();
+    const { currentUser } = useUserContext();
+    const { getFeedbackFormTemplate } = useWhatsAppTemplates();
     const [formData, setFormData] = useState({
         selectedOwner: '',
         selectedOwnerRole: '',
@@ -38,13 +42,19 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         email: ''
     });
     const [channelSubjects, setChannelSubjects] = useState({ email: '' });
-    const [templateIds, setTemplateIds] = useState({ sms: '' });
+    const [templateIds, setTemplateIds] = useState({ sms: '', wa: '' });
+    const [waTemplateComponents, setWaTemplateComponents] = useState([]);
     const [previewChannel, setPreviewChannel] = useState('whatsapp'); // Track which preview is shown
 
     useEffect(() => {
         if (isOpen && inventory) {
             // Default Triggers from Global Settings
-            const globalTriggers = masterFields.triggers?.['Feedback Received'] || { whatsapp: false, sms: false, email: false };
+            // ⚠️ CRITICAL: If DB is unavailable, masterFields.triggers is empty.
+            // We MUST default whatsapp=true so the preview and dispatch work.
+            const savedTriggers = masterFields.triggers?.['Feedback Received'];
+            const globalTriggers = savedTriggers
+                ? { whatsapp: false, sms: false, email: false, ...savedTriggers }
+                : { whatsapp: true, sms: false, email: false }; // safe default
             setActiveTriggers({ ...globalTriggers });
 
             // Default Owner Logic
@@ -132,53 +142,120 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             const baseId = mapping[resultStr] || 'fb_interested_warm';
             
             const ownerName = formData.selectedOwner || 'Sir/Ma\'am';
-            const unitInfo = `Unit ${inventory.unitNo}`;
-            const time = formData.nextActionTime ? `${formData.nextActionTime} on ${formData.nextActionDate}` : 'later';
-            const reason = formData.reason || 'Discussed';
+            
+            // Extract detailed property information
+            const getStr = (val) => typeof val === 'object' && val !== null ? (val.lookup_value || val.name || '') : (val || '');
+            const cat = getStr(inventory.category) || 'Property';
+            const subCat = getStr(inventory.subCategory) || '';
+            const proj = getStr(inventory.projectName) || getStr(inventory.projectId) || '';
+            const unitNoStr = inventory.unitNo || '';
+            
+            const detailedType = [cat, subCat, proj].filter(Boolean).join(' in ');
+            const unitInfo = detailedType ? `${detailedType} (Unit ${inventory.unitNo})` : `Unit ${inventory.unitNo}`;
+            const reason = typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason;
+            const time = scheduleFollowUp && formData.nextActionTime ? `${formData.nextActionTime} on ${formData.nextActionDate}` : 'No further action';
+            const discussionSummary = scheduleFollowUp 
+                ? `${resultStr} (${reason}). Next Action: ${time}`
+                : `${resultStr} (${reason})`;
+            const empName = currentUser?.name || 'Your Agent';
+            const empMobile = currentUser?.mobile || currentUser?.phone || 'our support team';
 
             const processTemplate = (text) => {
                 if (!text) return '';
-                return text.replace(/{owner}/g, ownerName)
-                    .replace(/{unit}/g, unitInfo)
-                    .replace(/{time}/g, time)
-                    .replace(/{reason}/g, reason);
+                return text.replace(/{{OwnerName}}/ig, ownerName)
+                    .replace(/{{EmployeeName}}/ig, empName)
+                    .replace(/{{PropertyType}}/ig, unitInfo) // legacy combined
+                    .replace(/{{Category}}/ig, cat)
+                    .replace(/{{SubCategory}}/ig, subCat)
+                    .replace(/{{ProjectName}}/ig, proj)
+                    .replace(/{{UnitNumber}}/ig, unitNoStr)
+                    .replace(/{{DiscussionSummary}}/ig, discussionSummary)
+                    .replace(/{{EmployeeMobile}}/ig, empMobile)
+                    .replace(/{{agent_mobile}}/ig, empMobile)
+                    .replace(/{owner}/ig, ownerName)
+                    .replace(/{unit}/ig, unitInfo)
+                    .replace(/{time}/ig, time)
+                    .replace(/{reason}/ig, reason);
             };
 
-            // 🚀 SENIOR RESOLUTION: Prioritize DB-driven templates from masterFields, fallback to constants
-            const dbTemplate = masterFields.responseTemplates?.[resultStr] || {};
-            
-            const waTemplate = dbTemplate.whatsapp 
-                ? { content: dbTemplate.whatsapp } 
-                : (whatsappTemplates.find(t => t.id === `${baseId}_wa`) || {});
-                
-            const smsTemplate = dbTemplate.sms 
-                ? { body: dbTemplate.sms } 
-                : (smsTemplates.find(t => t.id === `${baseId}_sms`) || {});
-                
-            const emailTemplate = dbTemplate.email 
-                ? { 
-                    subject: typeof dbTemplate.email === 'string' ? (dbTemplate.email.match(/Subject: (.*)\n/)?.[1] || `Update regarding ${unitInfo}`) : `Update regarding ${unitInfo}`, 
-                    content: typeof dbTemplate.email === 'string' ? dbTemplate.email.replace(/Subject:.*\n/, '').trim() : ''
-                  }
-                : (emailTemplates.find(t => t.id === baseId) || {});
+            console.log('[FeedbackModal] Generating previews. discussionSummary:', discussionSummary);
 
-            const activeSmsTemplate = dbTemplate.sms 
-                ? { _id: null, body: dbTemplate.sms } // Custom override from DB
-                : (smsTemplates.find(t => t.id === `${baseId}_sms`) || {});
+            // ─── ENTERPRISE TEMPLATE RESOLUTION ───────────────────────────────────
+            // Priority 1: Template with systemContext='feedback_form' set in MessagingSettingsPage
+            // Priority 2: Legacy outcome-based hardcoded templates (fallback)
+            // Priority 3: Per-outcome DB overrides from masterFields.responseTemplates
+            const contextTemplate = getFeedbackFormTemplate();
+
+            console.log('[FeedbackModal] contextTemplate found:', contextTemplate ? contextTemplate.name : 'NONE — check MessagingSettings → Set System Trigger Context → Feedback Form (Meta Flow)');
+
+            let waTemplateStr = contextTemplate?.content || '';
+            let targetWaTemplateId = '';
+
+            // Fallback to legacy hardcoded when no context template is configured
+            if (!contextTemplate) {
+                const fbTrigger = (triggers || []).find(t => t.event === 'inventory_feedback_submitted' && t.isActive);
+                const fbAction = fbTrigger?.actions?.find(a => a.type === 'send_communication' && a.channel === 'whatsapp');
+                targetWaTemplateId = fbAction?.templateId || `${baseId}_wa`;
+                waTemplateStr = legacyWaTemplates.find(t => t.id === targetWaTemplateId)?.content
+                    || legacyWaTemplates.find(t => t.id === `${baseId}_wa`)?.content
+                    || '';
+            }
+            let smsTemplateStr = smsTemplates.find(t => t.id === `${baseId}_sms`)?.body || '';
+            let emailTemplateStr = emailTemplates.find(t => t.id === baseId)?.content || '';
+            let emailSubject = `Update regarding ${unitInfo}`;
+
+            const dbTemplate = masterFields.responseTemplates?.[resultStr] || {};
+            // contextTemplate (Feedback Form Meta Flow) ALWAYS wins — never override it with legacy DB templates
+            if (dbTemplate.whatsapp && !contextTemplate) waTemplateStr = dbTemplate.whatsapp;
+            if (dbTemplate.sms) smsTemplateStr = dbTemplate.sms;
+            if (dbTemplate.email) {
+                const eStr = typeof dbTemplate.email === 'string' ? dbTemplate.email : '';
+                emailSubject = eStr.match(/Subject: (.*)\n/)?.[1] || emailSubject;
+                emailTemplateStr = eStr.replace(/Subject:.*\n/, '').trim();
+            }
 
             setChannelMessages({
-                whatsapp: processTemplate(waTemplate.content || waTemplate.body),
-                sms: processTemplate(activeSmsTemplate.body || activeSmsTemplate.content),
-                email: processTemplate(emailTemplate.content || emailTemplate.body)
+                whatsapp: processTemplate(waTemplateStr),
+                sms: processTemplate(smsTemplateStr),
+                email: processTemplate(emailTemplateStr)
             });
             
             setChannelSubjects({
-                email: processTemplate(emailTemplate.subject)
+                email: processTemplate(emailSubject)
             });
 
+            // ⚠️ CRITICAL: Meta API requires the EXACT registered template name (snake_case),
+            // NOT the CRM display name. The approved template on Meta Business Manager is
+            // 'property_owner_feedback'. Using any other name causes Meta to reject the
+            // template call and fall back to plain text (no buttons).
+            const META_FEEDBACK_TEMPLATE_NAME = 'property_owner_feedback';
             setTemplateIds({
-                sms: activeSmsTemplate?._id || activeSmsTemplate?.id || ''
+                sms: smsTemplates.find(t => t.id === `${baseId}_sms`)?._id || '',
+                wa: META_FEEDBACK_TEMPLATE_NAME
             });
+
+            // Save variables for Meta Template API
+            // ⚠️ parameter_name MUST match EXACTLY what is in Meta template (case-insensitive handled in backend)
+            // Meta template uses: ownername, employeename, subcategory, unitnumber, projectname, discussionsummary, agent_mobile
+            setWaTemplateComponents([
+                { type: 'text', parameter_name: 'ownername', text: ownerName },
+                { type: 'text', parameter_name: 'employeename', text: empName },
+                { type: 'text', parameter_name: 'subcategory', text: subCat || cat },
+                { type: 'text', parameter_name: 'unitnumber', text: unitNoStr },
+                { type: 'text', parameter_name: 'projectname', text: proj },
+                { type: 'text', parameter_name: 'discussionsummary', text: discussionSummary },
+                { type: 'text', parameter_name: 'agent_mobile', text: empMobile },
+                // Extra aliases for backward compat with other templates
+                { type: 'text', parameter_name: 'OwnerName', text: ownerName },
+                { type: 'text', parameter_name: 'EmployeeName', text: empName },
+                { type: 'text', parameter_name: 'PropertyType', text: unitInfo },
+                { type: 'text', parameter_name: 'Category', text: cat },
+                { type: 'text', parameter_name: 'SubCategory', text: subCat },
+                { type: 'text', parameter_name: 'ProjectName', text: proj },
+                { type: 'text', parameter_name: 'UnitNumber', text: unitNoStr },
+                { type: 'text', parameter_name: 'DiscussionSummary', text: discussionSummary },
+                { type: 'text', parameter_name: 'EmployeeMobile', text: empMobile },
+            ]);
 
             // Apply Inventory Status Automation Rule
             if (rule.inventoryStatus === 'InActive') {
@@ -192,7 +269,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             else if (activeTriggers.sms) setPreviewChannel('sms');
             else if (activeTriggers.email) setPreviewChannel('email');
         }
-    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionDate, formData.nextActionTime, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email]);
+    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {
@@ -401,7 +478,13 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                     channelSubjects,
                     phone: recipientPhone,
                     email: recipientEmail,
-                    smsTemplateId: templateIds.sms
+                    smsTemplateId: templateIds.sms,
+                    waTemplateId: templateIds.wa,
+                    waTemplateComponents: waTemplateComponents,
+                    // Pass header image URL for property_owner_feedback template (IMAGE header)
+                    waHeaderImageUrl: templateIds.wa === 'property_owner_feedback'
+                        ? 'https://files.catbox.moe/axqhoi.png'
+                        : undefined
                 });
 
                 // Log each successfully dispatched channel as a CRM Activity

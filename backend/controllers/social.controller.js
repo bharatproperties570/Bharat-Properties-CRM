@@ -99,7 +99,7 @@ export const submitMetaTemplate = async (req, res) => {
 export const sendWhatsAppMessage = async (req, res, next) => {
     try {
         console.log('[SocialController] RAW PAYLOAD:', JSON.stringify(req.body, null, 2));
-        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language } = req.body;
+        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language, headerImageUrl } = req.body;
         
         if (!mobile || (!message && !mediaUrl && !templateId)) {
             return res.status(400).json({ success: false, error: 'Mobile and message/media/template are required' });
@@ -120,49 +120,70 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             
             const components = [];
 
-            // ✅ SENIOR FIX: Build a named-param lookup map from templateComponents.
-            // Frontend now sends full objects: { type, parameter_name, text }
-            // We build a map for O(1) lookup by parameter_name.
+            // ✅ ENTERPRISE FIX: Build BOTH a named-param map AND a positional values list.
+            // Meta templates use NUMBERED placeholders ({{1}}, {{2}}, {{3}})
+            // but our frontend sends NAMED parameters (OwnerName, EmployeeName, etc.)
+            // We need BOTH lookups:
+            //   - namedParamMap: for templates using {{OwnerName}} style vars
+            //   - positionalValues: for templates using {{1}}, {{2}} style vars
             const namedParamMap = {};
+            const namedParamMapLC = {}; // lowercase keys for case-insensitive lookup against Meta template vars
+            const positionalValues = []; // Ordered list of ALL values for numbered templates
             const plainTextList = [];
             if (Array.isArray(templateComponents) && templateComponents.length > 0) {
                 templateComponents.forEach(item => {
                     if (item && typeof item === 'object' && item.parameter_name) {
                         namedParamMap[item.parameter_name] = item.text || '';
+                        namedParamMapLC[item.parameter_name.toLowerCase()] = item.text || '';
+                        positionalValues.push(item.text || '');
                     } else {
                         plainTextList.push(typeof item === 'string' ? item : (item?.text || ''));
                     }
                 });
             }
-            console.log(`[WhatsApp/Debug] Named param map:`, namedParamMap);
+            console.log(`[WhatsApp/Debug] Named param map (case-insensitive):`, namedParamMapLC);
 
             if (templateDef) {
-                console.log(`[WhatsApp/Debug] Template Definition found for: ${templateId}`);
+                console.log(`[WhatsApp/Debug] Template Definition FOUND for: ${templateId}`);
+                console.log(`[WhatsApp/Debug] Template components:`, JSON.stringify(templateDef.components.map(c => ({ type: c.type, format: c.format, text: (c.text || '').substring(0, 80) })), null, 2));
                 let plainIdx = 0;
+                let positionalIdx = 0; // Track position for numbered vars
+
                 templateDef.components.forEach(compDef => {
                     if (compDef.type === 'BODY') {
                         const bodyMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
                         const uniqueVars = Array.from(new Set(bodyMatches.map(m => m.replace(/[{}]/g, '').trim())));
                         console.log(`[WhatsApp/Debug] Body vars needed:`, uniqueVars);
+                        
                         if (uniqueVars.length > 0) {
                             const parameters = uniqueVars.map(varName => {
                                 let textVal;
-                                if (namedParamMap[varName] !== undefined) {
-                                    textVal = namedParamMap[varName];
+                                const isNumberedVar = /^\d+$/.test(varName);
+                                const varLC = varName.toLowerCase();
+
+                                if (namedParamMapLC[varLC] !== undefined) {
+                                    // Case-insensitive match: {{ownername}} matches 'OwnerName' from frontend
+                                    textVal = namedParamMapLC[varLC];
+                                } else if (isNumberedVar && positionalIdx < positionalValues.length) {
+                                    textVal = positionalValues[positionalIdx++];
                                 } else if (plainTextList.length > plainIdx) {
                                     textVal = plainTextList[plainIdx++];
                                 } else {
                                     textVal = '—';
                                 }
+
+                                console.log(`[WhatsApp/Debug] Var "${varName}" → "${String(textVal).substring(0, 50)}"`);
                                 const param = { type: 'text', text: String(textVal) };
-                                if (!/^\d+$/.test(varName)) param.parameter_name = varName;
+                                // Send Meta's exact variable name (as it appears in template) as parameter_name
+                                if (!isNumberedVar) param.parameter_name = varName;
                                 return param;
                             });
                             components.push({ type: 'body', parameters });
                         }
                     } else if (compDef.type === 'BUTTONS') {
                         compDef.buttons?.forEach((btn, btnIdx) => {
-                            if (btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
+                            if (btn.type === 'URL' && btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
+                                // URL button with dynamic variable
                                 const urlVarName = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
                                 let btnTokenVal = namedParamMap[urlVarName] || namedParamMap['siteVisitToken'] || namedParamMap['site_visit_token'] || plainTextList[plainIdx] || 'visit';
                                 if (typeof btnTokenVal === 'string' && btnTokenVal.includes('.')) {
@@ -175,23 +196,35 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                     parameters: [{ type: 'text', text: String(btnTokenVal) }]
                                 });
                             }
+                            // QUICK_REPLY buttons: NO component needed — Meta renders them automatically
+                            // from the template definition. Do NOT add any component for them.
                         });
                     } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT') {
                         const headerMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
                         if (headerMatches.length > 0) {
                             const parameters = headerMatches.map(match => {
                                 const varName = match.replace(/[{}]/g, '').trim();
-                                const textVal = namedParamMap[varName] || plainTextList[plainIdx] || 'Update';
+                                const isNumbered = /^\d+$/.test(varName);
+                                let textVal;
+                                if (namedParamMapLC[varName.toLowerCase()] !== undefined) {
+                                    textVal = namedParamMapLC[varName.toLowerCase()];
+                                } else if (isNumbered && positionalIdx < positionalValues.length) {
+                                    textVal = positionalValues[positionalIdx++];
+                                } else {
+                                    textVal = plainTextList[plainIdx] || 'Update';
+                                }
                                 const param = { type: 'text', text: String(textVal).substring(0, 200) };
-                                if (!/^\d+$/.test(varName)) param.parameter_name = varName;
+                                if (!isNumbered) param.parameter_name = varName;
                                 return param;
                             });
                             components.push({ type: 'header', parameters });
                         }
                     }
+                    // HEADER with IMAGE/VIDEO/DOCUMENT format is handled separately below
                 });
             } else {
-                console.warn(`[WhatsApp/Debug] Template Definition NOT FOUND for: ${templateId}`);
+                console.warn(`[WhatsApp/Debug] ⚠️ Template Definition NOT FOUND for: ${templateId}`);
+                console.warn(`[WhatsApp/Debug] Available templates:`, templates.map(t => t.name).join(', '));
                 if (Array.isArray(templateComponents) && templateComponents.length > 0) {
                     components.push({ 
                         type: 'body', 
@@ -214,23 +247,69 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             }
 
             // Header Media override
-            if (mediaUrl || requiredHeaderFormat) {
+            // Priority: headerImageUrl (from frontend) > mediaUrl (manual) > DB-configured default > hardcoded fallback
+            if (headerImageUrl || mediaUrl || requiredHeaderFormat) {
                 const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : 'video');
-                const finalMediaUrl = mediaUrl || (
+                
+                // Try to load configured default image from SystemSettings
+                let dbDefaultImage = null;
+                try {
+                    const SystemSetting = mongoose.model('SystemSetting');
+                    const imgSetting = await SystemSetting.findOne({ key: 'wa_feedback_header_image' }).lean();
+                    dbDefaultImage = imgSetting?.value?.url || null;
+                } catch (e) { /* ignore */ }
+
+                const finalMediaUrl = headerImageUrl || mediaUrl || dbDefaultImage || (
                     hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
-                    hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
+                    hType === 'image' ? 'https://files.catbox.moe/axqhoi.png' :
                     'https://www.w3schools.com/html/mov_bbb.mp4'
                 );
+
+                console.log(`[WhatsApp/Debug] Header ${hType} URL: ${finalMediaUrl}`);
+
+                let mediaId = null;
+                // 🚀 SENIOR LOGIC: If mediaUrl is on our server, upload to Meta first for reliability (to avoid 404s when using 'link')
+                if (finalMediaUrl && (finalMediaUrl.includes('api.bharatproperties.co') || finalMediaUrl.includes('localhost') || finalMediaUrl.startsWith('/'))) {
+                    try {
+                        const path = await import('path');
+                        const fs = await import('fs');
+                        
+                        let localPath = '';
+                        if (finalMediaUrl.includes('/uploads/')) {
+                            const parts = finalMediaUrl.split('/uploads/');
+                            // Use absolute path logic similar to WhatsAppService
+                            localPath = path.resolve(process.cwd(), 'uploads', parts[1].split('?')[0]);
+                        } else if (finalMediaUrl.startsWith('/')) {
+                            localPath = path.resolve(process.cwd(), finalMediaUrl.substring(1));
+                        }
+
+                        if (localPath && fs.existsSync(localPath)) {
+                            console.log(`[WhatsApp/Debug] Local file detected for template header. Uploading to Meta storage...`);
+                            const uploadRes = await WhatsAppService.uploadToMeta(localPath, hType);
+                            if (uploadRes.success) {
+                                mediaId = uploadRes.mediaId;
+                                console.log(`[WhatsApp/Debug] Meta Upload Success. Media ID: ${mediaId}`);
+                            } else {
+                                console.warn(`[WhatsApp/Debug] Meta Upload Failed:`, uploadRes.error);
+                            }
+                        } else {
+                            console.warn(`[WhatsApp/Debug] Local file not found at path: ${localPath}`);
+                        }
+                    } catch (e) {
+                        console.error(`[WhatsApp/Debug] Local upload bypass failed:`, e.message);
+                    }
+                }
+
+                const mediaObject = mediaId ? { id: mediaId } : { link: finalMediaUrl };
+                if (hType === 'document' && !mediaId) {
+                    mediaObject.filename = filename || 'Huda_Map_Book_KKR.pdf';
+                }
 
                 const headerComp = { 
                     type: 'header', 
                     parameters: [{ 
                         type: hType, 
-                        [hType]: { 
-                            link: finalMediaUrl,
-                            // Meta API expects filename for documents
-                            ...(hType === 'document' ? { filename: filename || 'Huda_Map_Book_KKR.pdf' } : {})
-                        } 
+                        [hType]: mediaObject
                     }] 
                 };
                 const existingHeaderIdx = components.findIndex(c => c.type === 'header');
@@ -238,13 +317,20 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                 else components.push(headerComp);
             }
 
-            console.log(`[WhatsApp/Debug] Final Components for ${templateId}:`, JSON.stringify(components, null, 2));
-            result = await WhatsAppService.sendTemplate(mobile, templateId, language || 'en_US', components);
+            console.log(`[WhatsApp/Debug] ✅ Final Components for ${templateId}:`, JSON.stringify(components, null, 2));
+            const templateLang = templateDef?.language || language || 'en';
+            console.log(`[WhatsApp/Debug] Sending template "${templateId}" lang="${templateLang}" to ${mobile}`);
+            result = await WhatsAppService.sendTemplate(mobile, templateId, templateLang, components);
             
-            // Plain text fallback if template send failed and message body exists
-            if (!result.success && message) {
-                console.log(`[SocialController] Template send failed, falling back to text for ${mobile}`);
-                result = await WhatsAppService.sendMessage(mobile, message);
+            // ⚠️ ENTERPRISE: If template send failed, log the EXACT error before falling back
+            if (!result.success) {
+                console.error(`[SocialController] ❌ Template send FAILED for "${templateId}":`, JSON.stringify(result, null, 2));
+                if (message) {
+                    console.log(`[SocialController] Falling back to plain text for ${mobile}`);
+                    result = await WhatsAppService.sendMessage(mobile, message);
+                    // Mark that this was a fallback so the frontend knows buttons won't appear
+                    result.templateFallback = true;
+                }
             }
         } else if (type === 'text') {
             result = await WhatsAppService.sendMessage(mobile, message);

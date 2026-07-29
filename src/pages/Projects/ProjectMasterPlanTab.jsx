@@ -406,13 +406,34 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         setIsUploading(true);
         const fd = new FormData();
         fd.append('file', file);
+        fd.append('entityType', 'Project');
+        fd.append('entityName', project?.name || 'Unknown_Project');
+        fd.append('docCategory', 'MasterPlan');
+        fd.append('docType', 'Image');
+        
         try {
-            const res = await api.post('/upload', fd, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+            // Using fetch to bypass any Axios Content-Type header override bugs
+            const token = localStorage.getItem('authToken') || (document.cookie.match(/(?:^|; )authToken=([^;]*)/) ? decodeURIComponent(document.cookie.match(/(?:^|; )authToken=([^;]*)/)[1]) : null);
+            const baseURL = api.defaults.baseURL.replace(/\/$/, '');
+            
+            const response = await fetch(`${baseURL}/upload`, {
+                method: 'POST',
+                headers: {
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: fd
             });
-            if (res.data?.url) {
+            
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Upload failed: ${response.status} ${errText}`);
+            }
+            
+            const resData = await response.json();
+            
+            if (resData?.url) {
                 const newPlan = {
-                    imageUrl: res.data.url,
+                    imageUrl: resData.url,
                     bounds: null,
                     rotation: 0,
                     isLocked: false
@@ -421,11 +442,12 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                 await api.put(`/projects/${project._id}`, { masterPlan: newPlan });
                 toast.success("Layout Map uploaded successfully! Please align it.");
                 setIsEditMode(true);
-                // Removed onProjectUpdate() here to prevent map component from unmounting and losing local state
+            } else {
+                throw new Error("No URL returned from upload API");
             }
         } catch (err) {
-            toast.error("Failed to upload image");
-            console.error(err);
+            toast.error("Failed to upload image: " + err.message);
+            console.error("Upload Error:", err);
         } finally {
             setIsUploading(false);
         }

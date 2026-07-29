@@ -22,6 +22,7 @@ import { ParsingProvider } from './context/ParsingContext'; // Import ParsingPro
 import { UserProvider, useUserContext } from './context/UserContext';
 import { ImportProvider } from './context/ImportContext';
 import { TemplateProvider } from './context/TemplateContext';
+import { WhatsAppTemplateProvider } from './context/WhatsAppTemplateContext';
 import LoginPage from './pages/Auth/LoginPage';
 import ForgotPasswordPage from './pages/Auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
@@ -401,6 +402,7 @@ function App() {
                                                     <TriggersProvider>
                                                         <CallProvider>
                                                             <ImportProvider>
+                                                                <WhatsAppTemplateProvider>
                                                                 <TemplateProvider>
                                                                     {isWeb && <Toaster 
                                                                         position="top-right" 
@@ -408,6 +410,7 @@ function App() {
                                                                     />}
                                                                     <AppContent />
                                                                 </TemplateProvider>
+                                                                </WhatsAppTemplateProvider>
                                                             </ImportProvider>
                                                         </CallProvider>
                                                     </TriggersProvider>

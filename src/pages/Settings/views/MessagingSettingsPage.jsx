@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
 import { systemSettingsAPI } from '../../../utils/api';
+import { useWhatsAppTemplates } from '../../../context/WhatsAppTemplateContext';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
 import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
@@ -696,6 +697,15 @@ const VariableRegistryTab = () => {
                             { var: '{{preferred_city}}', desc: 'Preferred City', ctx: 'Lead' },
                             { var: '{{preferred_area}}', desc: 'Preferred Area/Locality', ctx: 'Lead' },
                             
+                            // Feedback / Update Data
+                            { var: '{{OwnerName}}', desc: 'Owner Name for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{EmployeeName}}', desc: 'Agent Name for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{EmployeeMobile}}', desc: 'Agent Mobile for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{subcategory}}', desc: 'Property Sub-Category for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{unitnumber}}', desc: 'Property Unit Number for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{projectname}}', desc: 'Property Project Name for Feedback updates', ctx: 'Feedback' },
+                            { var: '{{DiscussionSummary}}', desc: 'Combined Status and Next Action', ctx: 'Feedback' },
+
                             // Agent / System Data
                             { var: '{{agent_name}}', desc: 'Assigned Agent Name', ctx: 'System' },
                             { var: '{{agent_mobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
@@ -773,7 +783,8 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
         { value: 'deal_match', label: 'Deal Match (Auto-Dispatch)' },
         { value: 'deal_match_modal', label: 'Deal Match (Message Modal)' },
         { value: 'marketing_blast', label: 'Marketing Blast' },
-        { value: 'welcome', label: 'Welcome/Auto-Reply' }
+        { value: 'welcome', label: 'Welcome/Auto-Reply' },
+        { value: 'feedback_form', label: 'Feedback Form (Meta Flow)' }
     ];
 
     const handleToggle = (val) => {
@@ -840,6 +851,7 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
 };
 
 const MessagingSettingsPage = () => {
+    const { updateTemplates } = useWhatsAppTemplates();
     const [subTab, setSubTab] = useState('templates');
     const [templateType, setTemplateType] = useState('whatsapp');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
@@ -1063,8 +1075,11 @@ const MessagingSettingsPage = () => {
 
             updatedList = sanitizedList.map(t => t.id === template.id ? updatedData : t);
 
-            // Update state
+            // Update local state
             setAllTemplates(prev => ({ ...prev, [templateType]: updatedList }));
+
+            // Sync shared WhatsAppTemplateContext so InventoryFeedbackModal picks up instantly
+            if (templateType === 'whatsapp') updateTemplates(updatedList);
 
             // Update database
             await persistTemplates(templateType, updatedList);

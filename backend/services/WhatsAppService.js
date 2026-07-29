@@ -339,6 +339,28 @@ class WhatsAppService {
         if (!config || !config.token || !config.businessId) {
             return [
                 {
+                    name: 'property_owner_feedback',
+                    status: 'APPROVED',
+                    language: 'en',
+                    components: [
+                        {
+                            type: 'HEADER',
+                            format: 'IMAGE'
+                        },
+                        { 
+                            type: 'BODY', 
+                            text: 'Hello {{OwnerName}},\n\nThis is {{EmployeeName}} from Bharat Properties.\n\nRegarding your {{PropertyType}}:\n\n📋 Discussion Summary: {{DiscussionSummary}}\n\nFor any queries, contact us at {{EmployeeMobile}}.\n\nThank you for your time!' 
+                        },
+                        {
+                            type: 'BUTTONS',
+                            buttons: [
+                                { type: 'QUICK_REPLY', text: 'Update Feedback' },
+                                { type: 'QUICK_REPLY', text: 'Status is Correct' }
+                            ]
+                        }
+                    ]
+                },
+                {
                     name: 'sample_property_launch',
                     status: 'APPROVED',
                     language: 'en_US',

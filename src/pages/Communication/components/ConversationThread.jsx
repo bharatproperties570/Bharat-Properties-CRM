@@ -159,28 +159,38 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                                     </div>
                                 )}
                                 {(() => {
-                                    const templateMatch = msg.text?.match(/\[Template:\s*(.+?)\]\s*Payload:\s*(.*)/i);
+                                    const templateMatch = msg.text?.match(/\[Template:\s*(.+?)\]\s*Payload:\s*([\s\S]*)/i);
                                     if (templateMatch) {
                                         try {
+                                            const templateName = templateMatch[1];
                                             const payload = JSON.parse(templateMatch[2]);
                                             const bodyComponent = payload.find(c => c.type === 'body');
+                                            const headerComponent = payload.find(c => c.type === 'header');
+                                            
+                                            let texts = [];
                                             if (bodyComponent && bodyComponent.parameters) {
-                                                return (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, opacity: 0.7, textTransform: 'uppercase' }}>
-                                                            <i className="fas fa-bolt"></i> Auto-Match Sent
-                                                        </div>
-                                                        <div style={{ fontSize: '0.9rem', lineHeight: '1.4' }}>
-                                                            Hi {bodyComponent.parameters[0]?.text},<br/><br/>
-                                                            Here are the top properties matching your requirements:<br/><br/>
-                                                            <div style={{ whiteSpace: 'pre-wrap' }}>
-                                                                {bodyComponent.parameters[1]?.text?.split(' | ').join('\n')}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
+                                                texts = bodyComponent.parameters.filter(p => p.type === 'text').map(p => p.text);
                                             }
-                                        } catch (e) {}
+
+                                            return (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, opacity: 0.7, textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '4px' }}>
+                                                        <i className="fas fa-bolt"></i> Template: {templateName}
+                                                    </div>
+                                                    {headerComponent?.parameters?.[0]?.type === 'document' && (
+                                                        <a href={headerComponent.parameters[0].document.link} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff', textDecoration: 'none', background: 'rgba(0,0,0,0.2)', padding: '8px 12px', borderRadius: '6px', fontSize: '0.8rem', width: 'fit-content' }}>
+                                                            <i className="fas fa-file-pdf" style={{ color: '#ef4444' }}></i> 
+                                                            {headerComponent.parameters[0].document.filename || 'Document'}
+                                                        </a>
+                                                    )}
+                                                    <div style={{ fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                                        {texts.length > 0 ? texts.join('\n\n') : <span style={{opacity: 0.5}}>[Template Content Hidden]</span>}
+                                                    </div>
+                                                </div>
+                                            );
+                                        } catch (e) {
+                                            console.error(e);
+                                        }
                                     }
                                     return <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
                                 })()}
