@@ -555,8 +555,6 @@ const PropertySettingsPage = () => {
     const handleAddCategory = () => {
         openInputModal("Enter new Category name:", '', async (name) => {
             if (name && !propertyConfig[name]) {
-                const newConfig = { ...propertyConfig, [name]: { subCategories: [] } };
-                await updateConfig(newConfig);
                 await syncCategoryLookup(name, 'add');
                 showToast(`Category '${name}' added successfully`);
             } else if (name) {
@@ -568,10 +566,6 @@ const PropertySettingsPage = () => {
     const handleEditCategory = (oldName) => {
         openInputModal("Edit Category name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                newConfig[newName] = newConfig[oldName];
-                delete newConfig[oldName];
-                await updateConfig(newConfig);
                 await syncCategoryLookup(newName, 'update', oldName);
                 if (configCategory === oldName) setConfigCategory(newName);
                 showToast(`Category updated to '${newName}'`);
@@ -581,12 +575,9 @@ const PropertySettingsPage = () => {
 
     const handleDeleteCategory = (name) => {
         openConfirmModal(`Delete category '${name}' and all its contents?`, async () => {
-            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            delete newConfig[name];
-            await updateConfig(newConfig);
             await syncCategoryLookup(name, 'delete');
             if (configCategory === name) {
-                setConfigCategory(Object.keys(newConfig)[0] || null);
+                setConfigCategory(null);
                 setConfigSubCategory(null);
             }
             showToast(`Category '${name}' deleted`);
@@ -597,19 +588,10 @@ const PropertySettingsPage = () => {
         if (!configCategory) return;
         openInputModal(`Enter new Sub-Category for ${configCategory}:`, '', async (name) => {
             if (name) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                if (!newConfig[configCategory]) {
-                    newConfig[configCategory] = { subCategories: [] };
-                }
-                if (Array.isArray(newConfig[configCategory].subCategories) && newConfig[configCategory].subCategories.some(s => s.name === name)) {
+                if (Array.isArray(propertyConfig[configCategory]?.subCategories) && propertyConfig[configCategory].subCategories.some(s => s.name === name)) {
                     alert("Sub-Category already exists.");
                     return;
                 }
-                if (!Array.isArray(newConfig[configCategory].subCategories)) {
-                    newConfig[configCategory].subCategories = [];
-                }
-                newConfig[configCategory].subCategories.push({ name, types: [] });
-                await updateConfig(newConfig);
                 await syncSubCategoryLookup(configCategory, name, 'add');
                 showToast(`Sub-Category '${name}' added`);
             }
@@ -619,14 +601,11 @@ const PropertySettingsPage = () => {
     const handleEditSubCategory = (oldName) => {
         openInputModal("Edit Sub-Category name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subCategories = newConfig[configCategory]?.subCategories;
+                const subCategories = propertyConfig[configCategory]?.subCategories;
                 if (!Array.isArray(subCategories)) return;
 
                 const subIndex = subCategories.findIndex(s => s.name === oldName);
                 if (subIndex > -1) {
-                    subCategories[subIndex].name = newName;
-                    await updateConfig(newConfig);
                     await syncSubCategoryLookup(configCategory, newName, 'update', oldName);
                     if (configSubCategory === oldName) setConfigSubCategory(newName);
                     showToast(`Sub-Category updated to '${newName}'`);
@@ -637,10 +616,7 @@ const PropertySettingsPage = () => {
 
     const handleDeleteSubCategory = (name) => {
         openConfirmModal(`Delete sub-category '${name}'?`, async () => {
-            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            if (newConfig[configCategory] && Array.isArray(newConfig[configCategory].subCategories)) {
-                newConfig[configCategory].subCategories = newConfig[configCategory].subCategories.filter(s => s.name !== name);
-                await updateConfig(newConfig);
+            if (propertyConfig[configCategory] && Array.isArray(propertyConfig[configCategory].subCategories)) {
                 await syncSubCategoryLookup(configCategory, name, 'delete');
                 if (configSubCategory === name) setConfigSubCategory(null);
                 showToast(`Sub-Category '${name}' deleted`);
@@ -652,13 +628,10 @@ const PropertySettingsPage = () => {
         if (!configCategory || !configSubCategory) return;
         openInputModal(`Enter new Size Type for ${configSubCategory}:`, '', async (name) => {
             if (name) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                const subIndex = propertyConfig[configCategory]?.subCategories?.findIndex(s => s.name === configSubCategory) ?? -1;
                 if (subIndex > -1) {
-                    const types = newConfig[configCategory].subCategories[subIndex].types;
+                    const types = propertyConfig[configCategory].subCategories[subIndex].types || [];
                     if (!types.some(t => t.name === name)) {
-                        types.push({ name, builtupTypes: [] });
-                        await updateConfig(newConfig);
                         await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'add');
                         showToast(`Size Type '${name}' added`);
                     } else {
@@ -672,14 +645,11 @@ const PropertySettingsPage = () => {
     const handleEditType = (oldName) => {
         openInputModal("Edit Size Type name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                const subIndex = propertyConfig[configCategory]?.subCategories?.findIndex(s => s.name === configSubCategory) ?? -1;
                 if (subIndex > -1) {
-                    const types = newConfig[configCategory].subCategories[subIndex].types;
+                    const types = propertyConfig[configCategory].subCategories[subIndex].types || [];
                     const typeObj = types.find(t => t.name === oldName);
                     if (typeObj) {
-                        typeObj.name = newName;
-                        await updateConfig(newConfig);
                         await syncPropertyTypeLookup(configCategory, configSubCategory, newName, 'update', oldName);
                         if (configType === oldName) setConfigType(newName);
                         showToast(`Size Type updated to '${newName}'`);
@@ -691,16 +661,13 @@ const PropertySettingsPage = () => {
 
     const handleDeleteType = (name) => {
         openConfirmModal(`Delete size type '${name}'?`, async () => {
-            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            const subCategories = newConfig[configCategory]?.subCategories;
+            const subCategories = propertyConfig[configCategory]?.subCategories;
             if (!Array.isArray(subCategories)) return;
 
             const subIndex = subCategories.findIndex(s => s.name === configSubCategory);
             if (subIndex > -1) {
                 const types = subCategories[subIndex].types;
                 if (Array.isArray(types)) {
-                    subCategories[subIndex].types = types.filter(t => t.name !== name);
-                    await updateConfig(newConfig);
                     await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'delete');
                     if (configType === name) setConfigType(null);
                     showToast(`Size Type '${name}' deleted`);
@@ -713,18 +680,12 @@ const PropertySettingsPage = () => {
         if (!configCategory || !configSubCategory) return;
         openInputModal(`Enter new Builtup Type:`, '', async (name) => {
             if (name) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subCatObj = newConfig[configCategory].subCategories.find(s => s.name === configSubCategory);
+                const subCatObj = propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory);
                 if (subCatObj) {
                     const exists = subCatObj.builtupTypes?.some(b => (typeof b === 'object' ? b.name : b) === name);
                     if (!exists) {
                         const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, name, 'add');
                         if (res && (res._id || res.id)) {
-                            const newId = (res._id || res.id).toString();
-                            if (!subCatObj.builtupTypes) subCatObj.builtupTypes = [];
-                            subCatObj.builtupTypes.push({ id: newId, name: name });
-                            
-                            await updateConfig(newConfig);
                             showToast(`Builtup Type '${name}' added to sub-category.`);
                         } else {
                             console.error("[PropertySettingsPage] Add failed for Builtup Type", name);
@@ -740,19 +701,12 @@ const PropertySettingsPage = () => {
     const handleEditBuiltupType = (oldName) => {
         openInputModal("Edit Builtup Type name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
-                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subCatObj = newConfig[configCategory].subCategories.find(s => s.name === configSubCategory);
+                const subCatObj = propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory);
                 if (subCatObj) {
                     const index = subCatObj.builtupTypes?.findIndex(b => (typeof b === 'object' ? b.name : b) === oldName);
                     if (index > -1) {
-                        const existingItem = subCatObj.builtupTypes[index];
-                        const existingId = typeof existingItem === 'object' ? existingItem.id || existingItem._id : undefined;
                         const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, newName, 'update', oldName);
-                        if (res && (res._id || res.id || existingId)) {
-                            const newId = (res._id || res.id || existingId).toString();
-                            subCatObj.builtupTypes[index] = { _id: newId, name: newName };
-                            
-                            await updateConfig(newConfig);
+                        if (res) {
                             showToast(`Builtup Type updated to '${newName}'.`);
                         }
                     }
@@ -763,14 +717,10 @@ const PropertySettingsPage = () => {
 
     const handleDeleteBuiltupType = (name) => {
         openConfirmModal(`Delete Builtup Type '${name}'?`, async () => {
-            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            const subCatObj = newConfig[configCategory].subCategories.find(s => s.name === configSubCategory);
+            const subCatObj = propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory);
             if (subCatObj) {
                 if (subCatObj.builtupTypes?.some(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) === name)) {
-                    subCatObj.builtupTypes = subCatObj.builtupTypes.filter(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) !== name);
                     await syncBuiltupTypeLookup(configCategory, configSubCategory, name, 'delete');
-                    
-                    await updateConfig(newConfig);
                     showToast(`Builtup Type '${name}' deleted.`);
                 }
             }

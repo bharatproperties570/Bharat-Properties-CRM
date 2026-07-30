@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -33,24 +34,22 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
 
     if (!isOpen) return null;
 
-    return (
+    return ReactDOM.createPortal(
         <AnimatePresence>
             <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                className="fixed bottom-6 right-6 z-[999999] flex flex-col items-end justify-end pointer-events-none"
             >
-                {/* Dark Glassmorphism Backdrop */}
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={isDone ? onClose : undefined} />
-
                 {/* Main Toast Container */}
                 <motion.div 
-                    initial={{ scale: 0.9, y: 50, opacity: 0 }}
-                    animate={{ scale: 1, y: 0, opacity: 1 }}
-                    exit={{ scale: 0.9, y: -50, opacity: 0 }}
+                    initial={{ scale: 0.9, x: 50, opacity: 0 }}
+                    animate={{ scale: 1, x: 0, opacity: 1 }}
+                    exit={{ scale: 0.9, x: 50, opacity: 0 }}
                     transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                    className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-slate-900/80 p-8 shadow-[0_0_40px_rgba(34,197,94,0.1)] backdrop-blur-xl"
+                    className="relative w-80 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 p-6 shadow-[0_10px_40px_rgba(34,197,94,0.3)] backdrop-blur-xl pointer-events-auto cursor-pointer"
+                    onClick={isDone ? onClose : undefined}
                 >
                     {/* Progress Ring / Glow Background */}
                     <div className="absolute inset-0 flex items-center justify-center opacity-20">
@@ -181,7 +180,8 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                     </div>
                 </motion.div>
             </motion.div>
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body
     );
 };
 
