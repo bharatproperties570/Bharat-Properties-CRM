@@ -127,6 +127,27 @@ export const getLookups = async (req, res) => {
  */
 export const addLookup = async (req, res) => {
     try {
+        const { lookup_type, lookup_value, parent_lookup_id } = req.body;
+        
+        if (lookup_type && lookup_value) {
+            // Case-insensitive duplicate check
+            const escapedValue = lookup_value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+            const filter = { 
+                lookup_type, 
+                lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } 
+            };
+            if (parent_lookup_id) {
+                filter.parent_lookup_id = parent_lookup_id;
+            } else {
+                filter.parent_lookup_id = null;
+            }
+            
+            const existing = await Lookup.findOne(filter);
+            if (existing) {
+                return res.status(200).json({ status: "success", data: existing, message: "Lookup already exists" });
+            }
+        }
+
         if (req.body.parent_lookup_id) {
             const parent = await Lookup.findById(req.body.parent_lookup_id);
             if (parent) {

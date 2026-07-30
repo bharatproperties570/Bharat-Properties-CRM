@@ -36,6 +36,7 @@ import CallModal from './components/CallModal'; // Import CallModal
 import CallResolutionModal from './components/CallResolutionModal';
 import PublicChatWidget from './components/PublicChatWidget';
 import WhatsAppNotificationPoller from './components/WhatsAppNotificationPoller';
+import LiveNotificationListener from './components/LiveNotificationListener';
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -368,6 +369,7 @@ const AppContent = () => {
 
     return (
         <>
+            <LiveNotificationListener onNavigate={handleNavigate} />
             <WhatsAppNotificationPoller onNavigate={handleNavigate} />
             <MainLayout currentView={currentView} onNavigate={handleNavigate}>
                 {(modalHandlers) => (

@@ -9,6 +9,7 @@
  */
 
 import { api, emailAPI } from './api';
+import Swal from 'sweetalert2';
 
 // ─── WhatsApp ───────────────────────────────────────────────────────────────
 // POST /api/whatsapp-config/send
@@ -121,10 +122,34 @@ export const dispatchEmail = async ({ email, message, subject: explicitSubject }
  * @param {string} params.smsTemplateId    - Optional SMS template ID for DLT compliance
  * @returns {Promise<Array>}               - Array of dispatch results per channel
  */
-export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubjects = {}, phone, email, smsTemplateId, waTemplateId, waTemplateComponents, waHeaderImageUrl }) => {
+export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubjects = {}, phone, email, smsTemplateId, waTemplateId, waTemplateComponents, waHeaderImageUrl, showUI = true }) => {
     const results = [];
+    
+    // Inline style for futuristic progress bar
+    const progressStyle = `
+        <style>
+            @keyframes slideProgress { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+        </style>
+        <div style="width: 100%; background: #e5e7eb; border-radius: 9999px; overflow: hidden; height: 6px; position: relative;">
+            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #10b981; animation: slideProgress 1.5s infinite linear;"></div>
+        </div>
+    `;
+
+    if (showUI && (activeTriggers.whatsapp || activeTriggers.sms || activeTriggers.email)) {
+        Swal.fire({
+            title: 'Initializing Dispatch...',
+            html: '<div style="margin-top: 10px; font-size: 14px; color: #6b7280;">Establishing secure connection to communication servers...</div>' + progressStyle,
+            allowOutsideClick: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+    }
 
     if (activeTriggers.whatsapp && (channelMessages.whatsapp || waTemplateId)) {
+        if (showUI) Swal.update({ title: 'Meta API', html: '<div style="margin-top: 10px; font-size: 14px; color: #25D366; font-weight: 600;">Dispatching WhatsApp Message...</div>' + progressStyle });
+        
         const result = await dispatchWhatsApp({ 
             phone, 
             message: channelMessages.whatsapp || '', // body preview text (can be empty for Meta templates)
@@ -136,6 +161,7 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
     }
 
     if (activeTriggers.sms && channelMessages.sms) {
+        if (showUI) Swal.update({ title: 'SMS Gateway', html: '<div style="margin-top: 10px; font-size: 14px; color: #3b82f6; font-weight: 600;">Dispatching SMS...</div>' + progressStyle });
         const result = await dispatchSMS({ 
             phone, 
             message: channelMessages.sms,
@@ -145,6 +171,7 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
     }
 
     if (activeTriggers.email && channelMessages.email) {
+        if (showUI) Swal.update({ title: 'Email Gateway', html: '<div style="margin-top: 10px; font-size: 14px; color: #f59e0b; font-weight: 600;">Dispatching Email...</div>' + progressStyle });
         const result = await dispatchEmail({ 
             email, 
             message: channelMessages.email,
@@ -154,13 +181,45 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
     }
 
     const successChannels = results.filter(r => r.success).map(r => r.channel.toUpperCase());
-    const failedChannels = results.filter(r => !r.success).map(r => `${r.channel.toUpperCase()} (${r.error})`);
+    const failedResults = results.filter(r => !r.success);
+    const failedChannels = failedResults.map(r => `${r.channel.toUpperCase()} (${r.error})`);
 
     if (successChannels.length > 0) {
         console.log('[Dispatcher] 📤 Sent via:', successChannels.join(', '));
     }
     if (failedChannels.length > 0) {
         console.warn('[Dispatcher] ⚠️ Failed:', failedChannels.join(', '));
+    }
+
+    if (showUI && results.length > 0) {
+        if (failedResults.length > 0) {
+            let errorHtml = '<div style="text-align: left; background: #fee2e2; padding: 12px; border-radius: 8px; margin-top: 10px; max-height: 200px; overflow-y: auto;">';
+            failedResults.forEach(f => {
+                errorHtml += `<div style="margin-bottom: 8px;"><span style="color: #b91c1c; font-weight: 700; text-transform: uppercase; font-size: 12px;">${f.channel} Error</span><br/><span style="color: #7f1d1d; font-size: 14px;">${f.error}</span></div>`;
+            });
+            errorHtml += '</div>';
+            
+            // If some succeeded but some failed, show partial success
+            const title = successChannels.length > 0 ? 'Partial Dispatch Success' : 'Dispatch Failed';
+            const icon = successChannels.length > 0 ? 'warning' : 'error';
+
+            Swal.fire({
+                icon: icon,
+                title: title,
+                html: (successChannels.length > 0 ? `<div style="color: #10b981; font-weight: 600; margin-bottom: 10px;">Successfully sent via: ${successChannels.join(', ')}</div>` : '') + errorHtml,
+                confirmButtonColor: '#3b82f6',
+                confirmButtonText: 'Acknowledge'
+            });
+        } else {
+            Swal.fire({
+                icon: 'success',
+                title: 'Dispatch Successful',
+                html: `<div style="font-size: 15px; color: #10b981; font-weight: 500;">Securely delivered via ${successChannels.join(', ')}</div>`,
+                timer: 3000,
+                showConfirmButton: false,
+                backdrop: `rgba(16, 185, 129, 0.1)` // Subtle green glow backdrop
+            });
+        }
     }
 
     return results;

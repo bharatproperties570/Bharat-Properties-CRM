@@ -14,6 +14,7 @@ import DealVerificationService from '../services/DealVerificationService.js';
 import { receiveWebhook as legacyHandler } from '../controllers/social.controller.js';
 
 import Lead from '../models/Lead.js';
+import Inventory from '../models/Inventory.js';
 import Activity from '../models/Activity.js';
 import { autoTriggerStageChange } from '../controllers/activity.controller.js';
 import { createNotification } from '../controllers/notification.controller.js';
@@ -111,11 +112,17 @@ async function processWebhookEvent(traceId, body, req) {
 }
 
 async function processMessage(traceId, message, value, req) {
+    const rawMobile  = message?.from;
+    const mobile     = normalizePhone(rawMobile);
+    
+    // 🚀 ENTERPRISE FLOW LOGIC: Handle Flow Submissions
+    if (message?.type === 'interactive' && message?.interactive?.type === 'nfm_reply') {
+        return processFlowSubmission(traceId, message, mobile, req);
+    }
+
     if (message?.type !== 'text') return;
 
-    const rawMobile  = message?.from;
     const userText   = message?.text?.body || '';
-    const mobile     = normalizePhone(rawMobile);
 
     log.info(traceId, 'Incoming message', { mobile, msg: userText.slice(0, 50) });
 
@@ -179,3 +186,139 @@ async function processMessage(traceId, message, value, req) {
 }
 
 export default router;
+
+async function processFlowSubmission(traceId, message, mobile, req) {
+    try {
+        const nfm_reply = message.interactive.nfm_reply;
+        if (!nfm_reply || !nfm_reply.response_json) {
+            log.warn(traceId, 'Flow submission missing response_json');
+            return;
+        }
+
+        const payload = JSON.parse(nfm_reply.response_json);
+        log.info(traceId, 'Flow submission received', { mobile, payload });
+
+        // 1. Find the most recently contacted Inventory for this mobile
+        // Search across populated owners or direct legacy fields
+        const inventory = await Inventory.findOne({
+            $or: [
+                { 'owners.phones.number': mobile },
+                { 'ownerPhone': mobile },
+                { 'associates.contact.phones.number': mobile },
+                { 'associatedPhone': mobile }
+            ]
+        }).sort({ lastContactedAt: -1 }).populate('owners');
+
+        if (!inventory) {
+            log.warn(traceId, 'No matching Inventory found for flow submission', { mobile });
+            return;
+        }
+
+        // 2. Map Flow Payload to CRM Fields
+        let result = 'Not Interested';
+        let reason = 'Unknown';
+        let status = 'Active';
+        let markAsSold = false;
+        let intent = null;
+        let scheduleFollowUp = false;
+
+        if (payload.interested) {
+            result = 'Interested';
+            scheduleFollowUp = true;
+            if (payload.interested === 'ready_to_sell') { reason = 'Ready to Sell Now'; intent = 'For Sale'; }
+            else if (payload.interested === 'wants_to_buy') { reason = 'Wants to Buy (Invest)'; intent = 'For Sale'; }
+            else if (payload.interested === 'sell_and_buy') { reason = 'Sell & Buy (Re-invest)'; intent = 'For Sale'; }
+            else if (payload.interested === 'wants_to_rent') { reason = 'Wants to Rent'; intent = 'For Rent'; }
+        } else if (payload.not_interested) {
+            result = 'Not Interested';
+            if (payload.not_interested === 'sold_out') { reason = 'Sold Out'; status = 'Sold Out'; markAsSold = true; }
+            else if (payload.not_interested === 'rented_out') { reason = 'Rented Out'; status = 'Rented Out'; markAsSold = true; }
+            else if (payload.not_interested === 'unreasonable_demand') { reason = 'Unreasonable demand'; status = 'Inactive'; }
+            else if (payload.not_interested === 'plan_dropped') { reason = 'Plan Dropped/Personal'; status = 'Inactive'; }
+            else if (payload.not_interested === 'family_dispute') { reason = 'Family Dispute'; status = 'Inactive'; }
+            else if (payload.not_interested === 'self_use') { reason = 'Self Use'; status = 'Inactive'; }
+            else if (payload.not_interested === 'sell_future') { reason = 'Sell in Future'; status = 'Inactive'; scheduleFollowUp = true; }
+            else if (payload.not_interested === 'inquiring_rates') { reason = 'Inquiring Rates Only'; status = 'Inactive'; }
+        }
+
+        const customMessage = payload.message || '';
+        const interactionNote = `${result} (${reason}) - Flow Auto-Reply: ${customMessage}`;
+
+        // 3. Construct Update Payload
+        const updatePayload = {
+            $push: {
+                interactions: {
+                    note: interactionNote,
+                    actor: mobile, // owner identifier
+                    details: {
+                        result,
+                        reason,
+                        feedback: customMessage,
+                        source: 'WhatsApp Flow'
+                    }
+                }
+            },
+            $set: {
+                lastContactedAt: new Date().toISOString(),
+                lastContactDate: new Date().toLocaleDateString('en-GB'),
+                lastContactUser: 'Auto (Flow)',
+                remarks: `${result} (${reason}): ${customMessage}`,
+                status: status
+            }
+        };
+
+        if (intent && !inventory.intent?.includes(intent)) {
+            updatePayload.$addToSet = { intent: intent };
+        }
+
+        let nextActionDateObj = null;
+        if (payload.call_date && payload.call_date !== 'undefined' && payload.call_date !== 'null') {
+            // Meta sends unix timestamp string e.g. "1698239081000"
+            const parsedDate = new Date(parseInt(payload.call_date));
+            if (!isNaN(parsedDate.getTime())) {
+                const dateStr = parsedDate.toISOString().split('T')[0];
+                let timeStr = '10:00';
+                if (payload.call_time === 'afternoon') timeStr = '14:00';
+                else if (payload.call_time === 'evening') timeStr = '17:00';
+                
+                nextActionDateObj = new Date(`${dateStr}T${timeStr}:00`);
+                updatePayload.$set.followUpDate = nextActionDateObj.toISOString();
+                scheduleFollowUp = true;
+            }
+        }
+
+        // 4. Update Inventory
+        await Inventory.findByIdAndUpdate(inventory._id, updatePayload);
+        log.info(traceId, `Successfully updated Inventory ${inventory.unitNo} from Flow`, { inventoryId: inventory._id });
+
+        // 5. Activity & Notification Engine
+        // Create Follow Up Activity if needed
+        if (scheduleFollowUp && nextActionDateObj) {
+            await Activity.create({
+                type: 'Follow Up',
+                subject: `Flow Follow-up: Call for Unit ${inventory.unitNo}`,
+                status: 'Pending',
+                priority: 'High',
+                scheduledDate: nextActionDateObj,
+                dueDate: nextActionDateObj,
+                relatedTo: [{ id: inventory._id, name: inventory.unitNo, model: 'Inventory' }],
+                participants: [{ name: 'Owner (Flow)', mobile }],
+                description: `Owner requested follow-up via WhatsApp Flow.\nReason: ${reason}\nMessage: ${customMessage}`
+            });
+        }
+
+        // Notify assigned owner
+        if (inventory.assignedTo) {
+            await createNotification(
+                inventory.assignedTo,
+                'inventory',
+                '📱 Flow Feedback Received!',
+                `Owner of Unit ${inventory.unitNo} submitted feedback via WhatsApp: ${result} (${reason}).`,
+                `/inventory/${inventory._id}`
+            );
+        }
+
+    } catch (e) {
+        log.error(traceId, 'Error processing Flow submission', { error: e.message });
+    }
+}

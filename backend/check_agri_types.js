@@ -8,15 +8,19 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 import Lookup from './models/Lookup.js';
-import SystemSetting from './src/modules/systemSettings/system.model.js';
 
 const run = async () => {
     try {
         const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
         await mongoose.connect(uri);
         
-        const lookups = await Lookup.find({ lookup_type: 'SubCategory', lookup_value: { $regex: /cropland/i } });
-        console.log('Cropland matches in Lookups:', lookups);
+        const types = await Lookup.find({ lookup_type: 'PropertyType' });
+        
+        types.forEach(s => {
+            if (s.lookup_value.toLowerCase().includes('crop') || s.lookup_value.toLowerCase().includes('wood')) {
+                console.log(`PropertyType: ${s.lookup_value} (ID: ${s._id}, parent_id: ${s.parent_lookup_id})`);
+            }
+        });
 
         process.exit(0);
     } catch (err) {

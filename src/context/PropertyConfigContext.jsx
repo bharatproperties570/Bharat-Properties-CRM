@@ -1346,98 +1346,64 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // Trigger Migration and Dynamic Hydration when lookups load
     useEffect(() => {
-        if (Object.keys(lookups).length > 0 && propertyConfig) {
-            const { migratedConfig, hasChanged } = migrateConfigToIds(propertyConfig, lookups);
+        if (Object.keys(lookups).length > 0) {
+            // PROFESSIONAL ENTERPRISE REFACTOR:
+            // The `lookups` collection is now the Single Source of Truth for all Property Configurations.
+            // Instead of just hydrating missing IDs, we completely derive `propertyConfig` dynamically from `lookups`.
+            // This ensures that any change in the DB instantly reflects across the entire UI.
             
-            // PROFESSIONAL HYDRATION: Sync Builtup Types dynamically from lookups
-            let isHydrated = false;
-            const hydratedConfig = JSON.parse(JSON.stringify(migratedConfig));
+            console.log('[PropertyConfigContext] Building propertyConfig dynamically from Lookups as Single Source of Truth.');
+            const newConfig = {};
 
-            const catMap = new Map();
-            if (lookups.Category) lookups.Category.forEach(l => {
-                if (l.lookup_value && !catMap.has(l.lookup_value.toLowerCase())) catMap.set(l.lookup_value.toLowerCase(), l._id.toString());
-            });
-            
-            const subCatMap = new Map();
-            if (lookups.SubCategory) lookups.SubCategory.forEach(l => {
-                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value?.toLowerCase()}`;
-                if (l.lookup_value && !subCatMap.has(key)) subCatMap.set(key, l._id.toString());
-            });
-            
-            const typeMap = new Map();
-            if (lookups.PropertyType) lookups.PropertyType.forEach(l => {
-                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value?.toLowerCase()}`;
-                if (l.lookup_value && !typeMap.has(key)) typeMap.set(key, l._id.toString());
-            });
-            
-            const builtupMap = new Map();
-            if (lookups.BuiltupType) {
-                lookups.BuiltupType.forEach(l => {
-                    if (!l.lookup_value) return;
-                    const pid = l.parent_lookup_id?.toString();
-                    if (pid) {
-                        if (!builtupMap.has(pid)) builtupMap.set(pid, []);
-                        builtupMap.get(pid).push({ id: l._id.toString(), name: l.lookup_value });
-                    }
-                });
-            }
+            const categories = lookups.Category || [];
+            const subCategories = lookups.SubCategory || [];
+            const propertyTypes = lookups.PropertyType || [];
+            const builtupTypes = lookups.BuiltupType || [];
 
-            Object.keys(hydratedConfig).forEach(catName => {
-                if (!catName) return;
-                const catId = catMap.get(catName.toLowerCase());
-                if (!catId) return;
+            // 1. Build Categories
+            categories.forEach(cat => {
+                if (!cat.lookup_value) return;
+                const catName = cat.lookup_value;
+                newConfig[catName] = { subCategories: [] };
                 
-                const cat = hydratedConfig[catName];
-                if (cat.subCategories) {
-                    cat.subCategories.forEach(sub => {
-                        if (!sub.name) return;
-                        const subCatId = subCatMap.get(`${catId}_${sub.name.toLowerCase()}`);
-                        if (!subCatId) return;
-                        // Professional Hoisting: Aggregate BuiltupTypes at the SubCategory level
-                        let expectedBuiltups = builtupMap.get(subCatId) || [];
-                        
-                        // Collect legacy builtup types attached to child Size Types
-                        if (sub.types) {
-                            sub.types.forEach(type => {
-                                if (!type.name) return;
-                                const typeId = typeMap.get(`${subCatId}_${type.name.toLowerCase()}`);
-                                if (typeId) {
-                                    const legacyBuiltups = builtupMap.get(typeId) || [];
-                                    expectedBuiltups = [...expectedBuiltups, ...legacyBuiltups];
-                                }
-                            });
-                        }
-
-                        // Deduplicate by name
-                        const uniqueBuiltupsMap = new Map();
-                        expectedBuiltups.forEach(bt => {
-                            if (!uniqueBuiltupsMap.has(bt.name.toLowerCase())) {
-                                uniqueBuiltupsMap.set(bt.name.toLowerCase(), bt);
-                            }
-                        });
-                        expectedBuiltups = Array.from(uniqueBuiltupsMap.values());
-
-                        const expectedLength = expectedBuiltups.length;
-                        const currentLength = sub.builtupTypes ? sub.builtupTypes.length : 0;
-                        
-                        const currentSet = new Set((sub.builtupTypes || []).map(b => typeof b === 'object' ? (b.id || b._id) : b));
-                        const isMatch = expectedLength === currentLength && expectedBuiltups.every(eb => currentSet.has(eb.id));
-                        
-                        if (!isMatch) {
-                            sub.builtupTypes = expectedBuiltups;
-                            isHydrated = true;
-                        }
+                // 2. Build SubCategories
+                const subs = subCategories.filter(s => {
+                    const pid = s.parent_lookup_id ? s.parent_lookup_id.toString() : null;
+                    return pid === cat._id?.toString() || pid === cat.id?.toString();
+                });
+                
+                subs.forEach(sub => {
+                    if (!sub.lookup_value) return;
+                    const subObj = { name: sub.lookup_value, types: [], builtupTypes: [] };
+                    
+                    // 3. Build Types
+                    const types = propertyTypes.filter(t => {
+                        const pid = t.parent_lookup_id ? t.parent_lookup_id.toString() : null;
+                        return pid === sub._id?.toString() || pid === sub.id?.toString();
                     });
-                }
+                    
+                    types.forEach(t => {
+                        if (t.lookup_value) subObj.types.push({ name: t.lookup_value });
+                    });
+                    
+                    // 4. Build Builtup Types
+                    const builtups = builtupTypes.filter(b => {
+                        const pid = b.parent_lookup_id ? b.parent_lookup_id.toString() : null;
+                        return pid === sub._id?.toString() || pid === sub.id?.toString();
+                    });
+                    
+                    builtups.forEach(b => {
+                        if (b.lookup_value) subObj.builtupTypes.push({ _id: (b._id || b.id).toString(), name: b.lookup_value });
+                    });
+                    
+                    newConfig[catName].subCategories.push(subObj);
+                });
             });
 
-            if (hasChanged || isHydrated) {
-                if (isHydrated) console.log('[PropertyConfigContext] Hydrating Builtup Types dynamically from Lookups collection.');
-                if (hasChanged) console.log('[PropertyConfigContext] Migrated legacy Builtup Types to ID-based objects.');
-                setPropertyConfig(hydratedConfig);
-            }
+            // Update state ONLY locally (skip DB sync back to SystemSettings since we now rely on lookups)
+            setPropertyConfig(newConfig, true);
         }
-    }, [lookups, migrateConfigToIds, propertyConfig, setPropertyConfig]);
+    }, [lookups, setPropertyConfig]);
 
     const getLookupId = useCallback((type, value) => {
         if (!value) return null;
@@ -2044,16 +2010,25 @@ export const PropertyConfigProvider = ({ children }) => {
         });
     }, [setProjectMasterFields, lookups, refreshLookups]);
 
+    const resolveLookup = async (type, name, parentId = null) => {
+        let found = findLookup(type, name, parentId);
+        if (!found) {
+            await refreshLookups();
+            found = findLookup(type, name, parentId);
+        }
+        return found;
+    };
+
     const syncCategoryLookup = useCallback(async (categoryName, mode = 'add', oldName = null) => {
         try {
             let result = null;
             if (mode === 'add') {
                 result = await lookupsAPI.create({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
             } else if (mode === 'update' && oldName) {
-                const existing = findLookup('Category', oldName);
+                const existing = await resolveLookup('Category', oldName);
                 if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: categoryName });
             } else if (mode === 'delete') {
-                const existing = findLookup('Category', categoryName);
+                const existing = await resolveLookup('Category', categoryName);
                 if (existing) await lookupsAPI.delete(existing._id);
             }
             await refreshLookups();
@@ -2066,17 +2041,17 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const syncSubCategoryLookup = useCallback(async (categoryName, subCategoryName, mode = 'add', oldName = null) => {
         try {
-            const category = findLookup('Category', categoryName);
+            const category = await resolveLookup('Category', categoryName);
             if (!category) return null;
 
             let result = null;
             if (mode === 'add') {
                 result = await lookupsAPI.create({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
             } else if (mode === 'update' && oldName) {
-                const existing = findLookup('SubCategory', oldName, category._id);
+                const existing = await resolveLookup('SubCategory', oldName, category._id);
                 if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: subCategoryName });
             } else if (mode === 'delete') {
-                const existing = findLookup('SubCategory', subCategoryName, category._id);
+                const existing = await resolveLookup('SubCategory', subCategoryName, category._id);
                 if (existing) await lookupsAPI.delete(existing._id);
             }
             await refreshLookups();
@@ -2089,19 +2064,19 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const syncPropertyTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, mode = 'add', oldName = null) => {
         try {
-            const category = findLookup('Category', categoryName);
+            const category = await resolveLookup('Category', categoryName);
             if (!category) return null;
-            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            const subCategory = await resolveLookup('SubCategory', subCategoryName, category._id);
             if (!subCategory) return null;
 
             let result = null;
             if (mode === 'add') {
                 result = await lookupsAPI.create({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
             } else if (mode === 'update' && oldName) {
-                const existing = findLookup('PropertyType', oldName, subCategory._id);
+                const existing = await resolveLookup('PropertyType', oldName, subCategory._id);
                 if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: typeName });
             } else if (mode === 'delete') {
-                const existing = findLookup('PropertyType', typeName, subCategory._id);
+                const existing = await resolveLookup('PropertyType', typeName, subCategory._id);
                 if (existing) await lookupsAPI.delete(existing._id);
             }
             await refreshLookups();
@@ -2114,21 +2089,21 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, builtupTypeName, mode = 'add', oldName = null) => {
         try {
-            const category = findLookup('Category', categoryName);
+            const category = await resolveLookup('Category', categoryName);
             if (!category) return null;
-            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            const subCategory = await resolveLookup('SubCategory', subCategoryName, category._id);
             if (!subCategory) return null;
 
             let result = null;
             if (mode === 'add') {
                 result = await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: subCategory._id, is_active: true });
             } else if (mode === 'update' && oldName) {
-                const existing = findLookup('BuiltupType', oldName, subCategory._id);
+                const existing = await resolveLookup('BuiltupType', oldName, subCategory._id);
                 if (existing) {
                     result = await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
                 }
             } else if (mode === 'delete') {
-                const existing = findLookup('BuiltupType', builtupTypeName, subCategory._id);
+                const existing = await resolveLookup('BuiltupType', builtupTypeName, subCategory._id);
                 if (existing) {
                     await lookupsAPI.delete(existing._id);
                     result = true;

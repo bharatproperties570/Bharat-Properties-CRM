@@ -15,8 +15,11 @@ const run = async () => {
         const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
         await mongoose.connect(uri);
         
-        const lookups = await Lookup.find({ lookup_type: 'SubCategory', lookup_value: { $regex: /cropland/i } });
-        console.log('Cropland matches in Lookups:', lookups);
+        const subCats = await Lookup.find({ lookup_value: { $regex: /cropland/i } });
+        console.log('All Cropland Lookups:', subCats);
+        
+        const sys = await SystemSetting.findOne({ key: 'propertyConfig' });
+        console.log('Agricultural Subcats in SystemSetting:', sys.value.Agricultural?.subCategories);
 
         process.exit(0);
     } catch (err) {

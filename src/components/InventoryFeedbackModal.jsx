@@ -153,9 +153,10 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             const detailedType = [cat, subCat, proj].filter(Boolean).join(' in ');
             const unitInfo = detailedType ? `${detailedType} (Unit ${inventory.unitNo})` : `Unit ${inventory.unitNo}`;
             const reason = typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason;
+            const actionTypeLabel = formData.nextActionType || 'Follow Up';
             const time = scheduleFollowUp && formData.nextActionTime ? `${formData.nextActionTime} on ${formData.nextActionDate}` : 'No further action';
             const discussionSummary = scheduleFollowUp 
-                ? `${resultStr} (${reason}). Next Action: ${time}`
+                ? `${resultStr} (${reason}). ${actionTypeLabel}: ${time}`
                 : `${resultStr} (${reason})`;
             const empName = currentUser?.name || 'Your Agent';
             const empMobile = currentUser?.mobile || currentUser?.phone || 'our support team';
@@ -269,7 +270,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             else if (activeTriggers.sms) setPreviewChannel('sms');
             else if (activeTriggers.email) setPreviewChannel('email');
         }
-    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
+    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {
@@ -483,7 +484,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                     waTemplateComponents: waTemplateComponents,
                     // Pass header image URL for property_owner_feedback template (IMAGE header)
                     waHeaderImageUrl: templateIds.wa === 'property_owner_feedback'
-                        ? 'https://files.catbox.moe/axqhoi.png'
+                        ? '/uploads/whatsapp_feedback_header.jpg'
                         : undefined
                 });
 
@@ -553,10 +554,10 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 }
 
                 onSave && onSave(formData);
-                toast.success("Feedback saved successfully");
+                // toast.success("Feedback saved successfully"); // Handled by futuristic dispatchAll
                 onClose();
             } else {
-                toast.error(response.data?.error || "Failed to save feedback");
+                toast.error(response.data?.error || "Failed to save feedback in database");
             }
         } catch (err) {
             console.error("Feedback Save Error:", err);

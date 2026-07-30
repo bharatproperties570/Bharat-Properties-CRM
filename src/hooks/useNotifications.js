@@ -31,7 +31,10 @@ export const useNotifications = (onNavigate) => {
                     audioRef.current.play().catch(e => {
                         console.warn('[Audio] Autoplay blocked. Interaction needed.');
                     });
-                    window.dispatchEvent(new CustomEvent('new-notification-alert'));
+                    const newArrivals = newNotifications.filter(n => !knownIds.current.has(n._id));
+                    window.dispatchEvent(new CustomEvent('new-notification-alert', { 
+                        detail: { newNotifications: newArrivals } 
+                    }));
                     
                     // Trigger Call Resolution Modal if applicable
                     const newPendingCalls = newNotifications.filter(n => !knownIds.current.has(n._id) && n.type === 'pending_call_resolution');

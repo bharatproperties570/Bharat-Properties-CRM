@@ -195,6 +195,19 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                     index: String(btnIdx),
                                     parameters: [{ type: 'text', text: String(btnTokenVal) }]
                                 });
+                            } else if (btn.type === 'FLOW') {
+                                // 🚀 ENTERPRISE FIX: FLOW buttons require a flow_token component parameter in the payload
+                                components.push({
+                                    type: 'button',
+                                    sub_type: 'flow',
+                                    index: String(btnIdx),
+                                    parameters: [{
+                                        type: 'action',
+                                        action: {
+                                            flow_token: `crm_flow_${Date.now()}_${Math.floor(Math.random()*1000)}`
+                                        }
+                                    }]
+                                });
                             }
                             // QUICK_REPLY buttons: NO component needed — Meta renders them automatically
                             // from the template definition. Do NOT add any component for them.
@@ -261,7 +274,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
                 const finalMediaUrl = headerImageUrl || mediaUrl || dbDefaultImage || (
                     hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
-                    hType === 'image' ? 'https://files.catbox.moe/axqhoi.png' :
+                    hType === 'image' ? '/uploads/whatsapp_feedback_header.jpg' :
                     'https://www.w3schools.com/html/mov_bbb.mp4'
                 );
 

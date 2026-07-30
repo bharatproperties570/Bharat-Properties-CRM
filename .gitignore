@@ -171,3 +171,4 @@ backend_log.txt
 # Uploads
 backend/uploads/
 deploy_server.sh
+backend_log_new.txt
