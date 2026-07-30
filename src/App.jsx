@@ -397,21 +397,6 @@ function App() {
                     <ContactConfigProvider>
                         <FieldRulesProvider>
                             <PropertyConfigProvider>
-                                <ParsingProvider>
-                                    <ActivityProvider>
-                                        <DistributionProvider>
-                                            <SequenceProvider>
-                                                <AutomatedActionsProvider>
-                                                    <TriggersProvider>
-                                                        <CallProvider>
-                                                            <ImportProvider>
-                                                                <WhatsAppTemplateProvider>
-                                                                <TemplateProvider>
-                                                                    {isWeb && <Toaster 
-                                                                        position="top-right" 
-                                                                        containerStyle={{ zIndex: 999999 }}
-                                                                    />}
-                                                                    <AppContent />
                                 <WhatsAppAnimationProvider>
                                     <ParsingProvider>
                                         <ActivityProvider>
