@@ -182,6 +182,10 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             const dispatchPromises = [];
             const apiChannels = ['whatsapp', 'email', 'sms', 'rcs'].filter(ch => blastChannels[ch]);
             
+            if (blastChannels.whatsapp) {
+                window.dispatchEvent(new CustomEvent('wa_dispatch_start', { detail: { type: 'marketing' } }));
+            }
+
             if (apiChannels.length > 0) {
                 dispatchPromises.push(
                     api.post('marketing/send-manual', {
@@ -197,6 +201,16 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         hideUnit,
                         templateId: selectedTemplateId || undefined,
                         matchContext: showOnlyPreferred ? 'perfect' : 'top'
+                    }).then((res) => {
+                        if (blastChannels.whatsapp) {
+                            setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: true } })), 800);
+                        }
+                        return res;
+                    }).catch((e) => {
+                        console.error('Dispatch failed', e);
+                        if (blastChannels.whatsapp) {
+                            setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: false } })), 800);
+                        }
                     })
                 );
             }

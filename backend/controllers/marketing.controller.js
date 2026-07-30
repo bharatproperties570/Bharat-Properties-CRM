@@ -1442,7 +1442,10 @@ export const executeDispatch = async (payload, user) => {
         
         const resolveLookupSafely = async (val) => {
             if (!val) return null;
-            const strVal = val.toString();
+            if (typeof val === 'object' && (val.lookup_value || val.name || val.label)) {
+                return val.lookup_value || val.name || val.label;
+            }
+            let strVal = typeof val === 'object' && val._id ? val._id.toString() : val.toString();
             if (/^[a-fA-F0-9]{24}$/.test(strVal)) {
                 const lkup = await Lookup.findById(strVal).lean();
                 if (lkup) return lkup.lookup_value || lkup.name || lkup.label;
@@ -1465,6 +1468,11 @@ export const executeDispatch = async (payload, user) => {
         } else if (base.sizeConfig) {
             const val = await resolveLookupSafely(base.sizeConfig);
             if (val && !base.sizeLabel) base.sizeLabel = val;
+        } else if (base.size) {
+            const val = await resolveLookupSafely(base.size);
+            if (val && !base.sizeLabel) base.sizeLabel = val;
+            else if (typeof base.size === 'string' && !/^[a-fA-F0-9]{24}$/.test(base.size)) base.sizeLabel = base.size;
+            else if (typeof base.size === 'object' && base.size.value) base.sizeLabel = base.size.value;
         }
 
         const lookupFields = ['facing', 'direction', 'roadWidth', 'unitType', 'buildupType', 'corner', 'category'];

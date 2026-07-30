@@ -718,7 +718,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     if (portfolioDetailLevel.includes('extended') && d.unitNo) line += ` (Unit: ${d.unitNo})`;
                     if (portfolioDetailLevel.includes('full')) {
                         if (d.location) line += ` in ${d.location}`;
-                        if (d.size) line += ` | Size: ${d.size}`;
+                        const sz = d.sizeLabel || d.sizeConfig?.lookup_value || d.sizeConfig?.name || d.sizeConfig?.label || (typeof d.size === 'object' ? d.size?.value : d.size);
+                        if (sz) line += ` | Size: ${sz}`;
                     }
                     line += ` - ${d.price && !hidePrice ? '₹'+d.price : 'Price on request'}`;
                     textPayload += line + '\n';
@@ -732,6 +733,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             // We'll iterate through all channels EXCEPT whatsapp_app to invoke the manual sender
             const dispatchPromises = [];
             
+            if (blastChannels.whatsapp && !channelSchedules?.whatsapp) {
+                window.dispatchEvent(new CustomEvent('wa_dispatch_start', { detail: { type: 'marketing' } }));
+            }
+
             ['whatsapp', 'email', 'sms', 'rcs'].forEach(ch => {
                 if (blastChannels[ch]) {
                     dispatchPromises.push(
@@ -745,7 +750,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             hideLocation,
                             templateId: selectedTemplateId || undefined,
                             matchContext: 'perfect'
-                        }).catch(e => console.error(`[Dispatch] Error on ${ch}:`, e))
+                        }).then((res) => {
+                            if (ch === 'whatsapp' && !channelSchedules?.whatsapp) {
+                                setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: true } })), 800);
+                            }
+                            return res;
+                        }).catch(e => {
+                            console.error(`[Dispatch] Error on ${ch}:`, e);
+                            if (ch === 'whatsapp' && !channelSchedules?.whatsapp) {
+                                setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: false } })), 800);
+                            }
+                        })
                     );
                 }
             });
