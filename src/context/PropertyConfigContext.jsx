@@ -1644,7 +1644,10 @@ export const PropertyConfigProvider = ({ children }) => {
                         console.log(`[PropertyConfigContext] Syncing key: ${setting.key}`);
                         foundKeys.add(setting.key);
                         switch (setting.key) {
-                            case 'propertyConfig': setPropertyConfig(setting.value, true); break;
+                            case 'propertyConfig': 
+                                // DELIBERATELY IGNORE: We now dynamically build propertyConfig entirely from Lookups collection (Single Source of Truth)
+                                // Do not overwrite it with stale SystemSettings JSON
+                                break;
                             case 'masterFields': 
                                 setMasterFields(prev => {
                                     const merged = { ...prev, ...setting.value };
