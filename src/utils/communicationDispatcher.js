@@ -166,8 +166,8 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
         results.push(result);
 
         if (showUI) {
-            // Trigger completion phase
-            window.dispatchEvent(new CustomEvent('wa_dispatch_end'));
+            // Trigger completion phase with an artificial delay to allow animation to render fully
+            setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end')), 800);
         }
     }
 
