@@ -415,7 +415,7 @@ const ImportDataPage = () => {
             });
 
             const totalRecords = transformedData.length;
-            const chunkSize = 2; // Reduced for more 'live' progress updates and to avoid 10s Vercel Timeout
+            const chunkSize = 200; // Increased to 200 since backend is now on AWS and not bound by Vercel 10s timeout
             let totalSuccessCount = 0;
             let totalErrorCount = 0;
             let totalNewCount = 0;
@@ -489,7 +489,7 @@ const ImportDataPage = () => {
                 moduleLabel: MODULE_CONFIG[module]?.label || module,
                 endpoint,
                 transformedData,
-                chunkSize: 2, // Reduced to 2 to prevent 10s serverless timeouts on Live API
+                chunkSize: chunkSize, // Pass the variable which is now set to 200
                 basePayload,
                 onComplete: (results) => {
                     setImportStats({
