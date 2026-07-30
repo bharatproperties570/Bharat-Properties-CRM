@@ -23,6 +23,7 @@ import { UserProvider, useUserContext } from './context/UserContext';
 import { ImportProvider } from './context/ImportContext';
 import { TemplateProvider } from './context/TemplateContext';
 import { WhatsAppTemplateProvider } from './context/WhatsAppTemplateContext';
+import { WhatsAppAnimationProvider } from './context/WhatsAppAnimationContext';
 import LoginPage from './pages/Auth/LoginPage';
 import ForgotPasswordPage from './pages/Auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
@@ -411,16 +412,33 @@ function App() {
                                                                         containerStyle={{ zIndex: 999999 }}
                                                                     />}
                                                                     <AppContent />
-                                                                </TemplateProvider>
-                                                                </WhatsAppTemplateProvider>
-                                                            </ImportProvider>
-                                                        </CallProvider>
-                                                    </TriggersProvider>
-                                                </AutomatedActionsProvider>
-                                            </SequenceProvider>
-                                        </DistributionProvider>
-                                    </ActivityProvider>
-                                </ParsingProvider>
+                                <WhatsAppAnimationProvider>
+                                    <ParsingProvider>
+                                        <ActivityProvider>
+                                            <DistributionProvider>
+                                                <SequenceProvider>
+                                                    <AutomatedActionsProvider>
+                                                        <TriggersProvider>
+                                                            <CallProvider>
+                                                                <ImportProvider>
+                                                                    <WhatsAppTemplateProvider>
+                                                                    <TemplateProvider>
+                                                                        {isWeb && <Toaster 
+                                                                            position="top-right" 
+                                                                            containerStyle={{ zIndex: 999999 }}
+                                                                        />}
+                                                                        <AppContent />
+                                                                    </TemplateProvider>
+                                                                    </WhatsAppTemplateProvider>
+                                                                </ImportProvider>
+                                                            </CallProvider>
+                                                        </TriggersProvider>
+                                                    </AutomatedActionsProvider>
+                                                </SequenceProvider>
+                                            </DistributionProvider>
+                                        </ActivityProvider>
+                                    </ParsingProvider>
+                                </WhatsAppAnimationProvider>
                             </PropertyConfigProvider>
                         </FieldRulesProvider>
                     </ContactConfigProvider >

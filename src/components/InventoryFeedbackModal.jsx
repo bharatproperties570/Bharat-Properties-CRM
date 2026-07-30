@@ -10,12 +10,7 @@ import { api } from '../utils/api';
 import { dispatchAll } from '../utils/communicationDispatcher';
 import toast from 'react-hot-toast';
 
-import BulkWhatsAppAnimation from './BulkWhatsAppAnimation';
-
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
-    const [isBulkAnimOpen, setIsBulkAnimOpen] = useState(false);
-    const [bulkTotal, setBulkTotal] = useState(0);
-    const [bulkCompleted, setBulkCompleted] = useState(0);
     const { masterFields } = usePropertyConfig();
     const { addActivity } = useActivities(); 
     const { fireEvent, triggers } = useTriggers();
@@ -455,15 +450,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             const response = await api.put(`inventory/${inventory._id}`, updatePayload);
 
             if (response.data && response.data.success) {
-                // Determine total recipients (for demo, if multiple owners exist, else 1)
-                const totalRecipients = inventory?.owners?.length > 1 ? inventory.owners.length : 1;
-                setBulkTotal(totalRecipients);
-                setBulkCompleted(0);
-                setIsBulkAnimOpen(true);
-
-                // Simulate processing time for animation
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                
                 // 1. Fire the feedback event for trigger engine
                 await fireEvent('inventory_feedback_submitted', {
                     ...inventory,
@@ -501,17 +487,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                         ? '/uploads/whatsapp_feedback_header.jpg'
                         : undefined
                 });
-
-                // Update completed count for animation
-                setBulkCompleted(1);
-                
-                if (totalRecipients > 1) {
-                    // Simulate further deliveries for demo purposes if bulk
-                    for(let i = 2; i <= totalRecipients; i++) {
-                        await new Promise(resolve => setTimeout(resolve, 800));
-                        setBulkCompleted(i);
-                    }
-                }
 
                 // Log each successfully dispatched channel as a CRM Activity
                 for (const result of dispatchResults) {
@@ -578,9 +553,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                     await addActivity(newActivity).catch(e => console.error("Follow-up activity creation failed:", e));
                 }
 
-                // Delay closing the modal until the animation finishes.
-                // onSave && onSave(formData);
-                // onClose();
+                onSave && onSave(formData);
+                onClose();
             } else {
                 toast.error(response.data?.error || "Failed to save feedback in database");
             }
@@ -1017,18 +991,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                     </div>
                 </div>
             </div>
-
-            {/* Bulk Animation Overlay */}
-            <BulkWhatsAppAnimation 
-                isOpen={isBulkAnimOpen} 
-                total={bulkTotal} 
-                completed={bulkCompleted} 
-                onClose={() => {
-                    setIsBulkAnimOpen(false);
-                    onSave && onSave(formData);
-                    onClose();
-                }} 
-            />
         </div>
     );
 };

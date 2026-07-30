@@ -135,7 +135,10 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
         </div>
     `;
 
-    if (showUI && (activeTriggers.whatsapp || activeTriggers.sms || activeTriggers.email)) {
+    // Suppress Swal if WhatsApp is active because the global Liquid Morph animation handles it
+    const useSwal = showUI && !activeTriggers.whatsapp && (activeTriggers.sms || activeTriggers.email);
+
+    if (useSwal) {
         Swal.fire({
             title: 'Initializing Dispatch...',
             html: '<div style="margin-top: 10px; font-size: 14px; color: #6b7280;">Establishing secure connection to communication servers...</div>' + progressStyle,
@@ -148,7 +151,10 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
     }
 
     if (activeTriggers.whatsapp && (channelMessages.whatsapp || waTemplateId)) {
-        if (showUI) Swal.update({ title: 'Meta API', html: '<div style="margin-top: 10px; font-size: 14px; color: #25D366; font-weight: 600;">Dispatching WhatsApp Message...</div>' + progressStyle });
+        if (showUI) {
+            // Trigger global Liquid Morph Animation
+            window.dispatchEvent(new CustomEvent('wa_dispatch_start', { detail: { total: 1 } }));
+        }
         
         const result = await dispatchWhatsApp({ 
             phone, 
@@ -158,6 +164,11 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
             headerImageUrl: waHeaderImageUrl
         });
         results.push(result);
+
+        if (showUI) {
+            // Trigger completion phase
+            window.dispatchEvent(new CustomEvent('wa_dispatch_end'));
+        }
     }
 
     if (activeTriggers.sms && channelMessages.sms) {
@@ -210,14 +221,13 @@ export const dispatchAll = async ({ activeTriggers, channelMessages, channelSubj
                 confirmButtonColor: '#3b82f6',
                 confirmButtonText: 'Acknowledge'
             });
-        } else {
+        } else if (useSwal) {
             Swal.fire({
                 icon: 'success',
-                title: 'Dispatch Successful',
-                html: `<div style="font-size: 15px; color: #10b981; font-weight: 500;">Securely delivered via ${successChannels.join(', ')}</div>`,
-                timer: 3000,
-                showConfirmButton: false,
-                backdrop: `rgba(16, 185, 129, 0.1)` // Subtle green glow backdrop
+                title: 'Dispatch Complete',
+                text: 'Communications have been successfully queued.',
+                timer: 2000,
+                showConfirmButton: false
             });
         }
     }
