@@ -1962,29 +1962,60 @@ export const addDeal = async (req, res) => {
             console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
         );
 
-        // 🎯 AI Lead Matching & Outreach (Email)
-        if (sanitizedData.sendMatchedDeal?.email) {
-            import('../services/outreach.service.js').then(async (m) => {
-                const DealObj = (await import('../models/Deal.js')).default;
-                const populatedDeal = await DealObj.findById(deal._id).populate([
-                    { path: 'subCategory', select: 'lookup_value' },
-                    { path: 'sizeType', select: 'lookup_value' },
-                    { path: 'unitType', select: 'lookup_value' },
-                    { path: 'sizeConfig', select: 'lookup_value' },
-                    { path: 'sizeLabel', select: 'lookup_value' },
-                    {
-                        path: 'inventoryId',
-                        populate: [
-                            { path: 'subCategory', select: 'lookup_value' },
-                            { path: 'sizeType', select: 'lookup_value' },
-                            { path: 'unitType', select: 'lookup_value' },
-                            { path: 'sizeConfig', select: 'lookup_value' },
-                            { path: 'sizeLabel', select: 'lookup_value' }
-                        ]
+        // 🎯 AI Lead Matching & Omnichannel Auto-Dispatch
+        if (sanitizedData.sendMatchedDeal && Object.values(sanitizedData.sendMatchedDeal).some(v => v === true || (typeof v === 'string' && v !== ''))) {
+            // Run asynchronously so deal creation doesn't block response
+            setTimeout(async () => {
+                try {
+                    const { matchLeads } = await import('./lead.controller.js');
+                    const { executeDispatch } = await import('./marketing.controller.js');
+
+                    // 1. Fetch matching leads using identical rules (same as Deal Match Center)
+                    const mockReqForMatch = {
+                        method: 'GET',
+                        query: { dealId: deal._id.toString(), budgetFlexibility: 20, sizeFlexibility: 20 }
+                    };
+                    const mockResForMatch = {
+                        status: function() { return this; },
+                        json: function(data) { this.data = data; return this; }
+                    };
+                    
+                    await matchLeads(mockReqForMatch, mockResForMatch);
+                    const matchedLeads = mockResForMatch.data?.matchingLeads || [];
+                    const leadIds = matchedLeads.map(l => l._id.toString());
+
+                    // 2. Dispatch if matches found and channels are selected
+                    const sd = sanitizedData.sendMatchedDeal;
+                    const toggles = {
+                        whatsapp: !!sd.whatsapp,
+                        whatsapp_app: !!sd.whatsapp_app,
+                        sms: !!sd.sms,
+                        email: !!sd.email,
+                        rcs: !!sd.rcs
+                    };
+                    const hasChannel = Object.values(toggles).some(v => v);
+                    
+                    if (leadIds.length > 0 && hasChannel) {
+                        console.log(`[AutoDispatch] Firing omni-dispatch for Deal ${deal._id} to ${leadIds.length} leads.`);
+                        const payload = { 
+                            dealIds: [deal._id.toString()], 
+                            leadIds: leadIds, 
+                            toggles, 
+                            hidePrice: !!sd.hidePrice, 
+                            hideUnit: !!sd.hideUnit, 
+                            hideLocation: !!sd.hideLocation, 
+                            templateId: sd.templateId && sd.templateId !== 'free_text' ? sd.templateId : null,
+                            matchContext: 'perfect'
+                        };
+                        const result = await executeDispatch(payload, req.user);
+                        console.log('[AutoDispatch] Result:', result);
+                    } else {
+                        console.log('[AutoDispatch] Skiped: No leads matched or no channels selected.');
                     }
-                ]).lean();
-                m.triggerDealMatchEmailOutreach(populatedDeal || deal, req.user);
-            }).catch(e => console.error("[OUTREACH_TRIGGER_ERROR]", e));
+                } catch(e) {
+                    console.error("[AUTO_DISPATCH_ERROR] Failed to auto-dispatch deal:", e);
+                }
+            }, 100);
         }
 
         res.status(201).json({ success: true, data: deal });
