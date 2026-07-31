@@ -32,14 +32,14 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
         ? `${Math.floor(etaSeconds / 60)}m ${Math.floor(etaSeconds % 60)}s`
         : `${Math.floor(etaSeconds)}s`;
 
-    return (
+    return ReactDOM.createPortal(
         <AnimatePresence>
             {isOpen && (
                 <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed bottom-6 right-6 z-[999999] flex flex-col items-end justify-end pointer-events-none"
+                    className="fixed bottom-4 right-4 z-[9999999] flex flex-col items-end justify-end pointer-events-none"
                 >
                     {/* Main Toast Container */}
                     <motion.div 
@@ -47,19 +47,19 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.9, opacity: 0, y: 20 }}
                         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                        className="relative w-64 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-4 shadow-[0_10px_40px_rgba(34,197,94,0.3)] backdrop-blur-xl pointer-events-auto cursor-pointer"
+                        className="relative w-48 overflow-hidden rounded-xl border border-white/10 bg-slate-900/95 p-3 shadow-[0_8px_30px_rgba(34,197,94,0.3)] backdrop-blur-xl pointer-events-auto cursor-pointer flex flex-row items-center gap-3"
                         onClick={isDone ? onClose : undefined}
                     >
                         {/* Progress Ring / Glow Background */}
-                        <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                            <svg className="h-40 w-40 -rotate-90 transform" viewBox="0 0 100 100">
+                        <div className="absolute inset-0 flex items-center justify-start pl-3 opacity-20 pointer-events-none">
+                            <svg className="h-12 w-12 -rotate-90 transform" viewBox="0 0 100 100">
                                 <circle
                                     cx="50"
                                     cy="50"
                                     r="45"
                                     fill="none"
                                     stroke="rgba(255,255,255,0.1)"
-                                    strokeWidth="2"
+                                    strokeWidth="4"
                                 />
                                 <motion.circle
                                     cx="50"
@@ -67,7 +67,7 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                     r="45"
                                     fill="none"
                                     stroke="#22c55e"
-                                    strokeWidth="4"
+                                    strokeWidth="8"
                                     strokeDasharray="283"
                                     strokeDashoffset={283 - (283 * progress) / 100}
                                     strokeLinecap="round"
@@ -76,21 +76,21 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                             </svg>
                         </div>
 
-                        <div className="relative z-10 flex flex-col items-center text-center">
+                        <div className="relative z-10 flex flex-row items-center gap-3 w-full">
                             
-                            {/* 3D Icon Container */}
-                            <div className="relative mb-4 h-16 w-16">
+                            {/* Icon Container */}
+                            <div className="relative h-10 w-10 shrink-0">
                                 <AnimatePresence mode="wait">
                                     {phase === 'morphing' && (
                                         <motion.div
                                             key="chat"
                                             initial={{ scale: 0.5, rotate: -10, opacity: 0 }}
                                             animate={{ scale: 1, rotate: 0, opacity: 1 }}
-                                            exit={{ scale: 1.5, filter: "blur(10px)", opacity: 0 }}
-                                            transition={{ duration: 0.8, ease: "easeInOut" }}
-                                            className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-tr from-green-600 to-emerald-400 shadow-[0_0_30px_rgba(34,197,94,0.5)]"
+                                            exit={{ scale: 1.2, opacity: 0 }}
+                                            transition={{ duration: 0.5 }}
+                                            className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-tr from-green-600 to-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.4)]"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" viewBox="0 0 24 24" fill="currentColor">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="currentColor">
                                                 <path d="M12 2C6.48 2 2 6.03 2 11c0 2.05.74 3.94 2.02 5.46L3 21.5l5.13-1.37A10.63 10.63 0 0012 20c5.52 0 10-4.03 10-9s-4.48-9-10-9zm0 16.2c-1.57 0-3.04-.39-4.33-1.07l-3.05.81.82-2.95C4.24 13.9 3.5 12.51 3.5 11c0-4.14 3.81-7.5 8.5-7.5s8.5 3.36 8.5 7.5-3.81 7.5-8.5 7.5z"/>
                                             </svg>
                                         </motion.div>
@@ -99,68 +99,59 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                     {phase === 'flying' && (
                                         <motion.div
                                             key="plane"
-                                            initial={{ x: -100, y: 100, scale: 0.5, opacity: 0 }}
+                                            initial={{ x: -20, y: 20, scale: 0.5, opacity: 0 }}
                                             animate={{ 
-                                                x: [0, 5, -5, 0], 
-                                                y: [0, -10, 5, 0],
+                                                x: [0, 2, -2, 0], 
+                                                y: [0, -4, 2, 0],
                                                 scale: 1, 
                                                 opacity: 1 
                                             }}
                                             transition={{ 
-                                                x: { repeat: Infinity, duration: 3, ease: "easeInOut" },
-                                                y: { repeat: Infinity, duration: 2.5, ease: "easeInOut" },
-                                                opacity: { duration: 0.5 }
+                                                x: { repeat: Infinity, duration: 2 },
+                                                y: { repeat: Infinity, duration: 1.5 }
                                             }}
-                                            className="absolute inset-0 flex items-center justify-center drop-shadow-[0_10px_20px_rgba(255,255,255,0.2)]"
+                                            className="absolute inset-0 flex items-center justify-center"
                                         >
-                                            <Send className="h-10 w-10 text-white/90" style={{ filter: "drop-shadow(0 0 15px rgba(255,255,255,0.4))" }} strokeWidth={1} />
-                                            
-                                            {/* Motion Trail */}
-                                            <motion.div 
-                                                animate={{ opacity: [0.5, 0], scale: [1, 1.5] }}
-                                                transition={{ repeat: Infinity, duration: 1 }}
-                                                className="absolute -bottom-2 -left-2 h-8 w-8 rounded-full bg-blue-400/20 blur-xl"
-                                            />
+                                            <Send className="h-6 w-6 text-white/90" style={{ filter: "drop-shadow(0 0 8px rgba(255,255,255,0.4))" }} strokeWidth={1.5} />
                                         </motion.div>
                                     )}
 
                                     {phase === 'success' && (
                                         <motion.div
                                             key="success"
-                                            initial={{ scale: 0, rotate: 180 }}
-                                            animate={{ scale: 1, rotate: 0 }}
-                                            transition={{ type: "spring", damping: 12, stiffness: 100 }}
+                                            initial={{ scale: 0 }}
+                                            animate={{ scale: 1 }}
                                             className="absolute inset-0 flex items-center justify-center"
                                         >
-                                            <CheckCircle2 className="h-12 w-12 text-green-400 drop-shadow-[0_0_20px_rgba(34,197,94,0.6)]" />
+                                            <CheckCircle2 className="h-8 w-8 text-green-400 drop-shadow-[0_0_10px_rgba(34,197,94,0.6)]" />
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
                             </div>
 
                             {/* Typography & Data */}
-                            <div className="space-y-2">
+                            <div className="flex flex-col flex-1 min-w-0">
                                 <motion.h3 
                                     animate={{ opacity: phase === 'success' ? 1 : 0.9 }}
-                                    className="bg-gradient-to-r from-white to-white/60 bg-clip-text text-lg font-bold tracking-tight text-transparent"
+                                    className="truncate bg-gradient-to-r from-white to-white/60 bg-clip-text text-sm font-bold tracking-tight text-transparent leading-tight"
                                 >
-                                    {phase === 'morphing' ? 'Initiating Transfer' : 
-                                     phase === 'success' ? 'Delivery Complete' : 
-                                     'Sending Messages'}
+                                    {phase === 'morphing' ? 'Initiating...' : 
+                                     phase === 'success' ? 'Completed' : 
+                                     'Sending...'}
                                 </motion.h3>
 
                                 {phase === 'flying' && (
                                     <motion.div 
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="flex flex-col gap-1"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className="flex flex-col"
                                     >
-                                        <p className="text-base font-semibold text-green-400">
-                                            {completed} <span className="text-xs font-normal text-slate-400">/ {total} Delivered</span>
+                                        <p className="text-[11px] font-semibold text-green-400 truncate">
+                                            {completed} / {total} Done
                                         </p>
-                                        <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
-                                            <Loader2 className="h-3 w-3 animate-spin" />
-                                            <span>ETA: {etaString}</span>
+                                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                            <Loader2 className="h-2 w-2 animate-spin shrink-0" />
+                                            <span className="truncate">ETA: {etaString}</span>
                                         </div>
                                     </motion.div>
                                 )}
@@ -169,9 +160,9 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                     <motion.p 
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
-                                        className="text-xs text-green-500/80"
+                                        className="text-[11px] text-green-500/80 leading-tight"
                                     >
-                                        All {total} packages secured and delivered.
+                                        All {total} sent.
                                     </motion.p>
                                 )}
                             </div>
@@ -180,7 +171,8 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                     </motion.div>
                 </motion.div>
             )}
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body
     );
 };
 
