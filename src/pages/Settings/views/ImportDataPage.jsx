@@ -415,7 +415,7 @@ const ImportDataPage = () => {
             });
 
             const totalRecords = transformedData.length;
-            const chunkSize = 10; // Reverted back to 10 for frequent UI progress updates and robust processing
+            const chunkSize = 2; // Exact chunk size from 4 days ago as per user memory
             let totalSuccessCount = 0;
             let totalErrorCount = 0;
             let totalNewCount = 0;
