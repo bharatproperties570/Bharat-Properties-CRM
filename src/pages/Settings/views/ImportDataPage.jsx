@@ -415,7 +415,7 @@ const ImportDataPage = () => {
             });
 
             const totalRecords = transformedData.length;
-            const chunkSize = 200; // Increased to 200 since backend is now on AWS and not bound by Vercel 10s timeout
+            const chunkSize = 10; // Reverted back to 10 for frequent UI progress updates and robust processing
             let totalSuccessCount = 0;
             let totalErrorCount = 0;
             let totalNewCount = 0;
