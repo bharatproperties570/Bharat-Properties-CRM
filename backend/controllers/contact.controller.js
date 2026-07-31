@@ -930,7 +930,7 @@ export const importContacts = async (req, res, next) => {
 
                 if ((!hNo || !street) && fullAddress && String(fullAddress).trim()) {
                     try {
-                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim(), true); // skipAI = true
                         hNo = parsed.houseNo || hNo;
                         street = parsed.street || street;
                         area = parsed.area || area;

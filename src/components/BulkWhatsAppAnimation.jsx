@@ -47,12 +47,12 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.9, opacity: 0, y: 20 }}
                         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                        className="relative w-80 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/95 p-6 shadow-[0_10px_40px_rgba(34,197,94,0.3)] backdrop-blur-xl pointer-events-auto cursor-pointer"
+                        className="relative w-64 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-4 shadow-[0_10px_40px_rgba(34,197,94,0.3)] backdrop-blur-xl pointer-events-auto cursor-pointer"
                         onClick={isDone ? onClose : undefined}
                     >
                         {/* Progress Ring / Glow Background */}
                         <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                            <svg className="h-64 w-64 -rotate-90 transform" viewBox="0 0 100 100">
+                            <svg className="h-40 w-40 -rotate-90 transform" viewBox="0 0 100 100">
                                 <circle
                                     cx="50"
                                     cy="50"
@@ -79,7 +79,7 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                         <div className="relative z-10 flex flex-col items-center text-center">
                             
                             {/* 3D Icon Container */}
-                            <div className="relative mb-8 h-32 w-32">
+                            <div className="relative mb-4 h-16 w-16">
                                 <AnimatePresence mode="wait">
                                     {phase === 'morphing' && (
                                         <motion.div
@@ -90,7 +90,7 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                             transition={{ duration: 0.8, ease: "easeInOut" }}
                                             className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-tr from-green-600 to-emerald-400 shadow-[0_0_30px_rgba(34,197,94,0.5)]"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-white" viewBox="0 0 24 24" fill="currentColor">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" viewBox="0 0 24 24" fill="currentColor">
                                                 <path d="M12 2C6.48 2 2 6.03 2 11c0 2.05.74 3.94 2.02 5.46L3 21.5l5.13-1.37A10.63 10.63 0 0012 20c5.52 0 10-4.03 10-9s-4.48-9-10-9zm0 16.2c-1.57 0-3.04-.39-4.33-1.07l-3.05.81.82-2.95C4.24 13.9 3.5 12.51 3.5 11c0-4.14 3.81-7.5 8.5-7.5s8.5 3.36 8.5 7.5-3.81 7.5-8.5 7.5z"/>
                                             </svg>
                                         </motion.div>
@@ -113,13 +113,13 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                             }}
                                             className="absolute inset-0 flex items-center justify-center drop-shadow-[0_10px_20px_rgba(255,255,255,0.2)]"
                                         >
-                                            <Send className="h-20 w-20 text-white/90" style={{ filter: "drop-shadow(0 0 15px rgba(255,255,255,0.4))" }} strokeWidth={1} />
+                                            <Send className="h-10 w-10 text-white/90" style={{ filter: "drop-shadow(0 0 15px rgba(255,255,255,0.4))" }} strokeWidth={1} />
                                             
                                             {/* Motion Trail */}
                                             <motion.div 
                                                 animate={{ opacity: [0.5, 0], scale: [1, 1.5] }}
                                                 transition={{ repeat: Infinity, duration: 1 }}
-                                                className="absolute -bottom-4 -left-4 h-16 w-16 rounded-full bg-blue-400/20 blur-xl"
+                                                className="absolute -bottom-2 -left-2 h-8 w-8 rounded-full bg-blue-400/20 blur-xl"
                                             />
                                         </motion.div>
                                     )}
@@ -132,17 +132,17 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                             transition={{ type: "spring", damping: 12, stiffness: 100 }}
                                             className="absolute inset-0 flex items-center justify-center"
                                         >
-                                            <CheckCircle2 className="h-24 w-24 text-green-400 drop-shadow-[0_0_20px_rgba(34,197,94,0.6)]" />
+                                            <CheckCircle2 className="h-12 w-12 text-green-400 drop-shadow-[0_0_20px_rgba(34,197,94,0.6)]" />
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
                             </div>
 
                             {/* Typography & Data */}
-                            <div className="space-y-3">
+                            <div className="space-y-2">
                                 <motion.h3 
                                     animate={{ opacity: phase === 'success' ? 1 : 0.9 }}
-                                    className="bg-gradient-to-r from-white to-white/60 bg-clip-text text-2xl font-bold tracking-tight text-transparent"
+                                    className="bg-gradient-to-r from-white to-white/60 bg-clip-text text-lg font-bold tracking-tight text-transparent"
                                 >
                                     {phase === 'morphing' ? 'Initiating Transfer' : 
                                      phase === 'success' ? 'Delivery Complete' : 
@@ -155,10 +155,10 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                         animate={{ opacity: 1, y: 0 }}
                                         className="flex flex-col gap-1"
                                     >
-                                        <p className="text-lg font-semibold text-green-400">
-                                            {completed} <span className="text-sm font-normal text-slate-400">/ {total} Delivered</span>
+                                        <p className="text-base font-semibold text-green-400">
+                                            {completed} <span className="text-xs font-normal text-slate-400">/ {total} Delivered</span>
                                         </p>
-                                        <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+                                        <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
                                             <Loader2 className="h-3 w-3 animate-spin" />
                                             <span>ETA: {etaString}</span>
                                         </div>
@@ -169,7 +169,7 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                     <motion.p 
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
-                                        className="text-sm text-green-500/80"
+                                        className="text-xs text-green-500/80"
                                     >
                                         All {total} packages secured and delivered.
                                     </motion.p>

@@ -450,6 +450,9 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             const response = await api.put(`inventory/${inventory._id}`, updatePayload);
 
             if (response.data && response.data.success) {
+                window.dispatchEvent(new CustomEvent('wa_dispatch_start', { detail: { total: 1 } }));
+                setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: true } })), 800);
+                
                 // 1. Fire the feedback event for trigger engine
                 await fireEvent('inventory_feedback_submitted', {
                     ...inventory,
