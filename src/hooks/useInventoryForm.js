@@ -671,6 +671,12 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 subCategory: getLookupId('SubCategory', payload.subCategory),
                 unitType: getLookupId('UnitType', payload.unitType),
                 sizeType: getLookupId('PropertyType', payload.sizeType), // Resolve sizeType against PropertyType
+                sizeConfig: getLookupId('Size', payload.size) || payload.sizeConfig,
+                sizeLabel: payload.size, // Retain string label for reference
+                size: (typeof payload.size === 'string' && payload.size.trim() !== '') ? {
+                    value: parseFloat((payload.size.match(/[\d.]+/)?.[0]) || 0),
+                    unit: payload.size.replace(/[\d.]+/g, '').trim() || 'Sq.Yd.'
+                } : payload.size,
                 status: getLookupId('InventoryStatus', payload.status),
                 intent: getLookupId('Intent', payload.intent),
                 facing: getLookupId('Facing', payload.facing),

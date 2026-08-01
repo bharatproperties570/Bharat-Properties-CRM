@@ -221,23 +221,34 @@ const InventoryTable = ({
                                                     if (!item) return null;
                                                     if (item.totalLandAreaText) return item.totalLandAreaText;
                                                     
-                                                    const resolved = resolveLookupFn(item.sizeConfig, 'Size') || 
-                                                                     resolveLookupFn(item.sizeType, 'PropertyType') ||
-                                                                     resolveLookupFn(item.sizeLabel, 'Size') ||
-                                                                     resolveLookupFn(item.sizeLabel, 'PropertyType');
-                                                    if (resolved && resolved !== '0' && resolved !== 0) return resolved;
+                                                    const extractStr = (val) => {
+                                                        if (!val) return null;
+                                                        if (typeof val === 'string') return /^[0-9a-fA-F]{24}$/.test(val) ? null : val;
+                                                        if (typeof val === 'object') {
+                                                            if (val.lookup_value) return val.lookup_value;
+                                                            if (val.name) return val.name;
+                                                            if (val.label) return val.label;
+                                                        }
+                                                        return null;
+                                                    };
+
+                                                    const c1 = resolveLookupFn(item.sizeConfig, 'Size') || extractStr(item.sizeConfig);
+                                                    if (c1 && c1 !== '0' && c1 !== 0) return c1;
                                                     
-                                                    if (item.sizeLabel && typeof item.sizeLabel === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.sizeLabel)) {
-                                                        return item.sizeLabel;
-                                                    }
+                                                    const c2 = resolveLookupFn(item.sizeType, 'PropertyType') || extractStr(item.sizeType);
+                                                    if (c2 && c2 !== '0' && c2 !== 0) return c2;
                                                     
-                                                    if (item.size && typeof item.size === 'object') {
-                                                        const val = Number(item.size.value);
-                                                        if (!isNaN(val) && val > 0) return `${val} ${item.size.unit || ''}`.trim();
-                                                    }
+                                                    const c3 = resolveLookupFn(item.sizeLabel, 'Size') || extractStr(item.sizeLabel);
+                                                    if (c3 && c3 !== '0' && c3 !== 0) return c3;
                                                     
-                                                    if (item.size && typeof item.size === 'string' && item.size !== '0' && item.size !== '0 Sq.Ft.') {
-                                                        return item.size;
+                                                    if (item.size) {
+                                                        if (typeof item.size === 'object') {
+                                                            const val = Number(item.size.value);
+                                                            if (!isNaN(val) && val > 0) return `${val} ${item.size.unit || ''}`.trim();
+                                                        }
+                                                        if (typeof item.size === 'string' && item.size !== '0' && item.size !== '0 Sq.Ft.') {
+                                                            return item.size;
+                                                        }
                                                     }
                                                     
                                                     return null;
