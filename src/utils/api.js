@@ -360,7 +360,15 @@ const apiRequest = async (endpoint, options = {}) => {
 
 // Lookups API
 export const lookupsAPI = {
-    getAll: () => apiRequest(`/lookups?_t=${Date.now()}`),
+    getAll: (type = null) => {
+        let url = '/lookups';
+        if (type) {
+            url += `?lookup_type=${encodeURIComponent(type)}&_t=${Date.now()}`;
+        } else {
+            url += `?_t=${Date.now()}`;
+        }
+        return apiRequest(url);
+    },
     getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}&_t=${Date.now()}`),
     getStates: () => apiRequest(`/lookups?lookup_type=State&_t=${Date.now()}`),
     getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}&_t=${Date.now()}`),
