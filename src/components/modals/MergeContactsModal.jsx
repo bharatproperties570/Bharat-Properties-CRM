@@ -4,7 +4,7 @@ import { contactsAPI } from '../../utils/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
-const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess }) => {
+const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess, importMode = false, onResolve }) => {
     const { isDark } = useTheme();
     const { getLookupValue } = usePropertyConfig();
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -128,6 +128,12 @@ const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess }
             .filter(id => id !== masterId);
 
         if (duplicateIds.length === 0) return toast.error("No duplicates to merge");
+
+        if (importMode && onResolve) {
+            onResolve({ masterContactId: masterId, resolvedData });
+            onClose();
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -271,7 +277,7 @@ const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess }
                                 >
                                     <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>Contact {idx + 1}</div>
                                     <div style={{ fontSize: '0.9rem', color: isDark ? '#cbd5e1' : '#475569' }}>{contact.firstName || contact.name} {contact.surname}</div>
-                                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '5px' }}>ID: {contact._id.slice(-6)}</div>
+                                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '5px' }}>ID: {contact._id ? String(contact._id).slice(-6) : 'NEW'}</div>
                                 </div>
                             ))}
                         </div>
@@ -459,14 +465,20 @@ const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess }
                                             
                                             // Format Address Function using getLookupValue
                                             const formatAddr = (addressData) => {
+                                                if (!addressData) return 'Empty Address';
                                                 const getVal = (val, type) => typeof val === 'object' ? val?.lookup_value || val?.name : (getLookupValue(type, val) || val);
                                                 const parts = [
                                                     addressData.hNo,
                                                     addressData.street,
                                                     addressData.landmark,
+                                                    addressData.area,
+                                                    getVal(addressData.location, 'Location'),
+                                                    getVal(addressData.postOffice, 'PostOffice'),
+                                                    getVal(addressData.tehsil, 'Tehsil'),
                                                     getVal(addressData.city, 'City'),
                                                     getVal(addressData.state, 'State'),
-                                                    getVal(addressData.pincode, 'Pincode')
+                                                    getVal(addressData.pincode, 'Pincode'),
+                                                    getVal(addressData.country, 'Country')
                                                 ].filter(Boolean);
                                                 return parts.join(', ');
                                             };
@@ -497,14 +509,20 @@ const MergeContactsModal = ({ isOpen, onClose, selectedContactsData, onSuccess }
                                             
                                             // Format Address Function using getLookupValue
                                             const formatAddr = (addressData) => {
+                                                if (!addressData) return 'Empty Address';
                                                 const getVal = (val, type) => typeof val === 'object' ? val?.lookup_value || val?.name : (getLookupValue(type, val) || val);
                                                 const parts = [
                                                     addressData.hNo,
                                                     addressData.street,
                                                     addressData.landmark,
+                                                    addressData.area,
+                                                    getVal(addressData.location, 'Location'),
+                                                    getVal(addressData.postOffice, 'PostOffice'),
+                                                    getVal(addressData.tehsil, 'Tehsil'),
                                                     getVal(addressData.city, 'City'),
                                                     getVal(addressData.state, 'State'),
-                                                    getVal(addressData.pincode, 'Pincode')
+                                                    getVal(addressData.pincode, 'Pincode'),
+                                                    getVal(addressData.country, 'Country')
                                                 ].filter(Boolean);
                                                 return parts.join(', ');
                                             };
