@@ -126,7 +126,7 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                             {[
                                 getLookupValue('UnitType', inventory.unitType),
                                 getLookupValue('SubCategory', inventory.subCategory),
-                                getLookupValue('Size', inventory.sizeConfig) || inventory.sizeLabel || formatSizeLabel(inventory)
+                                inventory.totalLandAreaText || getLookupValue('Size', inventory.sizeConfig) || inventory.sizeLabel || formatSizeLabel(inventory)
                             ].filter(Boolean).map(val => renderValue(val)).join(' • ')}
                         </h2>
                     </div>
