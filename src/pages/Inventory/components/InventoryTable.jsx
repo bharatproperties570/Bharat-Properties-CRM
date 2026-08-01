@@ -217,16 +217,34 @@ const InventoryTable = ({
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                                             {(() => {
-                                                const sizeStr = item.totalLandAreaText || 
-                                                                resolveInventoryLookup(item.sizeConfig, 'Size') || 
-                                                                resolveInventoryLookup(item.sizeType, 'PropertyType') ||
-                                                                resolveInventoryLookup(item.sizeLabel, 'Size') ||
-                                                                resolveInventoryLookup(item.sizeLabel, 'PropertyType') ||
-                                                                item.sizeLabel || 
-                                                                (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size);
-                                                
-                                                // Prevent rendering '0' if it's literally just the number 0
-                                                if (sizeStr === 0 || sizeStr === '0') return null;
+                                                const resolveSizeLabel = (item, resolveLookupFn) => {
+                                                    if (!item) return null;
+                                                    if (item.totalLandAreaText) return item.totalLandAreaText;
+                                                    
+                                                    const resolved = resolveLookupFn(item.sizeConfig, 'Size') || 
+                                                                     resolveLookupFn(item.sizeType, 'PropertyType') ||
+                                                                     resolveLookupFn(item.sizeLabel, 'Size') ||
+                                                                     resolveLookupFn(item.sizeLabel, 'PropertyType');
+                                                    if (resolved && resolved !== '0' && resolved !== 0) return resolved;
+                                                    
+                                                    if (item.sizeLabel && typeof item.sizeLabel === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.sizeLabel)) {
+                                                        return item.sizeLabel;
+                                                    }
+                                                    
+                                                    if (item.size && typeof item.size === 'object') {
+                                                        const val = Number(item.size.value);
+                                                        if (!isNaN(val) && val > 0) return `${val} ${item.size.unit || ''}`.trim();
+                                                    }
+                                                    
+                                                    if (item.size && typeof item.size === 'string' && item.size !== '0' && item.size !== '0 Sq.Ft.') {
+                                                        return item.size;
+                                                    }
+                                                    
+                                                    return null;
+                                                };
+
+                                                const sizeStr = resolveSizeLabel(item, resolveInventoryLookup);
+                                                if (!sizeStr) return null;
                                                 return renderValue(sizeStr);
                                             })()}
                                         </div>

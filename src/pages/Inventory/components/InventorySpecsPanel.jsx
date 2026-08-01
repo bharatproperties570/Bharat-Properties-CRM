@@ -123,11 +123,39 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                             <i className="fas fa-expand-arrows-alt" style={{ marginRight: '8px' }}></i> Size Label (Primary)
                         </p>
                         <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
-                            {[
-                                getLookupValue('UnitType', inventory.unitType),
-                                getLookupValue('SubCategory', inventory.subCategory),
-                                inventory.totalLandAreaText || getLookupValue('Size', inventory.sizeConfig) || inventory.sizeLabel || formatSizeLabel(inventory)
-                            ].filter(Boolean).map(val => renderValue(val)).join(' • ')}
+                            {(() => {
+                                const resolveSizeLabel = (item, resolveLookupFn) => {
+                                    if (!item) return null;
+                                    if (item.totalLandAreaText) return item.totalLandAreaText;
+                                    
+                                    const resolved = resolveLookupFn('Size', item.sizeConfig) || 
+                                                     resolveLookupFn('PropertyType', item.sizeType) ||
+                                                     resolveLookupFn('Size', item.sizeLabel) ||
+                                                     resolveLookupFn('PropertyType', item.sizeLabel);
+                                    if (resolved && resolved !== '0' && resolved !== 0) return resolved;
+                                    
+                                    if (item.sizeLabel && typeof item.sizeLabel === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.sizeLabel)) {
+                                        return item.sizeLabel;
+                                    }
+                                    
+                                    if (item.size && typeof item.size === 'object') {
+                                        const val = Number(item.size.value);
+                                        if (!isNaN(val) && val > 0) return `${val} ${item.size.unit || ''}`.trim();
+                                    }
+                                    
+                                    if (item.size && typeof item.size === 'string' && item.size !== '0' && item.size !== '0 Sq.Ft.') {
+                                        return item.size;
+                                    }
+                                    
+                                    return null;
+                                };
+                                const robustSizeStr = resolveSizeLabel(inventory, getLookupValue);
+                                return [
+                                    getLookupValue('UnitType', inventory.unitType),
+                                    getLookupValue('SubCategory', inventory.subCategory),
+                                    robustSizeStr
+                                ].filter(Boolean).map(val => renderValue(val)).join(' • ');
+                            })()}
                         </h2>
                     </div>
                     <div style={{ width: '1px', height: '40px', background: 'rgba(59, 130, 246, 0.2)' }}></div>

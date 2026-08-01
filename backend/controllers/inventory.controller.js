@@ -643,7 +643,7 @@ export const getInventory = async (req, res) => {
         });
 
         const uniqueLookupIds = new Set();
-        const categoricalFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'roadWidth', 'builtupType'];
+        const categoricalFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'sizeType', 'sizeLabel', 'roadWidth', 'builtupType'];
         const uniqueUserIds = new Set();
         const uniqueTeamIds = new Set();
         const uniqueProjectIds = new Set();
