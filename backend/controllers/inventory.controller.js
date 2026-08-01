@@ -2687,7 +2687,60 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         unitsClearedInThisBatch.add(invIdStr);
                                     }
 
-                                    if (!finalOwners.includes(ownerId.toString())) {
+                                    if (resolution === 'MERGE_DATA' && !unitsClearedInThisBatch.has(invIdStr)) {
+                                        const primaryOwnerId = existingOwnerIds[0];
+                                        if (primaryOwnerId && ownerId && primaryOwnerId.toString() !== ownerId.toString()) {
+                                            try {
+                                                const Contact = mongoose.models.Contact || mongoose.model('Contact');
+                                                const existingContact = await Contact.findById(primaryOwnerId);
+                                                const incomingContact = await Contact.findById(ownerId);
+                                                
+                                                if (existingContact && incomingContact) {
+                                                    // Merge new phone numbers
+                                                    const existingPhones = (existingContact.phones || []).map(p => p.number);
+                                                    const incomingPhones = incomingContact.phones || [];
+                                                    incomingPhones.forEach(p => {
+                                                        if (p.number && !existingPhones.includes(p.number)) {
+                                                            existingContact.phones.push(p);
+                                                        }
+                                                    });
+                                                    
+                                                    // Merge new emails
+                                                    const existingEmails = (existingContact.emails || []).map(e => e.address);
+                                                    const incomingEmails = incomingContact.emails || [];
+                                                    incomingEmails.forEach(e => {
+                                                        if (e.address && !existingEmails.includes(e.address)) {
+                                                            existingContact.emails.push(e);
+                                                        }
+                                                    });
+                                                    
+                                                    // Merge scalar fields if missing in existing
+                                                    const fieldsToFill = ['fatherName', 'name', 'professionCategory', 'professionSubCategory', 'designation', 'companyName'];
+                                                    fieldsToFill.forEach(f => {
+                                                        if (!existingContact[f] && incomingContact[f]) {
+                                                            existingContact[f] = incomingContact[f];
+                                                        }
+                                                    });
+                                                    
+                                                    await existingContact.save();
+                                                    
+                                                    // Soft-delete the duplicate contact that was just created from CSV
+                                                    await Contact.findByIdAndUpdate(ownerId, {
+                                                        isMerged: true,
+                                                        mergedInto: primaryOwnerId,
+                                                        status: 'Inactive'
+                                                    });
+                                                }
+                                            } catch (mergeErr) {
+                                                console.error("[IMPORT] Merge Data Error:", mergeErr);
+                                            }
+                                        }
+                                        // Keep the existing owners
+                                        finalOwners = [...existingOwnerIds];
+                                        unitsClearedInThisBatch.add(invIdStr);
+                                    }
+
+                                    if (resolution !== 'MERGE_DATA' && !finalOwners.includes(ownerId.toString())) {
                                         finalOwners.push(ownerId.toString());
                                     }
 

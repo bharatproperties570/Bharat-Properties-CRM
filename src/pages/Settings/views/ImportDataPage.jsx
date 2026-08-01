@@ -401,8 +401,8 @@ const ImportDataPage = () => {
                 });
             }
 
-            // Cleanup temp indexing
-            transformedData = transformedData.map(({ _rowIdx, ...item }) => {
+            // Ensure _rowIdx is kept for accurate conflict resolution matching on backend
+            transformedData = transformedData.map((item) => {
                 if (module === 'sizes' || module === 'inventory' || module === 'propertyOwners') {
                     const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
@@ -463,7 +463,7 @@ const ImportDataPage = () => {
             const basePayload = {
                 updateDuplicates: updateDuplicates,
                 teams: selectedTeams.length > 0 ? selectedTeams : undefined,
-                resolutions: module === 'propertyOwners' ? resolutions : undefined
+                resolutions: (module === 'propertyOwners' || module === 'contacts') ? resolutions : undefined
             };
 
             if (module === 'sizes') {
@@ -1336,6 +1336,16 @@ const ImportDataPage = () => {
                                                                                             style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #10b981', background: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#10b981' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? 'var(--bg-card)' : '#10b981', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                                                                         >
                                                                                             Keep Existing (CRM)
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={() => {
+                                                                                                handleResolutionChange(rowKey, conflict.type, 'MERGE_DATA');
+                                                                                                toast.success("Resolution saved: Merge Data");
+                                                                                                setExpandedConflictRow(null);
+                                                                                            }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #8b5cf6', background: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA' ? '#8b5cf6' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA' ? 'var(--bg-card)' : '#8b5cf6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                        >
+                                                                                            <i className="fas fa-compress-alt" style={{ marginRight: '6px' }}></i> Merge Data
                                                                                         </button>
                                                                                         {conflict.type === 'ownership' && (
                                                                                             <button 

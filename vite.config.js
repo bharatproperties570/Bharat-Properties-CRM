@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
         },
         server: {
             port: 5174,
-            strictPort: true,
+            strictPort: false,
             warmup: {
                 clientFiles: ['./src/main.jsx', './src/App.jsx'],
             },

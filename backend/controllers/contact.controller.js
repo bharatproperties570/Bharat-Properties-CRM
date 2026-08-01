@@ -74,7 +74,7 @@ export const getContacts = async (req, res, next) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter };
+        let query = { ...visibilityFilter, isMerged: { $ne: true } };
 
         // Handle Mobile CRM business vs individual filter
         if (req.query.contactType === "business") {
@@ -971,8 +971,16 @@ export const importContacts = async (req, res, next) => {
                 };
                 cleanObj(newItem);
 
+                const rowKey = `row_${item._rowIdx !== undefined ? item._rowIdx : i}`;
+                const resolution = req.body.resolutions?.[rowKey]?.contact_mobile;
+
                 if (mobile) {
-                    if (updateDuplicates) {
+                    if (resolution === 'SKIP_UPDATE') {
+                        // User explicitly chose Keep Existing -> skip update
+                        continue;
+                    }
+
+                    if (updateDuplicates || resolution === 'REPLACE_OWNER' || resolution === 'MERGE_DATA') {
                         // 🚀 [SENIOR] Flatten nested objects for dot-notation updates to prevent overwriting whole objects
                         const flatUpdate = {};
                         for (const key in newItem) {
@@ -987,13 +995,33 @@ export const importContacts = async (req, res, next) => {
                             }
                         }
 
-                        bulkOps.push({
-                            updateOne: {
-                                filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
-                                update: { $set: flatUpdate },
-                                upsert: true
+                        if (resolution === 'MERGE_DATA') {
+                            // Convert array set to addToSet to append instead of replacing
+                            const updateOp = { $set: { ...flatUpdate } };
+                            if (flatUpdate.phones) {
+                                delete updateOp.$set.phones;
+                                updateOp.$addToSet = { phones: { $each: newItem.phones } };
                             }
-                        });
+                            if (flatUpdate.emails) {
+                                delete updateOp.$set.emails;
+                                updateOp.$addToSet = { ...updateOp.$addToSet, emails: { $each: newItem.emails } };
+                            }
+                            bulkOps.push({
+                                updateOne: {
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    update: updateOp,
+                                    upsert: true
+                                }
+                            });
+                        } else {
+                            bulkOps.push({
+                                updateOne: {
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    update: { $set: flatUpdate },
+                                    upsert: true
+                                }
+                            });
+                        }
                     } else {
                         processedData.push(newItem);
                     }
@@ -1009,17 +1037,49 @@ export const importContacts = async (req, res, next) => {
                 });
             }
         }
-
-
         let newCount = 0;
         let updatedCount = 0;
 
         if (bulkOps.length > 0) {
-            const bulkResult = await Contact.bulkWrite(bulkOps, { ordered: false });
-            // bulkResult.upsertedCount = new items created via upsert
-            // bulkResult.modifiedCount = existing items updated
-            newCount += bulkResult.upsertedCount;
-            updatedCount += bulkResult.modifiedCount;
+            try {
+                if (dryRun) {
+                    updatedCount += bulkOps.length; // Approximate for dry run
+                } else {
+                    // Extract all mobiles from bulkOps to find target contacts
+                    const mobilesToSanitize = [];
+                    bulkOps.forEach(op => {
+                        const filter = op.updateOne?.filter;
+                        if (filter?.$or) {
+                            filter.$or.forEach(cond => {
+                                if (cond.mobile) mobilesToSanitize.push(cond.mobile);
+                                if (cond["phones.number"]) mobilesToSanitize.push(cond["phones.number"]);
+                            });
+                        }
+                    });
+
+                    // 🛡️ [SENIOR] Pre-sanitize database to prevent `Cannot create field in element {personalAddress: null}` 
+                    // This happens when dot-notation `$set` tries to update a nested field whose parent is explicitly `null`
+                    if (mobilesToSanitize.length > 0) {
+                        await Contact.updateMany(
+                            { $or: [{ mobile: { $in: mobilesToSanitize } }, { "phones.number": { $in: mobilesToSanitize } }] },
+                            { 
+                                $unset: { 
+                                    personalAddress: 1, 
+                                    correspondenceAddress: 1 
+                                } 
+                            },
+                            { session }
+                        );
+                    }
+
+                    const result = await Contact.bulkWrite(bulkOps, { ordered: false });
+                    newCount += result.upsertedCount;
+                    updatedCount += result.modifiedCount;
+                }
+            } catch (err) {
+                console.error("[IMPORT] Bulk write failed:", err);
+                throw err;
+            }
         }
 
         if (processedData.length > 0) {
@@ -1194,6 +1254,172 @@ export const getContactStats = async (req, res, next) => {
         });
     } catch (error) {
         console.error("[ERROR] getContactStats failed:", error);
+        next(error);
+    }
+};
+
+
+export const mergeContacts = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { masterContactId, duplicateContactIds, resolvedData } = req.body;
+
+        if (!masterContactId || !duplicateContactIds || !Array.isArray(duplicateContactIds) || duplicateContactIds.length === 0) {
+            return res.status(400).json({ success: false, message: 'Invalid payload' });
+        }
+
+        // 1. Verify all contacts exist
+        const masterContact = await Contact.findById(masterContactId).session(session);
+        if (!masterContact) {
+            throw new Error('Master contact not found');
+        }
+
+        const duplicates = await Contact.find({ _id: { $in: duplicateContactIds } }).session(session);
+        if (duplicates.length !== duplicateContactIds.length) {
+            throw new Error('One or more duplicate contacts not found');
+        }
+
+        // 2. Aggregate Arrays dynamically across all contacts (Master + Duplicates)
+        const allContacts = [masterContact, ...duplicates];
+        
+        const aggregateArray = (arrPath, keyField = null) => {
+            const combined = [];
+            const seen = new Set();
+            
+            allContacts.forEach(contact => {
+                const arr = contact[arrPath];
+                if (arr && Array.isArray(arr)) {
+                    arr.forEach(item => {
+                        let uniqueKey = keyField ? item[keyField]?.toString() : (item._id || item).toString();
+                        if (!seen.has(uniqueKey)) {
+                            seen.add(uniqueKey);
+                            combined.push(item);
+                        }
+                    });
+                }
+            });
+            return combined;
+        };
+
+        const aggregatedArrays = {
+            documents: aggregateArray('documents', 'documentType'),
+            educations: aggregateArray('educations', 'education'),
+            loans: aggregateArray('loans', 'loanType'),
+            incomes: aggregateArray('incomes', 'incomeType'),
+            socialMedia: aggregateArray('socialMedia', 'platform'),
+        };
+
+        // Ensure we don't accidentally overwrite arrays that were correctly resolved from UI
+        if (!resolvedData.documents) resolvedData.documents = aggregatedArrays.documents;
+        if (!resolvedData.educations) resolvedData.educations = aggregatedArrays.educations;
+        if (!resolvedData.loans) resolvedData.loans = aggregatedArrays.loans;
+        if (!resolvedData.incomes) resolvedData.incomes = aggregatedArrays.incomes;
+        if (!resolvedData.socialMedia) resolvedData.socialMedia = aggregatedArrays.socialMedia;
+
+        // Clean up any populated lookup objects before saving to prevent CastError
+        const cleanPopulated = (obj, isArrayElement = false) => {
+            if (!obj || typeof obj !== 'object') return obj;
+            if (Array.isArray(obj)) return obj.map(item => cleanPopulated(item, true));
+            
+            // If it's a populated lookup or user, extract its _id
+            // Do not blindly convert array elements (like emails/phones) to string IDs
+            if (obj._id && mongoose.Types.ObjectId.isValid(obj._id)) {
+                if (!isArrayElement || obj.lookup_value !== undefined || obj.name !== undefined) {
+                    return obj._id;
+                }
+            }
+            
+            const cleaned = {};
+            for (const key in obj) {
+                cleaned[key] = cleanPopulated(obj[key], false);
+            }
+            return cleaned;
+        };
+
+        const sanitizedResolvedData = cleanPopulated(resolvedData);
+
+        // 3. Update Master Contact with resolvedData and consolidated arrays
+        const masterDoc = await Contact.findById(masterContactId).session(session);
+        for (const [key, value] of Object.entries(sanitizedResolvedData)) {
+            masterDoc.set(key, value);
+        }
+        const updatedMaster = await masterDoc.save({ session });
+
+        // 4. Migrate Related Records (Leads, Activities, Bookings, Portfolios, Inventory owners)
+        
+        // Leads
+        await Lead.updateMany(
+            { contactDetails: { $in: duplicateContactIds } },
+            { $set: { contactDetails: masterContactId } },
+            { session }
+        );
+
+        // Activities
+        await Activity.updateMany(
+            { contact: { $in: duplicateContactIds } },
+            { $set: { contact: masterContactId } },
+            { session }
+        );
+
+        // Bookings
+        await Booking.updateMany(
+            { lead: { $in: duplicateContactIds } },
+            { $set: { lead: masterContactId } },
+            { session }
+        );
+        await Booking.updateMany(
+            { seller: { $in: duplicateContactIds } },
+            { $set: { seller: masterContactId } },
+            { session }
+        );
+
+        // Inventory owners
+        await Inventory.updateMany(
+            { owners: { $in: duplicateContactIds } },
+            { $addToSet: { owners: masterContactId } },
+            { session }
+        );
+        // Remove duplicate owner IDs from Inventory
+        await Inventory.updateMany(
+            { owners: { $in: duplicateContactIds } },
+            { $pullAll: { owners: duplicateContactIds } },
+            { session }
+        );
+
+        // 5. Soft Delete Duplicate Contacts
+        await Contact.updateMany(
+            { _id: { $in: duplicateContactIds } },
+            { $set: { isMerged: true, mergedInto: masterContactId, status: 'Merged' } },
+            { session }
+        );
+
+        // Audit Log on Master Contact
+        await Activity.create([{
+            type: 'Task',
+            subject: 'Contacts Merged',
+            entityType: 'Contact',
+            entityId: masterContactId,
+            dueDate: new Date(),
+            status: 'Completed',
+            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record.`,
+            performedBy: req.user?.fullName || req.user?.name || req.user?.email || 'System'
+        }], { session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        res.status(200).json({
+            success: true,
+            message: 'Contacts merged successfully',
+            data: updatedMaster
+        });
+
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        console.error('[ERROR] mergeContacts failed:', error);
         next(error);
     }
 };

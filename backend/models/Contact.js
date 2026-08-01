@@ -129,7 +129,11 @@ const ContactSchema = new mongoose.Schema({
     addOn: [String],
     groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ContactGroup', index: true }],
     isActionable: { type: Boolean, default: false },
-    googleContactId: { type: String, index: true }
+    googleContactId: { type: String, index: true },
+    
+    // Enterprise Merge Auditing (Soft-Delete)
+    isMerged: { type: Boolean, default: false, index: true },
+    mergedInto: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact', index: true }
 }, { timestamps: true, strict: true });
 
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

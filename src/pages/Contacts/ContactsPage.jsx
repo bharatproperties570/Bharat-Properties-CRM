@@ -26,6 +26,7 @@ import { PermissionGate } from '../../hooks/usePermissions';
 import ContactDependencyModal from '../../components/modals/ContactDependencyModal';
 import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
+import MergeContactsModal from '../../components/modals/MergeContactsModal';
 
 const renderAddressField = (val, getLookupValue, lookupType = null) => {
     if (val === null || val === undefined || val === '') return '';
@@ -412,6 +413,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
   const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   
   const { teams, users } = useUserContext();
   const { getLookupValue } = usePropertyConfig();
@@ -721,6 +723,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <button className="action-btn" onClick={() => { setSelectedContactsForAssign(getSelectedContacts()); setIsAssignModalOpen(true); }}><i className="fas fa-exchange-alt"></i> Assign</button>
                 <button className="action-btn" onClick={() => setIsAssignGroupModalOpen(true)}><i className="fas fa-folder-plus"></i> Groups</button>
                 <button className="action-btn" onClick={() => { setSelectedContactsForTags(getSelectedContacts()); setIsTagsModalOpen(true); }}><i className="fas fa-tag"></i> Tag</button>
+                {(selectedIds.length === 2 || selectedIds.length === 3) && (
+                  <PermissionGate module="contacts" action="edit">
+                    <button className="action-btn" onClick={() => setIsMergeModalOpen(true)}>
+                      <i className="fas fa-compress-arrows-alt"></i> Merge
+                    </button>
+                  </PermissionGate>
+                )}
                 {selectedIds.length === 1 && (
                   <button className="action-btn" onClick={() => {
                     const selected = getSelectedContacts()[0];
@@ -997,6 +1006,18 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           fetchContacts();
         }} 
       />
+
+      {isMergeModalOpen && (
+        <MergeContactsModal
+          isOpen={isMergeModalOpen}
+          onClose={() => setIsMergeModalOpen(false)}
+          selectedContactsData={getSelectedContacts()}
+          onSuccess={() => {
+            setSelectedIds([]);
+            fetchContacts();
+          }}
+        />
+      )}
 
     </section>
   );

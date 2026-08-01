@@ -557,6 +557,7 @@ export const contactsAPI = {
     update: (id, data) => apiRequest(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/contacts/${id}`, { method: 'DELETE' }),
     syncAll: () => apiRequest('/contacts/sync-all', { method: 'POST' }),
+    mergeContacts: (payload) => apiRequest('/contacts/merge', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
 // Activities API
