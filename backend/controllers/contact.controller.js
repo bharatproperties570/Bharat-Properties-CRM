@@ -979,8 +979,7 @@ export const importContacts = async (req, res, next) => {
                         // User explicitly chose Keep Existing -> skip update
                         continue;
                     }
-
-                    if (updateDuplicates || resolution === 'REPLACE_OWNER' || resolution === 'MERGE_DATA') {
+                    if (updateDuplicates || resolution === 'REPLACE_OWNER' || resolution === 'MERGE_DATA' || resolution === 'MERGE_DATA_CUSTOM') {
                         // 🚀 [SENIOR] Flatten nested objects for dot-notation updates to prevent overwriting whole objects
                         const flatUpdate = {};
                         for (const key in newItem) {
@@ -994,8 +993,33 @@ export const importContacts = async (req, res, next) => {
                                 flatUpdate[key] = newItem[key];
                             }
                         }
+                        if (resolution === 'MERGE_DATA_CUSTOM' && req.body.resolutions?.[rowKey]?.customData) {
+                            const customData = req.body.resolutions[rowKey].customData;
+                            const customUpdate = { $set: {} };
+                            
+                            if (customData.name) customUpdate.$set.name = customData.name;
+                            if (customData.fatherName) customUpdate.$set.fatherName = customData.fatherName;
+                            
+                            // Address Merge
+                            ['hNo', 'street', 'area', 'city', 'state', 'pincode', 'location'].forEach(f => {
+                                if (customData[f]) customUpdate.$set[`personalAddress.${f}`] = customData[f];
+                            });
 
-                        if (resolution === 'MERGE_DATA') {
+                            if (customData.mobile) {
+                                customUpdate.$set['phones.0'] = { type: 'Personal', number: customData.mobile };
+                            }
+                            if (customData.email) {
+                                customUpdate.$set['emails.0'] = { type: 'Personal', address: customData.email };
+                            }
+
+                            bulkOps.push({
+                                updateOne: {
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    update: customUpdate,
+                                    upsert: true
+                                }
+                            });
+                        } else if (resolution === 'MERGE_DATA') {
                             // Convert array set to addToSet to append instead of replacing
                             const updateOp = { $set: { ...flatUpdate } };
                             if (flatUpdate.phones) {

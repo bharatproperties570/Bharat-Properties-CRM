@@ -2371,7 +2371,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 }
 
                 const inventory = await Inventory.findOne(inventoryQuery)
-                    .populate({ path: 'owners', select: 'name phones' })
+                    .populate({ path: 'owners', select: 'name fatherName phones emails personalAddress' })
                     .select('_id projectName unitNo unitNumber block owners associates assignedTo team visibleTo').lean();
 
                 if (!inventory) {
@@ -2560,8 +2560,50 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         }
 
                         if (existingContact) {
-                            // 🚀 [ENTERPRISE] Auto-Merge Logic (No Data Mismatch Conflict UI)
-                            if (!dryRun) {
+                            // 🚀 [ENTERPRISE] Custom Merge Logic (From UI)
+                            if (resolution === 'MERGE_DATA_CUSTOM' && resolutions?.[rowKey]?.customData) {
+                                if (!dryRun) {
+                                    const customData = resolutions[rowKey].customData;
+                                    
+                                    if (customData.name) existingContact.name = customData.name;
+                                    if (customData.fatherName) existingContact.fatherName = customData.fatherName;
+                                    
+                                    if (customData.mobile) {
+                                        if (!existingContact.phones) existingContact.phones = [];
+                                        const phoneIndex = existingContact.phones.findIndex(p => p.type === 'Personal');
+                                        if (phoneIndex > -1) {
+                                            existingContact.phones[phoneIndex].number = customData.mobile;
+                                        } else {
+                                            existingContact.phones.unshift({ type: 'Personal', number: customData.mobile });
+                                        }
+                                    }
+                                    
+                                    if (customData.email) {
+                                        if (!existingContact.emails) existingContact.emails = [];
+                                        const emailIndex = existingContact.emails.findIndex(e => e.type === 'Personal');
+                                        if (emailIndex > -1) {
+                                            existingContact.emails[emailIndex].address = customData.email;
+                                        } else {
+                                            existingContact.emails.unshift({ type: 'Personal', address: customData.email });
+                                        }
+                                    }
+
+                                    // Address Merge
+                                    if (!existingContact.personalAddress) existingContact.personalAddress = {};
+                                    ['hNo', 'street', 'area', 'city', 'state', 'pincode', 'location'].forEach(f => {
+                                        if (customData[f]) {
+                                            existingContact.personalAddress[f] = customData[f];
+                                        }
+                                    });
+
+                                    existingContact.markModified('personalAddress');
+                                    existingContact.markModified('phones');
+                                    existingContact.markModified('emails');
+                                    await existingContact.save();
+                                }
+                            }
+                            // 🚀 [ENTERPRISE] Auto-Merge Logic (Default / Fallback)
+                            else if (!dryRun) {
                                 let needsSave = false;
 
                                 if (name && existingContact.name !== name) {
@@ -2649,7 +2691,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 const enrichedExistingOwners = existingOwners.map(o => ({
                                     contactId: (o._id || o).toString(),
                                     name: o.name || 'Unknown',
-                                    mobile: o.phones?.[0]?.number || 'N/A'
+                                    fatherName: o.fatherName || '',
+                                    mobile: o.phones?.[0]?.number || 'N/A',
+                                    phones: o.phones || [],
+                                    emails: o.emails || [],
+                                    personalAddress: o.personalAddress || {}
                                 }));
                                 results.conflicts.push({
                                     row: i + 1,
@@ -2662,7 +2708,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     incoming: {
                                         name: name || 'Unknown Owner',
                                         mobile: mobile || 'N/A',
-                                        fatherName: ownerFatherName || ''
+                                        email: email || '',
+                                        fatherName: ownerFatherName || '',
+                                        personalAddress: personalAddress || {}
                                     },
                                     // Existing data (from system)
                                     existing: {

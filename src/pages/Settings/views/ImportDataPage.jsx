@@ -5,6 +5,7 @@ import { useUserContext } from '../../../context/UserContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useImport } from '../../../context/ImportContext';
+import MergeContactsModal from '../../../components/modals/MergeContactsModal';
 
 const ImportDataPage = () => {
     const { startBackgroundImport } = useImport();
@@ -41,6 +42,7 @@ const ImportDataPage = () => {
     const [unitSearchResults, setUnitSearchResults] = useState({}); // { rowKey: [inventory items] }
     const conflictSectionRef = useRef(null);
     const [showOnlyConflicts, setShowOnlyConflicts] = useState(false);
+    const [activeMergeConflict, setActiveMergeConflict] = useState(null);
 
     // Global Defaults for Assignment
 
@@ -328,10 +330,10 @@ const ImportDataPage = () => {
         }
     };
 
-    const handleResolutionChange = (rowKey, type, action) => {
+    const handleResolutionChange = (rowKey, type, action, customData = null) => {
         setResolutions(prev => ({
             ...prev,
-            [rowKey]: { ...prev[rowKey], [type]: action }
+            [rowKey]: { ...prev[rowKey], [type]: action, ...(customData ? { customData } : {}) }
         }));
     };
 
@@ -1339,11 +1341,14 @@ const ImportDataPage = () => {
                                                                                         </button>
                                                                                         <button 
                                                                                             onClick={() => {
-                                                                                                handleResolutionChange(rowKey, conflict.type, 'MERGE_DATA');
-                                                                                                toast.success("Resolution saved: Merge Data");
-                                                                                                setExpandedConflictRow(null);
+                                                                                                setActiveMergeConflict({
+                                                                                                    rowKey,
+                                                                                                    conflict,
+                                                                                                    existingRecord: conflict.existingRecord || (conflict.existing?.owners?.[0] || {}),
+                                                                                                    csvData: conflict.csvData || conflict.incoming || fileData.data[conflict.rowIdx]
+                                                                                                });
                                                                                             }}
-                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #8b5cf6', background: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA' ? '#8b5cf6' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA' ? 'var(--bg-card)' : '#8b5cf6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #8b5cf6', background: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA_CUSTOM' ? '#8b5cf6' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'MERGE_DATA_CUSTOM' ? 'var(--bg-card)' : '#8b5cf6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                                                                         >
                                                                                             <i className="fas fa-compress-alt" style={{ marginRight: '6px' }}></i> Merge Data
                                                                                         </button>
@@ -1912,6 +1917,41 @@ const ImportDataPage = () => {
                 </div>
             )}
             </div>
+            
+            {/* Granular Merge Modal for Conflicts */}
+            {activeMergeConflict && (
+                <MergeContactsModal
+                    isOpen={true}
+                    onClose={() => setActiveMergeConflict(null)}
+                    importMode={true}
+                    selectedContactsData={[
+                        { 
+                            ...activeMergeConflict.existingRecord, 
+                            _id: activeMergeConflict.existingRecord?._id || activeMergeConflict.existingRecord?.contactId || 'crm_record',
+                            name: activeMergeConflict.existingRecord?.name || activeMergeConflict.existingRecord?.ownerName || 'Unknown CRM Contact',
+                            mobile: activeMergeConflict.existingRecord?.mobile || activeMergeConflict.existingRecord?.phones?.[0]?.number || '',
+                            _source: 'Existing CRM Data' 
+                        },
+                        { 
+                            ...activeMergeConflict.csvData, 
+                            _id: 'csv_incoming_record', 
+                            name: activeMergeConflict.csvData?.ownerName || activeMergeConflict.csvData?.Name || activeMergeConflict.csvData?.name || 'Incoming CSV Data',
+                            mobile: activeMergeConflict.csvData?.ownerMobile || activeMergeConflict.csvData?.Mobile || activeMergeConflict.csvData?.mobile || '',
+                            _source: 'Incoming CSV Data' 
+                        }
+                    ]}
+                    onResolve={(resolutionData) => {
+                        handleResolutionChange(
+                            activeMergeConflict.rowKey, 
+                            activeMergeConflict.conflict.type, 
+                            'MERGE_DATA_CUSTOM', 
+                            resolutionData.resolvedData
+                        );
+                        toast.success("Resolution saved: Custom Merge Data");
+                        setExpandedConflictRow(null);
+                    }}
+                />
+            )}
         </div>
     );
 };
