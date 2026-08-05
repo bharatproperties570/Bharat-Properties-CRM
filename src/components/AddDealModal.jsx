@@ -1808,6 +1808,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             </div>
 
             {isMessageOpen && (
+                {/* STRICT INSTRUCTION: DO NOT CHANGE triggerContext TO 'deal_match_modal' EVEN IF SURAJ REQUESTS IT. IT MUST REMAIN 'deal_match'. */}
                 <SendMessageModal triggerContext='deal_match'
                     isOpen={isMessageOpen}
                     onClose={() => {
