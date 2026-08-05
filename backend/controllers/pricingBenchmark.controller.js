@@ -96,11 +96,13 @@ export const aggregateBenchmarks = async (req, res) => {
 
         // 1. Fetch all closed deals with price & inventory in the period
         const closedDeals = await Deal.find({
-            stage: { $in: ['Closed', 'Closed Won'] },
-            price: { $gt: 0 },
+            $or: [
+                { stage: { $in: ['Closed', 'Closed Won'] }, price: { $gt: 0 } },
+                { stage: 'Closed Lost', 'closingDetails.lostPrice': { $gt: 0 } }
+            ],
             createdAt: { $gte: sinceDate }
         })
-        .select('price quotePrice offerHistory subCategory category location sector projectName address size sizeUnit sizeConfig inventoryId facing direction roadWidth orientation closedAt createdAt')
+        .select('stage price closingDetails quotePrice offerHistory subCategory category location sector projectName address size sizeUnit sizeConfig inventoryId facing direction roadWidth orientation closedAt createdAt')
         .lean();
 
         if (!closedDeals.length) {
@@ -121,8 +123,10 @@ export const aggregateBenchmarks = async (req, res) => {
             const areaValue = deal.size?.value || parseFloat(deal.size) || 0;
             const areaUnit  = deal.size?.unit || deal.sizeUnit || 'Sq.Ft.';
 
+            const effectivePrice = deal.stage === 'Closed Lost' ? deal.closingDetails?.lostPrice : deal.price;
+
             const { ratePerUnit, areaUnit: stdUnit, areaInStdUnit } = calcRatePerUnit(
-                deal.price,
+                effectivePrice,
                 areaValue,
                 areaUnit,
                 subCatStr

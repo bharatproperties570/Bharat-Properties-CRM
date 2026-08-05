@@ -2236,6 +2236,16 @@ export const updateDeal = async (req, res) => {
                 const lostAt = new Date();
                 const daysActive = Math.max(1, Math.floor((lostAt - enteredAt) / 86400000));
                 
+                let lostPriceMsg = '';
+                if (sanitizedData.closingDetails?.lostPrice) {
+                    lostPriceMsg = ` It was lost at a market price of ₹${Number(sanitizedData.closingDetails.lostPrice).toLocaleString('en-IN')}`;
+                    if (sanitizedData.closingDetails?.lostDate) {
+                        lostPriceMsg += ` on ${new Date(sanitizedData.closingDetails.lostDate).toLocaleDateString('en-IN')}.`;
+                    } else {
+                        lostPriceMsg += '.';
+                    }
+                }
+
                 await Activity.create({
                     entityId: deal.inventoryId,
                     entityType: 'Inventory',
@@ -2243,7 +2253,7 @@ export const updateDeal = async (req, res) => {
                     subType: 'deal_lost',
                     user: req.user?.id || null,
                     title: `Deal Lost after ${daysActive} days`,
-                    description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.`,
+                    description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
                     priority: 'medium',
                     status: 'completed',
                     completedAt: lostAt

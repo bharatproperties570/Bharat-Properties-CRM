@@ -246,7 +246,9 @@ const DealSchema = new mongoose.Schema({
             sellerContacted: { type: Boolean, default: false }
         },
         remarks: String,
-        lossReasons: [String]
+        lossReasons: [String],
+        lostPrice: { type: Number },
+        lostDate: { type: Date }
     },
     negotiation_window: { type: Boolean, default: false },
 

@@ -47,6 +47,26 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                                 </p>
                             </div>
                         )}
+                        {(deal.closingDetails?.lostPrice || deal.closingDetails?.lostDate) && (
+                            <div style={{ marginTop: '8px', display: 'flex', gap: '16px' }}>
+                                {deal.closingDetails?.lostPrice && (
+                                    <div>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Market Price</div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b' }}>
+                                            ₹{Number(deal.closingDetails.lostPrice).toLocaleString('en-IN')}
+                                        </div>
+                                    </div>
+                                )}
+                                {deal.closingDetails?.lostDate && (
+                                    <div>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Closure Date</div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b' }}>
+                                            {new Date(deal.closingDetails.lostDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -104,8 +124,62 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                             />
                         </div>
 
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div>
+                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '8px' }}>Lost Deal Price (Optional)</div>
+                                <div style={{ position: 'relative' }}>
+                                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontWeight: 600, fontSize: '0.85rem' }}>₹</span>
+                                    <input
+                                        type="number"
+                                        placeholder="Enter market price"
+                                        value={deal.closingDetails?.lostPrice || ''}
+                                        onChange={(e) => setDeal(prev => ({
+                                            ...prev,
+                                            closingDetails: { ...prev.closingDetails, lostPrice: e.target.value ? Number(e.target.value) : '' }
+                                        }))}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px 10px 28px',
+                                            borderRadius: '10px',
+                                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                                            fontSize: '0.8rem',
+                                            outline: 'none',
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                                            color: isDark ? 'var(--text-main)' : '#1e293b'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '8px' }}>Lost Date (Optional)</div>
+                                <input
+                                    type="date"
+                                    value={deal.closingDetails?.lostDate ? new Date(deal.closingDetails.lostDate).toISOString().split('T')[0] : ''}
+                                    onChange={(e) => setDeal(prev => ({
+                                        ...prev,
+                                        closingDetails: { ...prev.closingDetails, lostDate: e.target.value }
+                                    }))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: '10px',
+                                        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                                        fontSize: '0.8rem',
+                                        outline: 'none',
+                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                                        color: isDark ? 'var(--text-main)' : '#1e293b'
+                                    }}
+                                />
+                            </div>
+                        </div>
+
                         <button
-                            onClick={() => handleMarkAsLost({ primaryReasons: deal.closingDetails?.lossReasons, remarks: deal.closingDetails?.remarks })}
+                            onClick={() => handleMarkAsLost({ 
+                                primaryReasons: deal.closingDetails?.lossReasons, 
+                                remarks: deal.closingDetails?.remarks,
+                                lostPrice: deal.closingDetails?.lostPrice,
+                                lostDate: deal.closingDetails?.lostDate
+                            })}
                             style={{
                                 padding: '12px',
                                 background: '#ef4444',
