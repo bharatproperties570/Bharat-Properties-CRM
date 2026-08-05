@@ -219,6 +219,16 @@ const InventoryTable = ({
                                             {(() => {
                                                 const resolveSizeLabel = (item, resolveLookupFn) => {
                                                     if (!item) return null;
+                                                    
+                                                    // ✅ ENTERPRISE FIX: Use new Size Master system first
+                                                    if (item.sizeId && Array.isArray(sizes)) {
+                                                        const matchedSize = sizes.find(s => s.id === item.sizeId || s.id === String(item.sizeId));
+                                                        if (matchedSize) {
+                                                            // Format: Name or "UnitType - TotalArea"
+                                                            return matchedSize.name || `${matchedSize.unitType || ''} ${matchedSize.totalArea ? matchedSize.totalArea + ' ' + (matchedSize.resultMetric || 'Sq Yd') : ''}`.trim();
+                                                        }
+                                                    }
+                                                    
                                                     if (item.totalLandAreaText) return item.totalLandAreaText;
                                                     
                                                     const extractStr = (val) => {

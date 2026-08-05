@@ -99,7 +99,22 @@ export const PropertyConfigProvider = ({ children }) => {
     // --- HOISTED STATES (Fixes ReferenceError: Cannot access before initialization) ---
     // Moved to top so they are initialized before useCallback/useEffect hooks that depend on them.
 
-    const [sizes, setSizes] = useState([]);
+    // ✅ ENTERPRISE: localStorage cache prevents blank sizes on page load/refresh
+    const [sizes, setSizes] = useState(() => {
+        try {
+            const cached = localStorage.getItem('bp_sizes_cache');
+            return cached ? JSON.parse(cached) : [];
+        } catch { return []; }
+    });
+
+    // ✅ ENTERPRISE: Helper to update sizes + keep localStorage in sync
+    const setSizesWithCache = useCallback((updaterOrValue) => {
+        setSizes(prev => {
+            const next = typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue;
+            try { localStorage.setItem('bp_sizes_cache', JSON.stringify(next)); } catch(e) { console.warn('[SizeCache] Write failed:', e); }
+            return next;
+        });
+    }, []);
 
     const [companyMasterFields, setCompanyMasterFields] = useState({
         companyTypes: [],
@@ -1187,8 +1202,8 @@ export const PropertyConfigProvider = ({ children }) => {
             // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('Size' category)
             const sizesResponse = await lookupsAPI.getByCategory('Size');
             let lookupSizes = [];
-            
-            // 🛡️ SENIOR PROFESSIONAL: Handle multiple response formats (status vs success)
+
+            // 🛡️ ENTERPRISE: Handle multiple response formats
             const isSuccess = sizesResponse && (sizesResponse.status === "success" || sizesResponse.success === true);
             const responseData = sizesResponse?.data || (Array.isArray(sizesResponse) ? sizesResponse : []);
 
@@ -1200,11 +1215,13 @@ export const PropertyConfigProvider = ({ children }) => {
                 }));
             }
 
-            setSizes(lookupSizes);
+            // ✅ ENTERPRISE: Update state + localStorage cache together
+            setSizesWithCache(lookupSizes);
         } catch (error) {
             console.error('Failed to refresh sizes:', error);
+            // ✅ ENTERPRISE: On error keep cached data — no blank state
         }
-    }, []);
+    }, [setSizesWithCache]);
 
     // --- OPTIMIZED LOOKUP RESOLUTION (O(1)) ---
     // Pre-calculate flat maps for instant ID -> Value and Value -> ID resolution
@@ -1587,7 +1604,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 };
             }, true);
 
-            // Map Sizes for refreshSizes compatibility
+            // ✅ ENTERPRISE: Map Sizes with localStorage cache sync
             const sizesList = helperGet(newLookups, 'Size');
             if (sizesList) {
                 const normalizedSizes = sizesList.map(l => ({
@@ -1595,7 +1612,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     name: l.lookup_value,
                     ...l.metadata
                 }));
-                setSizes(normalizedSizes);
+                setSizesWithCache(normalizedSizes);
             }
 
             return newLookups;
@@ -2391,13 +2408,27 @@ export const PropertyConfigProvider = ({ children }) => {
 
 
 
+    // ✅ ENTERPRISE: addSize — project/block stored in projectMappings (not top-level)
     const addSize = async (newSize) => {
         try {
-            const { name, ...metadata } = newSize;
+            // Separate project/block from size definition — they go into projectMappings
+            const { name, project, block, ...metadata } = newSize;
+
+            // Build initial projectMappings from provided project/block
+            const existingMappings = Array.isArray(metadata.projectMappings) ? metadata.projectMappings : [];
+            const initialMappings = [...existingMappings];
+            if (project && !initialMappings.some(m => m.project === project && m.block === (block || ''))) {
+                initialMappings.push({ project, block: block || '' });
+            }
+
+            const cleanMetadata = { ...metadata, projectMappings: initialMappings };
+            delete cleanMetadata.project;
+            delete cleanMetadata.block;
+
             const res = await lookupsAPI.create({
                 lookup_type: 'Size',
                 lookup_value: name,
-                metadata: metadata
+                metadata: cleanMetadata
             });
 
             if (res && res.data) {
@@ -2406,7 +2437,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     name: res.data.lookup_value,
                     ...res.data.metadata
                 };
-                setSizes(prev => [...prev, added]);
+                setSizesWithCache(prev => [...prev, added]);
                 return added;
             }
         } catch (error) {
@@ -2415,6 +2446,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     };
 
+    // ✅ ENTERPRISE: updateSize — cache synced
     const updateSize = async (updatedSize) => {
         try {
             const { id, name, ...metadata } = updatedSize;
@@ -2429,7 +2461,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     name: res.data.lookup_value,
                     ...res.data.metadata
                 };
-                setSizes(prev => prev.map(s => s.id === id ? updated : s));
+                setSizesWithCache(prev => prev.map(s => s.id === id ? updated : s));
                 return updated;
             }
         } catch (error) {
@@ -2438,15 +2470,50 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     };
 
+    // ✅ ENTERPRISE: deleteSize — cache synced
     const deleteSize = async (id) => {
         try {
             await lookupsAPI.delete(id);
-            setSizes(prev => prev.filter(s => s.id !== id));
+            setSizesWithCache(prev => prev.filter(s => s.id !== id));
         } catch (error) {
             console.error('Failed to delete property size:', error);
             throw error;
         }
     };
+
+    // ✅ ENTERPRISE: Add a project-block mapping to an existing size
+    const addSizeProjectMapping = async (sizeId, project, block) => {
+        const size = sizes.find(s => s.id === sizeId);
+        if (!size) return null;
+        const existingMappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
+        const alreadyMapped = existingMappings.some(m => m.project === project && m.block === (block || ''));
+        if (alreadyMapped) return size;
+        const newMappings = [...existingMappings, { project, block: block || '' }];
+        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
+    };
+
+    // ✅ ENTERPRISE: Remove a project-block mapping from a size
+    const removeSizeProjectMapping = async (sizeId, project, block) => {
+        const size = sizes.find(s => s.id === sizeId);
+        if (!size) return null;
+        const newMappings = (Array.isArray(size.projectMappings) ? size.projectMappings : []).filter(
+            m => !(m.project === project && m.block === (block || ''))
+        );
+        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
+    };
+
+    // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block)
+    const getSizesByProjectBlock = useCallback((project, block) => {
+        if (!project) return sizes;
+        return sizes.filter(s => {
+            const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+            if (mappings.length === 0) return false;
+            return mappings.some(m => {
+                if (block) return m.project === project && m.block === block;
+                return m.project === project;
+            });
+        });
+    }, [sizes]);
 
     const value = {
         propertyConfig,
@@ -2518,6 +2585,9 @@ export const PropertyConfigProvider = ({ children }) => {
         deleteSize,
         refreshSizes,
         sizes,
+        addSizeProjectMapping,
+        removeSizeProjectMapping,
+        getSizesByProjectBlock,
         lookups,
         refreshLookups,
         getLookupId,

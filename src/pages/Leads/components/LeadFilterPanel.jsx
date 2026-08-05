@@ -176,6 +176,7 @@ const LeadFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { isDark } = useTheme();
 
     const { masterFields } = usePropertyConfig();
+    const { sizes: allSizes = [], propertyConfig = {} } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
 
@@ -245,19 +246,34 @@ const LeadFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
         ? selectedCategories.reduce((acc, cat) => PROPERTY_CATEGORIES[cat] ? [...acc, ...PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name)] : acc, [])
         : [];
 
+    // ✅ ENTERPRISE: Show ONLY unique unitTypes in filter (e.g. "1 Kanal", "10 Marla", "2 BHK").
+    // Selecting a unitType matches ALL sizes of that type — no need to select each individual size.
     const availableSizeTypes = selectedSubCategories.length > 0
-        ? selectedCategories.reduce((acc, cat) => {
-            if (PROPERTY_CATEGORIES[cat]) {
-                const matchingSubs = PROPERTY_CATEGORIES[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
-                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...sub.types.map(t => t.name)], []);
-                return [...acc, ...types];
-            }
-            return acc;
-        }, [])
-        : [];
+        ? [...new Set(
+            allSizes
+                .filter(s => {
+                    const matchesCat = selectedCategories.length === 0 || selectedCategories.some(cat =>
+                        (s.category || '').toLowerCase() === cat.toLowerCase());
+                    const matchesSub = selectedSubCategories.some(sub =>
+                        (s.subCategory || '').toLowerCase() === sub.toLowerCase());
+                    return matchesCat && matchesSub && s.unitType;
+                })
+                .map(s => s.unitType)
+          )]
+        : selectedCategories.length > 0
+            ? [...new Set(
+                allSizes
+                    .filter(s =>
+                        selectedCategories.some(cat =>
+                            (s.category || '').toLowerCase() === cat.toLowerCase()
+                        ) && s.unitType
+                    )
+                    .map(s => s.unitType)
+              )]
+            : [];
 
     const uniqueSubCategories = [...new Set(availableSubCategories)];
-    const uniqueSizeTypes = [...new Set(availableSizeTypes)];
+    const uniqueSizeTypes = availableSizeTypes;
 
     const getFilteredProjects = () => {
         const projects = PROJECTS_LIST.map(p => p.name);

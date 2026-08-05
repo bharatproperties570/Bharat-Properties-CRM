@@ -18,6 +18,13 @@ import mongoose from 'mongoose';
  */
 export const getUsers = async (req, res) => {
     try {
+    if (process.env.MOCK_MODE === 'true') {
+        return res.status(200).json({
+            success: true,
+            data: [],
+            pagination: { page: 1, limit: 20, total: 0, pages: 0 }
+        });
+    }
         const {
             page = 1,
             limit = 20,

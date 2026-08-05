@@ -44,6 +44,7 @@ const InventorySchema = new mongoose.Schema({
     category: { type: mongoose.Schema.Types.Mixed, index: true },
     subCategory: { type: mongoose.Schema.Types.Mixed, index: true },
     unitType: { type: mongoose.Schema.Types.Mixed, index: true },
+    sizeId: { type: mongoose.Schema.Types.ObjectId, index: true },
     sizeConfig: { type: mongoose.Schema.Types.Mixed, index: true },
     project: String,
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },

@@ -5,49 +5,193 @@ import Toast from '../../../components/Toast';
 import CustomizeFeedbackPage from './CustomizeFeedbackPage';
 import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
 
-const SizeItem = ({ size, onEdit, onDelete }) => (
-    <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-        <td style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{size.project || 'Global'}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.block}</div>
-        </td>
-        <td style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-muted)' }}>{size.category}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.subCategory}</div>
-        </td>
-        <td style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 700, color: '#3b82f6', fontSize: '1rem' }}>{size.name}</div>
-        </td>
-        <td style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{size.description || '--'}</td>
-        <td style={{ padding: '16px', textAlign: 'right' }}>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                    onClick={() => onEdit(size)}
-                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer', transition: 'all 0.2s' }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                >
-                    <i className="fas fa-edit"></i>
-                </button>
-                <button
-                    onClick={() => onDelete(size.id)}
-                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer', transition: 'all 0.2s' }}
-                    onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                >
-                    <i className="fas fa-trash"></i>
-                </button>
-            </div>
-        </td>
-    </tr>
-);
+// ✅ ENTERPRISE: SizeItem — shows projectMappings as "Available In" badges
+const SizeItem = ({ size, onEdit, onDelete, onManageAvailability, isSelected, onToggleSelect }) => {
+    const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
+    const visibleMappings = mappings.slice(0, 2);
+    const extraCount = mappings.length - visibleMappings.length;
+    return (
+        <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <td style={{ padding: '14px 16px', width: '40px' }}>
+                <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={onToggleSelect}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+            </td>
+            <td style={{ padding: '14px 16px' }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>{size.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{size.unitType}</div>
+            </td>
+            <td style={{ padding: '14px 16px' }}>
+                <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.subCategory}</div>
+            </td>
+            <td style={{ padding: '14px 16px' }}>
+                {(() => {
+                    if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
+                    if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
+                    return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
+                })()}
+            </td>
+            <td style={{ padding: '14px 16px' }}>
+                {mappings.length === 0 ? (
+                    <span style={{ fontSize: '0.75rem', color: '#f59e0b', background: '#fffbeb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #fde68a' }}>Not assigned</span>
+                ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {visibleMappings.map((m, i) => (
+                            <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(37,99,235,0.08)', color: '#2563eb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                {m.project}{m.block ? ` › ${m.block}` : ''}
+                            </span>
+                        ))}
+                        {extraCount > 0 && (
+                            <span style={{ fontSize: '0.7rem', background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '99px', border: '1px solid var(--border-color)' }}>+{extraCount} more</span>
+                        )}
+                    </div>
+                )}
+            </td>
+            <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                    <button onClick={() => onManageAvailability(size)} title="Manage Project Availability"
+                        style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: 'none', background: 'rgba(37,99,235,0.08)', color: '#2563eb', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        onMouseOver={e => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
+                        onMouseOut={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}>
+                        <i className="fas fa-project-diagram" style={{ marginRight: '4px' }}></i>Projects
+                    </button>
+                    <button onClick={() => onEdit(size)} title="Edit Size"
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                        <i className="fas fa-edit"></i>
+                    </button>
+                    <button onClick={() => onDelete(size.id)} title="Delete Size"
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+                        <i className="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    );
+};
 
-const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects }) => {
+// ✅ ENTERPRISE: SizeAvailabilityModal — Manage which projects/blocks a size is assigned to
+const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMapping, onRemoveMapping }) => {
+    const [selProject, setSelProject] = useState('');
+    const [selBlock, setSelBlock] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const availableBlocks = useMemo(() => {
+        if (!selProject || !Array.isArray(allProjects)) return [];
+        const proj = allProjects.find(p => p.name === selProject);
+        return proj?.blocks || [];
+    }, [selProject, allProjects]);
+
+    const handleAdd = async () => {
+        if (!selProject) return;
+        setIsSaving(true);
+        await onAddMapping(size.id, selProject, selBlock);
+        setSelProject('');
+        setSelBlock('');
+        setIsSaving(false);
+    };
+
+    const handleRemove = async (project, block) => {
+        await onRemoveMapping(size.id, project, block);
+    };
+
+    if (!isOpen || !size) return null;
+    const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
+    const selectStyle = { width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-card)', color: 'var(--text-main)', boxSizing: 'border-box' };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: 'var(--bg-card)', width: '540px', borderRadius: '14px', padding: '28px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', maxHeight: '85vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Manage Project Availability</h3>
+                        <div style={{ marginTop: '6px', background: 'rgba(37,99,235,0.08)', padding: '6px 12px', borderRadius: '6px', display: 'inline-block' }}>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#2563eb' }}>{size.name}</span>
+                        </div>
+                    </div>
+                    <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1rem' }}></i>
+                </div>
+
+                {/* Current Mappings */}
+                <div style={{ marginBottom: '24px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>Currently Assigned To</div>
+                    {mappings.length === 0 ? (
+                        <div style={{ padding: '20px', background: '#fffbeb', borderRadius: '8px', border: '1px dashed #fde68a', textAlign: 'center', color: '#92400e', fontSize: '0.85rem' }}>
+                            <i className="fas fa-exclamation-triangle" style={{ marginRight: '8px' }}></i>
+                            Not assigned to any project yet. Assign below to make it appear in forms.
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {mappings.map((m, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                    <div>
+                                        <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>{m.project}</span>
+                                        {m.block && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> › {m.block}</span>}
+                                    </div>
+                                    <button onClick={() => handleRemove(m.project, m.block)}
+                                        style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
+                                        onMouseOver={e => e.currentTarget.style.background = 'var(--danger-bg)'}
+                                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                                        title="Remove from this project">
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Add New Mapping */}
+                <div style={{ padding: '16px', background: 'var(--bg-light)', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>Assign to a Project</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        <div>
+                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>Project *</label>
+                            <select value={selProject} onChange={e => { setSelProject(e.target.value); setSelBlock(''); }} style={selectStyle}>
+                                <option value="">Select Project</option>
+                                {Array.isArray(allProjects) && allProjects.map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>Block / Tower</label>
+                            <select value={selBlock} onChange={e => setSelBlock(e.target.value)} style={selectStyle} disabled={!selProject}>
+                                <option value="">{selProject ? 'All Blocks (Optional)' : '— Select project first —'}</option>
+                                {availableBlocks.map(b => {
+                                    const bName = typeof b === 'object' ? b.name : b;
+                                    return <option key={bName} value={bName}>{bName}</option>;
+                                })}
+                            </select>
+                        </div>
+                    </div>
+                    <button onClick={handleAdd} disabled={!selProject || isSaving}
+                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: selProject ? '#2563eb' : 'var(--border-color)', color: selProject ? '#fff' : 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem', cursor: selProject ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-plus"></i>}
+                        {isSaving ? 'Saving...' : 'Assign to Project'}
+                    </button>
+                </div>
+
+                <button onClick={onClose} style={{ marginTop: '16px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}>Done</button>
+            </div>
+        </div>
+    );
+};
+
+
+// ✅ ENTERPRISE: AddSizeModal — Project/Block removed from size definition
+// Project/Block assignment is handled via SizeAvailabilityModal after save
+const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects, existingSizes }) => {
     const defaultState = useMemo(() => ({
         name: '',
         unitType: '',
-        project: '',
-        block: '',
         category: 'Residential',
         subCategory: 'Flat/Apartment / Builder Floor',
         saleableArea: '',
@@ -59,10 +203,15 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         widthMetric: 'Feet',
         totalArea: '',
         resultMetric: 'Sq Yd',
-        description: ''
+        description: '',
+        projectMappings: []
     }), []);
 
     const [sizeData, setSizeData] = useState(defaultState);
+    const [nameConflict, setNameConflict] = useState(false);
+    // Quick-assign: allow adding one project/block mapping right from Add form
+    const [quickProject, setQuickProject] = useState('');
+    const [quickBlock, setQuickBlock] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -73,27 +222,21 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                 const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
                     ? propertyConfig[initialCat].subCategories[0].name
                     : '';
-
-                setSizeData({
-                    ...defaultState,
-                    category: initialCat || 'Residential',
-                    subCategory: initialSub
-                });
+                setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub });
             }
+            setQuickProject('');
+            setQuickBlock('');
+            setNameConflict(false);
         }
     }, [isOpen, initialData, propertyConfig, defaultState]);
 
-    const [availableBlocks, setAvailableBlocks] = useState([]);
+    const quickBlocks = useMemo(() => {
+        if (!quickProject || !Array.isArray(allProjects)) return [];
+        const proj = allProjects.find(p => p.name === quickProject);
+        return proj?.blocks || [];
+    }, [quickProject, allProjects]);
 
-    useEffect(() => {
-        if (sizeData.project && Array.isArray(allProjects)) {
-            const project = allProjects.find(p => p.name === sizeData.project);
-            setAvailableBlocks(project ? project.blocks : []);
-        } else {
-            setAvailableBlocks([]);
-        }
-    }, [sizeData.project, allProjects]);
-
+    // Auto-generate name from unitType + area
     useEffect(() => {
         const isPlot = ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land'].some(k => sizeData.subCategory?.toLowerCase().includes(k));
         let areaPart = '';
@@ -106,6 +249,15 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         setSizeData(prev => ({ ...prev, name: generatedName }));
     }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory]);
 
+    // ✅ ENTERPRISE: Real-time duplicate check — globally unique name
+    useEffect(() => {
+        if (!sizeData.name || !Array.isArray(existingSizes)) { setNameConflict(false); return; }
+        const editingId = initialData?.id;
+        const conflict = existingSizes.some(s => s.name === sizeData.name && s.id !== editingId);
+        setNameConflict(conflict);
+    }, [sizeData.name, existingSizes, initialData]);
+
+    // Auto-calculate area from dimensions (plots)
     useEffect(() => {
         if (sizeData.length && sizeData.width) {
             const l = parseFloat(sizeData.length);
@@ -131,60 +283,59 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         setSizeData(prev => ({ ...prev, lengthMetric: newMetric, widthMetric: newMetric }));
     };
 
+    const handleAddQuickMapping = () => {
+        if (!quickProject) return;
+        const existing = Array.isArray(sizeData.projectMappings) ? sizeData.projectMappings : [];
+        const alreadyAdded = existing.some(m => m.project === quickProject && m.block === (quickBlock || ''));
+        if (!alreadyAdded) {
+            setSizeData(prev => ({ ...prev, projectMappings: [...existing, { project: quickProject, block: quickBlock || '' }] }));
+        }
+        setQuickProject('');
+        setQuickBlock('');
+    };
+
+    const handleRemoveQuickMapping = (idx) => {
+        setSizeData(prev => ({ ...prev, projectMappings: prev.projectMappings.filter((_, i) => i !== idx) }));
+    };
+
     if (!isOpen) return null;
 
     const isPlotType = ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land'].some(k => sizeData.subCategory?.toLowerCase().includes(k));
     const isResidentialType = !isPlotType;
 
     const handleSubmit = () => {
-        if (!sizeData.project) {
-            alert("Please select a Project.");
-            return;
-        }
-        if (!sizeData.subCategory) {
-            alert("Please select a Sub-Category.");
-            return;
-        }
-        onAdd(sizeData);
+        if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
+        if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
+        if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
+        // Pass projectMappings along — context will handle them
+        onAdd({ ...sizeData });
         onClose();
     };
 
-    const labelStyle = { fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '12px', display: 'block' };
-    const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', color: 'var(--text-main)', transition: 'border-color 0.2s', height: '42px', boxSizing: 'border-box', backgroundColor: 'var(--bg-card)' };
+    const labelStyle = { fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px', display: 'block' };
+    const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', color: 'var(--text-main)', height: '42px', boxSizing: 'border-box', backgroundColor: 'var(--bg-card)' };
     const customSelectStyle = { ...inputStyle, paddingRight: '30px', background: 'var(--bg-light)', appearance: 'none', backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px' };
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'var(--bg-card)', width: '600px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-card)', width: '620px', borderRadius: '14px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
-                    <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)' }}></i>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Size is global — assign to projects below</p>
+                    </div>
+                    <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1rem' }}></i>
                 </div>
-                <div style={{ display: 'grid', gap: '24px' }}>
-                    <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <label style={labelStyle}>Size Name (Auto-Generated)</label>
-                        <input type="text" value={sizeData.name} readOnly style={{ ...inputStyle, background: 'var(--bg-light)', fontWeight: 700, color: '#1e40af', border: '1px solid #bfdbfe' }} />
+                <div style={{ display: 'grid', gap: '20px' }}>
+                    {/* Auto-generated name */}
+                    <div style={{ background: nameConflict ? '#fef2f2' : 'rgba(37,99,235,0.06)', padding: '14px 16px', borderRadius: '8px', border: `1px solid ${nameConflict ? '#fecaca' : '#bfdbfe'}` }}>
+                        <label style={{ ...labelStyle, color: nameConflict ? '#dc2626' : '#1e40af', marginBottom: '6px' }}>Size Name (Auto-Generated)</label>
+                        <input type="text" value={sizeData.name} readOnly style={{ ...inputStyle, background: 'transparent', fontWeight: 700, color: nameConflict ? '#dc2626' : '#1e40af', border: 'none', padding: '0', height: 'auto', fontSize: '1.05rem' }} />
+                        {nameConflict && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginTop: '4px' }}><i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>This size already exists globally. Change area value to differentiate.</div>}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <div>
-                            <label style={labelStyle}>Project</label>
-                            <select value={sizeData.project} onChange={e => setSizeData({ ...sizeData, project: e.target.value })} style={customSelectStyle}>
-                                <option value="">Select Project</option>
-                                {Array.isArray(allProjects) && allProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Block (Tower)</label>
-                            <select value={sizeData.block} onChange={e => setSizeData({ ...sizeData, block: e.target.value })} style={customSelectStyle} disabled={!sizeData.project}>
-                                <option value="">Select Block</option>
-                                {availableBlocks.map(b => {
-                                    const blockName = typeof b === 'object' ? b.name : b;
-                                    return <option key={blockName} value={blockName}>{blockName}</option>;
-                                })}
-                            </select>
-                        </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+
+                    {/* Category / SubCategory / SizeType */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                         <div>
                             <label style={labelStyle}>Category</label>
                             <select value={sizeData.category} onChange={e => {
@@ -204,7 +355,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             </select>
                         </div>
                         <div>
-                            <label style={labelStyle}>Size Type</label>
+                            <label style={labelStyle}>Size Type *</label>
                             <select value={sizeData.unitType} onChange={e => setSizeData({ ...sizeData, unitType: e.target.value })} style={customSelectStyle}>
                                 <option value="">Select Size Type</option>
                                 {(() => {
@@ -217,59 +368,105 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             </select>
                         </div>
                     </div>
+
+                    {/* Area Details */}
                     {isResidentialType && (
-                        <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-main)' }}>Residential Details (Sq Ft)</h4>
+                        <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 700 }}>Residential Area Details (Sq Ft)</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                                <div><label style={labelStyle}>Total/Saleable Area</label><input type="number" placeholder="Enter Area" value={sizeData.saleableArea} onChange={e => setSizeData({ ...sizeData, saleableArea: e.target.value })} style={inputStyle} /></div>
-                                <div><label style={labelStyle}>Covered Area</label><input type="number" placeholder="Enter Area" value={sizeData.coveredArea} onChange={e => setSizeData({ ...sizeData, coveredArea: e.target.value })} style={inputStyle} /></div>
-                                <div><label style={labelStyle}>Carpet Area</label><input type="number" placeholder="Enter Area" value={sizeData.carpetArea} onChange={e => setSizeData({ ...sizeData, carpetArea: e.target.value })} style={inputStyle} /></div>
+                                <div><label style={labelStyle}>Total/Saleable Area</label><input type="number" placeholder="e.g. 1120" value={sizeData.saleableArea} onChange={e => setSizeData({ ...sizeData, saleableArea: e.target.value })} style={inputStyle} /></div>
+                                <div><label style={labelStyle}>Covered Area</label><input type="number" placeholder="Optional" value={sizeData.coveredArea} onChange={e => setSizeData({ ...sizeData, coveredArea: e.target.value })} style={inputStyle} /></div>
+                                <div><label style={labelStyle}>Carpet Area</label><input type="number" placeholder="Optional" value={sizeData.carpetArea} onChange={e => setSizeData({ ...sizeData, carpetArea: e.target.value })} style={inputStyle} /></div>
                             </div>
                         </div>
                     )}
                     {isPlotType && (
-                        <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-main)' }}>Dimensions & Multi-Unit Calculator</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 700 }}>Dimensions &amp; Area Calculator</h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                                 <div>
                                     <label style={labelStyle}>Width</label>
                                     <div style={{ display: 'flex' }}>
                                         <input type="number" value={sizeData.width} onChange={e => setSizeData({ ...sizeData, width: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
+                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '90px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
                                     </div>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Length</label>
                                     <div style={{ display: 'flex' }}>
                                         <input type="number" value={sizeData.length} onChange={e => setSizeData({ ...sizeData, length: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
+                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '90px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
                                     </div>
                                 </div>
                             </div>
-                            <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '16px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <label style={{ ...labelStyle, color: '#1e40af' }}>Total area based on formula</label>
-                                        <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e40af' }}>{sizeData.totalArea || '0.00'} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{sizeData.resultMetric}</span></div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '4px' }}>{['Sq Meter', 'Sq Ft', 'Sq Yd'].map(m => (<button key={m} onClick={() => setSizeData({ ...sizeData, resultMetric: m })} style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: sizeData.resultMetric === m ? '#1e40af' : 'var(--bg-card)', color: sizeData.resultMetric === m ? 'var(--bg-card)' : '#1e40af', border: '1px solid #1e40af', cursor: 'pointer' }}>{m}</button>))}</div>
+                            <div style={{ background: 'rgba(37,99,235,0.08)', padding: '12px 16px', borderRadius: '6px', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e40af' }}>Total Area</div>
+                                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e40af' }}>{sizeData.totalArea || '0.00'} <span style={{ fontSize: '0.85rem' }}>{sizeData.resultMetric}</span></div>
                                 </div>
+                                <div style={{ display: 'flex', gap: '4px' }}>{['Sq Meter', 'Sq Ft', 'Sq Yd'].map(m => (<button key={m} onClick={() => setSizeData({ ...sizeData, resultMetric: m })} style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: sizeData.resultMetric === m ? '#1e40af' : 'var(--bg-card)', color: sizeData.resultMetric === m ? '#fff' : '#1e40af', border: '1px solid #1e40af', cursor: 'pointer' }}>{m}</button>))}</div>
                             </div>
                         </div>
                     )}
+
+                    {/* Description */}
                     <div>
                         <label style={labelStyle}>Description (Optional)</label>
-                        <textarea placeholder="Enter specific layout details..." value={sizeData.description} onChange={(e) => setSizeData({ ...sizeData, description: e.target.value })} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} />
+                        <textarea placeholder="Specific layout details..." value={sizeData.description} onChange={e => setSizeData({ ...sizeData, description: e.target.value })} style={{ ...inputStyle, minHeight: '56px', resize: 'vertical', height: 'auto' }} />
+                    </div>
+
+                    {/* ✅ Quick Project Assignment — optional, can also do later via Manage */}
+                    <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <label style={{ ...labelStyle, marginBottom: 0, fontSize: '0.85rem' }}><i className="fas fa-project-diagram" style={{ marginRight: '6px', color: '#2563eb' }}></i>Assign to Projects (Optional)</label>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Can also assign later via Projects button</span>
+                        </div>
+                        {/* Current quick mappings */}
+                        {Array.isArray(sizeData.projectMappings) && sizeData.projectMappings.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                                {sizeData.projectMappings.map((m, i) => (
+                                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(37,99,235,0.1)', color: '#1e40af', padding: '4px 10px', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 600, border: '1px solid #bfdbfe' }}>
+                                        {m.project}{m.block ? ` › ${m.block}` : ''}
+                                        <i className="fas fa-times" style={{ cursor: 'pointer', opacity: 0.7 }} onClick={() => handleRemoveQuickMapping(i)}></i>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'end' }}>
+                            <div>
+                                <select value={quickProject} onChange={e => { setQuickProject(e.target.value); setQuickBlock(''); }} style={{ ...inputStyle, background: 'var(--bg-card)' }}>
+                                    <option value="">Select Project</option>
+                                    {Array.isArray(allProjects) && allProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <select value={quickBlock} onChange={e => setQuickBlock(e.target.value)} style={{ ...inputStyle, background: 'var(--bg-card)' }} disabled={!quickProject}>
+                                    <option value="">{quickProject ? 'All Blocks (Optional)' : '—'}</option>
+                                    {quickBlocks.map(b => { const bName = typeof b === 'object' ? b.name : b; return <option key={bName} value={bName}>{bName}</option>; })}
+                                </select>
+                            </div>
+                            <button onClick={handleAddQuickMapping} disabled={!quickProject}
+                                style={{ height: '42px', padding: '0 14px', borderRadius: '6px', border: 'none', background: quickProject ? '#2563eb' : 'var(--border-color)', color: quickProject ? '#fff' : 'var(--text-muted)', fontWeight: 700, cursor: quickProject ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
+                                <i className="fas fa-plus"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-                    <button className="btn-primary" onClick={handleSubmit} style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1 }}>{initialData ? 'Update Configuration' : 'Add to Project'}</button>
-                    <button className="btn-outline" onClick={onClose} style={{ padding: '12px 24px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: 'var(--text-muted)' }}>Cancel</button>
+
+                <div style={{ display: 'flex', gap: '12px', marginTop: '28px' }}>
+                    <button onClick={handleSubmit} disabled={nameConflict}
+                        style={{ flex: 1, padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, border: 'none', borderRadius: '8px', background: nameConflict ? 'var(--border-color)' : '#2563eb', color: nameConflict ? 'var(--text-muted)' : '#fff', cursor: nameConflict ? 'not-allowed' : 'pointer' }}>
+                        {initialData ? 'Update Size' : 'Save Size'}
+                    </button>
+                    <button onClick={onClose} style={{ flex: 1, padding: '12px 24px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem', fontWeight: 700, borderRadius: '8px', cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
                 </div>
             </div>
         </div>
     );
 };
+
+
+
 
 const InputModal = ({ isOpen, onClose, onConfirm, title, defaultValue = '', placeholder = '' }) => {
     const [value, setValue] = useState(defaultValue);
@@ -329,6 +526,17 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => {
 const PropertySettingsPage = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSize, setEditingSize] = useState(null);
+    const [availabilityModalSize, setAvailabilityModalSize] = useState(null);
+    const [selectedSizeIds, setSelectedSizeIds] = useState([]);
+    const [bulkProjectModal, setBulkProjectModal] = useState(false);
+    const [bulkProject, setBulkProject] = useState('');
+    const [bulkBlock, setBulkBlock] = useState('');
+    const [isBulkSaving, setIsBulkSaving] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importPreview, setImportPreview] = useState([]);
+    const [importError, setImportError] = useState('');
+    const [isImporting, setIsImporting] = useState(false);
     const [activeTab, setActiveTab] = useState('Sizes');
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -347,7 +555,9 @@ const PropertySettingsPage = () => {
 
     const {
         propertyConfig = {}, updateConfig = () => {}, masterFields = {}, updateMasterFields = () => {},
-        sizes = [], addSize = () => {}, updateSize = () => {}, deleteSize = () => {}, projects = [],
+        sizes = [], addSize = () => {}, updateSize = () => {}, deleteSize = () => {},
+        addSizeProjectMapping = () => {}, removeSizeProjectMapping = () => {},
+        projects = [],
         syncCategoryLookup = () => {}, syncSubCategoryLookup = () => {}, syncPropertyTypeLookup = () => {}, syncBuiltupTypeLookup = () => {},
         getLookupId = () => {}, findLookup = () => {}
     } = context || {};
@@ -733,21 +943,12 @@ const PropertySettingsPage = () => {
                 await updateSize({ ...sizeData, id: editingSize.id });
                 showToast('Property size updated successfully');
             } else {
-                // Professional Duplicate Prevention
-                const isDuplicate = sizes.some(s =>
-                    s.name === sizeData.name &&
-                    s.project === sizeData.project &&
-                    s.block === sizeData.block &&
-                    s.category === sizeData.category &&
-                    s.subCategory === sizeData.subCategory &&
-                    s.unitType === sizeData.unitType
-                );
-
+                // ✅ ENTERPRISE: Global duplicate check — same name cannot exist anywhere
+                const isDuplicate = sizes.some(s => s.name === sizeData.name);
                 if (isDuplicate) {
-                    alert(`This size configuration already exists for Project: ${sizeData.project}, Block: ${sizeData.block}. Duplicate creation is not allowed.`);
+                    alert(`Size "${sizeData.name}" already exists globally. Change the area value to create a different size.`);
                     return;
                 }
-
                 await addSize(sizeData);
                 showToast('Property size added successfully');
             }
@@ -755,7 +956,7 @@ const PropertySettingsPage = () => {
             setEditingSize(null);
         } catch (error) {
             console.error('Failed to save size:', error);
-            showToast('Error: Duplicate or invalid configuration');
+            showToast('Error saving size configuration', 'error');
         }
     };
 
@@ -769,15 +970,128 @@ const PropertySettingsPage = () => {
         setEditingSize(null);
     };
 
+    const handleToggleSelect = (id) => {
+        setSelectedSizeIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+    const handleSelectAll = () => {
+        if (selectedSizeIds.length === paginatedSizes.length) {
+            setSelectedSizeIds([]);
+        } else {
+            setSelectedSizeIds(paginatedSizes.map(s => s.id));
+        }
+    };
+    const handleBulkAssign = async () => {
+        if (!bulkProject || selectedSizeIds.length === 0) return;
+        setIsBulkSaving(true);
+        try {
+            for (const sizeId of selectedSizeIds) {
+                await addSizeProjectMapping(sizeId, bulkProject, bulkBlock);
+            }
+            showToast(`Assigned ${selectedSizeIds.length} sizes to ${bulkProject}${bulkBlock ? ' › ' + bulkBlock : ''}`);
+            setSelectedSizeIds([]);
+            setBulkProjectModal(false);
+            setBulkProject('');
+            setBulkBlock('');
+        } catch (e) {
+            showToast('Bulk assign failed', 'error');
+        } finally {
+            setIsBulkSaving(false);
+        }
+    };
+
+    const handleImportFileChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setImportFile(file);
+        setImportError('');
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const text = ev.target.result;
+                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length < 2) { setImportError('CSV must have at least a header row and one data row.'); return; }
+                const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+                const requiredHeaders = ['name', 'unitType', 'category', 'subCategory'];
+                const missing = requiredHeaders.filter(h => !headers.includes(h));
+                if (missing.length > 0) { setImportError(`Missing required columns: ${missing.join(', ')}`); return; }
+                const rows = lines.slice(1).map(line => {
+                    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+                    const obj = {};
+                    headers.forEach((h, i) => obj[h] = vals[i] || '');
+                    return obj;
+                });
+                setImportPreview(rows.slice(0, 5));
+                setImportFile({ file, rows, headers });
+            } catch (err) {
+                setImportError('Failed to parse CSV file. Please check the format.');
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleImportConfirm = async () => {
+        if (!importFile || !importFile.rows) return;
+        setIsImporting(true);
+        let added = 0, skipped = 0;
+        try {
+            for (const row of importFile.rows) {
+                if (!row.name || !row.unitType || !row.category || !row.subCategory) { skipped++; continue; }
+                const isDuplicate = sizes.some(s => s.name === row.name);
+                if (isDuplicate) { skipped++; continue; }
+                const sizeData = {
+                    name: row.name,
+                    unitType: row.unitType,
+                    category: row.category,
+                    subCategory: row.subCategory,
+                    saleableArea: row.saleableArea || '',
+                    coveredArea: row.coveredArea || '',
+                    carpetArea: row.carpetArea || '',
+                    totalArea: row.totalArea || '',
+                    resultMetric: row.resultMetric || 'Sq Yd',
+                    description: row.description || '',
+                    projectMappings: []
+                };
+                await addSize(sizeData);
+                added++;
+            }
+            showToast(`Import complete: ${added} added, ${skipped} skipped (duplicates/invalid)`);
+            setIsImportModalOpen(false);
+            setImportFile(null);
+            setImportPreview([]);
+        } catch (err) {
+            showToast('Import failed: ' + err.message, 'error');
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
     const handleDeleteSize = (id) => {
         deleteSize(id);
         showToast('Property size deleted', 'info');
     };
 
+    // ✅ ENTERPRISE: Multi-field search + projectMappings-based project/block filter
     const filteredSizes = (sizes || []).filter(s => {
-        const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesProject = !sizeFilters.project || s.project === sizeFilters.project;
-        const matchesBlock = !sizeFilters.block || s.block === sizeFilters.block;
+        const q = searchTerm.toLowerCase();
+        const matchesSearch = !searchTerm || (
+            (s.name || '').toLowerCase().includes(q) ||
+            (s.unitType || '').toLowerCase().includes(q) ||
+            (s.category || '').toLowerCase().includes(q) ||
+            (s.subCategory || '').toLowerCase().includes(q) ||
+            String(s.saleableArea || '').includes(q) ||
+            String(s.totalArea || '').includes(q) ||
+            String(s.carpetArea || '').includes(q) ||
+            (s.description || '').toLowerCase().includes(q)
+        );
+        // Project/Block filter uses projectMappings (post-migration) with old project field as fallback
+        const matchesProject = !sizeFilters.project || (
+            (Array.isArray(s.projectMappings) && s.projectMappings.some(m => m.project === sizeFilters.project)) ||
+            s.project === sizeFilters.project
+        );
+        const matchesBlock = !sizeFilters.block || (
+            (Array.isArray(s.projectMappings) && s.projectMappings.some(m => m.block === sizeFilters.block)) ||
+            s.block === sizeFilters.block
+        );
         const matchesCategory = !sizeFilters.category || s.category === sizeFilters.category;
         const matchesSubCategory = !sizeFilters.subCategory || s.subCategory === sizeFilters.subCategory;
         const matchesUnitType = !sizeFilters.unitType || s.unitType === sizeFilters.unitType;
@@ -790,6 +1104,8 @@ const PropertySettingsPage = () => {
         (currentPage - 1) * recordsPerPage,
         currentPage * recordsPerPage
     );
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
 
     const goToNextPage = () => {
         if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -864,6 +1180,13 @@ const PropertySettingsPage = () => {
                                     style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#ffffff', border: 'none', cursor: 'pointer' }}
                                 >
                                     <i className="fas fa-plus"></i> Add Size
+                                </button>
+                                <button
+                                    onClick={() => { setImportFile(null); setImportPreview([]); setImportError(''); setIsImportModalOpen(true); }}
+                                    style={{ height: '36px', padding: '0 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                                    title="Import sizes from CSV"
+                                >
+                                    <i className="fas fa-file-import"></i> Import CSV
                                 </button>
                                 <button
                                     onClick={() => setIsExportModalOpen(true)}
@@ -962,20 +1285,35 @@ const PropertySettingsPage = () => {
                                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                     <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                         <tr>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
+                                            <th style={{ padding: '16px', width: '40px' }}>
+                                                <input type="checkbox"
+                                                    checked={paginatedSizes.length > 0 && selectedSizeIds.length === paginatedSizes.length}
+                                                    onChange={handleSelectAll}
+                                                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                                                />
+                                            </th>
                                             <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Details</th>
-                                            <th style={{ padding: '16px', width: '100px' }}></th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Area</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available In (Projects)</th>
+                                            <th style={{ padding: '16px', width: '160px' }}></th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {paginatedSizes.length > 0 ? (
                                             paginatedSizes.map(size => (
-                                                <SizeItem key={size.id} size={size} onEdit={() => handleEditOpen(size)} onDelete={handleDeleteSize} />
+                                                <SizeItem
+                                                    key={size.id}
+                                                    size={size}
+                                                    isSelected={selectedSizeIds.includes(size.id)}
+                                                    onToggleSelect={() => handleToggleSelect(size.id)}
+                                                    onEdit={() => handleEditOpen(size)}
+                                                    onDelete={handleDeleteSize}
+                                                    onManageAvailability={sz => setAvailabilityModalSize(sz)}
+                                                />
                                             ))
                                         ) : (
-                                            <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No sizes found matching your search.</td></tr>
+                                            <tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No sizes found matching your search.</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -1230,6 +1568,73 @@ const PropertySettingsPage = () => {
                     </div>
                 )}
 
+                {selectedSizeIds.length > 0 && (
+                    <div style={{
+                        position: 'sticky', bottom: 0, left: 0, right: 0,
+                        background: '#1e40af', color: '#fff', padding: '12px 24px',
+                        display: 'flex', alignItems: 'center', gap: '16px',
+                        borderRadius: '0 0 12px 12px', zIndex: 100,
+                        boxShadow: '0 -4px 20px rgba(30,64,175,0.3)'
+                    }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{selectedSizeIds.length} sizes selected</span>
+                        <button
+                            onClick={() => setBulkProjectModal(true)}
+                            style={{ padding: '8px 20px', background: '#fff', color: '#1e40af', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}
+                        >
+                            <i className="fas fa-project-diagram" style={{ marginRight: '6px' }}></i>Assign to Project
+                        </button>
+                        <button
+                            onClick={() => setSelectedSizeIds([])}
+                            style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
+                        >
+                            Clear
+                        </button>
+                    </div>
+                )}
+
+                {bulkProjectModal && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '32px', width: '460px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                <h3 style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-main)' }}>Bulk Assign — {selectedSizeIds.length} Sizes</h3>
+                                <button onClick={() => setBulkProjectModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--text-muted)' }}>×</button>
+                            </div>
+                            <div style={{ display: 'grid', gap: '16px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px', display: 'block' }}>Project *</label>
+                                    <select value={bulkProject} onChange={e => { setBulkProject(e.target.value); setBulkBlock(''); }}
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-card)', color: 'var(--text-main)' }}>
+                                        <option value="">Select Project</option>
+                                        {safeProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px', display: 'block' }}>Block (optional)</label>
+                                    <select value={bulkBlock} onChange={e => setBulkBlock(e.target.value)}
+                                        disabled={!bulkProject}
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: bulkProject ? 'var(--bg-card)' : 'var(--bg-light)', color: 'var(--text-main)' }}>
+                                        <option value="">All Blocks / No Block</option>
+                                        {(safeProjects.find(p => p.name === bulkProject)?.blocks || []).map((b, i) => {
+                                            const bName = typeof b === 'object' ? b.name : b;
+                                            return <option key={i} value={bName}>{bName}</option>;
+                                        })}
+                                    </select>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px', marginTop: '28px' }}>
+                                <button onClick={handleBulkAssign} disabled={!bulkProject || isBulkSaving}
+                                    style={{ flex: 1, padding: '12px', background: bulkProject ? '#1e40af' : '#94a3b8', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.95rem', cursor: bulkProject ? 'pointer' : 'not-allowed' }}>
+                                    {isBulkSaving ? 'Assigning...' : 'Assign to Project'}
+                                </button>
+                                <button onClick={() => setBulkProjectModal(false)}
+                                    style={{ flex: 1, padding: '12px', background: 'var(--bg-light)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <AddSizeModal
                     isOpen={isModalOpen}
                     onClose={handleCloseModal}
@@ -1237,6 +1642,35 @@ const PropertySettingsPage = () => {
                     initialData={editingSize}
                     propertyConfig={propertyConfig}
                     allProjects={safeProjects}
+                    existingSizes={sizes}
+                />
+
+                {/* ✅ ENTERPRISE: SizeAvailabilityModal — manage project/block assignments */}
+                <SizeAvailabilityModal
+                    isOpen={!!availabilityModalSize}
+                    size={availabilityModalSize}
+                    onClose={() => setAvailabilityModalSize(null)}
+                    allProjects={safeProjects}
+                    onAddMapping={async (sizeId, project, block) => {
+                        await addSizeProjectMapping(sizeId, project, block);
+                        // Refresh local modal state to show updated mappings
+                        setAvailabilityModalSize(prev => {
+                            if (!prev || prev.id !== sizeId) return prev;
+                            const existing = Array.isArray(prev.projectMappings) ? prev.projectMappings : [];
+                            if (existing.some(m => m.project === project && m.block === (block || ''))) return prev;
+                            return { ...prev, projectMappings: [...existing, { project, block: block || '' }] };
+                        });
+                    }}
+                    onRemoveMapping={async (sizeId, project, block) => {
+                        await removeSizeProjectMapping(sizeId, project, block);
+                        setAvailabilityModalSize(prev => {
+                            if (!prev || prev.id !== sizeId) return prev;
+                            const updated = (Array.isArray(prev.projectMappings) ? prev.projectMappings : []).filter(
+                                m => !(m.project === project && m.block === (block || ''))
+                            );
+                            return { ...prev, projectMappings: updated };
+                        });
+                    }}
                 />
 
                 <InputModal
@@ -1253,6 +1687,72 @@ const PropertySettingsPage = () => {
                     onConfirm={confirmModal.onConfirm}
                     message={confirmModal.message}
                 />
+
+                {isImportModalOpen && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '32px', width: '600px', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-main)' }}>Import Sizes from CSV</h3>
+                                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Required columns: name, unitType, category, subCategory</p>
+                                </div>
+                                <button onClick={() => setIsImportModalOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--text-muted)' }}>×</button>
+                            </div>
+
+                            <div style={{ border: '2px dashed var(--border-color)', borderRadius: '10px', padding: '32px', textAlign: 'center', marginBottom: '20px', background: 'var(--bg-light)' }}>
+                                <i className="fas fa-file-csv" style={{ fontSize: '2rem', color: '#2563eb', marginBottom: '12px', display: 'block' }}></i>
+                                <p style={{ margin: '0 0 12px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Upload a CSV file with size data</p>
+                                <input type="file" accept=".csv" id="sizeImportInput" style={{ display: 'none' }} onChange={handleImportFileChange} />
+                                <label htmlFor="sizeImportInput" style={{ display: 'inline-block', padding: '10px 24px', background: '#2563eb', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>Choose CSV File</label>
+                                {importFile && <p style={{ margin: '12px 0 0', fontSize: '0.85rem', color: '#10b981', fontWeight: 600 }}>✓ File loaded — {importFile.rows?.length || 0} rows found</p>}
+                            </div>
+
+                            {importError && (
+                                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#b91c1c', fontSize: '0.85rem', fontWeight: 600 }}>
+                                    <i className="fas fa-exclamation-triangle" style={{ marginRight: '8px' }}></i>{importError}
+                                </div>
+                            )}
+
+                            {importPreview.length > 0 && (
+                                <div style={{ marginBottom: '20px' }}>
+                                    <p style={{ margin: '0 0 10px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>Preview (first {importPreview.length} rows):</p>
+                                    <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                            <thead style={{ background: 'var(--bg-light)' }}>
+                                                <tr>
+                                                    {Object.keys(importPreview[0]).map(k => <th key={k} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' }}>{k}</th>)}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {importPreview.map((row, i) => (
+                                                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                        {Object.values(row).map((v, j) => <td key={j} style={{ padding: '8px 12px', color: 'var(--text-main)' }}>{v}</td>)}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ background: 'rgba(37,99,235,0.05)', border: '1px solid rgba(37,99,235,0.15)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px', fontSize: '0.8rem', color: '#1e40af' }}>
+                                <strong>CSV Format:</strong> name, unitType, category, subCategory, saleableArea, coveredArea, carpetArea, totalArea, resultMetric, description<br/>
+                                <strong>Example:</strong> 2BHK-1200sqft, BHK, Residential, Flat/Apartment / Builder Floor, 1200, 950, 850, , Sq Ft, Standard 2BHK layout
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button onClick={handleImportConfirm} disabled={!importFile?.rows || isImporting || !!importError}
+                                    style={{ flex: 1, padding: '12px', background: (!importFile?.rows || !!importError) ? '#94a3b8' : '#10b981', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.95rem', cursor: (!importFile?.rows || !!importError) ? 'not-allowed' : 'pointer' }}>
+                                    {isImporting ? 'Importing...' : `Import ${importFile?.rows?.length || 0} Sizes`}
+                                </button>
+                                <button onClick={() => setIsImportModalOpen(false)}
+                                    style={{ flex: 1, padding: '12px', background: 'var(--bg-light)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Export Sizes Modal */}
                 {isExportModalOpen && (

@@ -26,10 +26,22 @@ const parseSize = (sizeStr) => {
 // This function takes the full list of inventory items and the active filters object
 // and returns the filtered list.
 // ==================================================================================
-export const applyInventoryFilters = (items, filters) => {
+// ✅ ENTERPRISE: sizes param = live sizes array from PropertyConfigContext
+export const applyInventoryFilters = (items, filters, sizes = []) => {
     if (!items) return [];
 
     return items.filter(item => {
+
+        // ✅ ENTERPRISE: Resolve size master from item's sizeId or sizeLabel for multi-field matching
+        const resolvedSize = (() => {
+            if (item.sizeId && Array.isArray(sizes)) {
+                return sizes.find(s => s.id === item.sizeId || s.id === String(item.sizeId));
+            }
+            if (item.sizeLabel && Array.isArray(sizes)) {
+                return sizes.find(s => s.name === item.sizeLabel);
+            }
+            return null;
+        })();
 
         // 1. Status Filter
         // ------------------------------------------------------------------------------
@@ -52,12 +64,41 @@ export const applyInventoryFilters = (items, filters) => {
             if (!subMatch) return false;
         }
 
-        // 4. Size Type Filter (e.g. "1 Kanal", "10 Marla")
+        // 4. Size Type Filter — ENTERPRISE GRADE (unitType group-based matching)
+        // Filter dropdown shows unique unitTypes ("1 Kanal", "10 Marla", "2 BHK" etc.)
+        // Selecting "1 Kanal" matches ANY item whose linked size has unitType = "1 Kanal"
         // ------------------------------------------------------------------------------
         if (filters.sizeType && filters.sizeType.length > 0) {
             const sizeTypeMatch = filters.sizeType.some(st => {
-                const sizeStr = item.sizeConfig || item.sizeLabel || (item.size?.value ? `${item.size.value} ${item.size.unit}` : String(item.size || ''));
-                return sizeStr.toLowerCase().includes(st.toLowerCase());
+                const targetUnitType = st.toLowerCase();
+
+                // PRIMARY: match via resolved Size Master (item has sizeId → most reliable)
+                if (resolvedSize) {
+                    if ((resolvedSize.unitType || '').toLowerCase() === targetUnitType) return true;
+                    if ((resolvedSize.unitType || '').toLowerCase().includes(targetUnitType)) return true;
+                }
+
+                // SECONDARY: no sizeId on item — find all sizes with this unitType group,
+                // then check if item's text fields reference any of them
+                if (Array.isArray(sizes)) {
+                    const groupSizes = sizes.filter(s =>
+                        (s.unitType || '').toLowerCase() === targetUnitType ||
+                        (s.unitType || '').toLowerCase().includes(targetUnitType)
+                    );
+                    if (groupSizes.length > 0) {
+                        const itemSizeRef = (item.sizeConfig || item.sizeLabel || item.sizeType || '').toLowerCase();
+                        const matched = groupSizes.some(s =>
+                            (item.sizeId && (s.id === item.sizeId || s.id === String(item.sizeId))) ||
+                            (item.sizeLabel && item.sizeLabel === s.name) ||
+                            (itemSizeRef && itemSizeRef.includes((s.name || '').toLowerCase()))
+                        );
+                        if (matched) return true;
+                    }
+                }
+
+                // FALLBACK: item's own text fields mention the unitType directly
+                const sizeStr = (item.sizeConfig || item.sizeLabel || item.sizeType || (item.size?.value ? `${item.size.value} ${item.size.unit}` : String(item.size || ''))).toLowerCase();
+                return sizeStr.includes(targetUnitType);
             });
             if (!sizeTypeMatch) return false;
         }

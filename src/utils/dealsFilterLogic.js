@@ -1,5 +1,6 @@
 
-import { sizeData } from '../constants/sizeConstants';
+// ✅ ENTERPRISE FIX: Removed empty sizeConstants import — was causing filter to never match
+// Size resolution now uses live sizes array passed from context
 
 // Helper: Convert degrees to radians
 function deg2rad(deg) {
@@ -26,7 +27,19 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // This function takes a deal object and the filters object and returns true/false
 // It is intended to be used inside .filter()
 // ==================================================================================
-export const applyDealsFilters = (deal, filters) => {
+// ✅ ENTERPRISE: sizes param = live sizes array from PropertyConfigContext
+export const applyDealsFilters = (deal, filters, sizes = []) => {
+
+    // ✅ ENTERPRISE: Resolve size master data from deal's sizeId or sizeLabel
+    const resolvedSize = (() => {
+        if (deal.sizeId && Array.isArray(sizes)) {
+            return sizes.find(s => s.id === deal.sizeId || s.id === String(deal.sizeId));
+        }
+        if (deal.sizeLabel && Array.isArray(sizes)) {
+            return sizes.find(s => s.name === deal.sizeLabel);
+        }
+        return null;
+    })();
 
     // 1. Stage Filter (e.g. "Open", "Quote", "Negotiation")
     // ------------------------------------------------------------------------------
@@ -59,19 +72,21 @@ export const applyDealsFilters = (deal, filters) => {
     const isTypeMode = !filters.sizeMode || filters.sizeMode === 'type';
     if (isTypeMode && filters.sizeType && filters.sizeType.length > 0) {
         const sizeTypeMatch = filters.sizeType.some(st => {
-            const dealSize = (deal.size || '').toLowerCase();
-            const dealType = (deal.type || '').toLowerCase();
             const targetLabel = st.toLowerCase();
 
-            // Direct label match
+            // ✅ ENTERPRISE: Match against resolved Size Master metadata (unitType, name)
+            if (resolvedSize) {
+                if ((resolvedSize.unitType || '').toLowerCase().includes(targetLabel)) return true;
+                if ((resolvedSize.name || '').toLowerCase().includes(targetLabel)) return true;
+                if (String(resolvedSize.saleableArea || '').includes(st)) return true;
+                if (String(resolvedSize.totalArea || '').includes(st)) return true;
+            }
+
+            // Fallback: match against deal's own text fields
+            const dealSize = (deal.size || deal.sizeLabel || deal.sizeConfig || '').toLowerCase();
+            const dealType = (deal.type || '').toLowerCase();
             if (dealSize.includes(targetLabel) || dealType.includes(targetLabel)) return true;
 
-            // Value match via sizeData lookup
-            const sizeDef = sizeData.find(s => s.label === st);
-            if (sizeDef && sizeDef.value) {
-                const targetValue = sizeDef.value.toLowerCase();
-                if (dealSize.includes(targetValue)) return true;
-            }
             return false;
         });
         if (!sizeTypeMatch) return false;

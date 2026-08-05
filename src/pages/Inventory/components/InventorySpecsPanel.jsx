@@ -1,9 +1,11 @@
 import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, handleCreateDeal, onFeedback, isInventoryActive, hideConsole = false }) => {
     const { isDark } = useTheme();
+    const { sizes } = usePropertyConfig();
     const intents = Array.isArray(inventory.intent) 
         ? inventory.intent.map(i => (i && typeof i === 'object' ? i.lookup_value : i))
         : [inventory.intent && typeof inventory.intent === 'object' ? inventory.intent.lookup_value : inventory.intent].filter(Boolean);
@@ -126,6 +128,16 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                             {(() => {
                                 const resolveSizeLabel = (item, resolveLookupFn) => {
                                     if (!item) return null;
+                                    
+                                    // ✅ ENTERPRISE FIX: Use new Size Master system first
+                                    if (item.sizeId && Array.isArray(sizes)) {
+                                        const matchedSize = sizes.find(s => s.id === item.sizeId || s.id === String(item.sizeId));
+                                        if (matchedSize) {
+                                            // Format: Name or "UnitType - TotalArea"
+                                            return matchedSize.name || `${matchedSize.unitType || ''} ${matchedSize.totalArea ? matchedSize.totalArea + ' ' + (matchedSize.resultMetric || 'Sq Yd') : ''}`.trim();
+                                        }
+                                    }
+                                    
                                     if (item.totalLandAreaText) return item.totalLandAreaText;
                                     
                                     const extractStr = (val) => {

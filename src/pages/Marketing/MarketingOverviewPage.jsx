@@ -4354,7 +4354,9 @@ export default function MarketingOverviewPage() {
                               formData.append('file', file);
                               toast.loading('Parsing Excel Data...', { id: 'xl-load' });
                               try {
-                                const res = await api.post('/marketing/import-audience', formData);
+                                const res = await api.post('/marketing/import-audience', formData, {
+                                    headers: { 'Content-Type': undefined }
+                                });
                                 if (res.data?.success) {
                                   setAudienceConfig(p => ({ ...p, fileName: file.name, tempCount: res.data.count, tempRecipients: res.data.recipients }));
                                   if (res.data.recipients && res.data.recipients.length > 0) {
