@@ -181,8 +181,6 @@ const DealDetailHeader = ({
                             </span>
                         )}
 
-                        )}
-
                         {!isReadOnly && (
                             <button
                                 onClick={handleTogglePublish}
@@ -409,8 +407,8 @@ const DealDetailHeader = ({
                         </div>
                     )}
                 </div>
-            )}
             </div>
+            )}
 
             <div style={{
                 display: 'flex',
