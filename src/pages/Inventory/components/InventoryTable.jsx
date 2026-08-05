@@ -348,7 +348,21 @@ const InventoryTable = ({
 
                                 {/* Col 5: Owner Profile */}
                                 <div className="super-cell">
-                                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginBottom: '2px' }}>
+                                    <div 
+                                        style={{ 
+                                            fontSize: '0.82rem', 
+                                            fontWeight: 800, 
+                                            color: isDark ? 'var(--gold)' : '#2563eb', 
+                                            marginBottom: '2px',
+                                            cursor: (item.owners?.[0]?._id || item.owners?.[0]?.id) ? 'pointer' : 'default',
+                                            textDecoration: (item.owners?.[0]?._id || item.owners?.[0]?.id) ? 'underline' : 'none'
+                                        }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const cid = item.owners?.[0]?._id || item.owners?.[0]?.id;
+                                            if (cid && onNavigate) onNavigate('contact-detail', cid);
+                                        }}
+                                    >
                                         {renderValue(item.owners?.[0]?.name) || renderValue(item.ownerName) || 'No owner data'}
                                     </div>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-main)' }}>
@@ -361,7 +375,21 @@ const InventoryTable = ({
                                 <div className="super-cell">
                                     {item.associates && item.associates.length > 0 ? (
                                         <>
-                                            <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px' }}>
+                                            <div 
+                                                style={{ 
+                                                    fontSize: '0.82rem', 
+                                                    fontWeight: 800, 
+                                                    color: 'var(--text-main)', 
+                                                    marginBottom: '2px',
+                                                    cursor: (item.associates?.[0]?.contact?._id || item.associates?.[0]?.contact?.id) ? 'pointer' : 'default',
+                                                    textDecoration: (item.associates?.[0]?.contact?._id || item.associates?.[0]?.contact?.id) ? 'underline' : 'none'
+                                                }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const cid = item.associates?.[0]?.contact?._id || item.associates?.[0]?.contact?.id;
+                                                    if (cid && onNavigate) onNavigate('contact-detail', cid);
+                                                }}
+                                            >
                                                 {renderValue(item.associates[0]?.contact?.name) || renderValue(item.associates[0]?.name)}
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: isDark ? 'var(--gold)' : '#2563eb', fontWeight: 700 }}>
