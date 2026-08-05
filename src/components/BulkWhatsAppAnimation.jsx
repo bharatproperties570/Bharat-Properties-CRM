@@ -134,9 +134,9 @@ const BulkWhatsAppAnimation = ({ isOpen, total = 0, completed = 0, onClose }) =>
                                     {phase === 'flying' && (
                                         <motion.div
                                             key="plane"
-                                            initial={{ x: -20, y: 20, scale: 0.5, opacity: 0 }}
-                                            animate={{ x: [0, 2, -2, 0], y: [0, -4, 2, 0], scale: 1, opacity: 1 }}
-                                            transition={{ x: { repeat: Infinity, duration: 2 }, y: { repeat: Infinity, duration: 1.5 } }}
+                                            initial={{ x: -40, y: 40, scale: 0.5, opacity: 0 }}
+                                            animate={{ x: [ -40, 0, 60 ], y: [ 40, 0, -60 ], scale: [0.5, 1, 1.2], opacity: [0, 1, 0] }}
+                                            transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
                                             style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         >
                                             <Send style={{ height: '24px', width: '24px', color: 'rgba(255,255,255,0.95)', filter: "drop-shadow(0 0 8px rgba(255,255,255,0.5))" }} strokeWidth={2} />
