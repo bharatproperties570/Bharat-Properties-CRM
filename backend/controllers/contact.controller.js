@@ -499,8 +499,11 @@ export const updateContact = async (req, res, next) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const contact = await Contact.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, cleanData, { new: true, runValidators: true });
+        const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
+
+        contact.set(cleanData);
+        await contact.save();
 
         // Sync to Google
         googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
