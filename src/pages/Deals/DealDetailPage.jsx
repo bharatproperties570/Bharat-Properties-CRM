@@ -587,9 +587,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     );
     if (!deal) return <div className="error-state">Deal not found</div>;
 
+    const isReadOnly = deal.stage === 'Closed Won' || deal.stage === 'Closed Lost';
+
     return (
         <div className="deal-detail-page bg-slate-50 min-h-screen" style={{ fontFamily: '"Inter", sans-serif' }}>
             <DealDetailHeader 
+                isReadOnly={isReadOnly}
                 deal={deal} 
                 liveScoreData={liveScoreData} 
                 stageAlerts={stageAlerts}

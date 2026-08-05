@@ -25,7 +25,8 @@ const DealDetailHeader = ({
     setIsQuoteModalOpen,
     setIsBuiltupModalOpen,
     handleSocialClick,
-    enrichDealIntelligence
+    enrichDealIntelligence,
+    isReadOnly
 }) => {
     const { isDark } = useTheme();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -180,24 +181,26 @@ const DealDetailHeader = ({
                             </span>
                         )}
 
-                        <button
-                            onClick={handleTogglePublish}
-                            style={{
-                                backgroundColor: deal.isPublished ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
-                                color: deal.isPublished ? '#2563eb' : isDark ? 'var(--text-muted)' : '#64748b',
-                                padding: '4px 12px', borderRadius: '6px',
-                                fontSize: '0.7rem', fontWeight: 800,
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                textTransform: 'uppercase', letterSpacing: '0.05em',
-                                border: `1px solid ${deal.isPublished ? '#3b82f644' : '#e2e8f0'}`,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                            }}
-                            className="hover:shadow-sm"
-                        >
-                            <i className={`fas fa-globe ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
-                            {deal.isPublished ? 'Published' : 'Draft'}
-                        </button>
+                        {!isReadOnly && (
+                            <button
+                                onClick={handleTogglePublish}
+                                style={{
+                                    backgroundColor: deal.isPublished ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                                    color: deal.isPublished ? '#2563eb' : isDark ? 'var(--text-muted)' : '#64748b',
+                                    padding: '4px 12px', borderRadius: '6px',
+                                    fontSize: '0.7rem', fontWeight: 800,
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    border: `1px solid ${deal.isPublished ? '#3b82f644' : '#e2e8f0'}`,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                                className="hover:shadow-sm"
+                            >
+                                <i className={`fas fa-globe ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                                {deal.isPublished ? 'Published' : 'Draft'}
+                            </button>
+                        )}
                     </div>
                     <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600, margin: 0 }}>
                         {renderValue(deal.projectName?.name || deal.projectName)} • {renderValue(deal.block)}
@@ -209,81 +212,201 @@ const DealDetailHeader = ({
                 </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
-                {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
-                    <button
-                        onClick={() => setIsMarkingLost(!isMarkingLost)}
-                        style={{
-                            background: isMarkingLost ? '#ef4444' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2',
-                            color: isMarkingLost ? '#fff' : '#ef4444',
-                            border: `1px solid ${isMarkingLost ? '#ef4444' : '#fee2e2'}`,
-                            padding: '8px 14px',
-                            borderRadius: '10px',
-                            fontSize: '0.75rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: isMarkingLost ? '0 4px 12px rgba(239, 68, 68, 0.2)' : 'none'
-                        }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className={`fas ${isMarkingLost ? 'fa-times' : 'fa-handshake-slash'}`}></i>
-                        {isMarkingLost ? 'Cancel Loss' : 'Mark as Lost'}
-                    </button>
-                )}
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ position: 'relative' }}>
+            {!isReadOnly && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
+                    {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
                         <button
-                            onClick={() => {
-                                if (callOptions.length === 1) {
-                                    setIsCallModalOpen(callOptions[0].contactObj);
-                                } else if (callOptions.length > 1) {
-                                    setShowCallMenu(!showCallMenu);
-                                } else {
-                                    setIsCallModalOpen(deal?.contactId || true);
-                                }
+                            onClick={() => setIsMarkingLost(!isMarkingLost)}
+                            style={{
+                                background: isMarkingLost ? '#ef4444' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2',
+                                color: isMarkingLost ? '#fff' : '#ef4444',
+                                border: `1px solid ${isMarkingLost ? '#ef4444' : '#fee2e2'}`,
+                                padding: '8px 14px',
+                                borderRadius: '10px',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: isMarkingLost ? '0 4px 12px rgba(239, 68, 68, 0.2)' : 'none'
                             }}
+                            className="hover:scale-105 transition-all"
+                        >
+                            <i className={`fas ${isMarkingLost ? 'fa-times' : 'fa-handshake-slash'}`}></i>
+                            {isMarkingLost ? 'Cancel Loss' : 'Mark as Lost'}
+                        </button>
+                    )}
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                onClick={() => {
+                                    if (callOptions.length === 1) {
+                                        setIsCallModalOpen(callOptions[0].contactObj);
+                                    } else if (callOptions.length > 1) {
+                                        setShowCallMenu(!showCallMenu);
+                                    } else {
+                                        setIsCallModalOpen(deal?.contactId || true);
+                                    }
+                                }}
+                                style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            >
+                                <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL {callOptions.length > 1 && <i className="fas fa-chevron-down" style={{fontSize:'0.65rem', marginLeft:'2px'}}></i>}
+                            </button>
+                            {showCallMenu && callOptions.length > 1 && (
+                                <div style={{
+                                    position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '12px',
+                                    boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '220px',
+                                    padding: '8px 0', overflow: 'hidden'
+                                }}>
+                                    {callOptions.map((opt, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => {
+                                                setShowCallMenu(false);
+                                                setIsCallModalOpen(opt.contactObj);
+                                            }}
+                                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                            className="hover:bg-slate-50"
+                                        >
+                                            <i className="fas fa-phone" style={{ color: '#16a34a', width: '16px' }}></i>
+                                            <div style={{display:'flex', flexDirection:'column', lineHeight:'1.4'}}>
+                                                <span>{opt.label}</span>
+                                                <span style={{fontSize:'0.7rem', color:'#94a3b8'}}>{opt.mobile}</span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setIsMessageOpen(true)}
                             style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
-                            <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL {callOptions.length > 1 && <i className="fas fa-chevron-down" style={{fontSize:'0.65rem', marginLeft:'2px'}}></i>}
+                            <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
                         </button>
-                        {showCallMenu && callOptions.length > 1 && (
+                        <button
+                            onClick={() => setIsMailOpen(true)}
+                            style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                            <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
+                        </button>
+                        <button
+                            onClick={(e) => {
+                                if (e && e.stopPropagation) e.stopPropagation();
+                                handleSocialClick(e);
+                            }}
+                            style={{ 
+                                border: 'none', 
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', 
+                                color: isDark ? 'var(--text-main)' : '#475569', 
+                                padding: '8px 14px', 
+                                borderRadius: '10px', 
+                                fontSize: '0.75rem', 
+                                fontWeight: 800, 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px',
+                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }}
+                            className="hover:bg-amber-50 hover:text-amber-700 hover:shadow-sm active:scale-95"
+                        >
+                            <i className="fas fa-share-alt" style={{ color: '#f59e0b' }}></i> SHARE
+                        </button>
+                    </div>
+
+
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setShowMoreMenu(!showMoreMenu)}
+                            style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: isDark ? 'var(--text-muted)' : '#64748b' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-ellipsis-v"></i>
+                        </button>
+
+                        {showMoreMenu && (
                             <div style={{
                                 position: 'absolute', top: '100%', right: 0, marginTop: '8px',
                                 background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '12px',
-                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '220px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '200px',
                                 padding: '8px 0', overflow: 'hidden'
                             }}>
-                                {callOptions.map((opt, idx) => (
-                                    <button
-                                        key={idx}
-                                        onClick={() => {
-                                            setShowCallMenu(false);
-                                            setIsCallModalOpen(opt.contactObj);
-                                        }}
-                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                        className="hover:bg-slate-50"
-                                    >
-                                        <i className="fas fa-phone" style={{ color: '#16a34a', width: '16px' }}></i>
-                                        <div style={{display:'flex', flexDirection:'column', lineHeight:'1.4'}}>
-                                            <span>{opt.label}</span>
-                                            <span style={{fontSize:'0.7rem', color:'#94a3b8'}}>{opt.mobile}</span>
-                                        </div>
-                                    </button>
-                                ))}
+                                <button
+                                    onClick={() => { setIsBookingModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-book-medical" style={{ color: '#10b981', width: '16px' }}></i> Create Booking
+                                </button>
+                                <button
+                                    onClick={() => { setIsTagsModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags
+                                </button>
+                                <button
+                                    onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-cloud-upload-alt" style={{ color: '#f59e0b', width: '16px' }}></i> Upload
+                                </button>
+                                <button
+                                    onClick={() => { setIsDocumentModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-file-alt" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', width: '16px' }}></i> Document
+                                </button>
+                                <button
+                                    onClick={() => { setIsBuiltupModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-layer-group" style={{ color: '#2563eb', width: '16px' }}></i> Add Builtup Details
+                                </button>
+                                <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
+                                <button
+                                    onClick={() => {
+                                        setShowMoreMenu(false);
+                                        setIsQuoteModalOpen(true);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: isDark ? 'var(--text-main)' : '#475569',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        textAlign: 'left'
+                                    }}
+                                    className="hover:bg-slate-50 transition-colors"
+                                >
+                                    <Calculator size={14} className="text-blue-500" /> Quotation
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowMoreMenu(false);
+                                        enrichDealIntelligence();
+                                    }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 700, color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-green-50"
+                                >
+                                    <i className="fas fa-magic" style={{ width: '16px' }}></i> Enrichment Intelligence
+                                </button>
                             </div>
                         )}
                     </div>
-                    <button
-                        onClick={() => setIsMessageOpen(true)}
-                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
-                    </button>
-                    <button
                         onClick={() => setIsMailOpen(true)}
                         style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >

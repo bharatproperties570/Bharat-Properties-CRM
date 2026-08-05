@@ -1170,6 +1170,9 @@ export const getDeals = async (req, res) => {
         if (queryStage) {
             const stages = Array.isArray(queryStage) ? queryStage : queryStage.split(',').filter(Boolean);
             if (stages.length > 0) query.stage = { $in: stages };
+        } else {
+            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by default
+            query.stage = { $nin: ['Closed Won', 'Closed Lost', 'Cancelled', 'Closed', 'Sold Out'] };
         }
         if (queryUnitType) {
             const unitTypes = Array.isArray(queryUnitType) ? queryUnitType : queryUnitType.split(',').filter(Boolean);
@@ -2225,6 +2228,30 @@ export const updateDeal = async (req, res) => {
         }
 
         await syncInventoryStatus(deal);
+
+        // 🚀 ENTERPRISE RULE: If Deal is Closed Lost, log its journey to the Inventory Activity Timeline
+        if (sanitizedData.stage === 'Closed Lost' && deal.inventoryId) {
+            try {
+                const enteredAt = new Date(deal.createdAt);
+                const lostAt = new Date();
+                const daysActive = Math.max(1, Math.floor((lostAt - enteredAt) / 86400000));
+                
+                await Activity.create({
+                    entityId: deal.inventoryId,
+                    entityType: 'Inventory',
+                    type: 'system_note',
+                    subType: 'deal_lost',
+                    user: req.user?.id || null,
+                    title: `Deal Lost after ${daysActive} days`,
+                    description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.`,
+                    priority: 'medium',
+                    status: 'completed',
+                    completedAt: lostAt
+                });
+            } catch (err) {
+                console.error("Error logging Closed Lost to Inventory:", err);
+            }
+        }
 
         // 🌐 WEBSITE PUBLISHING: Handle updates to publishing status
         if (sanitizedData.publishOn?.website && !deal.isPublished) {

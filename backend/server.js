@@ -7,6 +7,7 @@ import { initMatchingScheduler } from "./services/matchingScheduler.js";
 import AgingCronService from "./services/AgingCronService.js";
 import { startNightlyPricingCron } from "./jobs/nightlyPricingCron.js";
 import { startDispatchCron } from "./jobs/dispatchCron.js";
+import { startArchivalCron } from "./cron/archivalWorker.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
 import "./src/workers/marketingWorker.js";
@@ -24,6 +25,9 @@ connectDB().then(() => {
         
         // Initialize Nightly Pricing Intelligence Benchmark Aggregation
         startNightlyPricingCron();
+
+        // Initialize Enterprise Deal Archival Job (Closed Lost)
+        startArchivalCron();
 
         // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
         // Runs every hour to advance leads through the Nurture Flow automatically.
