@@ -10,7 +10,8 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
     expandedSections,
     toggleSection,
     renderLookup,
-    showNotification
+    showNotification,
+    onEditIntelligence
 }) {
     const { isDark } = useTheme();
     if (recordType !== 'lead') return null;
@@ -276,11 +277,21 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
 
             {/* AI Intelligence Panel */}
             <div className="glass-card" style={{ borderRadius: '16px' }}>
-                <div onClick={() => toggleSection('ai')} style={{ padding: '14px 20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <i className="fas fa-microchip" style={{ color: '#8b5cf6' }}></i> AI Intelligence
-                    </span>
-                    <i className={`fas fa-chevron-${expandedSections.includes('ai') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
+                <div style={{ padding: '14px 20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div onClick={() => toggleSection('ai')} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#475569', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="fas fa-microchip" style={{ color: '#8b5cf6' }}></i> AI Intelligence
+                        </span>
+                        <i className={`fas fa-chevron-${expandedSections.includes('ai') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
+                    </div>
+                    {onEditIntelligence && (
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onEditIntelligence(); }} 
+                            style={{ background: 'transparent', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#8b5cf6', padding: '4px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' }}
+                        >
+                            <i className="fas fa-edit"></i> EDIT
+                        </button>
+                    )}
                 </div>
                 {expandedSections.includes('ai') && (
                     <div style={{ padding: '20px' }}>

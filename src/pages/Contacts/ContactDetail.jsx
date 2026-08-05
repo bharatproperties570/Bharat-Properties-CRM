@@ -34,6 +34,7 @@ import ContactCoreInfo from '../../components/ContactDetail/ContactCoreInfo';
 import ContactPreferences from '../../components/ContactDetail/ContactPreferences';
 import ContactPropertyRequirement from '../../components/ContactDetail/ContactPropertyRequirement';
 import ContactAIIntelligence from '../../components/ContactDetail/ContactAIIntelligence';
+import ContactIntelligenceModal from '../../components/ContactDetail/ContactIntelligenceModal';
 import ContactRelatedDeals from '../../components/ContactDetail/ContactRelatedDeals';
 import ContactOwnedProperties from '../../components/ContactDetail/ContactOwnedProperties';
 import ContactDocuments from '../../components/ContactDetail/ContactDocuments';
@@ -60,6 +61,8 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isRequirementModalOpen, setIsRequirementModalOpen] = useState(false);
+    const [isIntelligenceModalOpen, setIsIntelligenceModalOpen] = useState(false);
     const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
     const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
@@ -819,6 +822,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             toggleSection={toggleSection}
                             renderLookup={renderLookup}
                             showNotification={showNotification}
+                            onEditIntelligence={() => setIsIntelligenceModalOpen(true)}
                         />
 
 
@@ -1039,6 +1043,17 @@ padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignI
                             setIsAddLeadModalOpen(false);
                             showNotification(recordType === 'lead' ? 'Lead updated successfully' : 'Lead created successfully');
                             fetchData(); // Refresh requirements and matching
+                        }}
+                    />
+                )}
+
+                {isIntelligenceModalOpen && (
+                    <ContactIntelligenceModal
+                        isOpen={isIntelligenceModalOpen}
+                        onClose={() => setIsIntelligenceModalOpen(false)}
+                        contact={contact}
+                        onSave={() => {
+                            fetchData(); // Refresh the page/contact data
                         }}
                     />
                 )}
