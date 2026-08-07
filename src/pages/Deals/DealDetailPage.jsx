@@ -648,7 +648,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 setIsBuiltupModalOpen={setIsBuiltupModalOpen}
                 handleSocialClick={handleSocialClick}
                 enrichDealIntelligence={enrichDealIntelligence}
-                isReadOnly={isReadOnly}
                 currentUser={user}
                 handleReopenDeal={handleReopenDeal}
                 fetchDealDetails={fetchDealDetails}

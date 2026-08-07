@@ -214,8 +214,6 @@ const DealDetailHeader = ({
                 </div>
             </div>
 
-            </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
                 {isReadOnly && (currentUser?.role === 'Admin' || currentUser?.role === 'Team Manager') && (
                     <button
