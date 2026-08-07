@@ -434,8 +434,9 @@ const DealDetailHeader = ({
                         </div>
                     )}
                 </div>
-            </div>
+                </>
             )}
+            </div>
 
             <div style={{
                 display: 'flex',
