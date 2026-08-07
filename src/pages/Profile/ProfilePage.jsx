@@ -20,6 +20,7 @@ const ProfilePage = () => {
     const [preferences, setPreferences] = useState({
         language: 'English (United States)',
         currency: 'INR (₹)',
+        officeLocation: '',
         workingHours: { start: '09:00', end: '18:30' },
         emailSignature: '',
         whatsappSignature: '',
@@ -32,6 +33,23 @@ const ProfilePage = () => {
         smsNotif: false
     });
     const fileInputRef = useRef(null);
+    const locationInputRef = useRef(null);
+
+    useEffect(() => {
+        if (window.google && locationInputRef.current) {
+            const autocomplete = new window.google.maps.places.Autocomplete(locationInputRef.current, {
+                types: ['geocode', 'establishment'],
+                componentRestrictions: { country: 'in' },
+            });
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                const address = place.formatted_address || place.name;
+                if (address) {
+                    handlePreferenceChange('officeLocation', address);
+                }
+            });
+        }
+    }, [locationInputRef.current]);
 
     useEffect(() => {
         if (currentUser) {
@@ -40,6 +58,7 @@ const ProfilePage = () => {
                 setPreferences({
                     language: currentUser.preferences.language || 'English (United States)',
                     currency: currentUser.preferences.currency || 'INR (₹)',
+                    officeLocation: currentUser.preferences.officeLocation || '',
                     workingHours: currentUser.preferences.workingHours || { start: '09:00', end: '18:30' },
                     emailSignature: currentUser.preferences.emailSignature || '',
                     whatsappSignature: currentUser.preferences.whatsappSignature || '',
@@ -295,6 +314,18 @@ const ProfilePage = () => {
                                             <option value="Hindi">Hindi</option>
                                             <option value="Spanish">Spanish</option>
                                         </select>
+                                    </div>
+                                    <div>
+                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>Office Location (Default)</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-control" 
+                                            ref={locationInputRef}
+                                            value={preferences.officeLocation} 
+                                            onChange={(e) => handlePreferenceChange('officeLocation', e.target.value)} 
+                                            placeholder="Search office address..." 
+                                            style={{ fontSize: '0.8rem', padding: '6px 10px' }} 
+                                        />
                                     </div>
                                     <div>
                                         <label className="section-label" style={{ fontSize: '0.6rem' }}>Working Hours</label>

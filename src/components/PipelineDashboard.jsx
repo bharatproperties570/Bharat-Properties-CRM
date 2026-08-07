@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../utils/api';
 
-function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
+function PipelineDashboard({ entityType = 'lead', refreshTrigger, onStageClick }) {
     const [densityData, setDensityData] = useState([]);
     const [totalLeads, setTotalLeads] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -80,16 +80,16 @@ function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
         <div className="pipeline-dashboard" id="pipelineDashboard">
             {entityType === 'deal' ? (
                 <>
-                    <PipelineItem label="OPEN" value={stats.open} percent={getPercent(stats.open)} />
-                    <PipelineItem label="QUOTE" value={stats.quote} percent={getPercent(stats.quote)} />
-                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} />
+                    <PipelineItem label="OPEN" value={stats.open} percent={getPercent(stats.open)} onClick={() => onStageClick && onStageClick(['Open'])} />
+                    <PipelineItem label="QUOTE" value={stats.quote} percent={getPercent(stats.quote)} onClick={() => onStageClick && onStageClick(['Quote'])} />
+                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} onClick={() => onStageClick && onStageClick(['Negotiation'])} />
                 </>
             ) : (
                 <>
-                    <PipelineItem label="INCOMING" value={stats.incoming} percent={getPercent(stats.incoming)} />
-                    <PipelineItem label="PROSPECT" value={stats.prospect} percent={getPercent(stats.prospect)} />
-                    <PipelineItem label="OPPORTUNITY" value={stats.opportunity} percent={getPercent(stats.opportunity)} />
-                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} />
+                    <PipelineItem label="INCOMING" value={stats.incoming} percent={getPercent(stats.incoming)} onClick={() => onStageClick && onStageClick(['Incoming'])} />
+                    <PipelineItem label="PROSPECT" value={stats.prospect} percent={getPercent(stats.prospect)} onClick={() => onStageClick && onStageClick(['Prospect'])} />
+                    <PipelineItem label="OPPORTUNITY" value={stats.opportunity} percent={getPercent(stats.opportunity)} onClick={() => onStageClick && onStageClick(['Opportunity'])} />
+                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} onClick={() => onStageClick && onStageClick(['Negotiation'])} />
                 </>
             )}
 
@@ -103,14 +103,15 @@ function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
                 lostPerc={getClosedPercent(stats.lost)}
                 unqualifiedPerc={getClosedPercent(stats.unqualified)}
                 overallPerc={getPercent(closedTotal)}
+                onStageClick={onStageClick}
             />
         </div>
     );
 }
 
-function PipelineItem({ label, value, percent }) {
+function PipelineItem({ label, value, percent, onClick }) {
     return (
-        <div className="pipeline-item">
+        <div className="pipeline-item" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
             <div className="pipeline-content-wrapper">
                 <div>
                     <div className="pipeline-label">{label}</div>
@@ -122,7 +123,7 @@ function PipelineItem({ label, value, percent }) {
     );
 }
 
-function ClosedPipelineItem({ total, won, lost, unqualified, wonPerc, lostPerc, unqualifiedPerc, overallPerc }) {
+function ClosedPipelineItem({ total, won, lost, unqualified, wonPerc, lostPerc, unqualifiedPerc, overallPerc, onStageClick }) {
     const [isOpen, setIsOpen] = useState(false);
     const itemRef = useRef(null);
     const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
@@ -182,21 +183,30 @@ function ClosedPipelineItem({ total, won, lost, unqualified, wonPerc, lostPerc, 
             }}
             onClick={(e) => e.stopPropagation()}
         >
-            <div className="sub-stage-item success" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="sub-stage-item success" 
+                style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => { setIsOpen(false); if(onStageClick) onStageClick(['Closed Won', 'Won', 'Closed']); }}
+            >
                 <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534' }}>Won</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{won}</span>
                     <span className="sub-percent" style={{ color: 'var(--text-muted)' }}>{wonPerc}</span>
                 </div>
             </div>
-            <div className="sub-stage-item neutral" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="sub-stage-item neutral" 
+                style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => { setIsOpen(false); if(onStageClick) onStageClick(['Unqualified', 'Cancelled']); }}
+            >
                 <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Unqualified</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{unqualified}</span>
                     <span className="sub-percent" style={{ color: 'var(--text-muted)' }}>{unqualifiedPerc}</span>
                 </div>
             </div>
-            <div className="sub-stage-item danger" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="sub-stage-item danger" 
+                style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => { setIsOpen(false); if(onStageClick) onStageClick(['Closed Lost', 'Lost']); }}
+            >
                 <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>Lost</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{lost}</span>

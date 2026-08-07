@@ -36,54 +36,8 @@ export const FieldRulesProvider = ({ children }) => {
                 }
             } catch (error) {
                 console.error('Failed to load field rules from backend:', error);
-                // Fall back to localStorage
-                try {
-                    const saved = typeof window !== 'undefined' ? safeStorage.getItem('fieldRules') : null;
-                    if (saved) {
-                        const parsed = JSON.parse(saved);
-                        setRules(Array.isArray(parsed) ? parsed : []);
-                    } else {
-                        // Use default seed rules
-                        setRules([
-                            {
-                                id: 'lr-1',
-                                module: 'lead',
-                                ruleName: 'Requirement is Mandatory',
-                                field: 'requirement',
-                                ruleType: 'MANDATORY',
-                                isActive: true,
-                                conditions: [],
-                                message: 'Requirement type (Buy/Rent) is required.'
-                            },
-                            {
-                                id: 'lr-2',
-                                module: 'lead',
-                                ruleName: 'Budget Mandatory for Prospects',
-                                field: 'budgetMin',
-                                ruleType: 'MANDATORY',
-                                isActive: true,
-                                matchType: 'AND',
-                                // Conditions built from STAGE_PIPELINE early stages so they
-                                // always match the computed stage system (never hardcoded strings).
-                                conditions: ['New', 'Prospect'].map(s => ({ field: 'stage', operator: 'not_equals', value: s })),
-                                message: 'Budget is required for leads in Prospect stage or higher.'
-                            },
-                            {
-                                id: 'dr-1',
-                                module: 'deal',
-                                ruleName: 'Expected Price Mandatory',
-                                field: 'expectedPrice',
-                                ruleType: 'MANDATORY',
-                                isActive: true,
-                                conditions: [],
-                                message: 'Expected Price is critical for deal tracking.'
-                            }
-                        ]);
-                    }
-                } catch (parseError) {
-                    console.error('Failed to parse localStorage rules:', parseError);
-                    setRules([]);
-                }
+                // Removed localStorage fallback to ensure Enterprise-grade single source of truth
+                setRules([]);
             } finally {
                 setIsLoading(false);
             }
@@ -91,12 +45,7 @@ export const FieldRulesProvider = ({ children }) => {
         loadRules();
     }, []);
 
-    // Persist to LocalStorage as backup
-    useEffect(() => {
-        if (!isLoading && typeof window !== 'undefined') {
-            safeStorage.setItem('fieldRules', JSON.stringify(rules));
-        }
-    }, [rules, isLoading]);
+    // Removed localStorage backup loop
 
     // Actions with backend integration
     const addRule = async (newRule) => {

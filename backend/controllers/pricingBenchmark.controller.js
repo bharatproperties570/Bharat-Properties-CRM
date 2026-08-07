@@ -160,6 +160,7 @@ export const aggregateBenchmarks = async (req, res) => {
                 roadWidth: roadWidthStr,
                 orientation: orientStr,
                 dealId: deal._id,
+                weight: deal.stage === 'Closed Lost' ? 2 : 1,
             });
         }
 
@@ -185,8 +186,16 @@ export const aggregateBenchmarks = async (req, res) => {
             if (dealCount < 3) continue;
 
             const avg = (arr, field) => {
-                const vals = arr.map(i => i[field]).filter(v => v !== null && !isNaN(v));
-                return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+                let sum = 0;
+                let weightSum = 0;
+                for (const i of arr) {
+                    if (i[field] !== null && !isNaN(i[field])) {
+                        const weight = i.weight || 1;
+                        sum += i[field] * weight;
+                        weightSum += weight;
+                    }
+                }
+                return weightSum > 0 ? Math.round(sum / weightSum) : null;
             };
             const minVal = (arr, field) => {
                 const vals = arr.map(i => i[field]).filter(v => v !== null && !isNaN(v));

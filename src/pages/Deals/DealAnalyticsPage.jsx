@@ -456,7 +456,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                 <span className="chart-card-badge">12 Months</span>
               </div>
               {loading ? <Skeleton height={220} /> : (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={monthlyData} barSize={12}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -482,7 +482,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                 <div className="chart-card-title"><i className="fas fa-chart-area" /> Deal Volume Trend</div>
               </div>
               {loading ? <Skeleton height={200} /> : (
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="99%" height="100%">
                   <AreaChart data={monthlyData}>
                     <defs>
                       <linearGradient id="newGrad" x1="0" y1="0" x2="0" y2="1">
@@ -553,7 +553,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skeleton height={200} /> : (
                 <>
-                  <ResponsiveContainer width="100%" height={160}>
+                  <ResponsiveContainer width="99%" height={160}>
                     <PieChart>
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
@@ -585,7 +585,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skeleton height={200} /> : (
                 <>
-                  <ResponsiveContainer width="100%" height={160}>
+                  <ResponsiveContainer width="99%" height={160}>
                     <PieChart>
                       <Pie data={dealTypeData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {dealTypeData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
@@ -778,7 +778,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={250} /> : lossReasonData.length === 0 ? (
                 <div className="analytics-empty"><i className="fas fa-check-circle" /><p>No loss data — great work!</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={230}>
+                <ResponsiveContainer width="99%" height={230}>
                   <BarChart data={lossReasonData} layout="vertical" barSize={14}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
                     <XAxis type="number" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />

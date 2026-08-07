@@ -496,7 +496,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                 <div className="inv-chart-title"><i className="fas fa-chart-area" /> Monthly Listings Added</div>
               </div>
               {loading ? <Skeleton height={240}/> : (
-                <ResponsiveContainer width="100%" height={230}>
+                <ResponsiveContainer width="99%" height={230}>
                   <AreaChart data={monthlyTrend}>
                     <defs>
                       <linearGradient id="invGrad" x1="0" y1="0" x2="0" y2="1">
@@ -529,7 +529,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skeleton height={200}/> : (
                 <>
-                  <ResponsiveContainer width="100%" height={160}>
+                  <ResponsiveContainer width="99%" height={160}>
                     <PieChart>
                       <Pie data={categoryData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {categoryData.map((e,i) => <Cell key={i} fill={e.color}/>)}
@@ -560,7 +560,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                 <div className="inv-chart-title"><i className="fas fa-sitemap" /> Sub-Category</div>
               </div>
               {loading ? <Skeleton height={200}/> : (
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="99%" height={200}>
                   <BarChart data={subCatData} layout="vertical" barSize={14}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
                     <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
@@ -581,7 +581,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skeleton height={200}/> : (
                 <>
-                  <ResponsiveContainer width="100%" height={160}>
+                  <ResponsiveContainer width="99%" height={160}>
                     <PieChart>
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((e,i) => <Cell key={i} fill={e.color}/>)}
@@ -622,7 +622,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={220}/> : ageBandData.length === 0 ? (
                 <div className="inv-empty"><i className="fas fa-check"/><p>No aging data</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={ageBandData} barSize={36}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke}/>
                     <XAxis dataKey="label" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
@@ -644,7 +644,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={220}/> : facingData.length === 0 ? (
                 <div className="inv-empty"><i className="fas fa-compass"/><p>No facing data available</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={facingData} barSize={20}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke}/>
                     <XAxis dataKey="name" tick={{fill:tickColor,fontSize:9}} axisLine={false} tickLine={false}/>
@@ -706,7 +706,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={260}/> : cityData.length === 0 ? (
                 <div className="inv-empty"><i className="fas fa-map"/><p>No location data available</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveContainer width="99%" height={240}>
                   <BarChart data={cityData} layout="vertical" barSize={16}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
                     <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
@@ -770,7 +770,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                   {loading ? <Skeleton height={250}/> : feedbackData.length === 0 ? (
                     <div className="inv-empty"><i className="fas fa-comment-slash"/><p>No feedback data recorded yet</p></div>
                   ) : (
-                    <ResponsiveContainer width="100%" height={Math.max(280, feedbackData.length * 35)}>
+                    <ResponsiveContainer width="99%" height={Math.max(280, feedbackData.length * 35)}>
                       <BarChart data={feedbackData} layout="vertical" barSize={20}>
                         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
                         <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>

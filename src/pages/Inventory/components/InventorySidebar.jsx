@@ -163,7 +163,7 @@ const InventorySidebar = ({
                                                 borderRadius: '6px', background: 'var(--bg-gray)', color: 'var(--text-muted)',
                                                 border: '1px solid var(--border-color)', textTransform: 'uppercase'
                                             }}>
-                                                {role}
+                                                {renderValue(role)}
                                             </span>
                                             <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                 <i className="fas fa-link" style={{ fontSize: '0.55rem', marginRight: '3px' }}></i>

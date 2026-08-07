@@ -19,7 +19,7 @@ const ContactRow = ({ name, role, phone }) => {
             <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.2px' }}>{name}</p>
                 <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>
-                    {role} <span style={{ color: '#cbd5e1', margin: '0 4px' }}>•</span> {phone || 'N/A'}
+                    {renderValue(role)} <span style={{ color: '#cbd5e1', margin: '0 4px' }}>•</span> {phone || 'N/A'}
                 </p>
             </div>
             {phone && (

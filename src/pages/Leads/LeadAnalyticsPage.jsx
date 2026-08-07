@@ -524,7 +524,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                 <div className="la-chart-title"><i className="fas fa-chart-area" /> Monthly Lead Inflow</div>
               </div>
               {loading ? <Skel h={240} /> : (
-                <ResponsiveContainer width="100%" height={240}>
+                <ResponsiveContainer width="99%" height={240}>
                   <AreaChart data={monthlyTrend}>
                     <defs>
                       <linearGradient id="laGrad" x1="0" y1="0" x2="0" y2="1">
@@ -557,7 +557,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skel h={200} /> : (
                 <>
-                  <ResponsiveContainer width="100%" height={150}>
+                  <ResponsiveContainer width="99%" height={150}>
                     <PieChart>
                       <Pie data={tempData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {tempData.map((e, i) => <Cell key={i} fill={e.color} />)}
@@ -589,7 +589,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                 <span className="la-chart-badge">Avg {kpis.avgScore}</span>
               </div>
               {loading ? <Skel h={200} /> : (
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="99%" height={200}>
                   <BarChart data={scoreHistogram} barSize={18}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="label" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} />
@@ -610,7 +610,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               </div>
               {loading ? <Skel h={200} /> : (
                 <>
-                  <ResponsiveContainer width="100%" height={150}>
+                  <ResponsiveContainer width="99%" height={150}>
                     <PieChart>
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((e, i) => <Cell key={i} fill={e.color} />)}
@@ -677,7 +677,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skel h={220} /> : sourceData.length === 0 ? (
                 <div className="la-empty"><i className="fas fa-satellite-dish" /><p>No source data</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={sourceData} barSize={16}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="name" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} angle={-25} textAnchor="end" height={40} />
@@ -742,7 +742,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skel h={250} /> : categoryData.length === 0 ? (
                 <div className="la-empty"><i className="fas fa-home" /><p>No category data available</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={230}>
+                <ResponsiveContainer width="99%" height={230}>
                   <BarChart data={categoryData} layout="vertical" barSize={16}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
                     <XAxis type="number" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -771,7 +771,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skel h={240} /> : budgetData.length === 0 ? (
                 <div className="la-empty"><i className="fas fa-rupee-sign" /><p>No budget data filled in leads</p></div>
               ) : (
-                <ResponsiveContainer width="100%" height={230}>
+                <ResponsiveContainer width="99%" height={230}>
                   <BarChart data={budgetData} barSize={28}>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
                     <XAxis dataKey="label" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} />

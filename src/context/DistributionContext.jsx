@@ -53,17 +53,8 @@ export const DistributionProvider = ({ children }) => {
                 }
             } catch (error) {
                 console.error('Failed to load distribution rules from backend:', error);
-                // Fall back to localStorage
-                try {
-                    const saved = safeStorage.getItem('distributionRules');
-                    if (saved) {
-                        const parsed = JSON.parse(saved);
-                        setDistributionRules(Array.isArray(parsed) ? parsed : []);
-                    }
-                } catch (e) {
-                    console.error('Error parsing distributionRules from localStorage', e);
-                    setDistributionRules([]);
-                }
+                // Removed localStorage fallback to ensure Enterprise-grade single source of truth
+                setDistributionRules([]);
             } finally {
                 setIsLoading(false);
             }
@@ -83,13 +74,7 @@ export const DistributionProvider = ({ children }) => {
         }
     }, []);
 
-    // Persist to localStorage as backup
-    useEffect(() => {
-        if (!isLoading) {
-            safeStorage.setItem('distributionRules', JSON.stringify(distributionRules));
-        }
-    }, [distributionRules, isLoading]);
-
+    // Removed localStorage sync loop to enforce backend authority
     useEffect(() => {
         safeStorage.setItem('distributionLog', JSON.stringify(distributionLog));
     }, [distributionLog]);

@@ -26,7 +26,9 @@ const DealDetailHeader = ({
     setIsBuiltupModalOpen,
     handleSocialClick,
     enrichDealIntelligence,
-    isReadOnly
+    isReadOnly,
+    currentUser,
+    handleReopenDeal
 }) => {
     const { isDark } = useTheme();
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -212,8 +214,35 @@ const DealDetailHeader = ({
                 </div>
             </div>
 
-            {!isReadOnly && (
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
+                {isReadOnly && (currentUser?.role === 'Admin' || currentUser?.role === 'Team Manager') && (
+                    <button
+                        onClick={handleReopenDeal}
+                        style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
+                            color: '#0284c7',
+                            border: `1px solid #bae6fd`,
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 4px rgba(2, 132, 199, 0.1)'
+                        }}
+                        className="hover:scale-105 transition-all"
+                    >
+                        <i className="fas fa-lock-open"></i>
+                        Reopen Deal
+                    </button>
+                )}
+
+            {!isReadOnly && (
+                <>
                 {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
                     <button
                         onClick={() => setIsMarkingLost(!isMarkingLost)}

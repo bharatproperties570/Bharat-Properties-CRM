@@ -142,6 +142,15 @@ class VariableResolutionService {
                 } catch(e) { return 'visit'; }
             })(),
 
+            // --- Activity Specific Variables ---
+            "activity_type": customOverrides.activity?.type || "Meeting",
+            "activity_date": customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleDateString('en-IN') : "",
+            "activity_time": customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleTimeString('en-IN', {hour: '2-digit', minute:'2-digit'}) : "",
+            "activity_location": customOverrides.activity?.location || "Bharat Properties Office",
+            "activity_summary": customOverrides.activity?.subject || "Revisit with family",
+            "employee_name": customOverrides.activity?.assignedTo?.name || customOverrides.activity?.assignedTo?.fullName || this.extractValue(lead, 'agentName'),
+            "employee_mobile": customOverrides.activity?.assignedTo?.mobile || customOverrides.activity?.assignedTo?.phone || this.extractValue(lead, 'agentMobile'),
+
             // Inject Runtime Custom Data
             ...customOverrides
         };

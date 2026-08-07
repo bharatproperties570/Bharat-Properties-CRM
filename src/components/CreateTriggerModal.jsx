@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
-import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
+import { whatsappTemplates as mockWhatsapp, smsTemplates, emailTemplates } from '../constants/templates';
+import { marketingAPI } from '../utils/api'; // Import api to fetch real templates
+import RuleBuilder from './RuleBuilder';
 
 const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
     const { addTrigger, updateTrigger } = useTriggers();
     const [activeTab, setActiveTab] = useState('basic');
+    const [dbWhatsAppTemplates, setDbWhatsAppTemplates] = useState([]);
+    const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+    
     const [formData, setFormData] = useState(editData || {
         name: '',
         module: 'leads',
@@ -24,15 +29,52 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         }
     }, [editData]);
 
+    // Fetch real WhatsApp templates on mount
+    useEffect(() => {
+        if (isOpen) {
+            setIsLoadingTemplates(true);
+            marketingAPI.getWhatsAppTemplates()
+                .then(res => {
+                    if (res && res.templates) {
+                        setDbWhatsAppTemplates(res.templates);
+                    } else if (res && res.data) { // fallback just in case
+                        setDbWhatsAppTemplates(res.data);
+                    }
+                })
+                .catch(err => console.error('Failed to load WhatsApp templates:', err))
+                .finally(() => setIsLoadingTemplates(false));
+        }
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const handleSave = () => {
-        if (editData && editData.id) {
-            updateTrigger(editData.id, formData);
-        } else {
-            addTrigger(formData);
+        if (!formData.name || formData.name.trim() === '') {
+            alert("Trigger Name is required");
+            return;
         }
-        onClose();
+
+        // Clean up empty ObjectIds to avoid Mongoose CastErrors
+        const cleanedData = {
+            ...formData,
+            actions: formData.actions.map(a => {
+                const action = { ...a };
+                if (action.sequenceId === '') delete action.sequenceId;
+                if (action.automatedActionId === '') delete action.automatedActionId;
+                return action;
+            })
+        };
+        
+        const triggerId = editData && (editData.id || editData._id);
+        const promise = triggerId
+            ? updateTrigger(triggerId, cleanedData)
+            : addTrigger(cleanedData);
+            
+        promise.then(() => {
+            onClose();
+        }).catch(err => {
+            alert("Failed to save trigger: " + (err.response?.data?.error || err.message));
+        });
     };
 
     const addConditionRule = () => {
@@ -248,65 +290,12 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
 
                     {activeTab === 'conditions' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <label style={{ fontSize: '14px', fontWeight: '500' }}>Conditions (IF)</label>
-                                <select
-                                    value={formData.conditions.operator}
-                                    onChange={(e) => setFormData({ ...formData, conditions: { ...formData.conditions, operator: e.target.value } })}
-                                    style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
-                                >
-                                    <option value="AND">Match ALL (AND)</option>
-                                    <option value="OR">Match ANY (OR)</option>
-                                </select>
-                            </div>
-
-                            {formData.conditions.rules.map((rule, index) => (
-                                <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 1fr 40px', gap: '12px', alignItems: 'center', background: '#f9fafb', padding: '12px', borderRadius: '8px' }}>
-                                    <select
-                                        value={rule.field}
-                                        onChange={(e) => updateConditionRule(index, 'field', e.target.value)}
-                                        style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
-                                    >
-                                        <option value="">Select Field</option>
-                                        {fieldsByModule[formData.module]?.map(field => (
-                                            <option key={field} value={field}>{field}</option>
-                                        ))}
-                                    </select>
-                                    <select
-                                        value={rule.operator}
-                                        onChange={(e) => updateConditionRule(index, 'operator', e.target.value)}
-                                        style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
-                                    >
-                                        <option value="==">Equals</option>
-                                        <option value="!=">Not Equals</option>
-                                        <option value=">">Greater Than</option>
-                                        <option value="<">Less Than</option>
-                                        <option value="contains">Contains</option>
-                                        <option value="was_changed">Value Changed</option>
-                                        <option value="changed_from">Changed From</option>
-                                        <option value="changed_to">Changed To</option>
-                                    </select>
-                                    <input
-                                        type="text"
-                                        value={rule.value}
-                                        onChange={(e) => updateConditionRule(index, 'value', e.target.value)}
-                                        placeholder="Value"
-                                        style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
-                                    />
-                                    <i
-                                        className="fas fa-trash-alt"
-                                        onClick={() => removeConditionRule(index)}
-                                        style={{ cursor: 'pointer', color: '#ef4444', textAlign: 'center' }}
-                                    ></i>
-                                </div>
-                            ))}
-
-                            <button
-                                onClick={addConditionRule}
-                                style={{ padding: '10px', background: '#f3f4f6', border: '1px dashed #d1d5db', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#4b5563' }}
-                            >
-                                + Add Condition
-                            </button>
+                            <label style={{ fontSize: '14px', fontWeight: '500' }}>Conditions (Advanced Nested Rules)</label>
+                            <RuleBuilder 
+                                node={formData.conditions} 
+                                onChange={(newConditions) => setFormData({ ...formData, conditions: newConditions })} 
+                                fields={fieldsByModule[formData.module] || []}
+                            />
                         </div>
                     )}
 
@@ -376,22 +365,33 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                                     <select
                                                         value={action.templateId}
                                                         onChange={(e) => updateAction(index, 'templateId', e.target.value)}
-                                                        style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+                                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none' }}
                                                     >
-                                                        <option value="">Choose a Template...</option>
-                                                        {(action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).map(t => (
+                                                        <option value="">Select Template</option>
+                                                        {action.channel === 'whatsapp' ? (
+                                                            isLoadingTemplates ? <option disabled>Loading templates...</option> :
+                                                            dbWhatsAppTemplates.map(t => (
+                                                                <option key={t.name} value={t.name}>{t.name} ({t.category})</option>
+                                                            ))
+                                                        ) : (action.channel === 'sms' ? smsTemplates : emailTemplates).map(t => (
                                                             <option key={t.id} value={t.id}>{t.name}</option>
                                                         ))}
                                                     </select>
                                                 </div>
                                             </div>
+
                                             {action.templateId && (
-                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
-                                                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Template Preview</div>
-                                                    <div style={{ fontSize: '13px', color: '#475569', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
-                                                        {(action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.content || 
-                                                         (action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.body || 
-                                                         "Template content not found."}
+                                                <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '16px' }}>
+                                                    <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Template Preview</div>
+                                                    <div style={{ fontSize: '13px', color: '#475569', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                                        {action.channel === 'whatsapp' ? (
+                                                            dbWhatsAppTemplates.find(t => String(t.name) === String(action.templateId))?.components?.find(c => c.type === 'BODY')?.text ||
+                                                            'Preview not available'
+                                                        ) : (
+                                                            (action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.content || 
+                                                            (action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.body || 
+                                                            'Preview not available'
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}

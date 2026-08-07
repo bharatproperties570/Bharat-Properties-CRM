@@ -50,6 +50,29 @@ const defaultProjectMasterFields = {
 
 export const PropertyConfigProvider = ({ children }) => {
     // Professional Hook for MongoDB Sync + Local Persistence (Moved to Top for hoisting)
+    const useScoringRuleSetting = (key, initialValue) => {
+        const [value, setValue] = useState(initialValue);
+        const [docId, setDocId] = useState(null);
+
+        // Fetch on mount handled centrally in fetchAll to prevent waterfall
+        
+        const setConfigValue = (newValue, skipSync = false) => {
+            setValue(newValue);
+            if (!skipSync) {
+                if (docId) {
+                    api.put(`/scoring-rules/${docId}`, { name: key, type: 'global_config', configuration: newValue, module: 'global' })
+                        .catch(err => console.error(`[ScoringRule] Push failed for ${key}:`, err));
+                } else {
+                    api.post(`/scoring-rules`, { name: key, type: 'global_config', configuration: newValue, module: 'global' })
+                        .then(res => { if (res.data?.data?._id) setDocId(res.data.data._id); })
+                        .catch(err => console.error(`[ScoringRule] Create failed for ${key}:`, err));
+                }
+            }
+        };
+
+        return [value, setConfigValue, setDocId];
+    };
+
     const useSystemSetting = (key, initialValue) => {
         const [storedValue, setStoredValue] = useState(() => {
             try {
@@ -352,7 +375,7 @@ export const PropertyConfigProvider = ({ children }) => {
         buyerTypes: ['Male', 'Female', 'Joint']
     });
 
-    const [scoringAttributes, setScoringAttributes] = useSystemSetting('scoringAttributes', {
+    const [scoringAttributes, setScoringAttributes] = useScoringRuleSetting('scoringAttributes', {
         requirement: { label: 'Detailed Requirement', points: 32 },
         budget: { label: 'Budget Match', points: 10 },
         location: { label: 'Location Match', points: 10 },
@@ -361,7 +384,7 @@ export const PropertyConfigProvider = ({ children }) => {
         source: { label: 'High Intent Source', points: 5 }
     });
 
-    const [scoringConfig, setScoringConfig] = useSystemSetting('scoringConfig', {
+    const [scoringConfig, setScoringConfig] = useScoringRuleSetting('scoringConfig', {
         behavioural: { enabled: false },
         dealFit: { enabled: false },
         financial: { enabled: false },
@@ -369,7 +392,7 @@ export const PropertyConfigProvider = ({ children }) => {
         ai: { enabled: false }
     });
 
-    const [behaviouralSignals, setBehaviouralSignals] = useSystemSetting('behaviouralSignals', {
+    const [behaviouralSignals, setBehaviouralSignals] = useScoringRuleSetting('behaviouralSignals', {
         propertyMatchOpened: { label: 'Property Match Opened', points: 5 },
         sameLocationRepeated: { label: 'Same Location Repeatedly', points: 10 },
         fastReply: { label: 'WhatsApp Reply < 5 min', points: 8 },
@@ -377,7 +400,7 @@ export const PropertyConfigProvider = ({ children }) => {
         repeatedNoResponse: { label: 'Repeated No Response', points: -10 }
     });
 
-    const [dealFitSignals, setDealFitSignals] = useSystemSetting('dealFitSignals', {
+    const [dealFitSignals, setDealFitSignals] = useScoringRuleSetting('dealFitSignals', {
         activeProperty: { label: 'Property Active', points: 10 },
         priceGapSmall: { label: 'Price Gap < 5%', points: 15 },
         exactMatch: { label: 'Exact Facing/Size', points: 10 },
@@ -385,7 +408,7 @@ export const PropertyConfigProvider = ({ children }) => {
         ownerFlexible: { label: 'Owner Flexible', points: 15 }
     });
 
-    const [financialSignals, setFinancialSignals] = useSystemSetting('financialSignals', {
+    const [financialSignals, setFinancialSignals] = useScoringRuleSetting('financialSignals', {
         cashBuyer: { label: 'Cash Buyer', points: 25 },
         loanApproved: { label: 'Loan Pre-approved', points: 15 },
         sellerFirst: { label: 'Needs to Sell First', points: -15 },
@@ -393,20 +416,20 @@ export const PropertyConfigProvider = ({ children }) => {
         flexiblePayment: { label: 'Flexible Payment Plan', points: 10 }
     });
 
-    const [decayRules, setDecayRules] = useSystemSetting('decayRules', {
+    const [decayRules, setDecayRules] = useScoringRuleSetting('decayRules', {
         inactive7: { label: '7 Days Inactivity', points: -5 },
         inactive14: { label: '14 Days Inactivity', points: -10 },
         inactive30: { label: '30 Days Inactivity (Auto-Dormant)', points: -20 } // -20 effectively kills the score usually
     });
 
-    const [aiSignals, setAiSignals] = useSystemSetting('aiSignals', {
+    const [aiSignals, setAiSignals] = useScoringRuleSetting('aiSignals', {
         sentimentPositive: { label: 'Positive Sentiment Analysis', points: 20 },
         highIntentKeywords: { label: 'High Intent Keywords', points: 15 },
         competitorMention: { label: 'Competitor Mentioned', points: -5 },
         budgetConstraint: { label: 'Budget Constraint Mentioned', points: -10 }
     });
 
-    const [sourceQualityScores, setSourceQualityScores] = useSystemSetting('sourceQualityScores', {
+    const [sourceQualityScores, setSourceQualityScores] = useScoringRuleSetting('sourceQualityScores', {
         referral: { label: 'Referral', points: 20 },
         walkIn: { label: 'Walk-in', points: 15 },
         google: { label: 'Google Search', points: 12 },
@@ -415,7 +438,7 @@ export const PropertyConfigProvider = ({ children }) => {
         coldCall: { label: 'Cold Call', points: 0 }
     });
 
-    const [inventoryFitScores, setInventoryFitScores] = useSystemSetting('inventoryFitScores', {
+    const [inventoryFitScores, setInventoryFitScores] = useScoringRuleSetting('inventoryFitScores', {
         match5Plus: { label: 'Matching inventory \u2265 5', points: 10 },
         priceDev5: { label: 'Price deviation < 5%', points: 10 },
         exactSize: { label: 'Exact size match', points: 5 },
@@ -423,14 +446,14 @@ export const PropertyConfigProvider = ({ children }) => {
         none: { label: 'No inventory', points: -20 }
     });
 
-    const [stageMultipliers, setStageMultipliers] = useSystemSetting('stageMultipliers', {
+    const [stageMultipliers, setStageMultipliers] = useScoringRuleSetting('stageMultipliers', {
         incoming: { label: 'Incoming', value: 0.7 },
         prospect: { label: 'Prospect', value: 1.0 },
         opportunity: { label: 'Opportunity', value: 1.3 },
         negotiation: { label: 'Negotiation', value: 1.5 }
     });
 
-    const [dealScoringRules, setDealScoringRules] = useSystemSetting('dealScoringRules', {
+    const [dealScoringRules, setDealScoringRules] = useScoringRuleSetting('dealScoringRules', {
         stageWeights: {
             open: { label: 'Open', points: 20 },
             quote: { label: 'Quote', points: 40 },
@@ -451,7 +474,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     });
 
-    const [scoreBands, setScoreBands] = useSystemSetting('scoreBands', [
+    const [scoreBands, setScoreBands] = useScoringRuleSetting('scoreBands', [
         { min: 80, label: 'Hot', color: '#ef4444', icon: 'fa-fire' },
         { min: 50, label: 'Warm', color: '#f59e0b', icon: 'fa-bolt' },
         { min: 0, label: 'Cold', color: '#3b82f6', icon: 'fa-snowflake' }
@@ -1193,7 +1216,7 @@ export const PropertyConfigProvider = ({ children }) => {
         familyVisit: { weight: 20, label: 'Family Brought for Visit', icon: 'fa-users', isActive: true },
         whatsappResponse: { weight: 5, label: 'WhatsApp Response Rate', icon: 'fa-comments', isActive: true },
     });
-    const updateIntentSignal = useCallback((key, changes) => setIntentSignals(prev => ({ ...prev, [key]: { ...prev[key], ...changes } })), [setIntentSignals]);
+    const updateIntentSignal = useCallback((key, changes) => setIntentSignals(prev => ({ ...prev, ...changes })), [setIntentSignals]);
 
 
 
@@ -1642,7 +1665,24 @@ export const PropertyConfigProvider = ({ children }) => {
 
                 // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
                 const settingsResponse = await systemSettingsAPI.getAll({ limit: 100 });
-                console.log('[PropertyConfigContext] System Settings Response:', settingsResponse);
+                const scoringResponse = await api.get('/scoring-rules').catch(() => null);
+                
+                // 3. LOAD SCORING RULES FROM DEDICATED ENDPOINT
+                if (scoringResponse?.data?.data) {
+                    const rules = scoringResponse.data.data;
+                    if (rules.scoringAttributes) setScoringAttributes(rules.scoringAttributes, true);
+                    if (rules.scoringConfig) setScoringConfig(rules.scoringConfig, true);
+                    if (rules.behaviouralSignals) setBehaviouralSignals(rules.behaviouralSignals, true);
+                    if (rules.dealFitSignals) setDealFitSignals(rules.dealFitSignals, true);
+                    if (rules.financialSignals) setFinancialSignals(rules.financialSignals, true);
+                    if (rules.decayRules) setDecayRules(rules.decayRules, true);
+                    if (rules.aiSignals) setAiSignals(rules.aiSignals, true);
+                    if (rules.sourceQualityScores) setSourceQualityScores(rules.sourceQualityScores, true);
+                    if (rules.inventoryFitScores) setInventoryFitScores(rules.inventoryFitScores, true);
+                    if (rules.stageMultipliers) setStageMultipliers(rules.stageMultipliers, true);
+                    if (rules.dealScoringRules) setDealScoringRules(rules.dealScoringRules, true);
+                    if (rules.scoreBands) setScoreBands(rules.scoreBands, true);
+                }
                 
                 if (settingsResponse) {
                     const resBody = settingsResponse;
@@ -1663,7 +1703,6 @@ export const PropertyConfigProvider = ({ children }) => {
                         switch (setting.key) {
                             case 'propertyConfig': 
                                 // DELIBERATELY IGNORE: We now dynamically build propertyConfig entirely from Lookups collection (Single Source of Truth)
-                                // Do not overwrite it with stale SystemSettings JSON
                                 break;
                             case 'masterFields': 
                                 setMasterFields(prev => {
@@ -1683,10 +1722,8 @@ export const PropertyConfigProvider = ({ children }) => {
                                 break;
                             case 'projectAmenities': setProjectAmenities(setting.value, true); break;
                             case 'leadMasterFields': 
-                                console.log('[PropertyConfigContext] Syncing leadMasterFields:', setting.value);
                                 setLeadMasterFields(setting.value, true); 
                                 break;
-                            case 'scoringAttributes': setScoringAttributes(setting.value, true); break;
                             case 'scoringConfig': setScoringConfig(setting.value, true); break;
                             case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
                             case 'dealFitSignals': setDealFitSignals(setting.value, true); break;

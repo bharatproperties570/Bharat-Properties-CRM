@@ -146,6 +146,35 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         setIsSocialModalOpen(true);
     };
 
+    const handleReopenDeal = async () => {
+        try {
+            const confirm = await Swal.fire({
+                title: 'Reopen Deal?',
+                text: "This will move the deal back to the 'Negotiation' stage and unlock it for editing.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#4f46e5',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Yes, Reopen it!'
+            });
+
+            if (confirm.isConfirmed) {
+                const response = await api.put(`deals/${dealId}`, {
+                    stage: 'Negotiation',
+                    closingDetails: null, // Clear loss data
+                    triggeredBy: 'manual_reopen'
+                });
+                if (response.data && response.data.success) {
+                    toast.success('Deal reopened successfully!');
+                    fetchDealDetails();
+                }
+            }
+        } catch (error) {
+            console.error("Error reopening deal:", error);
+            toast.error("Failed to reopen deal");
+        }
+    };
+
     const enrichDealIntelligence = () => {
         toast.promise(
             api.get(`stage-engine/deals/enrich?dealId=${dealId}`),
@@ -587,7 +616,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     );
     if (!deal) return <div className="error-state">Deal not found</div>;
 
-    const isReadOnly = deal.stage === 'Closed Won' || deal.stage === 'Closed Lost';
+    const isReadOnly = isMarkingLost || deal.stage === 'Closed Won' || deal.stage === 'Closed Lost' || deal.stage === 'Cancelled';
 
     return (
         <div className="deal-detail-page bg-slate-50 min-h-screen" style={{ fontFamily: '"Inter", sans-serif' }}>
@@ -600,6 +629,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 handleTogglePublish={handleTogglePublish}
                 setIsMarkingLost={setIsMarkingLost}
                 isMarkingLost={isMarkingLost}
+                onAddActivity={() => setIsActivityOpen(true)}
+                getLookupValue={getLookupValue}
                 setIsCallModalOpen={(val) => {
                     if (val) {
                         const contactToCall = typeof val === 'object' ? val : deal.contactId;
@@ -608,11 +639,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 }}
                 setIsMessageOpen={setIsMessageOpen}
                 setIsMailOpen={setIsMailOpen}
-                setShowMoreMenu={setShowMoreMenu}
-                showMoreMenu={showMoreMenu}
-                onAddActivity={onAddActivity}
-                setIsBookingModalOpen={setIsBookingModalOpen}
                 setIsTagsModalOpen={setIsTagsModalOpen}
+                setIsBookingModalOpen={setIsBookingModalOpen}
                 setIsUploadModalOpen={setIsUploadModalOpen}
                 setIsDocumentModalOpen={setIsDocumentModalOpen}
                 setIsNoteModalOpen={setIsNoteModalOpen}
@@ -620,8 +648,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 setIsBuiltupModalOpen={setIsBuiltupModalOpen}
                 handleSocialClick={handleSocialClick}
                 enrichDealIntelligence={enrichDealIntelligence}
+                isReadOnly={isReadOnly}
+                currentUser={user}
+                handleReopenDeal={handleReopenDeal}
                 fetchDealDetails={fetchDealDetails}
-                getLookupValue={getLookupValue}
                 onNavigate={onNavigate}
             />
 
@@ -632,6 +662,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 stageStyle={stageStyle}
                 stageInfo={{ label: currentStage }}
                 onStageChange={handleStageChange}
+                isReadOnly={isReadOnly}
             />
 
             {/* MAIN CONTENT SPLIT - 3 COLUMN LAYOUT */}
@@ -758,6 +789,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
                                     return (
                                         <UnifiedActivitySection 
+                                            deal={deal} 
+                                            activities={activities} 
+                                            fetchDealDetails={fetchDealDetails} 
+                                            isReadOnly={isReadOnly}
                                             entityId={dealId} 
                                             entityType="Deal" 
                                             entityData={deal}
@@ -796,6 +831,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             deal={deal} 
                             financials={financials} 
                             setIsOfferModalOpen={setIsOfferModalOpen} 
+                            isReadOnly={isReadOnly}
                         />
 
                         {/* ── Price Intelligence + Deal Journey ── */}

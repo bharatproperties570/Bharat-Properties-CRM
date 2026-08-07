@@ -683,6 +683,31 @@ Bharat Properties
         category: 'MARKETING',
         language: 'en',
         content: `Hello {{first_name}}! 🌟 We hope you are excited about your new investment. Did you know you can earn rewards? Refer a friend using your unique link: [Referral Link]. If they book, YOU get a free modular kitchen upgrade! 🎁 Share it today!`
+    },
+    // --- ACTIVITY WHATSAPP TEMPLATES ---
+    {
+        id: 'meeting_sitevisit_schedule',
+        name: 'Activity: Appointment Confirmed',
+        category: 'UTILITY',
+        language: 'en',
+        content: `Your appointment is confirmed.`,
+        tags: ['Activity', 'Confirmation']
+    },
+    {
+        id: 'activity_reminder1_sitevisit_meeting',
+        name: 'Activity: 1-Day Reminder',
+        category: 'UTILITY',
+        language: 'en',
+        content: `Reminder: Your appointment is tomorrow.`,
+        tags: ['Activity', 'Reminder']
+    },
+    {
+        id: 'reminder2__sitevisit_meeting_today',
+        name: 'Activity: Same-Day Reminder',
+        category: 'UTILITY',
+        language: 'en',
+        content: `Reminder: Your appointment is today.`,
+        tags: ['Activity', 'Reminder']
     }
 ];
 

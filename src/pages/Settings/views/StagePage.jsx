@@ -53,7 +53,8 @@ const AVAILABLE_FORMS = [
     'Offer Form',
     'Booking Form',
     'KYC Form',
-    'Site Visit Form'
+    'Site Visit Form',
+    'Mark Deal as Lost Form'
 ];
 
 const formatStatus = (type, val) => {

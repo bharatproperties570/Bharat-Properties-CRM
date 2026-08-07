@@ -1040,7 +1040,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     <div id="leadListContent" style={{ display: viewMode === 'grid' || viewMode === 'card' ? 'block' : 'grid' }}>
                         {viewMode === 'card' ? (
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', padding: '20px' }}>
-                                {loading ? <LeadsPageSkeleton count={8} /> : leads.map((lead, idx) => (
+                                {loading && leads.length === 0 ? <LeadsPageSkeleton count={8} /> : leads.map((lead, idx) => (
                                     <LeadCard
                                         key={lead._id || idx}
                                         lead={lead}
@@ -1070,7 +1070,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             </div>
                         ) : (
                             /* List View Rendering */
-                            loading ? <LeadsPageSkeleton count={8} /> : leads.map((c, idx) => (
+                            loading && leads.length === 0 ? <LeadsPageSkeleton count={8} /> : leads.map((c, idx) => (
                                 <LeadItem
                                     key={c._id || idx}
                                     lead={c}
@@ -1526,7 +1526,7 @@ const LeadItem = React.memo(function LeadItem({
                                     name: lead.name,
                                     x: rect.left,
                                     y: rect.bottom + 10,
-                                    scoring: { ...scoring, total: displayScore },
+                                    scoring: lead.leadScore || { total: displayScore },
                                     ai: aiExplanation,
                                     leadData: lead
                                 });

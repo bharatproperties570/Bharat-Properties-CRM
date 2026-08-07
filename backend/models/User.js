@@ -112,6 +112,7 @@ const UserSchema = new mongoose.Schema({
     preferences: {
         language: { type: String, default: 'English (United States)' },
         currency: { type: String, default: 'INR (₹)' },
+        officeLocation: { type: String, default: '' },
         workingHours: {
             start: { type: String, default: '09:00' },
             end: { type: String, default: '18:30' }

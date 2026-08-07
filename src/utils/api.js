@@ -97,7 +97,7 @@ const tempApiUrl = finalProd
     ? STABLE_TUNNEL_URL
     : (typeof window !== 'undefined' && window.location && window.location.hostname 
         ? '/api' 
-        : (FINAL_VITE_API_URL || 'http://localhost:4000/api'));
+        : (FINAL_VITE_API_URL || 'http://localhost:4001/api'));
 
 export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
 
@@ -177,6 +177,21 @@ export const socialAPI = {
     likeComment: (commentId) => api.post('/social/comment/like', { commentId }).then(res => res.data),
     testConnection: () => api.post('/social/test-connection').then(res => res.data),
 };
+
+export const automationAPI = {
+    getTriggers: () => api.get('/automations/triggers').then(res => res.data),
+    createTrigger: (data) => api.post('/automations/triggers', data).then(res => res.data),
+    updateTrigger: (id, data) => api.put(`/automations/triggers/${id}`, data).then(res => res.data),
+    deleteTrigger: (id) => api.delete(`/automations/triggers/${id}`).then(res => res.data),
+
+    getSequences: () => api.get('/automations/sequences').then(res => res.data),
+    createSequence: (data) => api.post('/automations/sequences', data).then(res => res.data),
+
+    getAutomatedActions: () => api.get('/automations/actions').then(res => res.data),
+    createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),
+};
+
+
 
 export const getNotifications = () => api.get('/notifications').then(res => res.data);
 export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`).then(res => res.data);

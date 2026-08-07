@@ -214,6 +214,75 @@ const SiteVisitActivitySection = ({
                     <option value="Tentative">Tentative</option>
                 </FormSelect>
             </div>
+            
+            {(() => {
+                if (!formData.visitedProperties) return null;
+                const unitsWithProp = formData.visitedProperties.filter(r => r.property);
+                if (unitsWithProp.length === 0) return null;
+
+                if (unitsWithProp.length > 1) {
+                    return (
+                        <div style={{
+                            marginTop: '16px', padding: '12px 16px', background: isDark ? 'rgba(59, 130, 246, 0.05)' : 'rgba(59, 130, 246, 0.1)',
+                            borderRadius: '12px', display: 'flex', alignItems: 'center', border: '1px solid rgba(59, 130, 246, 0.2)'
+                        }}>
+                            <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '12px', fontSize: '1.2rem' }}></i>
+                            <div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#93c5fd' : '#1d4ed8' }}>
+                                    Multiple Properties Selected
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: isDark ? '#bfdbfe' : '#2563eb', marginTop: '4px' }}>
+                                    Message will automatically include your Default Office Address.
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div style={{
+                        marginTop: '16px',
+                        padding: '16px',
+                        background: isDark ? 'rgba(16, 185, 129, 0.05)' : 'rgba(16, 185, 129, 0.1)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        border: '1px solid rgba(16, 185, 129, 0.2)'
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#a7f3d0' : '#047857' }}>
+                                Send Unit Location in WhatsApp?
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: isDark ? '#6ee7b7' : '#059669', marginTop: '4px' }}>
+                                {formData.sendUnitLocation !== false 
+                                    ? "Message will include the exact Unit address." 
+                                    : "Message will include your Default Office Address."}
+                            </div>
+                        </div>
+                        <div
+                            onClick={() => handleChange({ target: { name: 'sendUnitLocation', value: formData.sendUnitLocation === false ? true : false } })}
+                            style={{
+                                width: '40px', height: '22px', 
+                                background: formData.sendUnitLocation !== false ? '#10b981' : '#cbd5e1', 
+                                borderRadius: '11px', padding: '2px', 
+                                cursor: 'pointer', position: 'relative',
+                                transition: 'background 0.3s'
+                            }}
+                        >
+                            <div style={{ 
+                                width: '18px', height: '18px', 
+                                background: '#fff', borderRadius: '50%', 
+                                position: 'absolute', 
+                                right: formData.sendUnitLocation !== false ? '2px' : 'auto', 
+                                left: formData.sendUnitLocation !== false ? 'auto' : '2px', 
+                                transition: 'all 0.3s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                            }}></div>
+                        </div>
+                    </div>
+                );
+            })()}
         </ActivityCard>
     );
 };

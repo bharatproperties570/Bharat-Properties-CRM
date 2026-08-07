@@ -482,4 +482,9 @@ LeadSchema.pre('insertMany', function(next, docs) {
     next();
 });
 
+// --- ENTERPRISE OPTIMIZATION: Compound Indexes for List View Performance ---
+LeadSchema.index({ owner: 1, stage: 1 }, { background: true });
+LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
+LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
+
 export default mongoose.model("Lead", LeadSchema);

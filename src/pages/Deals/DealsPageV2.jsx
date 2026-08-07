@@ -588,7 +588,14 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 </div>
 
                 {/* Pipeline Dashboard - Enhanced with Percentages */}
-                <PipelineDashboard entityType="deal" refreshTrigger={refreshTrigger} />
+                <PipelineDashboard 
+                    entityType="deal" 
+                    refreshTrigger={refreshTrigger} 
+                    onStageClick={(stages) => {
+                        setFilters(prev => ({ ...prev, stage: Array.isArray(stages) ? stages : [stages] }));
+                        setIsFilterPanelOpen(true);
+                    }}
+                />
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
                     {/* Toolbar */}

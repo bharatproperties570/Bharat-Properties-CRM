@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useUserContext } from './UserContext';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
-import { activitiesAPI } from '../utils/api';
+import { activitiesAPI, automationAPI } from '../utils/api';
 import { dispatchWhatsApp, dispatchSMS, dispatchEmail } from '../utils/communicationDispatcher';
 import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 import { useSequences } from './SequenceContext';
@@ -16,234 +16,23 @@ export const TriggersProvider = ({ children }) => {
     // provider ordering issues during React HMR refresh.
     const automatedActionsCtx = useContext(AutomatedActionsContext);
 
-    // Trigger Definitions (Pre-seeded with examples)
-    const [triggers, setTriggers] = useState([
-        {
-            id: 'trigger_1',
-            // ── Enterprise Trigger: Score Band Crossing Guard ──────────────────────────
-            // Uses 'crossed_above' operator (NOT '>=') to fire ONLY when lead score
-            // first crosses the Hot Band threshold (70). This prevents duplicate
-            // notifications/sequences every time score is recalculated above 70.
-            // Decoupled from Stage to work across all stages (Prospect, Qualified, etc.)
-            name: 'Lead Entered HOT Band — Alert & Fast-Track',
-            module: 'leads',
-            event: 'lead_score_changed',
-            priority: 1,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    // ENTERPRISE: Threshold Crossing — fires only when score goes FROM <70 TO >=70
-                    // NOT '>=' which would fire on every recalculation above 70
-                    { field: 'leadScore', operator: 'crossed_above', value: 70 }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_notification',
-                    target: 'manager',
-                    template: 'hot_lead_alert',
-                    data: { message: '🔥 Lead {{firstName}} {{lastName}} just entered HOT band (Score: {{leadScore}}). Immediate follow-up required.' }
-                },
-                {
-                    type: 'start_sequence',
-                    sequenceId: 'seq2' // Hot Lead Fast-Track
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_1b',
-            // When score drops back below 70 (from Hot to Warm/Cold) — stop fast-track sequence
-            name: 'Lead Exited HOT Band — Pause Fast-Track',
-            module: 'leads',
-            event: 'lead_score_changed',
-            priority: 2,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'leadScore', operator: 'crossed_below', value: 70 }
-                ]
-            },
-            actions: [
-                {
-                    type: 'stop_sequence',
-                    sequenceId: 'seq2'
-                },
-                {
-                    type: 'send_notification',
-                    target: 'manager',
-                    template: 'lead_cooled_alert',
-                    data: { message: '📉 Lead {{firstName}} {{lastName}} score dropped below HOT band (Score: {{leadScore}}). Fast-track paused.' }
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_2',
-            name: 'New Lead Auto-Enroll',
-            module: 'leads',
-            event: 'lead_created',
-            priority: 2,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'source', operator: '!=', value: 'Manual' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'start_sequence',
-                    sequenceId: 'seq1' // New Lead Follow-up
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_3',
-            name: 'Activity Completed - Pause Sequence',
-            module: 'activities',
-            event: 'activity_completed',
-            priority: 3,
-            isActive: true,
-            conditions: {
-                operator: 'OR',
-                rules: [
-                    { field: 'type', operator: '==', value: 'Call' },
-                    { field: 'type', operator: '==', value: 'Meeting' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'stop_sequence',
-                    sequenceId: 'all' // Stop all active sequences for this entity
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_4',
-            name: 'Deal Stage Changed - Associate Follow-up',
-            module: 'deals',
-            event: 'deal_stage_changed',
-            priority: 4,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'status', operator: '==', value: 'Negotiation' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'start_sequence',
-                    sequenceId: 'seq1',
-                    target: 'associatedContact.mobile' // Enroll the associate
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
-        {
-            id: 'trigger_5',
-            name: 'Inventory Created - Notify Owner',
-            module: 'inventory',
-            event: 'inventory_created',
-            priority: 5,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'status', operator: '==', value: 'Active' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_notification',
-                    target: 'owner',
-                    message: 'A new active inventory {{unitNo}} has been listed.'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
+    // Trigger Definitions
+    const [triggers, setTriggers] = useState([]);
 
-        // ─── LEAD LIFECYCLE RULES ───────────────────────────────────────────
-        {
-            id: 'trigger_lead_welcome',
-            name: 'New Lead — Send Welcome WhatsApp',
-            module: 'leads',
-            event: 'lead_created',
-            priority: 6,
-            isActive: true,
-            conditions: { operator: 'AND', rules: [] }, // Fire for ALL new leads
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'whatsapp',
-                    templateId: 7  // 'Welcome Message' template
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
+    // Fetch triggers from the Enterprise Backend Engine on mount
+    import('react').then(({ useEffect }) => {
+        // dynamic import not needed if it's top level, wait useEffect is already imported!
+    });
 
-        // ─── DEAL LIFECYCLE RULES ───────────────────────────────────────────
-        {
-            id: 'trigger_deal_won',
-            name: 'Deal Won — Send Congratulations Email',
-            module: 'deals',
-            event: 'deal_stage_changed',
-            priority: 7,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: [
-                    { field: 'stage', operator: '==', value: 'Won' }
-                ]
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'email',
-                    templateId: 6  // 'Booking Success' email template
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        },
+    useEffect(() => {
+        automationAPI.getTriggers().then(data => {
+            if (data && data.length > 0) {
+                setTriggers(data);
+            }
+        }).catch(err => console.error('Failed to load Triggers from Backend:', err));
+    }, []);
 
-        // ─── INVENTORY FEEDBACK RULES ───────────────────────────────────────
-        {
-            id: 'trigger_fb_universal',
-            name: 'Property Owner Feedback Submitted',
-            module: 'inventory',
-            event: 'inventory_feedback_submitted',
-            priority: 10,
-            isActive: true,
-            conditions: {
-                operator: 'AND',
-                rules: []
-            },
-            actions: [
-                {
-                    type: 'send_communication',
-                    channel: 'whatsapp',
-                    templateId: 'inventory_feedback_update'
-                }
-            ],
-            createdAt: new Date().toISOString(),
-            createdBy: 'system'
-        }
-    ]);
 
-    // Execution Logs
     const [executionLogs, setExecutionLogs] = useState([]);
 
     // Statistics
@@ -256,34 +45,38 @@ export const TriggersProvider = ({ children }) => {
     /**
      * Add a new trigger
      */
-    const addTrigger = useCallback((triggerData) => {
-        const newTrigger = {
-            ...triggerData,
-            id: `trigger_${Date.now()}`,
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            createdBy: currentUser?._id || 'current_user'
-        };
-
-        setTriggers(prev => [...prev, newTrigger]);
-        return newTrigger;
+    const addTrigger = useCallback(async (triggerData) => {
+        try {
+            const newTrigger = await automationAPI.createTrigger(triggerData);
+            setTriggers(prev => [...prev, newTrigger]);
+            return newTrigger;
+        } catch (error) {
+            console.error('Failed to save trigger:', error);
+            throw error;
+        }
     }, []);
 
     /**
      * Update an existing trigger
      */
-    const updateTrigger = useCallback((triggerId, updates) => {
-        setTriggers(prev => prev.map(trigger =>
-            trigger.id === triggerId
-                ? { ...trigger, ...updates, lastModified: new Date().toISOString() }
-                : trigger
-        ));
+    const updateTrigger = useCallback(async (triggerId, updates) => {
+        try {
+            const updatedTrigger = await automationAPI.updateTrigger(triggerId, updates);
+            setTriggers(prev => prev.map(trigger =>
+                trigger._id === triggerId || trigger.id === triggerId
+                    ? updatedTrigger
+                    : trigger
+            ));
+        } catch (error) {
+            console.error('Failed to update trigger:', error);
+            throw error;
+        }
     }, []);
 
     /**
      * Delete a trigger
      */
-    const deleteTrigger = useCallback((triggerId) => {
+    const deleteTrigger = useCallback(async (triggerId) => {
         // Check if trigger has recent executions
         const recentLogs = executionLogs.filter(log =>
             log.triggerId === triggerId &&
@@ -297,8 +90,14 @@ export const TriggersProvider = ({ children }) => {
             };
         }
 
-        setTriggers(prev => prev.filter(t => t.id !== triggerId));
-        return { success: true };
+        try {
+            await automationAPI.deleteTrigger(triggerId);
+            setTriggers(prev => prev.filter(t => t._id !== triggerId && t.id !== triggerId));
+            return { success: true };
+        } catch (error) {
+            console.error('Failed to delete trigger:', error);
+            return { success: false, message: error.message };
+        }
     }, [executionLogs]);
 
     /**

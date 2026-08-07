@@ -9,6 +9,7 @@ const PublicLeadForm = ({ slug }) => {
     const [status, setStatus] = useState('loading'); // loading, ready, submitting, success, error
     const [error, setError] = useState(null);
     const [dynamicOptions, setDynamicOptions] = useState({});
+    const [activityType, setActivityType] = useState('Site Visit'); // Dynamically override "Site Visit" vs "Meeting"
 
     // 🚀 ENTERPRISE TWEAK: Default to Light Mode (White Screen) as requested
     const [isDarkMode, setIsDarkMode] = useState(false);
@@ -25,6 +26,10 @@ const PublicLeadForm = ({ slug }) => {
                 // 🚀 SMART PRE-FILL: Check for token in URL
                 const urlParams = new URLSearchParams(window.location.search);
                 const refToken = urlParams.get('ref');
+                const urlType = urlParams.get('type');
+                if (urlType) {
+                    setActivityType(urlType);
+                }
                 let preFillData = {};
 
                 if (refToken) {
@@ -238,7 +243,7 @@ const PublicLeadForm = ({ slug }) => {
                         <i className="fas fa-check-double"></i>
                     </div>
                     <h2 style={{ margin: 0, color: isDarkMode ? '#fff' : '#1e293b', fontSize: '2.5rem', fontWeight: 900 }}>Scheduled!</h2>
-                    <p style={{ color: '#64748b', marginTop: '20px', fontSize: '1.2rem', lineHeight: '1.6' }}>{formConfig.settings.successMessage || 'Your visit has been successfully scheduled. Our representative will contact you shortly.'}</p>
+                    <p style={{ color: '#64748b', marginTop: '20px', fontSize: '1.2rem', lineHeight: '1.6' }}>{formConfig.settings.successMessage || `Your ${activityType.toLowerCase()} has been successfully scheduled. Our representative will contact you shortly.`}</p>
                     <button onClick={() => window.location.reload()} style={{ marginTop: '40px', padding: '16px 32px', borderRadius: '14px', border: 'none', background: '#10b981', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>Close</button>
                 </div>
             </div>
@@ -424,8 +429,8 @@ const PublicLeadForm = ({ slug }) => {
                         <div style={{ width: '60px', height: '60px', background: '#c9921a', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '1.5rem', margin: '0 auto 24px' }}>
                             <i className="fas fa-calendar-check"></i>
                         </div>
-                        <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 900, color: isDarkMode ? '#fff' : '#1e293b', letterSpacing: '-0.04em' }}>{formConfig.name}</h1>
-                        <p style={{ marginTop: '12px', color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '1.1rem' }}>Please provide your details to schedule a premium site visit.</p>
+                        <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 900, color: isDarkMode ? '#fff' : '#1e293b', letterSpacing: '-0.04em' }}>{new URLSearchParams(window.location.search).get('type') ? `Schedule ${activityType}` : formConfig.name}</h1>
+                        <p style={{ marginTop: '12px', color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '1.1rem' }}>Please provide your details to schedule a premium {activityType.toLowerCase()}.</p>
                     </div>
                 )}
 
@@ -560,7 +565,7 @@ const PublicLeadForm = ({ slug }) => {
                         {status === 'submitting' ? (
                             <><i className="fas fa-circle-notch fa-spin"></i> Processing...</>
                         ) : (
-                            <>{preFillLead ? 'Confirm Site Visit' : 'Schedule Site Visit'} <i className="fas fa-chevron-right" style={{ marginLeft: '10px', fontSize: '0.9rem' }}></i></>
+                            <>{preFillLead ? `Confirm ${activityType}` : `Schedule ${activityType}`} <i className="fas fa-chevron-right" style={{ marginLeft: '10px', fontSize: '0.9rem' }}></i></>
                         )}
                     </button>
                 </form>

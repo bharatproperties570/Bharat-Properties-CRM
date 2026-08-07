@@ -2,7 +2,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { PriceCard, TableContainer } from './DealCommon';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
-const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
+const DealFinancialSection = ({ deal, setIsOfferModalOpen, isReadOnly }) => {
     const { isDark } = useTheme();
     const cardStyle = {
         background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
@@ -72,6 +72,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                         <h3 style={{ ...sectionTitleStyle, fontSize: '0.85rem' }}>
                             <i className="fas fa-comments-dollar text-indigo-600 mr-2"></i> Transaction History
                         </h3>
+                        {!isReadOnly && (
                         <button
                             onClick={() => setIsOfferModalOpen(true)}
                             style={{
@@ -82,6 +83,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                             }} className="hover:bg-indigo-700 transition-all">
                             <i className="fas fa-plus"></i> NEW OFFER
                         </button>
+                        )}
                     </div>
                     <div style={{ padding: '0' }}>
                         {(deal.negotiationRounds || []).length > 0 ? (

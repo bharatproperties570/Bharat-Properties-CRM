@@ -66,6 +66,8 @@ import discoveryRoutes from "./src/modules/discovery/discovery.routes.js";
 import intakeWebhookRoutes from "./src/modules/webhooks/whatsapp.routes.js";
 import whatsappWebhookV2 from "./routes/whatsapp_webhook.v2.js";
 import pricingBenchmarkRoutes from "./routes/pricingBenchmark.routes.js";
+import automationRoutes from "./routes/automation.routes.js";
+import scoringRuleRoutes from "./routes/scoringRule.routes.js";
 
 const app = express();
 
@@ -245,6 +247,8 @@ app.use("/api/company-groups", companyGroupRoutes);
 app.use("/api/contact-groups", contactGroupRoutes);
 app.use("/api/portfolios", portfolioRoutes);
 app.use("/api/discovery", discoveryRoutes);
+app.use("/api/automations", automationRoutes);
+app.use("/api/scoring-rules", scoringRuleRoutes);
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));

@@ -163,7 +163,10 @@ const InventoryTable = ({
                                     cursor: 'pointer',
                                     transition: 'background 0.2s',
                                     display: 'grid',
-                                    alignItems: 'center'
+                                    alignItems: 'center',
+                                    opacity: 0,
+                                    animation: 'slideUpTakeoff 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both',
+                                    animationDelay: `${Math.min(index * 0.04, 1)}s`
                                 }}
                                 onClick={() => toggleSelect(item._id)}
                             >

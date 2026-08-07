@@ -187,14 +187,21 @@ export const submitForm = async (req, res) => {
             const projectField = allFields.find(f => f.dynamicSource === 'projects' || f.id === 'f_project');
             const dateField = allFields.find(f => f.type === 'date' || f.id === 'f_date');
             
+            // Extract dynamic activity type if provided via URL (e.g. ?type=Meeting)
+            let activityType = 'Site Visit';
+            if (sourceMeta && sourceMeta.search) {
+                const searchParams = new URLSearchParams(sourceMeta.search);
+                if (searchParams.get('type')) activityType = searchParams.get('type');
+            }
+            
             await Activity.create({
                 entityType: 'Lead',
                 entityId: lead._id,
-                type: 'Site Visit',
+                type: activityType,
                 status: 'Pending',
-                subject: `🌐 Site Visit Scheduled: ${form.name}`,
-                description: `Client scheduled a visit for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
-                               Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
+                subject: `🌐 ${activityType} Scheduled: ${form.name}`,
+                description: `Client scheduled a ${activityType.toLowerCase()} for project: ${projectField ? (formData[projectField.id] || 'Not specified') : 'Not specified'}.
+                                Notes: ${leadData.description || leadData.notes || 'No additional notes'}`,
                 dueDate: dateField ? (formData[dateField.id] || new Date()) : new Date(),
                 assignedTo: lead.owner || form.settings.autoAssignTo
             });

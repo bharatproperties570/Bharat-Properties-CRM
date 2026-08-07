@@ -1,4 +1,5 @@
 import { useTheme } from '../../../context/ThemeContext';
+import { useUserContext } from '../../../context/UserContext';
 import { useEffect, useRef } from 'react';
 import { FormLabel, FormSelect, FormInput, ActivityCard, SectionTitle } from '../ActivityCommon';
 
@@ -15,6 +16,7 @@ const MeetingActivitySection = ({
     removePropertyRow,
     view = 'full' 
 }) => {
+    const { currentUser } = useUserContext();
     const { isDark } = useTheme();
     const isCompleted = formData.status === 'Completed';
     const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
@@ -136,6 +138,9 @@ const MeetingActivitySection = ({
                                     handleChange(e);
                                     if (e.target.value === 'Virtual') {
                                         handleChange({ target: { name: 'meetingLocation', value: '' } });
+                                    } else if (e.target.value === 'Office') {
+                                        const officeAddr = currentUser?.preferences?.officeLocation || '';
+                                        handleChange({ target: { name: 'meetingLocation', value: officeAddr } });
                                     }
                                 }}
                                 style={{ accentColor: '#a21caf' }}

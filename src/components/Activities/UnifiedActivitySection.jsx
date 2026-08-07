@@ -1,5 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import whatsappService from '../../services/whatsappService';
 import smsService from '../../services/smsService';
@@ -21,10 +21,37 @@ import './UnifiedActivitySection.css';
  * @param {function} onActivitySaved - Callback after successful save
  * @param {boolean} hideComposer - Whether to hide the activity composer section
  */
-const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [] }) => {
+const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [], isReadOnly = false }) => {
     const { isDark } = useTheme();
     const { addActivity } = useActivities();
     const { activityMasterFields } = usePropertyConfig();
+    
+    // Inject terminal outcomes directly into the component's master fields view
+    const enrichedMasterFields = useMemo(() => {
+        if (!activityMasterFields?.activities) return activityMasterFields;
+        const newFields = JSON.parse(JSON.stringify(activityMasterFields));
+        
+        const sv = newFields.activities.find(a => a.name === 'Site Visit');
+        if (sv) {
+            sv.purposes.forEach(p => {
+                if (!p.outcomes.some(o => o.label === 'Owner Denied Access/Not Selling')) {
+                    p.outcomes.push({ label: 'Owner Denied Access/Not Selling', score: -30, stage: 'Closed Lost', requiredForms: ['Mark Deal as Lost Form'] });
+                }
+            });
+        }
+        
+        const mt = newFields.activities.find(a => a.name === 'Meeting');
+        if (mt) {
+            mt.purposes.forEach(p => {
+                if (!p.outcomes.some(o => o.label === 'Postponed Indefinitely')) {
+                    p.outcomes.push({ label: 'Postponed Indefinitely', score: -30, stage: 'Closed Lost', requiredForms: ['Mark Deal as Lost Form'] });
+                }
+            });
+        }
+        
+        return newFields;
+    }, [activityMasterFields]);
+
     const [composerTab, setComposerTab] = useState('note');
     const [composerContent, setComposerContent] = useState('');
     const [composerLoading, setComposerLoading] = useState(false);
@@ -41,7 +68,11 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         meetingOutcomeStatus: '',
         visitConfirmation: 'Tentative',
         visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
-        completionResult: ''
+        completionResult: '',
+        markDealAsLost: false,
+        lostReason: '',
+        lostPrice: '',
+        lostDate: ''
     });
 
     const [projects, setProjects] = useState([]);
@@ -319,7 +350,11 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     meetingLocation: composerData.meetingLocation,
                     visitConfirmation: composerData.visitConfirmation,
                     visitedProperties: composerData.visitedProperties,
-                    completionResult: composerData.completionResult
+                    completionResult: composerData.completionResult,
+                    markDealAsLost: entityType === 'Deal' ? composerData.markDealAsLost : false,
+                    lostReason: composerData.lostReason,
+                    lostPrice: composerData.lostPrice,
+                    lostDate: composerData.lostDate || new Date()
                 }
             };
 
@@ -416,11 +451,37 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         return { icon: 'clock', color: '#64748b', bg: '#f8fafc' };
     };
 
+    const isTerminalOutcome = useMemo(() => {
+        const checkLabel = (label) => {
+            if (!label) return false;
+            let isTerminal = false;
+            (enrichedMasterFields?.activities || []).forEach(act => {
+                (act.purposes || []).forEach(purp => {
+                    const outcome = purp.outcomes?.find(o => o.label === label);
+                    if (outcome && outcome.requiredForms?.includes('Mark Deal as Lost Form')) {
+                        isTerminal = true;
+                    }
+                });
+            });
+            return isTerminal;
+        };
+
+        return checkLabel(composerData.completionResult) || 
+               (composerData.visitedProperties || []).some(p => checkLabel(p.result));
+    }, [composerData.completionResult, composerData.visitedProperties, enrichedMasterFields]);
+
+    // Auto-check markDealAsLost if terminal outcome is selected
+    useEffect(() => {
+        if (isTerminalOutcome && !composerData.markDealAsLost) {
+            setComposerData(prev => ({ ...prev, markDealAsLost: true }));
+        }
+    }, [isTerminalOutcome, composerData.markDealAsLost]);
+
     return (
         <div className="unified-activity-section" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
             {/* 1. Activity Composer */}
-            {!hideComposer && (
+            {!hideComposer && !isReadOnly && (
                 <div style={{ 
                     borderRadius: '12px', 
                     overflow: 'hidden', 
@@ -676,6 +737,35 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                     fontFamily: 'inherit'
                                 }}
                             ></textarea>
+                        )}
+
+                        {entityType === 'Deal' && (composerTab === 'site_visit' || composerTab === 'meeting') && (composerData.markDealAsLost || isTerminalOutcome) && (
+                            <div style={{ marginTop: '16px', padding: '16px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 800, color: '#991b1b', marginBottom: composerData.markDealAsLost ? '16px' : '0' }}>
+                                    <input type="checkbox" name="markDealAsLost" checked={composerData.markDealAsLost} onChange={handleComposerChange} style={{ width: '16px', height: '16px' }} />
+                                    Mark Deal as Lost
+                                </label>
+                                {composerData.markDealAsLost && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#991b1b', display: 'block', marginBottom: '4px' }}>Lost Reason *</label>
+                                            <select name="lostReason" value={composerData.lostReason} onChange={handleComposerChange} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fca5a5', fontSize: '0.8rem', background: '#fff' }}>
+                                                <option value="">Select Reason</option>
+                                                <option value="Lost to Competitor">Lost to Competitor</option>
+                                                <option value="Price Too High">Price Too High</option>
+                                                <option value="Property Sold/Leased Out">Property Sold/Leased Out</option>
+                                                <option value="Not For Sale/Rent anymore">Not For Sale/Rent anymore</option>
+                                                <option value="Unresponsive">Unresponsive</option>
+                                                <option value="Other">Other</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#991b1b', display: 'block', marginBottom: '4px' }}>Market Close Price (if known)</label>
+                                            <input type="number" name="lostPrice" value={composerData.lostPrice} onChange={handleComposerChange} placeholder="e.g. 5000000" style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fca5a5', fontSize: '0.8rem', background: '#fff', outline: 'none' }} />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
