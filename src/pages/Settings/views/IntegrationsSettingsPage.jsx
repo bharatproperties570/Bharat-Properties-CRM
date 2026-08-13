@@ -67,7 +67,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     ...prev, 
                     ...loadedConfig, 
                     token: loadedConfig.token || loadedConfig.apiKey || '',
-                    redirectUri: loadedConfig.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback` 
+                    redirectUri: type === 'linkedin' ? `${window.location.origin}/api/marketing/linkedin/callback` : loadedConfig.redirectUri
                 }));
                 setLastKnownStatus(type === 'linkedin' && connectionData?.health === 'EXPIRED' ? 'Expired' : 'Connected');
             }
