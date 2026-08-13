@@ -46,8 +46,14 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     const [waTemplateComponents, setWaTemplateComponents] = useState([]);
     const [previewChannel, setPreviewChannel] = useState('whatsapp'); // Track which preview is shown
 
+    const hasInitialized = React.useRef(false);
+
     useEffect(() => {
-        if (isOpen && inventory) {
+        if (!isOpen) {
+            hasInitialized.current = false;
+        }
+        if (isOpen && inventory && !hasInitialized.current) {
+            hasInitialized.current = true;
             // Default Triggers from Global Settings
             // ⚠️ CRITICAL: If DB is unavailable, masterFields.triggers is empty.
             // We MUST default whatsapp=true so the preview and dispatch work.

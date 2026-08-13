@@ -17,6 +17,7 @@ import mongoose from 'mongoose';
  * Get all users with filtering and pagination
  */
 export const getUsers = async (req, res) => {
+    console.log("HELLO GET USERS CALLED!");
     try {
     if (process.env.MOCK_MODE === 'true') {
         return res.status(200).json({
