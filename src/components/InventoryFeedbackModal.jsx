@@ -274,9 +274,20 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
+    const prevResultRef = React.useRef();
+    const prevReasonRef = React.useRef();
+
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {
         if (!inventory) return;
+
+        // Only run this auto-logic if result or reason ACTUALLY changed
+        if (prevResultRef.current === formData.result && prevReasonRef.current === formData.reason) {
+            return;
+        }
+        prevResultRef.current = formData.result;
+        prevReasonRef.current = formData.reason;
+
         const rule = (masterFields.feedbackRules && masterFields.feedbackRules[formData.result] && masterFields.feedbackRules[formData.result][formData.reason]) || {};
 
         if (rule.actionType === 'None') {
@@ -291,8 +302,12 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         }
 
         const followUpOutcomes = [
-            'Interested / Warm', 'Interested / Hot', 'Request Call Back',
-            'Busy / Driving', 'Call Later', 'Busy', 'Interested'
+            'Follow Up',
+            'Interested',
+            'Call Back',
+            'Budget Issue',
+            'Need Time',
+            'Rescheduled'
         ];
 
         const shouldEnable = followUpOutcomes.includes(formData.result) ||
