@@ -1481,10 +1481,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     <option value="Everyone">Everyone</option>
                                 </select>
                             </div>
-                            </div>
                         </div>
                     </div>
-                </div>
 
                         <div style={sectionStyle}>
                             <label style={labelStyle}>Notes / Remarks</label>
@@ -1558,10 +1556,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             opacity: isSaving ? 0.7 : 1
                         }}
                     >
-                        {isSaving ? 'Saving...' : (deal ? 'Update Deal' : 'Save Deal')}
+                        {isSaving ? 'Saving...' : (deal ? 'Update Deal' : 'Create Deal')}
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
     );
 };
 
