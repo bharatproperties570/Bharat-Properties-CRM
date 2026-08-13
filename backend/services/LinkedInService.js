@@ -33,13 +33,15 @@ class LinkedInService {
             throw new Error('LinkedIn Client ID and Redirect URI must be configured in Settings');
         }
 
-        // BARE MINIMUM SCOPES: Focusing strictly on personal profile posting.
-        // Organization-level scopes (w_organization_social, etc.) are being rejected by LinkedIn for this app.
+        // We now have organization-level scopes approved in the Developer Portal!
         const scopes = [
             'openid',
             'profile',
             'email',
-            'w_member_social'
+            'w_member_social',
+            'w_organization_social',
+            'rw_organization_admin',
+            'r_organization_social'
         ].filter(Boolean).join(' ');
         
         console.log('[LinkedInService] Generating Auth URL with scopes:', scopes);
