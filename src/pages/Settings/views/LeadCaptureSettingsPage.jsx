@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
-import LeadFormBuilder from '../../../components/LeadFormBuilder/LeadFormBuilder';
+import EnterpriseFormBuilder from '../../../components/EnterpriseFormBuilder/EnterpriseFormBuilder';
 
 const LeadCaptureSettingsPage = () => {
     const [view, setView] = useState('list'); // 'list' or 'builder'
@@ -58,14 +58,7 @@ const LeadCaptureSettingsPage = () => {
     };
 
     if (view === 'builder') {
-        return (
-            <LeadFormBuilder
-                key={selectedForm?._id || 'new'}
-                form={selectedForm}
-                onSave={handleSave}
-                onCancel={() => setView('list')}
-            />
-        );
+        return <EnterpriseFormBuilder form={selectedForm} onSave={handleSave} onCancel={() => setView('list')} mode="lead" />;
     }
 
     return (

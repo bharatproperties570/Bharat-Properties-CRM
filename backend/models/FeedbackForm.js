@@ -5,7 +5,7 @@ const FieldSchema = new mongoose.Schema({
     label: { type: String, required: true },
     type: {
         type: String,
-        enum: ['text', 'phone', 'email', 'select', 'budget-slider', 'radio', 'checkbox', 'date', 'rating', 'nps', 'hidden'],
+        enum: ['text', 'phone', 'email', 'select', 'budget-slider', 'radio', 'checkbox', 'date', 'rating', 'nps', 'hidden', 'property_feedback'],
         required: true
     },
     required: { type: Boolean, default: false },
@@ -28,6 +28,7 @@ const FeedbackFormSchema = new mongoose.Schema({
     slug: { type: String, required: true, unique: true, index: true },
     department: { type: String, index: true }, 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
+    visibleTo: { type: String, default: 'Everyone' },
     isActive: { type: Boolean, default: true },
     description: { type: String },
     sections: [SectionSchema],

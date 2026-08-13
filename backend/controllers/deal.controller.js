@@ -1413,8 +1413,10 @@ export const getDeals = async (req, res) => {
                 return acc;
             }, []);
             if (contactIds.length > 0) {
+                // 🚀 SENIOR OPTIMIZATION: Use mixed IDs since entityId is a Mixed type field
+                const mixedContactIds = [...contactIds, ...contactIds.map(id => id.toString())];
                 const activities = await Activity.aggregate([
-                    { $match: { entityId: { $in: contactIds }, entityType: "Contact" } },
+                    { $match: { entityId: { $in: mixedContactIds }, entityType: "Contact" } },
                     { $sort: { performedAt: -1 } },
                     { $group: { _id: "$entityId", lastActivity: { $first: "$$ROOT" } } }
                 ]);

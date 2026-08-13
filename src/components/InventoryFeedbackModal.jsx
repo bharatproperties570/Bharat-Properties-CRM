@@ -106,7 +106,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             setChannelMessages({ whatsapp: '', sms: '', email: '' });
             setPreviewChannel('whatsapp');
         }
-    }, [isOpen, inventory, masterFields.triggers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, inventory]);
 
     // Template Generator Effect (Multi-Channel)
     useEffect(() => {
@@ -270,7 +271,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             else if (activeTriggers.sms) setPreviewChannel('sms');
             else if (activeTriggers.email) setPreviewChannel('email');
         }
-    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {

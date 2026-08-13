@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 import { LucideFilePlus, LucidePlus, LucideEye, LucideTrash2, LucideCode, LucideLink, LucideChevronLeft, LucideDatabase, LucideX, LucideQrCode } from 'lucide-react';
-import UniversalFormBuilder from '../../../components/UniversalFormBuilder';
+import EnterpriseFormBuilder from '../../../components/EnterpriseFormBuilder/EnterpriseFormBuilder';
 
 const CustomFormsSettingsPage = ({ onBack }) => {
     const [view, setView] = useState('list'); // 'list' or 'builder'
@@ -55,11 +55,11 @@ const CustomFormsSettingsPage = ({ onBack }) => {
 
     if (view === 'builder') {
         return (
-            <UniversalFormBuilder 
+            <EnterpriseFormBuilder 
                 form={selectedForm} 
                 onSave={() => { setView('list'); fetchForms(); }}
                 onCancel={() => setView('list')}
-                category="custom"
+                mode="custom"
             />
         );
     }

@@ -589,7 +589,8 @@ Bharat Properties
         id: 'fb_interested_hot_wa',
         name: 'Feedback: Interested (Hot)',
         content: "Hi {owner}, great to hear from you regarding {{unit_number}}! I'm finalizing the details for our {{due_date}} meeting. Please keep the original documents ready.",
-        tags: ['Feedback', 'Inventory']
+        tags: ['Feedback', 'Inventory'],
+        systemContext: ['feedback_form']
     },
     {
         id: 'fb_interested_warm_wa',

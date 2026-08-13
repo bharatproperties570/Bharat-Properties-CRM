@@ -48,9 +48,10 @@ const TriggersSettingsPage = () => {
         setIsDeleteConfirmOpen(true);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
         if (triggerToDelete) {
-            const result = deleteTrigger(triggerToDelete.id);
+            const triggerId = triggerToDelete._id || triggerToDelete.id;
+            const result = await deleteTrigger(triggerId);
             if (!result.success) {
                 alert(result.message);
             }

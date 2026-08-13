@@ -44,8 +44,113 @@ export class WorkflowEngine {
         }
     }
 
-    static async executeAction(action, entityData, trigger, companyId) {
+    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false) {
         try {
+            // Process Delayed Actions if this is a 'fire_automated_action' and not already delayed
+            if (!isDelayedExecution && action.type === 'fire_automated_action' && action.automatedActionId) {
+                const AutomatedAction = (await import('../../models/AutomatedAction.js')).default;
+                const autoAction = await AutomatedAction.findById(action.automatedActionId);
+                
+                if (autoAction && autoAction.delay && autoAction.delay.isActive) {
+                    const relativeDate = entityData[autoAction.delay.relativeToField] ? new Date(entityData[autoAction.delay.relativeToField]) : new Date();
+                    
+                    let offsetMs = 0;
+                    const amount = autoAction.delay.amount || 0;
+                    switch (autoAction.delay.unit) {
+                        case 'minutes': offsetMs = amount * 60 * 1000; break;
+                        case 'hours': offsetMs = amount * 60 * 60 * 1000; break;
+                        case 'days': offsetMs = amount * 24 * 60 * 60 * 1000; break;
+                        case 'weeks': offsetMs = amount * 7 * 24 * 60 * 60 * 1000; break;
+                    }
+                    
+                    const targetDate = new Date(relativeDate.getTime() + offsetMs);
+                    const delayMs = targetDate.getTime() - Date.now();
+                    
+                    if (delayMs > 0) {
+                        const { enqueueAction } = await import('../../services/automationQueue/automationQueue.js');
+                        await enqueueAction({ action, entityData, trigger, companyId }, delayMs);
+                        return; // Successfully queued for delayed execution
+                    }
+                }
+                
+                // If we reach here, it's either immediate or the delay has already elapsed
+                console.log(`[WorkflowEngine] Executing Automated Action: ${autoAction?.name}`);
+                
+                // Idempotency check
+                const idempotencyKey = isDelayedExecution 
+                    ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}` 
+                    : `imm-${action.automatedActionId}-${entityData._id || entityData.id}`;
+                    
+                const existingLog = await AutomationLog.findOne({ idempotencyKey });
+                if (existingLog) {
+                    console.log(`[WorkflowEngine] Action already executed for key: ${idempotencyKey}. Skipping.`);
+                    return;
+                }
+
+                try {
+                    // Action execution logic
+                    if (autoAction.actionType === 'send_notification') {
+                        const VariableResolver = (await import('./VariableResolver.js')).default;
+                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
+                        const config = autoAction.notificationConfig;
+                        
+                        if (config.channels.whatsapp && config.templates.whatsapp) {
+                            // If the template needs resolving for variables, we can just use sendTemplate with components.
+                            // But for simple text variables inside templates, many people use sendMessage with resolved text
+                            // or sendTemplate with mapped variables. I will use sendMessage with resolved text if it's dynamic,
+                            // or sendTemplate if it matches exactly. For now, since templates might be complex, we send the resolved text as a message.
+                            const resolvedTemplate = VariableResolver.resolve(config.templates.whatsapp, entityData);
+                            console.log(`[WorkflowEngine] Sending WhatsApp to ${entityData.mobile} using template: ${resolvedTemplate}`);
+                            await WhatsAppService.sendMessage(entityData.mobile, resolvedTemplate);
+                        }
+                        if (config.channels.sms && config.templates.sms) {
+                            const resolvedSms = VariableResolver.resolve(config.templates.sms, entityData);
+                            console.log(`[WorkflowEngine] Sending SMS to ${entityData.mobile}: ${resolvedSms}`);
+                        }
+                    } else if (autoAction.actionType === 'update_field') {
+                        console.log(`[WorkflowEngine] Updating field for ${trigger.module} ID ${entityData._id || entityData.id} with data:`, autoAction.fieldMapping);
+                        const mongoose = (await import('mongoose')).default;
+                        // Map "leads" -> "Lead", "deals" -> "Deal"
+                        let modelName = trigger.module.charAt(0).toUpperCase() + trigger.module.slice(1);
+                        if (modelName.endsWith('s')) modelName = modelName.slice(0, -1);
+                        
+                        const Model = mongoose.model(modelName);
+                        await Model.updateOne({ _id: entityData._id || entityData.id }, { $set: autoAction.fieldMapping });
+                    } else if (autoAction.actionType === 'lock_inventory') {
+                        console.log(`[WorkflowEngine] Locking inventory for ${entityData._id || entityData.id}`);
+                        const mongoose = (await import('mongoose')).default;
+                        const Inventory = mongoose.model('Inventory');
+                        await Inventory.updateOne({ _id: entityData._id || entityData.id }, { $set: { status: 'Locked' } });
+                    }
+                    
+                    // Log success
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger.module,
+                        status: 'success',
+                        idempotencyKey,
+                        companyId
+                    });
+                } catch (execError) {
+                    console.error(`[WorkflowEngine] Automated Action Execution failed:`, execError);
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger.module,
+                        status: 'failed',
+                        details: { error: execError.message },
+                        idempotencyKey,
+                        companyId
+                    });
+                    throw execError;
+                }
+                
+                return; // Automated action logic executed successfully
+            }
+
             if (action.type === 'send_communication' && action.channel === 'whatsapp') {
                 // Here we would dispatch to the WhatsApp API
                 console.log(`[WorkflowEngine] Sending WhatsApp Template '${action.templateId}' to ${entityData.mobile}`);

@@ -8,12 +8,27 @@ const PublicFeedbackForm = ({ slug }) => {
     const [responses, setResponses] = useState({});
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [activityDetails, setActivityDetails] = useState(null);
 
     useEffect(() => {
         const fetchForm = async () => {
             try {
+                const queryParams = new URLSearchParams(window.location.search);
+                const activityId = queryParams.get('activityId');
+
                 const res = await api.get(`/feedback-forms/public/${slug}`);
                 setForm(res.data.data);
+
+                if (activityId) {
+                    try {
+                        const actRes = await api.get(`/activities/public/${activityId}`);
+                        if (actRes.data.success) {
+                            setActivityDetails(actRes.data.data);
+                        }
+                    } catch (e) {
+                        console.warn("Could not fetch activity details for public form");
+                    }
+                }
             } catch (err) {
                 toast.error("Form not found");
             } finally {
@@ -29,11 +44,13 @@ const PublicFeedbackForm = ({ slug }) => {
             const queryParams = new URLSearchParams(window.location.search);
             const leadId = queryParams.get('leadId');
             const inventoryId = queryParams.get('inventoryId');
+            const activityId = queryParams.get('activityId');
 
             await api.post(`/feedback-forms/public/${slug}/submit`, {
                 responses,
                 leadId,
                 inventoryId,
+                activityId,
                 sourceMeta: {
                     userAgent: navigator.userAgent,
                     referrer: document.referrer
@@ -108,6 +125,74 @@ const PublicFeedbackForm = ({ slug }) => {
                                     <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                         {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
                                     </label>
+
+                                    {field.type === 'property_feedback' && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                            {(!activityDetails?.visitedProperties || activityDetails.visitedProperties.length === 0) ? (
+                                                <div style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic', textAlign: 'center', padding: '20px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '12px' }}>
+                                                    No properties found for this visit.
+                                                </div>
+                                            ) : (
+                                                activityDetails.visitedProperties.map((prop, idx) => (
+                                                    <div key={idx} style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px' }}>
+                                                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f8fafc', marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '12px' }}>
+                                                            🏢 {prop.project} <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 500 }}>- {prop.property}</span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px', display: 'block' }}>Result / Outcome</label>
+                                                                <select
+                                                                    value={responses[field.id]?.[idx]?.result || ''}
+                                                                    onChange={e => {
+                                                                        const current = responses[field.id] || {};
+                                                                        setResponses({ ...responses, [field.id]: { ...current, [idx]: { ...current[idx], result: e.target.value } } });
+                                                                    }}
+                                                                    className="text-area-premium"
+                                                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', outline: 'none' }}
+                                                                >
+                                                                    <option value="">Select Result</option>
+                                                                    <option value="Interested">Interested</option>
+                                                                    <option value="Not Interested">Not Interested</option>
+                                                                    <option value="Negotiating">Negotiating</option>
+                                                                    <option value="Booked">Booked</option>
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px', display: 'block' }}>Rate Property (1-5)</label>
+                                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                                    {[1,2,3,4,5].map(star => (
+                                                                        <button
+                                                                            key={star} type="button"
+                                                                            onClick={() => {
+                                                                                const current = responses[field.id] || {};
+                                                                                setResponses({ ...responses, [field.id]: { ...current, [idx]: { ...current[idx], rating: star } } });
+                                                                            }}
+                                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                                                        >
+                                                                            <LucideStar size={32} fill={(responses[field.id]?.[idx]?.rating || 0) >= star ? '#f59e0b' : 'none'} color={(responses[field.id]?.[idx]?.rating || 0) >= star ? '#f59e0b' : 'rgba(255,255,255,0.1)'} />
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px', display: 'block' }}>Comments</label>
+                                                                <textarea
+                                                                    value={responses[field.id]?.[idx]?.comments || ''}
+                                                                    onChange={e => {
+                                                                        const current = responses[field.id] || {};
+                                                                        setResponses({ ...responses, [field.id]: { ...current, [idx]: { ...current[idx], comments: e.target.value } } });
+                                                                    }}
+                                                                    className="text-area-premium"
+                                                                    style={{ width: '100%', minHeight: '80px', padding: '12px', borderRadius: '8px', outline: 'none' }}
+                                                                    placeholder="Any specific likes or dislikes?"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
 
                                     {field.type === 'rating' && (
                                         <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', padding: '10px 0' }}>

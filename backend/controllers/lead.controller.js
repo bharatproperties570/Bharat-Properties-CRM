@@ -605,25 +605,28 @@ export const getLeads = async (req, res, next) => {
             let activityStats = [];
             let smsStats = [];
 
+            // 🚀 SENIOR OPTIMIZATION: Use mixed IDs since entityId is a Mixed type field
+            const mixedEntityIds = [...leadIdsStr, ...leadIds];
+
             // 🚀 SENIOR OPTIMIZATION: Skip heavy interaction aggregations if view is compact
             // Mobile list views don't display interaction stats on the main list.
             if (view !== 'compact') {
                 [activityStats, smsStats] = await Promise.all([
                 Activity.aggregate([
-                    { $match: { entityId: { $in: leadIdsStr }, status: 'Completed' } },
+                    { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
                     { $sort: { createdAt: -1 } },
                     { $group: {
                         _id: "$entityId",
                         latestActivity: { $first: "$$ROOT" },
-                        call: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /call/i } }, 1, 0] } },
-                        meeting: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /meeting/i } }, 1, 0] } },
-                        siteVisit: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /site visit/i } }, 1, 0] } },
-                        email: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /email/i } }, 1, 0] } },
-                        whatsapp: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /whatsapp|messaging/i } }, 1, 0] } }
+                        call: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["call", "outbound call", "inbound call"]] }, 1, 0] } },
+                        meeting: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["meeting"]] }, 1, 0] } },
+                        siteVisit: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["site visit"]] }, 1, 0] } },
+                        email: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["email"]] }, 1, 0] } },
+                        whatsapp: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["whatsapp", "messaging"]] }, 1, 0] } }
                     }}
                 ]),
                 SmsLog.aggregate([
-                    { $match: { entityId: { $in: leadIdsStr }, status: { $in: ['Sent', 'Delivered'] } } },
+                    { $match: { entityId: { $in: mixedEntityIds }, status: { $in: ['Sent', 'Delivered'] } } },
                     { $group: {
                         _id: "$entityId",
                         count: { $sum: 1 }

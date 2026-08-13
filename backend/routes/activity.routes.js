@@ -11,7 +11,8 @@ import {
     getActivitiesByEntity,
     sendReply,
     convertToLead,
-    getThreadHistory
+    getThreadHistory,
+    getPublicActivityDetails
 } from "../controllers/activity.controller.js";
 import { 
     completeActivity, 
@@ -21,7 +22,10 @@ import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-// Apply authentication to all routes
+// Public Read-Only Routes
+router.get("/public/:activityId", getPublicActivityDetails);
+
+// Protected Routes
 router.use(authenticate);
 
 router.get("/", getActivities);

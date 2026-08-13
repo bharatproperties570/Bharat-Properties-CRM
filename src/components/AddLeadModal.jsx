@@ -2797,7 +2797,7 @@ const RequirementSection = React.memo(function RequirementSection({
                     <div style={sectionCardStyle}>
                         <h4 style={labelStyle}>Property Sub-Category</h4>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
+                            {Array.from(new Set(formData.propertyType.flatMap(cat => (propertyConfig[cat]?.subCategories || []).map(sub => sub.name)))).map(sub => (
                                 <button
                                     key={sub}
                                     type="button"

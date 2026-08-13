@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import eventBus from "../services/EventBus.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -575,6 +576,15 @@ InventorySchema.pre('insertMany', function(next, docs) {
         });
     }
     next();
+});
+InventorySchema.post('save', function(doc) {
+    eventBus.emit('INVENTORY_CREATED', doc);
+});
+
+InventorySchema.post('findOneAndUpdate', function(doc) {
+    if (doc) {
+        eventBus.emit('INVENTORY_UPDATED', doc);
+    }
 });
 
 export default mongoose.model("Inventory", InventorySchema);

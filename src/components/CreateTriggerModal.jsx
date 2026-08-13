@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
+import { useAutomatedActions } from '../context/AutomatedActionsContext';
 import { whatsappTemplates as mockWhatsapp, smsTemplates, emailTemplates } from '../constants/templates';
 import { marketingAPI } from '../utils/api'; // Import api to fetch real templates
 import RuleBuilder from './RuleBuilder';
 
 const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
     const { addTrigger, updateTrigger } = useTriggers();
+    const { actions: automatedActions = [] } = useAutomatedActions();
     const [activeTab, setActiveTab] = useState('basic');
     const [dbWhatsAppTemplates, setDbWhatsAppTemplates] = useState([]);
     const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
@@ -150,7 +152,8 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         activities: [
             { value: 'activity_created', label: 'Activity Created' },
             { value: 'activity_completed', label: 'Activity Completed' },
-            { value: 'activity_overdue', label: 'Activity Overdue' }
+            { value: 'activity_overdue', label: 'Activity Overdue' },
+            { value: 'scheduled', label: 'Scheduled (Upcoming)' }
         ],
         communication: [
             { value: 'call_logged', label: 'Call Logged' },
@@ -415,6 +418,28 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                                 placeholder="Notification message..."
                                                 style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', minHeight: '60px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
                                             />
+                                        </div>
+                                    )}
+
+                                    {action.type === 'fire_automated_action' && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Select Automated Action</label>
+                                            <select
+                                                value={action.automatedActionId}
+                                                onChange={(e) => updateAction(index, 'automatedActionId', e.target.value)}
+                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', width: '100%' }}
+                                            >
+                                                <option value="">-- Choose an Action --</option>
+                                                {automatedActions.filter(a => {
+                                                    const actionMod = (a.targetModule || '').toLowerCase();
+                                                    const triggerMod = (formData.module || '').toLowerCase();
+                                                    // Allow exact match OR allow Activities to trigger Communication/Leads
+                                                    return actionMod === triggerMod || 
+                                                           (triggerMod === 'activities' && (actionMod === 'communication' || actionMod === 'leads'));
+                                                }).map(a => (
+                                                    <option key={a._id || a.id} value={a._id || a.id}>{a.name} ({(a.actionType || '').replace('_', ' ')})</option>
+                                                ))}
+                                            </select>
                                         </div>
                                     )}
                                 </div>

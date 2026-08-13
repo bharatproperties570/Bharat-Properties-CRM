@@ -7,6 +7,7 @@ const AutomationLogSchema = new mongoose.Schema({
     targetModule: { type: String, required: true },
     status: { type: String, enum: ['success', 'failed', 'pending'], default: 'success' },
     details: mongoose.Schema.Types.Mixed, // Stores error messages or execution results
+    idempotencyKey: { type: String, unique: true, sparse: true, index: true }, // Prevents duplicate execution
     executedAt: { type: Date, default: Date.now },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 });

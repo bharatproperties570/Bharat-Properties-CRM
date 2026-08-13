@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
-import FeedbackFormBuilder from '../../../components/FeedbackFormBuilder/FeedbackFormBuilder';
+import EnterpriseFormBuilder from '../../../components/EnterpriseFormBuilder/EnterpriseFormBuilder';
 
 const FeedbackSettingsPage = () => {
     const [view, setView] = useState('list');
@@ -40,7 +40,7 @@ const FeedbackSettingsPage = () => {
     };
 
     if (view === 'builder') {
-        return <FeedbackFormBuilder form={selectedForm} onSave={() => { setView('list'); fetchForms(); }} onCancel={() => setView('list')} />;
+        return <EnterpriseFormBuilder form={selectedForm} onSave={() => { setView('list'); fetchForms(); }} onCancel={() => setView('list')} mode="feedback" />;
     }
 
     return (

@@ -1,39 +1,27 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { executeAction } from '../utils/automatedActionsEngine';
 import { useFieldRules } from './FieldRulesContext';
+import api, { automationAPI } from '../utils/api';
+import toast from 'react-hot-toast';
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const AutomatedActionsContext = createContext();
 
 export const AutomatedActionsProvider = ({ children }) => {
     const { validate } = useFieldRules();
-    // Action definitions
-    const [actions, setActions] = useState([
-        {
-            id: 'aa_1',
-            name: 'Auto-Create Follow-up',
-            targetModule: 'activities',
-            actionType: 'create_record',
-            invokedByTrigger: 'trigger_2', // Reference to new lead trigger
-            isActive: true,
-            fieldMapping: {
-                type: 'Follow-up',
-                title: 'Introduction Call',
-                priority: 'High',
-                description: 'Auto-generated follow-up for new lead'
-            },
-            rollbackPolicy: 'Manual'
-        },
-        {
-            id: 'aa_2',
-            name: 'Lock Inventory on Booking',
-            targetModule: 'inventory',
-            actionType: 'lock_inventory',
-            invokedByTrigger: 'trigger_deal_booked',
-            isActive: true,
-            rollbackPolicy: 'Auto'
-        }
-    ]);
+    const [actions, setActions] = useState([]);
+
+    useEffect(() => {
+        const fetchActions = async () => {
+            try {
+                const data = await automationAPI.getAutomatedActions();
+                setActions(data);
+            } catch (error) {
+                console.error("Failed to fetch automated actions:", error);
+            }
+        };
+        fetchActions();
+    }, []);
 
     // Audit logs for all executions
     const [auditLogs, setAuditLogs] = useState([]);
@@ -77,6 +65,65 @@ export const AutomatedActionsProvider = ({ children }) => {
             sendNotification: async (payload) => {
                 console.log(`[AA_SYSTEM] Sending Notification:`, payload);
                 return { success: true };
+            },
+            runAiLeadMatch: async (entity, action) => {
+                if (!entity._id && !entity.id) throw new Error("Entity ID is missing for AI Match");
+                const dealId = entity._id || entity.id;
+                console.log(`[AA_SYSTEM] Running AI Lead Match for deal ${dealId}`);
+                
+                // 1. Get matches
+                const matchRes = await api.get('leads/match', { params: { dealId } });
+                if (!matchRes.data?.success || !matchRes.data?.matchingLeads?.length) {
+                    return { success: true, message: 'No matching leads found.' };
+                }
+                let matches = matchRes.data.matchingLeads;
+                
+                // 1.5 Apply Advanced Constraints
+                const constraints = action.matchConstraints || {};
+                const minScore = constraints.minScore || 0;
+                const originalCount = matches.length;
+                
+                matches = matches.filter(lead => {
+                    if (lead.score < minScore) return false;
+                    
+                    if (constraints.strictLocation && (!lead.scoreBreakdown?.location || lead.scoreBreakdown.location.earned < 25)) return false;
+                    if (constraints.strictType && (!lead.scoreBreakdown?.type || lead.scoreBreakdown.type.earned < 18)) return false;
+                    if (constraints.strictBudget && (!lead.scoreBreakdown?.budget || lead.scoreBreakdown.budget.earned < 25)) return false;
+                    if (constraints.strictSize && (!lead.scoreBreakdown?.size || lead.scoreBreakdown.size.earned < 25)) return false;
+                    
+                    return true;
+                });
+                
+                if (matches.length === 0) {
+                    return { success: true, message: `Found ${originalCount} raw leads, but none passed the strict constraints (Min Score: ${minScore}%).` };
+                }
+
+                
+                // 2. Dispatch to selected channels
+                const channels = action.notificationConfig?.channels || {};
+                const activeChannels = Object.keys(channels).filter(k => channels[k]);
+                
+                if (activeChannels.length > 0) {
+                    for (let ch of activeChannels) {
+                        try {
+                            await api.post('marketing/send-manual', {
+                                dealIds: [dealId],
+                                leadIds: matches.map(m => m._id),
+                                toggles: { [ch]: true },
+                                scheduledAt: action.delay?.isActive ? action.delay.amount : null, // Simplistic scheduling
+                                matchContext: 'perfect'
+                            });
+                        } catch(e) { 
+                            console.error(`Failed to dispatch ${ch}`, e); 
+                        }
+                    }
+                }
+                
+                return { 
+                    success: true, 
+                    matchedCount: matches.length, 
+                    dispatchedChannels: activeChannels 
+                };
             }
         };
 
@@ -88,8 +135,15 @@ export const AutomatedActionsProvider = ({ children }) => {
         return result;
     }, [actions, validate]);
 
-    const addAction = useCallback((newAction) => {
-        setActions(prev => [...prev, { ...newAction, id: `aa_${Date.now()}` }]);
+    const addAction = useCallback(async (newAction) => {
+        try {
+            const savedAction = await automationAPI.createAutomatedAction(newAction);
+            setActions(prev => [...prev, savedAction]);
+            toast.success("Automated action saved successfully");
+        } catch (error) {
+            console.error("Failed to create action:", error);
+            toast.error("Failed to save action");
+        }
     }, []);
 
     const toggleAction = useCallback((id) => {

@@ -146,6 +146,12 @@ export const executeAction = async (action, entity, handlers) => {
                 }
                 break;
 
+            case 'run_ai_lead_match_campaign':
+                if (handlers.runAiLeadMatch) {
+                    result = await handlers.runAiLeadMatch(entity, action);
+                }
+                break;
+
             default:
                 throw new Error(`Execution Handler missing for type: ${action.actionType}`);
         }

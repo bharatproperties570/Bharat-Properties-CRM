@@ -1441,7 +1441,9 @@ export const PropertyConfigProvider = ({ children }) => {
             });
 
             // Update state ONLY locally (skip DB sync back to SystemSettings since we now rely on lookups)
-            setPropertyConfig(newConfig, true);
+            if (categories.length > 0) {
+                setPropertyConfig(newConfig, true);
+            }
         }
     }, [lookups, setPropertyConfig]);
 

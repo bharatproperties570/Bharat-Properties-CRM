@@ -28,8 +28,7 @@ export const createForm = async (req, res, next) => {
 
 export const getForms = async (req, res, next) => {
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const forms = await FeedbackForm.find(visibilityFilter).sort({ createdAt: -1 });
+        const forms = await FeedbackForm.find({}).sort({ createdAt: -1 });
         res.json({ success: true, data: forms });
     } catch (error) {
         next(error);
@@ -59,8 +58,10 @@ export const updateForm = async (req, res, next) => {
 
 export const deleteForm = async (req, res, next) => {
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        await FeedbackForm.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const form = await FeedbackForm.findOneAndDelete({ _id: req.params.id });
+        if (!form) {
+            return res.status(404).json({ success: false, message: "Form not found" });
+        }
         res.json({ success: true, message: "Form deleted" });
     } catch (error) {
         next(error);
@@ -84,7 +85,7 @@ export const getFormBySlug = async (req, res, next) => {
 export const submitFeedback = async (req, res, next) => {
     try {
         const { slug } = req.params;
-        const { responses, sourceMeta, leadId, inventoryId } = req.body;
+        const { responses, sourceMeta, leadId, inventoryId, activityId } = req.body;
 
         const form = await FeedbackForm.findOne({ slug, isActive: true });
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
@@ -222,8 +223,52 @@ export const submitFeedback = async (req, res, next) => {
             }
         }
 
-        // 🚀 SMART SYNC: Update Lead Activity if linked
-        if (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) {
+        // 🚀 SMART SYNC: Update Specific Activity if linked
+        if (activityId && mongoose.Types.ObjectId.isValid(activityId)) {
+            const activity = await Activity.findById(activityId);
+            if (activity && activity.status !== 'Completed') {
+                // If the form sent property_feedback, it is usually nested in responses
+                const propertyFeedbackField = form.sections.flatMap(s => s.fields).find(f => f.type === 'property_feedback');
+                let updatedVisitedProperties = activity.details?.visitedProperties || [];
+                
+                if (propertyFeedbackField && responses[propertyFeedbackField.id]) {
+                    const customerPropertyFeedback = responses[propertyFeedbackField.id]; // Object keyed by property index
+                    updatedVisitedProperties = updatedVisitedProperties.map((prop, idx) => {
+                        const feedback = customerPropertyFeedback[idx];
+                        if (feedback) {
+                            return {
+                                ...prop,
+                                result: feedback.result || prop.result,
+                                customerRating: feedback.rating,
+                                customerComments: feedback.comments
+                            };
+                        }
+                        return prop;
+                    });
+                }
+
+                await Activity.findByIdAndUpdate(activityId, {
+                    status: 'Completed',
+                    completedAt: new Date(),
+                    completionResult: 'Feedback Received',
+                    performedBy: 'Customer (Form)',
+                    description: Object.values(responses).filter(v => typeof v === 'string').join(' | '),
+                    'details.submissionId': submission._id,
+                    'details.visitedProperties': updatedVisitedProperties
+                });
+                console.log(`[FeedbackSubmit] Updated Activity ${activityId} with property-wise feedback`);
+                
+                if (finalLeadId) {
+                    const lead = await Lead.findById(finalLeadId);
+                    if (lead) {
+                        NurtureBot.executeAutomation('onFeedbackReceived', lead).catch(err => {
+                            console.error('[Automation] Failed to trigger feedback automation:', err.message);
+                        });
+                    }
+                }
+            }
+        } else if (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) {
+            // Fallback: Create new activity if no specific activityId was provided
             const lead = await Lead.findById(finalLeadId);
             if (lead) {
                 await Activity.create({
@@ -233,7 +278,7 @@ export const submitFeedback = async (req, res, next) => {
                     entityType: 'Lead',
                     status: 'Completed',
                     performedBy: 'Customer (Form)',
-                    description: Object.values(responses).join(' | '),
+                    description: Object.values(responses).filter(v => typeof v === 'string').join(' | '),
                     dueDate: new Date(),
                     details: { submissionId: submission._id, rating: submissionRating }
                 });

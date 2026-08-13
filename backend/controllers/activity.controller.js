@@ -1902,3 +1902,34 @@ export const convertToLead = async (req, res) => {
     }
 };
 
+export const getPublicActivityDetails = async (req, res) => {
+    try {
+        const { activityId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(activityId)) {
+            return res.status(400).json({ success: false, message: "Invalid Activity ID" });
+        }
+        
+        // Fetch only safe fields needed for public form rendering
+        const activity = await Activity.findById(activityId)
+            .select('type subject details status')
+            .lean();
+            
+        if (!activity) {
+            return res.status(404).json({ success: false, message: "Activity not found" });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                _id: activity._id,
+                type: activity.type,
+                subject: activity.subject,
+                status: activity.status,
+                visitedProperties: activity.details?.visitedProperties || []
+            }
+        });
+    } catch (error) {
+        console.error("[getPublicActivityDetails] Error:", error);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};

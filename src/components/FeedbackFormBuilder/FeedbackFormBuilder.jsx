@@ -137,6 +137,7 @@ const FeedbackFormBuilder = ({ form, onSave, onCancel }) => {
                     <h3 style={{ margin: '0 0 16px', fontSize: '0.8rem', fontWeight: 800 }}>ADD QUESTIONS</h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
                         {[
+                            { type: 'property_feedback', icon: <LucideLayout size={14} />, label: 'Property Repeater' },
                             { type: 'rating', icon: <LucideStar size={14} />, label: 'Star Rating' },
                             { type: 'nps', icon: <LucideSmile size={14} />, label: 'NPS Score' },
                             { type: 'text', icon: <LucideLayout size={14} />, label: 'Text Field' },
@@ -178,6 +179,16 @@ const FeedbackFormBuilder = ({ form, onSave, onCancel }) => {
                                             </div>
                                         )}
                                         {field.type === 'text' && <div style={{ height: '40px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}></div>}
+                                        {field.type === 'property_feedback' && (
+                                            <div style={{ padding: '16px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '10px' }}>
+                                                <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '8px' }}>DYNAMIC REPEATER (Generated per visited property)</div>
+                                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                                    <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', flex: 1, border: '1px solid #e2e8f0' }}>Property Result (Select)</div>
+                                                    <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', flex: 1, border: '1px solid #e2e8f0' }}>Rating</div>
+                                                    <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', flex: 1.5, border: '1px solid #e2e8f0' }}>Comments</div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

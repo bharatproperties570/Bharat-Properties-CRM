@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
-import DealFormBuilder from '../../../components/DealFormBuilder/DealFormBuilder';
+import EnterpriseFormBuilder from '../../../components/EnterpriseFormBuilder/EnterpriseFormBuilder';
 import { api } from '../../../utils/api';
 
 const DealCaptureSettingsPage = () => {
@@ -58,14 +58,7 @@ const DealCaptureSettingsPage = () => {
     };
 
     if (view === 'builder') {
-        return (
-            <DealFormBuilder
-                key={selectedForm?._id || 'new'}
-                form={selectedForm}
-                onSave={handleSave}
-                onCancel={() => setView('list')}
-            />
-        );
+        return <EnterpriseFormBuilder key={selectedForm?._id || 'new'} form={selectedForm} onSave={handleSave} onCancel={() => setView('list')} mode="deal" />;
     }
 
     return (

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import { normalizePhone } from "../utils/normalization.js";
+import eventBus from "../services/EventBus.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -487,4 +488,17 @@ LeadSchema.index({ owner: 1, stage: 1 }, { background: true });
 LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 
-export default mongoose.model("Lead", LeadSchema);
+// Automation Hooks
+LeadSchema.post('save', function(doc) {
+    eventBus.emit('LEAD_CREATED', doc);
+});
+
+LeadSchema.post('findOneAndUpdate', async function(doc) {
+    if (doc) {
+        eventBus.emit('LEAD_UPDATED', doc);
+    }
+});
+
+const Lead = mongoose.model('Lead', LeadSchema);
+
+export default Lead;

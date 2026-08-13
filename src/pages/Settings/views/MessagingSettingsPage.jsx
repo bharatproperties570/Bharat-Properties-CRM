@@ -995,42 +995,45 @@ const MessagingSettingsPage = () => {
                 }
 
 
-                let updatedList;
-                setAllTemplates(prev => {
-                    const currentList = prev[templateType];
-                    
-                    // 🚨 ENFORCEMENT LOGIC: 1-to-1 mapping for deal_match
-                    let sanitizedList = [...currentList];
-                    if (savedData.systemContext?.includes('deal_match')) {
+                // Compute updatedList synchronously BEFORE setState to avoid race condition
+                const currentList = allTemplates[templateType] || [];
+                let sanitizedList = [...currentList];
+
+                // 🚨 ENFORCEMENT LOGIC: 1-to-1 mapping for exclusive contexts (deal_match, feedback_form)
+                const exclusiveContexts = ['deal_match', 'feedback_form'];
+                for (const ctx of exclusiveContexts) {
+                    if (savedData.systemContext?.includes(ctx)) {
                         let strippedCount = 0;
                         sanitizedList = sanitizedList.map(t => {
-                            if (t.id !== data.id && t.systemContext?.includes('deal_match')) {
+                            if (t.id !== data.id && t.systemContext?.includes(ctx)) {
                                 strippedCount++;
                                 return {
                                     ...t,
-                                    systemContext: t.systemContext.filter(ctx => ctx !== 'deal_match')
+                                    systemContext: t.systemContext.filter(c => c !== ctx)
                                 };
                             }
                             return t;
                         });
                         if (strippedCount > 0) {
                             setTimeout(() => {
-                                toast.success(`Deal Match context was removed from ${strippedCount} other template(s) in this channel.`);
+                                toast.success(`${ctx} context was removed from ${strippedCount} other template(s) in this channel.`);
                             }, 500);
                         }
                     }
+                }
 
-                    if (data.id) {
-                        updatedList = sanitizedList.map(t => t.id === data.id ? savedData : t);
-                    } else {
-                        updatedList = [...sanitizedList, { ...savedData, id: `local_${Date.now()}` }];
-                    }
-                    return { ...prev, [templateType]: updatedList };
-                });
+                let updatedList;
+                if (data.id) {
+                    updatedList = sanitizedList.map(t => t.id === data.id ? savedData : t);
+                } else {
+                    updatedList = [...sanitizedList, { ...savedData, id: `local_${Date.now()}` }];
+                }
 
-                // Small delay to allow state to settle before reading
-                await new Promise(r => setTimeout(r, 50));
-                await persistTemplates(templateType, updatedList || allTemplates[templateType]);
+                // Update state with computed list
+                setAllTemplates(prev => ({ ...prev, [templateType]: updatedList }));
+
+                // Persist to DB immediately with the computed list (no race condition)
+                await persistTemplates(templateType, updatedList);
             }
             toast.success(data.id ? 'Template updated & saved ✓' : 'Template created & saved ✓');
         } catch (err) {
@@ -1053,23 +1056,26 @@ const MessagingSettingsPage = () => {
             const currentList = allTemplates[templateType] || [];
             let sanitizedList = [...currentList];
             
-            // ENFORCEMENT LOGIC: 1-to-1 mapping for deal_match
-            if (updatedData.systemContext?.includes('deal_match')) {
-                let strippedCount = 0;
-                sanitizedList = sanitizedList.map(t => {
-                    if (t.id !== template.id && t.systemContext?.includes('deal_match')) {
-                        strippedCount++;
-                        return {
-                            ...t,
-                            systemContext: t.systemContext.filter(ctx => ctx !== 'deal_match')
-                        };
+            // ENFORCEMENT LOGIC: 1-to-1 mapping for exclusive contexts (deal_match, feedback_form)
+            const exclusiveContexts = ['deal_match', 'feedback_form'];
+            for (const ctx of exclusiveContexts) {
+                if (updatedData.systemContext?.includes(ctx)) {
+                    let strippedCount = 0;
+                    sanitizedList = sanitizedList.map(t => {
+                        if (t.id !== template.id && t.systemContext?.includes(ctx)) {
+                            strippedCount++;
+                            return {
+                                ...t,
+                                systemContext: t.systemContext.filter(c => c !== ctx)
+                            };
+                        }
+                        return t;
+                    });
+                    if (strippedCount > 0) {
+                        setTimeout(() => {
+                            toast.success(`${ctx} context was removed from ${strippedCount} other template(s).`);
+                        }, 500);
                     }
-                    return t;
-                });
-                if (strippedCount > 0) {
-                    setTimeout(() => {
-                        toast.success(`Deal Match context was removed from ${strippedCount} other template(s).`);
-                    }, 500);
                 }
             }
 
@@ -1107,7 +1113,13 @@ const MessagingSettingsPage = () => {
                     res.data.forEach(metaTpl => {
                         const existingIdx = mergedTemplates.findIndex(t => t.id === metaTpl.id || t.name === metaTpl.name);
                         if (existingIdx >= 0) {
-                            mergedTemplates[existingIdx] = { ...mergedTemplates[existingIdx], ...metaTpl };
+                            // Preserve local-only fields (systemContext, triggers, tags) when merging from Meta
+                            const localOnly = {
+                                systemContext: mergedTemplates[existingIdx].systemContext,
+                                triggers: mergedTemplates[existingIdx].triggers,
+                                tags: mergedTemplates[existingIdx].tags,
+                            };
+                            mergedTemplates[existingIdx] = { ...mergedTemplates[existingIdx], ...metaTpl, ...localOnly };
                         } else {
                             mergedTemplates.push(metaTpl);
                         }

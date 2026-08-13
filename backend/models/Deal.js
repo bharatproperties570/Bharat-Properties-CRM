@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import eventBus from "../services/EventBus.js";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import Lookup from "./Lookup.js";
 import { calcRatePerUnit, calcOrientationPremium, getAreaUnit } from "../utils/pricingUtils.js";
@@ -459,8 +460,17 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
     resolveAndUpdate().then(() => next()).catch(next);
 });
 
-DealSchema.post('save', invalidateDashboardCache);
-DealSchema.post('findOneAndUpdate', invalidateDashboardCache);
+DealSchema.post('save', function(doc) {
+    invalidateDashboardCache(doc);
+    eventBus.emit('DEAL_CREATED', doc);
+});
+
+DealSchema.post('findOneAndUpdate', function(doc) {
+    if (doc) {
+        invalidateDashboardCache(doc);
+        eventBus.emit('DEAL_UPDATED', doc);
+    }
+});
 DealSchema.post('findOneAndDelete', invalidateDashboardCache);
 
 // --- PERFORMANCE INDEXES FOR DEALS LIST VIEW ---

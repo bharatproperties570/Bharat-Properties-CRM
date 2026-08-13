@@ -9,7 +9,6 @@ import { numberToIndianWords } from '../utils/numberToWords';
 import { api, systemSettingsAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 import whatsappService from '../services/whatsappService';
-import SendMessageModal from './SendMessageModal';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
     const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
@@ -21,40 +20,6 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
 
     
-    
-    // AI Lead Matching State
-    const [channelSchedules, setChannelSchedules] = useState({});
-    const [marketingTemplates, setMarketingTemplates] = useState([]);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        const fetchTemplates = async () => {
-            try {
-                const [metaRes, localRes] = await Promise.all([
-                    whatsappService.getTemplates().catch(() => []),
-                    systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null)
-                ]);
-                const metaTemplates = Array.isArray(metaRes) ? metaRes : (metaRes && Array.isArray(metaRes.templates) ? metaRes.templates : []);
-                const localTemplates = localRes?.data?.value || [];
-                const templates = [...metaTemplates];
-                localTemplates.forEach(localTpl => {
-                    const idx = templates.findIndex(t => (t.id && String(t.id) === String(localTpl.id)) || (t.name && t.name === localTpl.name));
-                    if (idx >= 0) templates[idx] = { ...templates[idx], ...localTpl };
-                    else templates.push(localTpl);
-                });
-                const validTpls = templates.filter(t => (t.status === 'APPROVED' || !t.id) && (t.systemContext?.includes('deal_match') || t.systemContext?.includes('deal_match_modal')));
-                setMarketingTemplates(validTpls);
-            } catch (err) {
-                console.error('Failed to load templates:', err);
-            }
-        };
-        fetchTemplates();
-    }, [isOpen]);
-    const [isMessageOpen, setIsMessageOpen] = useState(false);
-    const [messageRecipients, setMessageRecipients] = useState([]);
-    const [messageInitialChannel, setMessageInitialChannel] = useState('SMS');
-    const [createdDealContext, setCreatedDealContext] = useState(null);
-
     const [isSaving, setIsSaving] = useState(false);
 
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
@@ -733,78 +698,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 }
             }
 
-            // 🎯 TRIGGER AI LEAD MATCHING & OUTREACH
-            const activeChannels = Object.keys(formData.sendMatchedDeal || {}).filter(k => formData.sendMatchedDeal[k]);
-            if (!deal && activeChannels.length > 0 && savedData._id) {
-                const loadToast = toast.loading(`Matching Deal with Leads for ${activeChannels.length} channel(s)...`);
-                try {
-                    const matchRes = await api.get('leads/match', { params: { dealId: savedData._id } });
-                    if (matchRes.data?.success && matchRes.data?.matchingLeads?.length > 0) {
-                        let matches = matchRes.data.matchingLeads;
-                        
-                        const scheduledChannels = activeChannels.filter(ch => channelSchedules[ch]);
-                        const nowChannels = activeChannels.filter(ch => !channelSchedules[ch] && ch !== 'whatsapp_app');
-                        const hasWhatsappApp = activeChannels.includes('whatsapp_app');
-
-                        // 1. Dispatch Scheduled Channels in Background
-                        for (let ch of scheduledChannels) {
-                            try {
-                                await api.post('marketing/send-manual', {
-                                    dealIds: [savedData._id],
-                                    leadIds: matches.map(m => m._id),
-                                    toggles: { [ch]: true },
-                                    scheduledAt: channelSchedules[ch],
-                                    matchContext: 'perfect'
-                                });
-                            } catch(e) { console.error(`Failed to schedule ${ch}`, e); }
-                        }
-
-                        if (hasWhatsappApp) {
-                            // Only send to Top 1 for WA App
-                            const topMatch = matches[0];
-                            if (topMatch) {
-                                const textPayload = `Hi ${topMatch.firstName || 'there'}! I have a highly recommended premium deal for you:
-
-${savedData.projectName || 'Premium Property'}${savedData.size ? ` (${savedData.size} ${savedData.sizeUnit})` : ''}
-Price: ${savedData.price ? '₹'+new Intl.NumberFormat('en-IN').format(savedData.price) : 'On Request'}`;
-                                const phone = (topMatch.mobile || topMatch.phone || '').replace(/\D/g, '');
-                                const formattedPhone = phone.length === 10 ? `91${phone}` : phone;
-                                window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
-                            }
-                        }
-
-                        // 2. Open Modal for Send Now Channels
-                        if (nowChannels.length > 0) {
-                            let primaryChannel = 'SMS';
-                            if (nowChannels.includes('whatsapp')) primaryChannel = 'WHATSAPP';
-                            else if (nowChannels.includes('email')) primaryChannel = 'EMAIL';
-                            else if (nowChannels.includes('rcs')) primaryChannel = 'RCS';
-
-                            toast.success(`Found ${matches.length} matches! Opening console for immediate channels...`, { id: loadToast });
-                            
-                            setMessageRecipients(matches.map(m => ({
-                                id: m._id,
-                                name: m.firstName + (m.lastName ? ' ' + m.lastName : ''),
-                                phone: m.mobile || m.phone,
-                                email: m.email
-                            })));
-                            setMessageInitialChannel(primaryChannel);
-                            setCreatedDealContext(savedData);
-                            setIsMessageOpen(true);
-                            
-                            onSave && onSave(savedData);
-                            return; // Exit early
-                        } else {
-                            toast.success(`Found ${matches.length} matches! Background schedules set successfully.`, { id: loadToast });
-                        }
-                    } else {
-                        toast.success(`No matching leads found. Skipping outreach.`, { id: loadToast, icon: 'ℹ️' });
-                    }
-                } catch (e) {
-                    console.error("Match & Dispatch error", e);
-                    toast.error('Dispatch encountered an issue.', { id: loadToast });
-                }
-            }
+            // Removed AI Lead Matching & Outreach block as it is now handled by Automated Actions
 
             onSave && onSave(savedData);
             onClose();
@@ -1541,147 +1435,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             </div>
 
                             <div style={sectionStyle}>
-                                <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <h5 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>🎯 AI Lead Matching & Outreach</h5>
-                                            {isLiveMatching ? (
-                                                <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}><i className="fas fa-spinner fa-spin"></i> Calculating...</span>
-                                            ) : liveMatchCount !== null && (
-                                                <span style={{ 
-                                                    fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
-                                                    color: liveMatchCount > 0 ? '#059669' : '#ef4444',
-                                                    background: liveMatchCount > 0 ? '#d1fae5' : '#fee2e2'
-                                                }}>
-                                                    {liveMatchCount} {liveMatchCount === 1 ? 'Match' : 'Matches'}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Automatically notify matching leads via selected channels upon deal creation.</p>
-                                    </div>
-                                    {Object.values(formData.sendMatchedDeal || {}).some(v => v) && (
-                                        <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>Auto-Dispatch Active</span>
-                                    )}
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                    
-                                    {/* Channels & Schedulers */}
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
-                                        {['whatsapp', 'email', 'sms'].map(ch => {
-                                            const isActive = formData.sendMatchedDeal[ch];
-                                            const isDisabled = liveMatchCount === 0;
-                                            return (
-                                            <div key={ch} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: isActive ? '#fff' : 'transparent', padding: isActive ? '4px' : '0', borderRadius: '24px', border: isActive ? '1px solid #cbd5e1' : 'none', opacity: isDisabled ? 0.5 : 1 }}>
-                                                <button 
-                                                    type="button"
-                                                    disabled={isDisabled}
-                                                    onClick={() => handleNestedInputChange('sendMatchedDeal', ch, !isActive)}
-                                                    style={{ 
-                                                        padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
-                                                        background: isActive ? (ch === 'whatsapp' ? '#10b981' : ch === 'email' ? '#3b82f6' : '#8b5cf6') : '#e2e8f0', 
-                                                        color: isActive ? '#fff' : '#475569', 
-                                                        cursor: isDisabled ? 'not-allowed' : 'pointer',
-                                                        display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap',
-                                                        outline: isActive ? `2px solid ${ch === 'whatsapp' ? '#059669' : ch === 'email' ? '#2563eb' : '#7c3aed'}` : 'none'
-                                                    }}>
-                                                    <i className={`fa${ch==='whatsapp'?'b':'s'} fa-${ch==='whatsapp'?'whatsapp':ch==='email'?'envelope':'comment-dots'}`}></i> {ch === 'whatsapp' ? 'WA API' : ch.toUpperCase()}
-                                                </button>
-                                                {isActive && (
-                                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                                        <select 
-                                                            value={channelSchedules[ch] ? 'schedule' : 'now'}
-                                                            onChange={(e) => {
-                                                                if (e.target.value === 'now') {
-                                                                    setChannelSchedules(prev => ({...prev, [ch]: ''}));
-                                                                } else {
-                                                                    const date = new Date();
-                                                                    date.setHours(date.getHours() + 1);
-                                                                    setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
-                                                                }
-                                                            }}
-                                                            style={{ padding: '4px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#1e293b', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                                                        >
-                                                            <option value="now">Send Now</option>
-                                                            <option value="schedule">Schedule</option>
-                                                        </select>
-                                                        {channelSchedules[ch] && (
-                                                            <input 
-                                                                type="datetime-local"
-                                                                value={channelSchedules[ch]}
-                                                                onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
-                                                                style={{ padding: '4px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#1e293b', fontSize: '0.75rem', cursor: 'pointer' }}
-                                                            />
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )})}
-
-                                        <button 
-                                            type="button"
-                                            disabled={liveMatchCount === 0}
-                                            onClick={() => handleNestedInputChange('sendMatchedDeal', 'rcs', !formData.sendMatchedDeal.rcs)}
-                                            style={{ 
-                                                padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
-                                                background: formData.sendMatchedDeal.rcs ? '#0ea5e9' : '#e2e8f0', color: formData.sendMatchedDeal.rcs ? '#fff' : '#475569', 
-                                                cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
-                                                display: 'flex', alignItems: 'center', gap: '8px', outline: formData.sendMatchedDeal.rcs ? '2px solid #0284c7' : 'none',
-                                                opacity: liveMatchCount === 0 ? 0.5 : 1
-                                            }}>
-                                            <i className="fas fa-mobile-alt"></i> RCS
-                                        </button>
-                                        
-                                        <button 
-                                            type="button"
-                                            disabled={liveMatchCount === 0}
-                                            onClick={() => handleNestedInputChange('sendMatchedDeal', 'whatsapp_app', !formData.sendMatchedDeal.whatsapp_app)}
-                                            style={{ 
-                                                padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
-                                                background: formData.sendMatchedDeal.whatsapp_app ? '#059669' : '#e2e8f0', color: formData.sendMatchedDeal.whatsapp_app ? '#fff' : '#475569', 
-                                                cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
-                                                display: 'flex', alignItems: 'center', gap: '8px', outline: formData.sendMatchedDeal.whatsapp_app ? '2px solid #047857' : 'none',
-                                                opacity: liveMatchCount === 0 ? 0.5 : 1
-                                            }}>
-                                            <i className="fas fa-comment"></i> WA App
-                                        </button>
-                                    </div>
-
-                                    {/* BOTTOM ROW: Options */}
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px', paddingTop: '12px', borderTop: '1px solid #cbd5e1', opacity: liveMatchCount === 0 ? 0.5 : 1 }}>
-                                        <select 
-                                            disabled={liveMatchCount === 0}
-                                            value={formData.sendMatchedDeal.templateId || 'free_text'}
-                                            onChange={(e) => handleNestedInputChange('sendMatchedDeal', 'templateId', e.target.value)}
-                                            style={{
-                                                background: '#1e293b', color: '#fff', border: '1px solid #475569', 
-                                                padding: '6px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600,
-                                                outline: 'none', cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer'
-                                            }}
-                                        >
-                                            <option value="free_text">No Template (Active Chat Session Only)</option>
-                                            {marketingTemplates.map(t => (
-                                                <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
-                                            ))}
-                                        </select>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }}>
-                                            <input type="checkbox" disabled={liveMatchCount === 0} checked={formData.sendMatchedDeal.hidePrice || false} onChange={e => handleNestedInputChange('sendMatchedDeal', 'hidePrice', e.target.checked)} style={{ cursor: 'inherit' }} />
-                                            Hide Price
-                                        </label>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }}>
-                                            <input type="checkbox" disabled={liveMatchCount === 0} checked={formData.sendMatchedDeal.hideLocation || false} onChange={e => handleNestedInputChange('sendMatchedDeal', 'hideLocation', e.target.checked)} style={{ cursor: 'inherit' }} />
-                                            Hide Location
-                                        </label>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: liveMatchCount === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }}>
-                                            <input type="checkbox" disabled={liveMatchCount === 0} checked={formData.sendMatchedDeal.hideUnit || false} onChange={e => handleNestedInputChange('sendMatchedDeal', 'hideUnit', e.target.checked)} style={{ cursor: 'inherit' }} />
-                                            Hide Unit
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={sectionStyle}>
                         <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>System Assignment</h4>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                             <div>
@@ -1728,7 +1481,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     <option value="Everyone">Everyone</option>
                                 </select>
                             </div>
+                            </div>
                         </div>
+                    </div>
+                </div>
 
                         <div style={sectionStyle}>
                             <label style={labelStyle}>Notes / Remarks</label>
@@ -1806,24 +1562,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     </button>
                 </div>
             </div>
-
-            {isMessageOpen && (
-                <SendMessageModal triggerContext='deal_match_modal'
-                    isOpen={isMessageOpen}
-                    onClose={() => {
-                        setIsMessageOpen(false);
-                        onClose(); // Close the deal modal now that message modal is done
-                    }}
-                    onSend={() => {
-                        setIsMessageOpen(false);
-                        onClose();
-                    }}
-                    initialRecipients={messageRecipients}
-                    initialChannel={messageInitialChannel}
-                    initialProperty={createdDealContext}
-                />
-            )}
-        </div>
     );
 };
 
