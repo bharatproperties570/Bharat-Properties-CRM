@@ -55,9 +55,9 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         if (isOpen && inventory && !hasInitialized.current) {
             hasInitialized.current = true;
             // Default Triggers from Global Settings
-            // ⚠️ CRITICAL: If DB is unavailable, masterFields.triggers is empty.
+            // ⚠️ CRITICAL: If DB is unavailable, masterFields?.triggers is empty.
             // We MUST default whatsapp=true so the preview and dispatch work.
-            const savedTriggers = masterFields.triggers?.['Feedback Received'];
+            const savedTriggers = masterFields?.triggers?.['Feedback Received'];
             const globalTriggers = savedTriggers
                 ? { whatsapp: false, sms: false, email: false, ...savedTriggers }
                 : { whatsapp: true, sms: false, email: false }; // safe default
@@ -118,7 +118,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     // Template Generator Effect (Multi-Channel)
     useEffect(() => {
         if (formData.result && inventory) {
-            const rule = (masterFields.feedbackRules?.[formData.result]?.[formData.reason]) || {};
+            const rule = (masterFields?.feedbackRules?.[formData.result]?.[formData.reason]) || {};
 
             // Apply Rule-Based Trigger Overrides if they exist
             if (rule.sendWhatsapp !== undefined || rule.sendSms !== undefined || rule.sendEmail !== undefined) {
@@ -191,7 +191,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             // ─── ENTERPRISE TEMPLATE RESOLUTION ───────────────────────────────────
             // Priority 1: Template with systemContext='feedback_form' set in MessagingSettingsPage
             // Priority 2: Legacy outcome-based hardcoded templates (fallback)
-            // Priority 3: Per-outcome DB overrides from masterFields.responseTemplates
+            // Priority 3: Per-outcome DB overrides from masterFields?.responseTemplates
             const contextTemplate = getFeedbackFormTemplate();
 
             console.log('[FeedbackModal] contextTemplate found:', contextTemplate ? contextTemplate.name : 'NONE — check MessagingSettings → Set System Trigger Context → Feedback Form (Meta Flow)');
@@ -212,7 +212,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             let emailTemplateStr = emailTemplates.find(t => t.id === baseId)?.content || '';
             let emailSubject = `Update regarding ${unitInfo}`;
 
-            const dbTemplate = masterFields.responseTemplates?.[resultStr] || {};
+            const dbTemplate = masterFields?.responseTemplates?.[resultStr] || {};
             // contextTemplate (Feedback Form Meta Flow) ALWAYS wins — never override it with legacy DB templates
             if (dbTemplate.whatsapp && !contextTemplate) waTemplateStr = dbTemplate.whatsapp;
             if (dbTemplate.sms) smsTemplateStr = dbTemplate.sms;
@@ -278,7 +278,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             else if (activeTriggers.email) setPreviewChannel('email');
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
+    }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields?.responseTemplates, masterFields?.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
     const prevResultRef = useRef();
     const prevReasonRef = useRef();
@@ -294,7 +294,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         prevResultRef.current = formData.result;
         prevReasonRef.current = formData.reason;
 
-        const rule = (masterFields.feedbackRules && masterFields.feedbackRules[formData.result] && masterFields.feedbackRules[formData.result][formData.reason]) || {};
+        const rule = (masterFields?.feedbackRules && masterFields?.feedbackRules[formData.result] && masterFields?.feedbackRules[formData.result][formData.reason]) || {};
 
         if (rule.actionType === 'None') {
             setScheduleFollowUp(false);
@@ -324,7 +324,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         } else if (formData.result === 'Not Interested' || formData.result === 'Wrong Number / Invalid') {
             setScheduleFollowUp(false);
         }
-    }, [formData.result, formData.reason, inventory, masterFields.feedbackRules]);
+    }, [formData.result, formData.reason, inventory, masterFields?.feedbackRules]);
 
     if (!isOpen || !inventory) return null;
 
@@ -398,7 +398,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         if (!formData.selectedOwner) newErrors.selectedOwner = 'Required';
         if (!formData.result) newErrors.result = 'Required';
 
-        if (masterFields.feedbackReasons && masterFields.feedbackReasons[formData.result] && !formData.reason) {
+        if (masterFields?.feedbackReasons && masterFields?.feedbackReasons[formData.result] && !formData.reason) {
             newErrors.reason = 'Please specify a reason';
         }
 
@@ -653,7 +653,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     });
 
     // Helper to check if reasons exist for current result
-    const currentReasons = masterFields.feedbackReasons ? masterFields.feedbackReasons[formData.result] : null;
+    const currentReasons = masterFields?.feedbackReasons ? masterFields?.feedbackReasons[formData.result] : null;
 
     // Button Visibility Logic (Professional & Robust)
     const showDealButton =
@@ -786,7 +786,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                              <div style={{ paddingBottom: '4px' }}>
                                 <label style={labelStyle}>Target status</label>
                                 {(() => {
-                                    const rule = (masterFields.feedbackRules?.[formData.result]?.[formData.reason]) || {};
+                                    const rule = (masterFields?.feedbackRules?.[formData.result]?.[formData.reason]) || {};
                                     const isInactiveManual = formData.markAsSold;
                                     const isInactiveResult = ['Not Interested', 'Wrong Number / Invalid'].includes(formData.result);
                                     const isInactive = rule.inventoryStatus === 'InActive' || isInactiveManual || isInactiveResult;
@@ -819,7 +819,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                         <div style={{ marginBottom: '20px' }}>
                             <label style={labelStyle}>Outcome</label>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                                {masterFields && masterFields.propertyOwnerFeedback && masterFields.propertyOwnerFeedback.map(opt => (
+                                {masterFields && masterFields?.propertyOwnerFeedback && masterFields?.propertyOwnerFeedback.map(opt => (
                                     <div key={typeof opt === 'object' ? (opt._id || opt.id) : opt} onClick={() => handleResultSelect(opt)}
                                         style={{
                                             padding: '8px 16px', borderRadius: '20px',
