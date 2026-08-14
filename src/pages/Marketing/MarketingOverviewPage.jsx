@@ -747,6 +747,7 @@ export default function MarketingOverviewPage() {
     try {
       // First, attempt to fetch real comments for the orchestration view
       let liveComments = [];
+      let activeComms = [];
       try {
         const [igRes, fbRes] = await Promise.all([
           socialAPI.getInstagramComments('latest'),
@@ -758,7 +759,7 @@ export default function MarketingOverviewPage() {
         addLog('  ! Could not fetch real comments. Falling back to simulation.', 'warn');
       }
 
-      const activeComms = liveComments.length > 0 ? liveComments.slice(0, 4) : [];
+      activeComms = liveComments.length > 0 ? liveComments.slice(0, 4) : [];
       
       if (activeComms.length === 0) {
         addLog('  → All platforms clean. No pending replies today.', 'success');
@@ -1128,13 +1129,13 @@ export default function MarketingOverviewPage() {
     if (!config) return;
     setAgentLoading(prev => ({ ...prev, [id]: true }));
     setAgentOutputs(prev => ({ ...prev, [id]: '' }));
-    addTermLog(`$ Activating ${config.label}...`, 'cmd');
-    addTermLog(`  Provider: ${config.provider.toUpperCase()} | Model: ${config.model}`, 'info');
+    addLog(`$ Activating ${config.label}...`, 'cmd');
+    addLog(`  Provider: ${config.provider.toUpperCase()} | Model: ${config.model}`, 'info');
     const ctx = { deals: realDeals.slice(0,5), leads: leads.slice(0,5), hotLeads: realStats?.hotLeads, totalDeals: realDeals.length, posts };
-    addTermLog(`  CRM context: ${ctx.deals.length} deals, ${ctx.leads.length} leads injected`, 'dim');
+    addLog(`  CRM context: ${ctx.deals.length} deals, ${ctx.leads.length} leads injected`, 'dim');
     for (const step of config.thinkingSteps) {
       await new Promise(r => setTimeout(r, 320 + Math.random()*180));
-      addTermLog(step, step.startsWith('$') ? 'cmd' : 'dim');
+      addLog(step, step.startsWith('$') ? 'cmd' : 'dim');
     }
     try {
       let result = null;
@@ -1144,11 +1145,11 @@ export default function MarketingOverviewPage() {
       } catch(_) {}
       if (!result) result = buildAgentResult(id, ctx);
       await new Promise(r => setTimeout(r, 300));
-      addTermLog(`  ✓ ${config.label} — task complete`, 'success');
-      addTermLog(`  ~${Math.floor(result.length/4)} tokens | ${800+Math.floor(Math.random()*400)}ms`, 'dim');
+      addLog(`  ✓ ${config.label} — task complete`, 'success');
+      addLog(`  ~${Math.floor(result.length/4)} tokens | ${800+Math.floor(Math.random()*400)}ms`, 'dim');
       simulateStreaming(result, (val) => setAgentOutputs(prev => ({ ...prev, [id]: val })));
     } catch(err) {
-      addTermLog(`  ✗ Error: ${err.message}`, 'warn');
+      addLog(`  ✗ Error: ${err.message}`, 'warn');
       toast.error(`Agent error: ${err.message}`);
     } finally {
       setAgentLoading(prev => ({ ...prev, [id]: false }));
