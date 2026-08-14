@@ -22,6 +22,7 @@ export const createForm = async (req, res, next) => {
         const form = await FeedbackForm.create(formData);
         res.status(201).json({ success: true, data: form });
     } catch (error) {
+        console.error('[CreateForm Error]:', error);
         next(error);
     }
 };

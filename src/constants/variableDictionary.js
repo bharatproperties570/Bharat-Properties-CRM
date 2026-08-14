@@ -172,6 +172,17 @@ export const variableDictionary = [
     { id: 'propertyList',     label: 'Matched Properties List',   category: 'System',   type: 'computed' },
     { id: 'requirementSummary', label: 'Requirement Summary Text', category: 'System',  type: 'computed' },
     { id: 'propertiesCount',  label: 'Count of Matched Properties', category: 'System', type: 'computed' },
+    
+    // ─────────────────────────────────────────────
+    // 📅 ACTIVITY — Event Details
+    // ─────────────────────────────────────────────
+    { id: 'activity_type',           label: 'Activity Type (e.g. Site Visit)', category: 'Activity', type: 'computed' },
+    { id: 'visit_type',              label: 'Visit Type / Purpose',            category: 'Activity', type: 'computed' },
+    { id: 'meeting_agenda',          label: 'Meeting Agenda',                  category: 'Activity', type: 'computed' },
+    { id: 'activity_subject',        label: 'Activity Subject',                category: 'Activity', type: 'computed' },
+    { id: 'activity_date',           label: 'Activity Date (Legacy/Generic)',  category: 'Activity', type: 'computed' },
+    { id: 'activity_sch_date',       label: 'Activity Scheduled Date',         category: 'Activity', type: 'computed' },
+    { id: 'activity_comp_date',      label: 'Activity Completed Date',         category: 'Activity', type: 'computed' },
 ];
 
 /**

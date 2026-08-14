@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import { toast } from 'react-hot-toast';
 import { 
-    LucideChevronLeft, LucideStar, LucideSmile, 
-    LucideLayout, LucideMonitor, LucideSettings, 
-    LucideTrash2, LucidePlus, LucideArrowUp, LucideArrowDown 
+    LucideChevronLeft, LucidePlus, LucideSettings, LucideGripVertical, LucideTrash2, LucideCopy, LucideLayout, LucideSmile, LucideEdit2,
+    LucideStar, LucideMonitor, LucideMessageSquare, LucideCheckSquare, LucideCalendar, LucideArrowUp, LucideArrowDown
 } from 'lucide-react';
 
 const FormField = ({ field, index, total, onSelect, onRemove, onMove }) => {
@@ -57,9 +56,51 @@ const FormField = ({ field, index, total, onSelect, onRemove, onMove }) => {
                             ))}
                         </div>
                     )}
+                    {field.type === 'textarea' && (
+                        <div style={{ width: '100%', height: '80px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'flex-start', color: '#94a3b8', fontSize: '0.9rem' }}>
+                            {field.placeholder || 'Enter your comments here...'}
+                        </div>
+                    )}
+                    {field.type === 'checkbox' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {(field.options || ['Option 1', 'Option 2']).slice(0, 3).map((opt, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: '#475569' }}>
+                                    <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: '1px solid #cbd5e1' }}></div>
+                                    {opt}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {(field.type === 'date' || field.type === 'datetime') && (
+                        <div style={{ width: '100%', height: '40px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.9rem' }}>
+                            <span>Select {field.type === 'date' ? 'Date' : 'Date & Time'}...</span>
+                            <LucideCalendar size={14} />
+                        </div>
+                    )}
                     {field.type === 'rating' && (
                         <div style={{ display: 'flex', gap: '8px', color: '#cbd5e1' }}>
                             {[1,2,3,4,5].map(i => <LucideStar key={i} size={24} fill="#cbd5e1" />)}
+                        </div>
+                    )}
+                    {field.type === 'nps' && (
+                        <div style={{ width: '100%', marginTop: '8px' }}>
+                            <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '8px' }}>
+                                {[0,1,2,3,4,5,6,7,8,9,10].map(i => (
+                                    <div key={i} style={{ 
+                                        flex: '0 0 auto',
+                                        width: '32px', height: '32px', 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                        border: '1px solid #e2e8f0', borderRadius: '4px', 
+                                        background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 600 
+                                    }}>
+                                        {i}
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: '#94a3b8', padding: '0 4px' }}>
+                                <span>Not likely at all</span>
+                                <span>Extremely likely</span>
+                            </div>
                         </div>
                     )}
                     {field.type === 'property_feedback' && (
@@ -83,10 +124,14 @@ const FormField = ({ field, index, total, onSelect, onRemove, onMove }) => {
 const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
     // Mode defines what field types are available
     const availableFieldTypes = [
-        { type: 'text', icon: <LucideLayout size={14} />, label: 'Text Field' },
+        { type: 'text', icon: <LucideLayout size={14} />, label: 'Single Line Text' },
+        { type: 'textarea', icon: <LucideMessageSquare size={14} />, label: 'Multi-line Text' },
         { type: 'phone', icon: <LucideLayout size={14} />, label: 'Phone Number' },
         { type: 'select', icon: <LucideMonitor size={14} />, label: 'Dropdown Select' },
         { type: 'radio', icon: <LucideMonitor size={14} />, label: 'Radio Buttons' },
+        { type: 'checkbox', icon: <LucideCheckSquare size={14} />, label: 'Checkboxes' },
+        { type: 'date', icon: <LucideCalendar size={14} />, label: 'Date Picker' },
+        { type: 'datetime', icon: <LucideCalendar size={14} />, label: 'Date & Time' },
         { type: 'rating', icon: <LucideStar size={14} />, label: 'Star Rating' }
     ];
 
@@ -115,9 +160,16 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
                              mode === 'deal' ? '/deal-forms' : 
                              mode === 'feedback' ? '/feedback-forms' : '/dynamic-forms';
 
+            // Auto-generate a unique slug if it's new
+            let finalSlug = formData.slug;
+            if (!finalSlug || finalSlug === 'new-form') {
+                finalSlug = formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now().toString().slice(-4);
+            }
+
             // Add basic formatting to make it compatible with endpoints expected
             const payload = {
                 ...formData,
+                slug: finalSlug,
                 category: formData.category || mode
             };
 
@@ -141,7 +193,7 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
             label: `New ${type} question`,
             type: type,
             required: false,
-            options: ['select', 'radio'].includes(type) ? ['Option 1', 'Option 2'] : [],
+            options: ['select', 'radio', 'checkbox'].includes(type) ? ['Option 1', 'Option 2'] : [],
             visibilityRule: null // Logic rule
         };
 
@@ -187,20 +239,37 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
     const selectedField = formData.sections[0]?.fields.find(f => f.id === selectedFieldId);
 
     return (
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f8fafc', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f8fafc', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
             {/* Topbar */}
             <div style={{ background: '#fff', padding: '16px 40px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
                         <LucideChevronLeft size={20} /> Back
                     </button>
-                    <input
-                        type="text"
-                        value={formData.name}
-                        onChange={e => setFormData({ ...formData, name: e.target.value })}
-                        style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', border: 'none', outline: 'none' }}
-                        placeholder="Form Name"
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                                type="text"
+                                value={formData.name}
+                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', border: '1px solid transparent', borderBottom: '1px solid #cbd5e1', outline: 'none', background: 'transparent', transition: 'border-color 0.2s', padding: '2px 4px' }}
+                                placeholder="Form Name"
+                                onFocus={e => e.target.style.borderColor = '#3b82f6'}
+                                onBlur={e => e.target.style.borderColor = 'transparent'}
+                            />
+                            <LucideEdit2 size={14} color="#94a3b8" />
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#64748b', padding: '0 4px', marginTop: '4px' }}>
+                            <span>Link: /public/feedback/</span>
+                            <input
+                                type="text"
+                                value={formData.slug === 'new-form' ? '' : formData.slug}
+                                onChange={e => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-') })}
+                                placeholder="custom-url-name"
+                                style={{ fontSize: '0.75rem', color: '#2563eb', border: 'none', borderBottom: '1px dashed #cbd5e1', outline: 'none', background: 'transparent', width: '150px' }}
+                            />
+                        </div>
+                    </div>
                     <div style={{ background: '#e2e8f0', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
                         {mode} Mode
                     </div>
@@ -287,7 +356,7 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
                                     Required Field
                                 </label>
 
-                                {['select', 'radio'].includes(selectedField.type) && (
+                                {['select', 'radio', 'checkbox'].includes(selectedField.type) && (
                                     <div>
                                         <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>OPTIONS (one per line)</label>
                                         <textarea

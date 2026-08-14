@@ -144,7 +144,12 @@ class VariableResolutionService {
 
             // --- Activity Specific Variables ---
             "activity_type": customOverrides.activity?.type || "Meeting",
-            "activity_date": customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleDateString('en-IN') : "",
+            "visit_type": customOverrides.activity?.purpose || customOverrides.activity?.type || "",
+            "meeting_agenda": customOverrides.activity?.details?.agenda || customOverrides.activity?.agenda || "",
+            "activity_subject": customOverrides.activity?.subject || "",
+            "activity_sch_date": customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleDateString('en-IN') : "",
+            "activity_comp_date": customOverrides.activity?.completedAt ? new Date(customOverrides.activity.completedAt).toLocaleDateString('en-IN') : (customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleDateString('en-IN') : ""),
+            "activity_date": customOverrides.activity?.completedAt ? new Date(customOverrides.activity.completedAt).toLocaleDateString('en-IN') : (customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleDateString('en-IN') : ""),
             "activity_time": customOverrides.activity?.dueDate ? new Date(customOverrides.activity.dueDate).toLocaleTimeString('en-IN', {hour: '2-digit', minute:'2-digit'}) : "",
             "activity_location": customOverrides.activity?.location || "Bharat Properties Office",
             "activity_summary": customOverrides.activity?.subject || "Revisit with family",

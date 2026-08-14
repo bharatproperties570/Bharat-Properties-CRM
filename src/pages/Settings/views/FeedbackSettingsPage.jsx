@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
+import { LucideQrCode, LucideMessageCircle, LucideCode } from 'lucide-react';
 import EnterpriseFormBuilder from '../../../components/EnterpriseFormBuilder/EnterpriseFormBuilder';
+import QRCodeModal from '../../../components/QRCodeModal';
 
 const FeedbackSettingsPage = () => {
     const [view, setView] = useState('list');
     const [forms, setForms] = useState([]);
     const [selectedForm, setSelectedForm] = useState(null);
+    const [qrUrl, setQrUrl] = useState(null);
 
 
     useEffect(() => {
@@ -28,6 +31,24 @@ const FeedbackSettingsPage = () => {
         toast.success('Survey link copied with placeholders!');
     };
 
+    const handleWhatsApp = (form) => {
+        const url = window.location.origin + '/public/feedback/' + form.slug;
+        const msg = encodeURIComponent(`Hello! We would love to hear your feedback. Please take a moment to fill out this form: ${url}`);
+        window.open(`https://wa.me/?text=${msg}`, '_blank');
+    };
+
+    const handleEmbed = (form) => {
+        const url = window.location.origin + '/public/feedback/' + form.slug;
+        const iframeCode = `<iframe src="${url}" width="100%" height="600px" frameborder="0"></iframe>`;
+        navigator.clipboard.writeText(iframeCode);
+        toast.success('Embed iframe code copied to clipboard!');
+    };
+
+    const handleShowQR = (form) => {
+        const url = window.location.origin + '/public/feedback/' + form.slug;
+        setQrUrl(url);
+    };
+
     const handleDelete = async (id) => {
         if (!window.confirm('Delete this feedback form?')) return;
         try {
@@ -47,8 +68,8 @@ const FeedbackSettingsPage = () => {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
             <div style={{ padding: '32px 40px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)' }}>SITE VISIT FEEDBACK FORMS</h2>
-                    <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Create surveys to capture customer sentiment after project site visits.</p>
+                    <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)' }}>POST FEEDBACK FORMS</h2>
+                    <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Create surveys to capture customer sentiment after activities.</p>
                 </div>
                 <button
                     onClick={() => { setSelectedForm(null); setView('builder'); }}
@@ -70,8 +91,17 @@ const FeedbackSettingsPage = () => {
                             <div key={form._id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '24px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2563eb', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 8px', borderRadius: '6px' }}>SURVEY</span>
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button onClick={() => copyLink(form)} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <button onClick={() => handleShowQR(form)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Show QR Code">
+                                            <LucideQrCode size={18} />
+                                        </button>
+                                        <button onClick={() => handleWhatsApp(form)} style={{ background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer' }} title="Send via WhatsApp">
+                                            <LucideMessageCircle size={18} />
+                                        </button>
+                                        <button onClick={() => handleEmbed(form)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Copy Embed Code">
+                                            <LucideCode size={18} />
+                                        </button>
+                                        <button onClick={() => copyLink(form)} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', marginLeft: '4px' }}>
                                             Copy Link
                                         </button>
                                     </div>
@@ -96,6 +126,7 @@ const FeedbackSettingsPage = () => {
                     </div>
                 )}
             </div>
+            {qrUrl && <QRCodeModal url={qrUrl} onClose={() => setQrUrl(null)} />}
         </div>
     );
 };
