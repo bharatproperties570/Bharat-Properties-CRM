@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import { useTriggers } from '../context/TriggersContext';
@@ -46,7 +46,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     const [waTemplateComponents, setWaTemplateComponents] = useState([]);
     const [previewChannel, setPreviewChannel] = useState('whatsapp'); // Track which preview is shown
 
-    const hasInitialized = React.useRef(false);
+    const hasInitialized = useRef(false);
 
     useEffect(() => {
         if (!isOpen) {
@@ -280,8 +280,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
-    const prevResultRef = React.useRef();
-    const prevReasonRef = React.useRef();
+    const prevResultRef = useRef();
+    const prevReasonRef = useRef();
 
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {
