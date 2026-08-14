@@ -5,14 +5,15 @@ const FieldSchema = new mongoose.Schema({
     label: { type: String, required: true },
     type: {
         type: String,
-        enum: ['text', 'phone', 'email', 'select', 'budget-slider', 'radio', 'checkbox', 'date', 'rating', 'nps', 'hidden', 'property_feedback'],
+        // Expanded enum to support legacy and new EnterpriseFormBuilder types
+        enum: ['text', 'textarea', 'phone', 'email', 'select', 'dropdown', 'budget-slider', 'radio', 'checkbox', 'date', 'datetime', 'time', 'rating', 'nps', 'hidden', 'property_feedback'],
         required: true
     },
     required: { type: Boolean, default: false },
     placeholder: { type: String },
     defaultValue: { type: String },
     helpText: { type: String },
-    options: [String], // for select/radio
+    options: [mongoose.Schema.Types.Mixed], // Allow objects or strings for options
     weight: { type: Number, default: 0 },
     order: { type: Number, default: 0 }
 });
@@ -47,5 +48,15 @@ const FeedbackFormSchema = new mongoose.Schema({
         averageRating: { type: Number, default: 0 }
     }
 }, { timestamps: true });
+
+// Legacy support: if name is missing but title exists, use title
+FeedbackFormSchema.pre('validate', function(next) {
+    if (!this.name && this._doc.title) {
+        this.name = this._doc.title;
+    } else if (!this.name) {
+        this.name = "Untitled Form";
+    }
+    next();
+});
 
 export default mongoose.model("FeedbackForm", FeedbackFormSchema);

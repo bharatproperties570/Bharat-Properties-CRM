@@ -12,6 +12,28 @@ import NurtureBot from "../services/NurtureBot.js";
 export const createForm = async (req, res, next) => {
     try {
         const formData = { ...req.body };
+
+        // 🛡️ Fallback: if name missing but title present (legacy/EnterpriseBuilder), use title
+        if (!formData.name && formData.title) formData.name = formData.title;
+        if (!formData.name) formData.name = 'Untitled Form';
+
+        // 🛡️ Ensure unique slug — use full timestamp to prevent 4-digit collisions
+        if (!formData.slug || formData.slug === 'new-form') {
+            formData.slug = (formData.name || 'form').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
+        }
+
+        // 🛡️ Sanitize field types in sections
+        if (formData.sections && Array.isArray(formData.sections)) {
+            formData.sections = formData.sections.map(section => ({
+                ...section,
+                fields: (section.fields || []).map(field => ({
+                    ...field,
+                    // Normalize unsupported aliases
+                    type: field.type === 'multiline' || field.type === 'long-text' ? 'textarea' : field.type
+                }))
+            }));
+        }
+
         // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
         if (req.user) {
             if (req.user.department && !formData.department) formData.department = req.user.department;
@@ -26,6 +48,7 @@ export const createForm = async (req, res, next) => {
         next(error);
     }
 };
+
 
 export const getForms = async (req, res, next) => {
     try {
@@ -50,12 +73,45 @@ export const getFormById = async (req, res, next) => {
 export const updateForm = async (req, res, next) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const form = await FeedbackForm.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true });
+        const updateData = { ...req.body };
+        delete updateData._id;
+        delete updateData.createdAt;
+        delete updateData.updatedAt;
+        delete updateData.__v;
+
+        // Strip _id from subdocuments to prevent MongoServerError on sections._id
+        if (updateData.sections && Array.isArray(updateData.sections)) {
+            updateData.sections = updateData.sections.map(section => {
+                const cleanSection = { ...section };
+                delete cleanSection._id;
+                if (cleanSection.fields && Array.isArray(cleanSection.fields)) {
+                    cleanSection.fields = cleanSection.fields.map(field => {
+                        const cleanField = { ...field };
+                        delete cleanField._id;
+                        // 🛡️ Normalize field type: 'dropdown' is valid, other aliases corrected
+                        if (cleanField.type === 'multiline' || cleanField.type === 'long-text') cleanField.type = 'textarea';
+                        return cleanField;
+                    });
+                }
+                return cleanSection;
+            });
+        }
+
+        // 🌟 CRITICAL FIX: Use $set to ensure sections are FULLY REPLACED not partially merged.
+        // Without $set, MongoDB can revert to old sub-document values on validation.
+        const form = await FeedbackForm.findOneAndUpdate(
+            { _id: req.params.id, ...visibilityFilter },
+            { $set: updateData },
+            { new: true, runValidators: false }
+        );
+        if (!form) return res.status(404).json({ success: false, message: 'Form not found or access denied' });
         res.json({ success: true, data: form });
     } catch (error) {
+        console.error('[UpdateForm Error]:', error);
         next(error);
     }
 };
+
 
 export const deleteForm = async (req, res, next) => {
     try {

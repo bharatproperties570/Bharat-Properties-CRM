@@ -78,16 +78,28 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    // 🛡️ [CRITICAL FIX] Only reset owners state when modal is NEWLY OPENED.
+    // DO NOT re-run when currentOwners changes — parent re-renders would silently
+    // wipe out unsaved new owners the user just added to the list.
+    const prevIsOpen = useRef(false);
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && !prevIsOpen.current) {
+            // Modal just opened — initialize from current inventory data
             setOwners(currentOwners);
-            setLinkData({ mobile: '', role: 'Property Owner', name: '', relationship: '' });
+            setSelectedContact(null);
+            setSearchTerm('');
+            setFilteredContacts([]);
+            setLinkData({ mobile: '', role: 'Property Owner', name: '', relationship: '', source: 'Update data' });
+        }
+        prevIsOpen.current = isOpen;
+
+        if (isOpen) {
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = 'unset';
         }
         return () => { document.body.style.overflow = 'unset'; };
-    }, [isOpen, currentOwners]);
+    }, [isOpen]); // ⚠️ intentionally excluding currentOwners — see comment above
 
     // Handle Owner Link
     const handleLinkOwner = () => {
@@ -100,6 +112,12 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             return;
         }
 
+        const contactId = selectedContact._id || selectedContact.id;
+        if (!contactId || String(contactId).length !== 24) {
+            toast.error('Invalid contact selected. Please search and select again.');
+            return;
+        }
+
         const newOwner = {
             name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
             mobile: selectedContact.phones?.[0]?.number || selectedContact.mobile || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
@@ -107,7 +125,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             relationship: linkData.relationship,
             source: linkData.source,
             date: new Date().toISOString(),
-            id: selectedContact._id || selectedContact.id || Date.now().toString()
+            id: contactId
         };
 
         const updatedOwners = [...owners, newOwner];
@@ -124,6 +142,12 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             return;
         }
 
+        const contactId = selectedContact._id || selectedContact.id;
+        if (!contactId || String(contactId).length !== 24) {
+            toast.error('Invalid contact selected. Please search and select again.');
+            return;
+        }
+
         const newOwner = {
             name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
             mobile: selectedContact.phones?.[0]?.number || selectedContact.mobile || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
@@ -131,7 +155,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             relationship: '',
             source: linkData.source || 'Ownership Transfer',
             date: new Date().toISOString(),
-            id: selectedContact._id || selectedContact.id || Date.now().toString()
+            id: contactId
         };
 
         // Keep associates, replace all previous property owners

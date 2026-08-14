@@ -121,7 +121,11 @@ const FeedbackFormBuilder = ({ form, onSave, onCancel }) => {
                     <input
                         type="text"
                         value={formData.name}
-                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                        onChange={e => {
+                            const newName = e.target.value;
+                            const newSlug = newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+                            setFormData({ ...formData, name: newName, slug: newSlug || `form-${Date.now()}` });
+                        }}
                         style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', border: 'none', outline: 'none' }}
                     />
                 </div>

@@ -620,7 +620,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
 
             // 3. Normalize Associates (IDs only)
             if (payload.associates && Array.isArray(payload.associates)) {
-                payload.associates = payload.associates.map(a => {
+                payload.associates = payload.associates.filter(Boolean).map(a => {
                     if (!a) return null;
                     const contactId = (typeof a.contact === 'object' && a.contact !== null) ? (a.contact._id || a.contact.id) : a.contact;
                     if (!contactId || typeof contactId !== 'string' || contactId.length !== 24) return null;

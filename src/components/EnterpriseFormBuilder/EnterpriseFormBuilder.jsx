@@ -140,12 +140,21 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
         availableFieldTypes.push({ type: 'nps', icon: <LucideSmile size={14} />, label: 'NPS Score' });
     }
 
-    const [formData, setFormData] = useState(form || {
-        name: 'New Form',
-        slug: 'new-form',
-        isActive: true,
-        sections: [{ id: 'sec_1', title: 'Basic Information', fields: [] }],
-        settings: { successMessage: "Thank you!", theme: { primaryColor: '#3b82f6', layout: 'single' } }
+    const [formData, setFormData] = useState(() => {
+        if (!form) {
+            return {
+                name: 'New Form',
+                slug: 'new-form',
+                isActive: true,
+                sections: [{ id: 'sec_1', title: 'Basic Information', fields: [] }],
+                settings: { successMessage: "Thank you!", theme: { primaryColor: '#3b82f6', layout: 'single' } }
+            };
+        }
+        // 🛡️ Normalize: handle forms where name is stored as title (legacy)
+        return {
+            ...form,
+            name: form.name || form.title || 'Untitled Form',
+        };
     });
 
     const [selectedFieldId, setSelectedFieldId] = useState(null);
@@ -160,10 +169,10 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
                              mode === 'deal' ? '/deal-forms' : 
                              mode === 'feedback' ? '/feedback-forms' : '/dynamic-forms';
 
-            // Auto-generate a unique slug if it's new
+            // Auto-generate a unique slug if it's new — use FULL timestamp to prevent 500 duplicate key errors
             let finalSlug = formData.slug;
             if (!finalSlug || finalSlug === 'new-form') {
-                finalSlug = formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now().toString().slice(-4);
+                finalSlug = formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
             }
 
             // Add basic formatting to make it compatible with endpoints expected
@@ -356,14 +365,23 @@ const EnterpriseFormBuilder = ({ form, onSave, onCancel, mode = 'custom' }) => {
                                     Required Field
                                 </label>
 
-                                {['select', 'radio', 'checkbox'].includes(selectedField.type) && (
+                                {/* Options editor: for select, radio, checkbox, dropdown, nps-custom */}
+                                {['select', 'dropdown', 'radio', 'checkbox'].includes(selectedField.type) && (
                                     <div>
                                         <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>OPTIONS (one per line)</label>
                                         <textarea
                                             value={selectedField.options?.join('\n') || ''}
                                             onChange={e => updateField(selectedField.id, { options: e.target.value.split('\n').filter(o => o.trim()) })}
                                             style={{ width: '100%', minHeight: '100px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                            placeholder={selectedField.type === 'dropdown' ? 'Option 1\nOption 2\nOption 3' : 'Option 1\nOption 2'}
                                         />
+                                    </div>
+                                )}
+
+                                {/* NPS Hint */}
+                                {selectedField.type === 'nps' && (
+                                    <div style={{ padding: '12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '0.78rem', color: '#166534' }}>
+                                        ℹ️ NPS shows scores 0-10 automatically. No options needed.
                                     </div>
                                 )}
 

@@ -385,8 +385,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 isOpen={isOwnerModalOpen}
                 onClose={() => setIsOwnerModalOpen(false)}
                 currentOwners={[
-                    ...(inventory.owners || []).map(o => ({ id: o._id || o.id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
-                    ...(inventory.associates || []).map(a => ({ id: a.contact?._id || a.contact?.id || a.id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
+                    ...(inventory.owners || []).filter(Boolean).map(o => ({ id: o._id || o.id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
+                    ...(inventory.associates || []).filter(a => a && a.contact).map(a => ({ id: a.contact?._id || a.contact?.id || a.id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
                 ]}
                 onSave={async (newOwners) => {
                     try {

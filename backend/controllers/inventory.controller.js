@@ -1207,7 +1207,16 @@ export const updateInventory = async (req, res) => {
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
 
-        if (data.owners) data.owners = sanitizeIds(data.owners);
+        if (data.owners) {
+            data.owners = sanitizeIds(data.owners);
+            // 🛡️ [DATA INTEGRITY] Strict owner ID validation — drop any ID that is not a valid, existing Contact
+            const STRICT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+            const validFormatOwners = data.owners.filter(id => id && STRICT_ID_REGEX.test(String(id)));
+            if (validFormatOwners.length !== data.owners.length) {
+                console.warn(`[InventoryUpdate] Dropped ${data.owners.length - validFormatOwners.length} invalid-format owner IDs`);
+            }
+            data.owners = validFormatOwners;
+        }
 
         // Fetch current Inv early for tracking changes and interaction logs
         const currentInv = await Inventory.findById(req.params.id).populate('owners associates.contact');
@@ -1219,7 +1228,10 @@ export const updateInventory = async (req, res) => {
         // Backend is the SOLE authority for ownerHistory — frontend should NOT send ownerHistory.
         // We detect additions + removals here and push both atomically.
         if (data.owners !== undefined && Array.isArray(data.owners)) {
-            const currentOwnerIds = currentInv.owners?.map(o => (o._id?.toString() || o.toString())) || [];
+            const currentOwnerIds = currentInv.owners?.map(o => {
+                if (!o) return null;
+                return (o._id?.toString() || o.toString());
+            }).filter(Boolean) || [];
             const newOwnerIds = data.owners.map(o => o.toString());
 
             const removedOwnerIds = currentOwnerIds.filter(id => !newOwnerIds.includes(id));
@@ -1244,27 +1256,20 @@ export const updateInventory = async (req, res) => {
 
             // Removals
             if (removedOwnerIds.length > 0) {
-                removedOwnerIds.forEach(id => {
-                    // Try to find if there's a reason provided for removal. If not, default to Manual Update.
-                    // Usually, the reason is associated with the *new* owner (e.g., Transfer), so we might just use that 
-                    // or default to 'Manual Update' for the removed entry.
-                    const removalReason = 'Removed from current profile';
-                    ownerHistoryEntries.push({
-                        date: new Date(),
-                        author: req.user?._id || null,
-                        contactId: id,
-                        role: 'Property Owner',
-                        type: 'Removed',
-                        source: removalReason
-                    });
-                });
+                ownerHistoryEntries.push(...removedOwnerIds.map(id => ({
+                    contactId: id,
+                    role: 'Property Owner',
+                    type: 'Removed',
+                    date: new Date()
+                })));
 
                 // Auto-Tag removed owners as previous_owner_unit_project
                 try {
                     const unitLabel    = currentInv.unitNo || currentInv.unitNumber || 'unit';
                     const projectLabel = currentInv.projectName ? currentInv.projectName.replace(/\s+/g, '') : 'project';
                     const tagToAdd = `previous_owner_${unitLabel}_${projectLabel}`.toLowerCase();
-                    await Contact.updateMany(
+                    const ContactModelForTag = mongoose.models.Contact || mongoose.model('Contact');
+                    await ContactModelForTag.updateMany(
                         { _id: { $in: removedOwnerIds } },
                         { $addToSet: { tags: tagToAdd } }
                     );
@@ -1276,6 +1281,30 @@ export const updateInventory = async (req, res) => {
             if (ownerHistoryEntries.length > 0) {
                 if (!data.$push) data.$push = {};
                 data.$push.ownerHistory = { $each: ownerHistoryEntries };
+            }
+
+            // 🌟 Sync legacy text fields with the new primary owner
+            if (newOwnerIds.length > 0) {
+                try {
+                    const primaryOwnerId = newOwnerIds[0];
+                    const ContactModel = mongoose.models.Contact || mongoose.model('Contact');
+                    const primaryOwner = await ContactModel.findById(primaryOwnerId).lean();
+                    if (primaryOwner) {
+                        data.ownerName = primaryOwner.name || '';
+                        if (primaryOwner.phones && primaryOwner.phones.length > 0) {
+                            data.ownerPhone = primaryOwner.phones[0].number || '';
+                        }
+                        if (primaryOwner.emails && primaryOwner.emails.length > 0) {
+                            data.ownerEmail = primaryOwner.emails[0].address || '';
+                        }
+                    }
+                } catch (err) {
+                    console.error('[InventorySync] Failed to sync legacy owner fields:', err.message);
+                }
+            } else {
+                data.ownerName = '';
+                data.ownerPhone = '';
+                data.ownerEmail = '';
             }
         }
 
@@ -1417,7 +1446,21 @@ export const updateInventory = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const inventory = await Inventory.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, data, {
+        
+        // 🌟 SENIOR HARDENING: Explicitly split $set and $push to prevent Mongoose operator conflicts
+        const mongoUpdate = { $set: {} };
+        for (const key in data) {
+            if (key.startsWith('$')) {
+                mongoUpdate[key] = data[key];
+            } else {
+                mongoUpdate.$set[key] = data[key];
+            }
+        }
+        if (Object.keys(mongoUpdate.$set).length === 0) {
+            delete mongoUpdate.$set;
+        }
+
+        const inventory = await Inventory.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, mongoUpdate, {
             new: true,
             runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
         }).populate([
