@@ -99,16 +99,18 @@ export const getLinkedInStatus = async (req, res) => {
  */
 export const saveLinkedInConfig = async (req, res) => {
     try {
-        const { clientId, clientSecret, redirectUri, orgId } = req.body;
+        const { clientId, clientSecret, redirectUri, orgId, enableOrgScopes, customScopes } = req.body;
         
         const config = await SystemSetting.findOneAndUpdate(
             { key: 'linkedin_integration' },
             { 
                 $set: { 
-                    'value.clientId': clientId,
-                    'value.clientSecret': clientSecret,
-                    'value.redirectUri': redirectUri,
-                    'value.orgId': orgId,
+                    'value.clientId': clientId ? clientId.trim() : '',
+                    'value.clientSecret': clientSecret ? clientSecret.trim() : '',
+                    'value.redirectUri': redirectUri ? redirectUri.trim() : '',
+                    'value.orgId': orgId ? orgId.trim() : '',
+                    'value.enableOrgScopes': !!enableOrgScopes,
+                    'value.customScopes': customScopes ? customScopes.trim() : '',
                     'category': 'integration',
                     'active': true
                 } 

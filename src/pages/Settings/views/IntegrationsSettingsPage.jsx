@@ -943,19 +943,33 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                     <label>Redirect URI (Standardized)</label>
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         <input type="text" readOnly value={config.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'not-allowed' }} />
-                                        <button onClick={() => { navigator.clipboard.writeText(config.redirectUri); toast.success('Copied!'); }} style={{ padding: '0 12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
+                                        <button onClick={() => { navigator.clipboard.writeText(config.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback`); toast.success('Copied!'); }} style={{ padding: '0 12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
                                     </div>
                                 </div>
                                 <div className="card-input-group">
                                     <label>Organization ID</label>
                                     <input type="text" placeholder="e.g. 42752175" value={config.orgId || '42752175'} onChange={e => setConfig({ ...config, orgId: e.target.value })} />
                                 </div>
+                                <div style={{ background: 'var(--bg-light)', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border-color)', marginTop: '10px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={!!config.enableOrgScopes}
+                                            onChange={e => setConfig({ ...config, enableOrgScopes: e.target.checked })}
+                                            style={{ width: '16px', height: '16px', accentColor: '#0077b5' }}
+                                        />
+                                        Enable Organization / Company Page Scopes
+                                    </label>
+                                    <p style={{ margin: '4px 0 0 26px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                        Leave unchecked for standard LinkedIn apps (uses <code>openid profile email w_member_social</code>). Check only if your app has <i>Community Management API</i> approved by LinkedIn.
+                                    </p>
+                                </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginTop: '10px', display: 'flex', gap: '8px' }}>
                                     <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginTop: '2px' }}></i>
                                     <div>
                                         <strong style={{ color: '#1e40af' }}>Two-Step Setup:</strong><br/>
-                                        1. Click <b>Save Configuration</b> first.<br/>
-                                        2. Then click <b>Connect via OAuth</b> to authorize access.
+                                        1. Click <b>Step 1: Save Configuration</b> below.<br/>
+                                        2. Click <b>Connect LinkedIn via OAuth</b> to log in and authorize.
                                     </div>
                                 </div>
                             </>

@@ -23,31 +23,37 @@ class LinkedInService {
     }
 
     /**
-     * Generate Authorization URL with Modern Scopes
+     * Generate Authorization URL with Enterprise Smart Scope Detection
      */
     async getAuthUrl() {
         const config = await this._getConfig();
-        const { clientId, redirectUri } = config;
+        const { clientId, redirectUri, enableOrgScopes, customScopes } = config;
 
         if (!clientId || !redirectUri) {
             throw new Error('LinkedIn Client ID and Redirect URI must be configured in Settings');
         }
 
-        // We now have organization-level scopes approved in the Developer Portal!
-        const scopes = [
-            'openid',
-            'profile',
-            'email',
-            'w_member_social',
-            'w_organization_social',
-            'rw_organization_admin',
-            'r_organization_social'
-        ].filter(Boolean).join(' ');
-        
+        const cleanClientId = clientId.trim();
+        const cleanRedirectUri = redirectUri.trim();
+
+        // 🌟 Enterprise Smart Scope Resolution:
+        // 1. Standard Approved Scopes (Share on LinkedIn + Sign In with LinkedIn OIDC)
+        let scopeList = ['openid', 'profile', 'email', 'w_member_social'];
+
+        // 2. Add Organization Page Scopes IF explicitly enabled by admin
+        if (enableOrgScopes) {
+            scopeList.push('w_organization_social', 'r_organization_social', 'rw_organization_admin');
+        }
+
+        // 3. User Custom Scopes override if specified
+        if (customScopes && typeof customScopes === 'string' && customScopes.trim()) {
+            scopeList = customScopes.split(/[\s,]+/).filter(Boolean);
+        }
+
+        const scopes = Array.from(new Set(scopeList)).join(' ');
         console.log('[LinkedInService] Generating Auth URL with scopes:', scopes);
         
-        // Added prompt=consent to ensure refresh_token is always returned on re-auth
-        return `${this.authUrl}?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=linkedin_auth&prompt=consent`;
+        return `${this.authUrl}?response_type=code&client_id=${cleanClientId}&redirect_uri=${encodeURIComponent(cleanRedirectUri)}&scope=${encodeURIComponent(scopes)}&state=linkedin_auth`;
     }
 
     /**
