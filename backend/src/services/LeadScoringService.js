@@ -495,6 +495,12 @@ export const computeAndSave = async (leadId, options = {}) => {
                 { before: prevScore, after: result.total },
                 `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
             );
+
+            // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
+            const eventBus = (await import('../../services/EventBus.js')).default;
+            const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
+            eventBus.emit('LEAD_UPDATED', updatedLead);
+            
         } catch (_) { /* Non-critical — don't let audit failure break scoring */ }
     }
 

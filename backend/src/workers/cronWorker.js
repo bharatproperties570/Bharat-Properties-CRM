@@ -155,6 +155,84 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         console.log(`[Cron Worker] Dispatched ${remindersSent} follow-up reminders.`);
         return { remindersDispatched: remindersSent };
     }
+    if (job.name === 'enforceSLAReassignment') {
+        console.log('[Cron Worker] Checking SLA violations for reassignment...');
+        const DistributionRule = (await import('../../models/DistributionRule.js')).default;
+        
+        // Find rules that have reassignment enabled
+        const reassignmentRules = await DistributionRule.find({ 
+            enabled: true, 
+            'reassignmentPolicy.enabled': true 
+        }).lean();
+
+        let escalatedCount = 0;
+        const now = new Date();
+
+        for (const rule of reassignmentRules) {
+            const maxHours = rule.reassignmentPolicy.inactivityHours || 48;
+            const cutoffDate = new Date(now.getTime() - maxHours * 60 * 60 * 1000);
+            
+            const SLA_Violators = await Lead.find({
+                'assignment.ruleName': rule.name,
+                'assignment.assignedAt': { $lt: cutoffDate },
+                stage: { $nin: ['Closed', 'Lost', 'Converted', 'Junk'] }
+            });
+
+            for (const lead of SLA_Violators) {
+                // [PHASE 5 FIX]: Skip SLA escalation if lead is currently active in a Marketing Sequence
+                const SequenceEnrollment = (await import('../../models/SequenceEnrollment.js')).default;
+                const activeSequence = await SequenceEnrollment.exists({ entityId: lead._id, status: 'active' });
+                if (activeSequence) {
+                    continue; 
+                }
+
+                const lastActivity = lead.lastActivityAt || lead.createdAt;
+                if (lastActivity < lead.assignment.assignedAt) {
+                    let escalateTo = null;
+                    
+                    // Fetch the current owner to determine their manager
+                    if (lead.owner) {
+                        const User = (await import('../../models/User.js')).default;
+                        const currentOwner = await User.findById(lead.owner).select('reportingTo').lean();
+                        if (currentOwner && currentOwner.reportingTo) {
+                            escalateTo = currentOwner.reportingTo;
+                        }
+                    }
+
+                    // Fallback to the rule's specified manager if the agent has no manager
+                    if (!escalateTo) {
+                        escalateTo = rule.reassignmentPolicy.escalateTo;
+                    }
+
+                    if (escalateTo) {
+                        lead.owner = escalateTo;
+                        lead.assignment = {
+                            assignedTo: escalateTo,
+                            assignedAt: new Date(),
+                            ruleName: rule.name + " (Escalation)"
+                        };
+                        await lead.save();
+                        
+                        await AuditLog.logEntityUpdate(
+                            'reassigned', 'lead', lead._id, lead.firstName, null, 
+                            { assignedTo: escalateTo }, 
+                            `SLA Breached (${maxHours}h inactivity). Escalated to manager.`
+                        );
+                        
+                        
+                        // [PHASE 5 FIX]: Removed manual eventBus.emit('LEAD_UPDATED', lead) here
+                        // because lead.save() automatically triggers the Mongoose post-save hook which emits the event.
+                        
+
+                        escalatedCount++;
+                    }
+                }
+            }
+        }
+        console.log(`[Cron Worker] Enforced SLA Reassignments. Escalated ${escalatedCount} leads.`);
+        return { escalatedCount };
+    }
+
     if (job.name === 'evaluateTimeBasedTriggers') {
         console.log('[Cron Worker] Evaluating time-based triggers...');
         const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');

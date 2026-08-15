@@ -9,6 +9,28 @@ import { marketingQueue } from '../src/queues/marketingQueue.js';
 class AutomationEngine {
     constructor() {
         this.initializeListeners();
+        this.recursionGuard = new Map(); // entityId_event: { count, resetAt }
+    }
+
+    checkRecursionGuard(entityId, eventName) {
+        const key = `${entityId}_${eventName}`;
+        const now = Date.now();
+        const record = this.recursionGuard.get(key) || { count: 0, resetAt: now + 5000 };
+
+        if (now > record.resetAt) {
+            record.count = 1;
+            record.resetAt = now + 5000;
+        } else {
+            record.count += 1;
+        }
+
+        this.recursionGuard.set(key, record);
+
+        if (record.count > 3) {
+            console.warn(`[AutomationEngine] 🛑 RECURSION GUARD BLOCKED event ${eventName} for entity ${entityId} (Fired ${record.count} times in 5s)`);
+            return true; // Blocked
+        }
+        return false; // Allowed
     }
 
     initializeListeners() {
@@ -23,6 +45,8 @@ class AutomationEngine {
 
     async processEvent(eventName, entity, entityType) {
         try {
+            if (this.checkRecursionGuard(entity._id, eventName)) return;
+
             console.log(`[AutomationEngine] Received ${eventName} for ${entityType} ${entity._id}`);
 
             // Offload Sequence Evaluation to BullMQ background worker (non-blocking)

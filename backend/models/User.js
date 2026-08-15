@@ -61,6 +61,16 @@ const UserSchema = new mongoose.Schema({
         default: null
     },
 
+    // ========== Routing & Distribution ==========
+    territories: [{ type: String }],
+    skills: {
+        propertyTypes: [{ type: String }],
+        budgetRange: {
+            min: { type: Number },
+            max: { type: Number }
+        }
+    },
+
     // ========== Data Visibility ==========
     dataScope: {
         type: String,
@@ -117,6 +127,7 @@ const UserSchema = new mongoose.Schema({
             start: { type: String, default: '09:00' },
             end: { type: String, default: '18:30' }
         },
+        capacityLimit: { type: Number, default: 100 },
         emailSignature: { type: String, default: '' },
         whatsappSignature: { type: String, default: '' },
         smsSignature: { type: String, default: '' }

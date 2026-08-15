@@ -16,9 +16,12 @@ if (process.env.NODE_ENV !== 'production') {
 // Initialize BullMQ Queues and Workers
 import { cronQueue, googleSyncQueue, marketingQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
-import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
-import "./workers/marketingWorker.js"; 
+import "./workers/cronWorker.js";
+import "./workers/marketingWorker.js";
+import "./workers/distributionWorker.js";
+
+// ====== END WORKERS ======
 import "../services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
 import "../services/automationQueue/automationWorker.js"; // Automation Delayed Execution Worker
 import automatedIntakeService from "../services/intakeQueue/AutomatedIntakeService.js";
@@ -69,6 +72,7 @@ async function startServer() {
         cronQueue.add('dailyInactivityCheck', {}, { repeat: { pattern: '0 2 * * *' } }).catch(() => {});
         cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
         cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
+        cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
         googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
     } catch (queueErr) {}
 

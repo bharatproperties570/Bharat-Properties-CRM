@@ -10,7 +10,6 @@ import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js"
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
-import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { normalizePhone } from "../utils/normalization.js";
@@ -418,7 +417,6 @@ import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js"
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
-import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { normalizePhone } from "../utils/normalization.js";

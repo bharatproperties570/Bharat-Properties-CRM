@@ -463,6 +463,63 @@ export const toggleUserStatus = async (req, res) => {
             } else {
                 user.inactiveUntil = null;
             }
+
+            // --- PIPELINE ABANDONMENT PROTECTION ---
+            // If the user is inactivated, fetch all their open leads and transfer to their manager
+            try {
+                const Lead = (await import('../models/Lead.js')).default;
+                const Lookup = (await import('../models/Lookup.js')).default;
+                const AuditLog = (await import('../models/AuditLog.js')).default;
+                const eventBus = (await import('../services/EventBus.js')).default;
+
+                const lookups = await Lookup.find({ lookup_type: { $regex: /^stage$/i } }).lean();
+                const closedStageIds = lookups
+                    .filter(l => {
+                        const val = (l.lookup_value || '').toLowerCase();
+                        return val.includes('closed') || val.includes('lost') || val.includes('won') || val.includes('dormant') || val.includes('unqualified') || val.includes('junk');
+                    }).map(l => l._id);
+
+                const openLeads = await Lead.find({
+                    owner: user._id,
+                    stage: { $nin: closedStageIds }
+                });
+
+                if (openLeads.length > 0) {
+                    const fallbackManager = user.reportingTo; 
+                    if (fallbackManager) {
+                        for (const lead of openLeads) {
+                            lead.owner = fallbackManager;
+                            lead.assignment = {
+                                assignedTo: fallbackManager,
+                                assignedAt: new Date(),
+                                ruleName: "User Deactivation Transfer"
+                            };
+                            await lead.save();
+
+                            await AuditLog.logEntityUpdate(
+                                'reassigned', 'lead', lead._id, lead.firstName, null, 
+                                { assignedTo: fallbackManager }, 
+                                `Owner (${user.firstName}) deactivated. Lead transferred to manager.`
+                            );
+                            eventBus.emit('LEAD_UPDATED', lead);
+                        }
+                        console.log(`[User Management] Transferred ${openLeads.length} active leads from deactivated user ${user._id} to manager ${fallbackManager}`);
+                    } else {
+                        // If no manager, queue them back to the distribution engine
+                        const { distributionQueue } = await import('../src/queues/queueManager.js');
+                        for (const lead of openLeads) {
+                            lead.owner = null; 
+                            await lead.save();
+                            await distributionQueue.add('distribute', { entity: lead, triggerEvent: 'onLeadReassignment' });
+                        }
+                        console.log(`[User Management] Queued ${openLeads.length} active leads from deactivated user ${user._id} for redistribution (No manager).`);
+                    }
+                }
+            } catch (err) {
+                console.error('[User Management] Pipeline transfer failed:', err.message);
+            }
+            // ---------------------------------------
+
         } else {
             // Reactivating
             user.status = 'active';

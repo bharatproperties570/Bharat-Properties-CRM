@@ -7,7 +7,6 @@ import Lead, { resolveLeadLookup } from '../models/Lead.js';
 
 import AuditLog from '../models/AuditLog.js';
 import { runFullLeadEnrichment } from '../src/utils/enrichmentEngine.js';
-import { autoAssign } from '../src/services/DistributionService.js';
 import mongoose from 'mongoose';
 
 export const ingestLead = async (parsedData) => {

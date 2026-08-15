@@ -17,6 +17,15 @@ export const marketingQueue    = new Queue('marketingQueue',    {
         removeOnFail:     { count: 200 },
     },
 });
+export const distributionQueue = new Queue('distributionQueue', {
+    ...queueOptions,
+    defaultJobOptions: {
+        attempts: 12,
+        backoff: { type: 'exponential', delay: 1000 * 60 * 15 },
+        removeOnComplete: true,
+        removeOnFail: false
+    }
+});
 
 // Prevent unhandled error crashes if Redis goes down
 enrichmentQueue.on('error',   () => { });
@@ -28,6 +37,7 @@ marketingQueue.on('error',    (err) => {
         console.warn('[MarketingQueue] Queue error:', err.message);
     }
 });
+distributionQueue.on('error', () => { });
 
-console.log('✅ BullMQ Queues Initialized (enrichment, notification, cron, googleSync, marketing)');
+console.log('✅ BullMQ Queues Initialized (enrichment, notification, cron, googleSync, marketing, distribution)');
 

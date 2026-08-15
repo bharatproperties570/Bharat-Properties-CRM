@@ -10,7 +10,6 @@ import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
-import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import { getVisibilityFilter } from "../utils/visibility.js";

@@ -117,12 +117,12 @@ export class WorkflowEngine {
                         const modelName = modelMap[trigger.module] || trigger.module;
                         
                         const Model = mongoose.model(modelName);
-                        await Model.updateOne({ _id: entityData._id || entityData.id }, { $set: autoAction.fieldMapping });
+                        await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: autoAction.fieldMapping }, { new: true });
                     } else if (autoAction.actionType === 'lock_inventory') {
                         console.log(`[WorkflowEngine] Locking inventory for ${entityData._id || entityData.id}`);
                         const mongoose = (await import('mongoose')).default;
                         const Inventory = mongoose.model('Inventory');
-                        await Inventory.updateOne({ _id: entityData._id || entityData.id }, { $set: { status: 'Locked' } });
+                        await Inventory.findByIdAndUpdate(entityData._id || entityData.id, { $set: { status: 'Locked' } }, { new: true });
                     }
                     
                     // Log success
@@ -215,7 +215,7 @@ export class WorkflowEngine {
                 const modelMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity', inventory: 'Inventory', communication: 'Communication', post_sale: 'PostSale', campaigns: 'Campaign' };
                 const modelName = modelMap[trigger.module] || trigger.module;
                 const Model = mongoose.model(modelName);
-                await Model.updateOne({ _id: entityData._id || entityData.id }, { $set: { [action.field]: action.value } });
+                await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
             }
             
             await AutomationLog.create({

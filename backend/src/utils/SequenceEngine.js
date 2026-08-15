@@ -64,7 +64,7 @@ export class SequenceEngine {
             await marketingQueue.add('drip', {
                 enrollmentId: enrollment._id,
                 stepNumber: 1
-            }, { delay: Math.max(0, executeAt.getTime() - Date.now()) });
+            }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_1` });
         } catch (err) {
             if (err.code === 11000) {
                 console.log(`[SequenceEngine] Entity ${entity._id} already enrolled in sequence ${sequence._id} (duplicate key ignored).`);
@@ -259,7 +259,7 @@ export class SequenceEngine {
             await marketingQueue.add('drip', {
                 enrollmentId: enrollment._id,
                 stepNumber: nextStepNumber
-            }, { delay: Math.max(0, executeAt.getTime() - Date.now()) });
+            }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_${nextStepNumber}` });
 
         } else {
             // Sequence Finished
