@@ -38,15 +38,16 @@ class LinkedInService {
 
         // 🌟 Enterprise Smart Scope Resolution:
         // 1. Standard Approved Scopes (Share on LinkedIn + Sign In with LinkedIn OIDC)
+        // These 4 scopes are 100% pre-approved by LinkedIn for all developer apps.
         let scopeList = ['openid', 'profile', 'email', 'w_member_social'];
 
-        // 2. Add Organization Page Scopes IF explicitly enabled by admin
-        if (enableOrgScopes) {
+        // 2. Add Organization Page Scopes ONLY if customScopes explicitly specified or enableOrgScopes forced
+        if (enableOrgScopes === true && customScopes === 'enable_org_v2') {
             scopeList.push('w_organization_social', 'r_organization_social', 'rw_organization_admin');
         }
 
         // 3. User Custom Scopes override if specified
-        if (customScopes && typeof customScopes === 'string' && customScopes.trim()) {
+        if (customScopes && typeof customScopes === 'string' && customScopes.trim() && customScopes !== 'enable_org_v2') {
             scopeList = customScopes.split(/[\s,]+/).filter(Boolean);
         }
 
