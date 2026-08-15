@@ -100,27 +100,45 @@ class LinkedInService {
         const config = await this._getConfig();
         const { clientId, clientSecret, redirectUri } = config;
 
-        console.log('[LinkedInService] Exchanging code for token...', { clientId, redirectUri });
+        const cleanClientId = clientId ? clientId.trim() : '';
+        const cleanSecret = clientSecret ? clientSecret.trim() : '';
+        const cleanRedirectUri = redirectUri ? redirectUri.trim() : '';
+
+        console.log('[LinkedInService] Exchanging code for token...', { clientId: cleanClientId, redirectUri: cleanRedirectUri });
 
         let response;
-        try {
-            const bodyParams = new URLSearchParams();
-            bodyParams.append('grant_type', 'authorization_code');
-            bodyParams.append('code', code);
-            bodyParams.append('client_id', clientId);
-            bodyParams.append('client_secret', clientSecret);
-            bodyParams.append('redirect_uri', redirectUri);
+        const bodyParams = new URLSearchParams();
+        bodyParams.append('grant_type', 'authorization_code');
+        bodyParams.append('code', code);
+        bodyParams.append('client_id', cleanClientId);
+        bodyParams.append('client_secret', cleanSecret);
+        bodyParams.append('redirect_uri', cleanRedirectUri);
 
+        try {
+            // Attempt 1: Standard URL-Encoded Body
             response = await axios.post(this.tokenUrl, bodyParams.toString(), {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }
             });
-            console.log('[LinkedInService] Token exchange successful:', response.data);
-        } catch (tokenErr) {
-            const errorDetails = tokenErr.response?.data || tokenErr.message;
-            console.error('[LinkedInService] Token exchange FAILED details:', JSON.stringify(errorDetails));
-            throw new Error(tokenErr.response?.data?.error_description || tokenErr.response?.data?.error || tokenErr.message);
+            console.log('[LinkedInService] Token exchange successful (Attempt 1)');
+        } catch (err1) {
+            console.warn('[LinkedInService] Attempt 1 failed:', err1.response?.data || err1.message);
+            try {
+                // Attempt 2: Basic Auth Header Fallback
+                const basicAuth = Buffer.from(`${cleanClientId}:${cleanSecret}`).toString('base64');
+                response = await axios.post(this.tokenUrl, bodyParams.toString(), {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': `Basic ${basicAuth}`
+                    }
+                });
+                console.log('[LinkedInService] Token exchange successful (Attempt 2 Basic Auth)');
+            } catch (tokenErr) {
+                const errorDetails = tokenErr.response?.data || tokenErr.message;
+                console.error('[LinkedInService] Token exchange FAILED details:', JSON.stringify(errorDetails));
+                throw new Error(tokenErr.response?.data?.error_description || tokenErr.response?.data?.error || tokenErr.message);
+            }
         }
 
         const tokenData = response.data;
