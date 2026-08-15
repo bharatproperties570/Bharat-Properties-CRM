@@ -127,13 +127,30 @@ export const deleteForm = async (req, res, next) => {
 
 export const getFormBySlug = async (req, res, next) => {
     try {
-        const form = await FeedbackForm.findOne({ slug: req.params.slug, isActive: true });
+        const form = await FeedbackForm.findOne({ slug: req.params.slug, isActive: true }).lean();
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
 
-        form.analytics.views += 1;
-        await form.save();
+        // Increment view analytics in background without blocking
+        FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.views': 1 } }).catch(() => {});
 
-        res.json({ success: true, data: form });
+        let leadInfo = null;
+        const leadId = req.query.leadId;
+        if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
+            const lead = await Lead.findById(leadId).select('firstName lastName email mobile companyName').lean();
+            if (lead) {
+                const fullName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || lead.companyName || 'Valued Client';
+                leadInfo = {
+                    _id: lead._id,
+                    name: fullName,
+                    firstName: lead.firstName || '',
+                    lastName: lead.lastName || '',
+                    email: lead.email || '',
+                    mobile: lead.mobile || ''
+                };
+            }
+        }
+
+        res.json({ success: true, data: { ...form, leadInfo } });
     } catch (error) {
         next(error);
     }

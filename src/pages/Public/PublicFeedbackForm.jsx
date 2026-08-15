@@ -355,6 +355,7 @@ const FieldRenderer = ({ field, value, onChange, activityDetails }) => {
 // ─── Main Public Feedback Form Page ─────────────────────────────────────────
 const PublicFeedbackForm = ({ slug }) => {
     const [form, setForm] = useState(null);
+    const [leadInfo, setLeadInfo] = useState(null);
     const [responses, setResponses] = useState({});
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -366,14 +367,36 @@ const PublicFeedbackForm = ({ slug }) => {
         const fetchForm = async () => {
             try {
                 const queryParams = new URLSearchParams(window.location.search);
-                const activityId = queryParams.get('activityId');
+                const leadId = queryParams.get('leadId') || '';
+                const activityId = queryParams.get('activityId') || '';
 
-                const res = await api.get(`/feedback-forms/public/${slug}`);
+                const res = await api.get(`/feedback-forms/public/${slug}?leadId=${leadId}`);
                 if (!res.data?.success || !res.data?.data) {
                     setError('Form not found or is no longer active.');
                     return;
                 }
-                setForm(res.data.data);
+                const formData = res.data.data;
+                setForm(formData);
+                if (formData.leadInfo) {
+                    setLeadInfo(formData.leadInfo);
+
+                    // 🌟 Auto-prefill lead details into matching form fields if present
+                    const info = formData.leadInfo;
+                    const autoFields = {};
+                    formData.sections?.forEach(sec => {
+                        sec.fields?.forEach(f => {
+                            const lbl = (f.label || '').toLowerCase();
+                            if (f.type === 'phone' || lbl.includes('phone') || lbl.includes('mobile')) {
+                                if (info.mobile) autoFields[f.id] = info.mobile;
+                            } else if (f.type === 'email' || lbl.includes('email')) {
+                                if (info.email) autoFields[f.id] = info.email;
+                            } else if (lbl.includes('name') && !lbl.includes('company')) {
+                                if (info.name) autoFields[f.id] = info.name;
+                            }
+                        });
+                    });
+                    setResponses(prev => ({ ...autoFields, ...prev }));
+                }
 
                 if (activityId) {
                     try {
@@ -471,6 +494,23 @@ const PublicFeedbackForm = ({ slug }) => {
             <div className="feedback-glass-card" style={{ width: '100%', maxWidth: '660px', padding: '50px 44px' }}>
                 {/* Header */}
                 <div style={{ textAlign: 'center', marginBottom: '50px' }}>
+                    {leadInfo?.name && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(201, 146, 26, 0.12)',
+                            border: '1px solid rgba(201, 146, 26, 0.3)',
+                            borderRadius: '100px',
+                            padding: '8px 22px',
+                            marginBottom: '20px',
+                            boxShadow: '0 4px 15px rgba(201, 146, 26, 0.15)'
+                        }}>
+                            <span style={{ fontSize: '0.95rem', color: '#f8fafc', fontWeight: 600 }}>
+                                Welcome, <span style={{ color: '#c9921a', fontWeight: 800 }}>{leadInfo.name}</span> 👋
+                            </span>
+                        </div>
+                    )}
                     <h1 style={{ fontSize: '2.1rem', fontWeight: 900, color: '#fff', marginBottom: '12px', letterSpacing: '-0.03em', lineHeight: 1.2 }}>
                         {formTitle}
                     </h1>
