@@ -37,8 +37,8 @@ class LinkedInService {
         const cleanRedirectUri = redirectUri.trim();
 
         // 🌟 Enterprise Smart Scope Resolution:
-        // Standard OpenID Connect & Member Social scopes for active LinkedIn Apps
-        let scopeList = ['openid', 'profile', 'email', 'w_member_social'];
+        // Standard Member Social scope for active LinkedIn Apps (removing openid/profile/email which require extra OpenID product)
+        let scopeList = ['w_member_social'];
 
         // If customScopes specified by user, use custom scopes
         if (customScopes && typeof customScopes === 'string' && customScopes.trim()) {
