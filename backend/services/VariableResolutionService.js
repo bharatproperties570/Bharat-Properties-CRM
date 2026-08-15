@@ -386,7 +386,7 @@ class VariableResolutionService {
                     if (!leadId) return 'token_missing';
                     const token = jwt.sign({ leadId, projectId: lead.projectName || lead.project?.name || null, source: 'whatsapp_smart_link' }, process.env.JWT_SECRET || 'crm_secret_key', { expiresIn: '30d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-                    const formSlug = 'standard-project-tour-scheduler-bqnh6';
+                    const formSlug = 'standard-project-tour-scheduler-bqnh6visit';
                     return `${baseUrl}/public/form/${formSlug}?ref=${token}`;
                 } catch (e) {
                     console.error("[VariableResolution] JWT Error:", e.message);
