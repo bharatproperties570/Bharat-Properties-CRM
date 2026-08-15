@@ -7,7 +7,31 @@ const UserContext = createContext();
 export const useUserContext = () => {
     const context = useContext(UserContext);
     if (!context) {
-        throw new Error('useUserContext must be used within a UserProvider');
+        console.warn('[UserContext] useUserContext called outside UserProvider or during HMR module reload.');
+        return {
+            users: [],
+            roles: [],
+            teams: [],
+            loading: false,
+            error: null,
+            addUser: async () => {},
+            updateUser: async () => {},
+            deleteUser: async () => {},
+            toggleUserStatus: async () => {},
+            addRole: async () => {},
+            updateRole: async () => {},
+            deleteRole: async () => {},
+            addTeam: async () => {},
+            updateTeam: async () => {},
+            deleteTeam: async () => {},
+            refreshData: async () => {},
+            login: async () => {},
+            logout: () => {},
+            updateProfile: async () => {},
+            updateSignatures: async () => {},
+            token: safeStorage.getItem('authToken') || null,
+            currentUser: null
+        };
     }
     return context;
 };
