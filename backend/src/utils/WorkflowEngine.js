@@ -76,10 +76,11 @@ export class WorkflowEngine {
                 // If we reach here, it's either immediate or the delay has already elapsed
                 console.log(`[WorkflowEngine] Executing Automated Action: ${autoAction?.name}`);
                 
-                // Idempotency check
+                // Idempotency check: Include updatedAt to allow repeating actions on subsequent updates
+                const entityUpdatedTime = entityData.updatedAt ? new Date(entityData.updatedAt).getTime() : Date.now();
                 const idempotencyKey = isDelayedExecution 
-                    ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}` 
-                    : `imm-${action.automatedActionId}-${entityData._id || entityData.id}`;
+                    ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}` 
+                    : `imm-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`;
                     
                 const existingLog = await AutomationLog.findOne({ idempotencyKey });
                 if (existingLog) {
@@ -90,29 +91,30 @@ export class WorkflowEngine {
                 try {
                     // Action execution logic
                     if (autoAction.actionType === 'send_notification') {
-                        const VariableResolver = (await import('./VariableResolver.js')).default;
-                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
-                        const config = autoAction.notificationConfig;
-                        
-                        if (config.channels.whatsapp && config.templates.whatsapp) {
-                            // If the template needs resolving for variables, we can just use sendTemplate with components.
-                            // But for simple text variables inside templates, many people use sendMessage with resolved text
-                            // or sendTemplate with mapped variables. I will use sendMessage with resolved text if it's dynamic,
-                            // or sendTemplate if it matches exactly. For now, since templates might be complex, we send the resolved text as a message.
-                            const resolvedTemplate = VariableResolver.resolve(config.templates.whatsapp, entityData);
-                            console.log(`[WorkflowEngine] Sending WhatsApp to ${entityData.mobile} using template: ${resolvedTemplate}`);
-                            await WhatsAppService.sendMessage(entityData.mobile, resolvedTemplate);
-                        }
-                        if (config.channels.sms && config.templates.sms) {
-                            const resolvedSms = VariableResolver.resolve(config.templates.sms, entityData);
-                            console.log(`[WorkflowEngine] Sending SMS to ${entityData.mobile}: ${resolvedSms}`);
+                        if (!entityData.mobile) {
+                            console.log(`[WorkflowEngine] Skipping send_notification: No mobile number for entity ${entityData._id || entityData.id}`);
+                        } else {
+                            const VariableResolver = (await import('./VariableResolver.js')).default;
+                            const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
+                            const config = autoAction.notificationConfig;
+                            
+                            if (config.channels.whatsapp && config.templates.whatsapp) {
+                                const resolvedTemplate = VariableResolver.resolve(config.templates.whatsapp, entityData);
+                                console.log(`[WorkflowEngine] Sending WhatsApp to ${entityData.mobile} using template: ${resolvedTemplate}`);
+                                await WhatsAppService.sendMessage(entityData.mobile, resolvedTemplate);
+                            }
+                            if (config.channels.sms && config.templates.sms) {
+                                const resolvedSms = VariableResolver.resolve(config.templates.sms, entityData);
+                                console.log(`[WorkflowEngine] Sending SMS to ${entityData.mobile}: ${resolvedSms}`);
+                            }
                         }
                     } else if (autoAction.actionType === 'update_field') {
                         console.log(`[WorkflowEngine] Updating field for ${trigger.module} ID ${entityData._id || entityData.id} with data:`, autoAction.fieldMapping);
                         const mongoose = (await import('mongoose')).default;
-                        // Map "leads" -> "Lead", "deals" -> "Deal"
-                        let modelName = trigger.module.charAt(0).toUpperCase() + trigger.module.slice(1);
-                        if (modelName.endsWith('s')) modelName = modelName.slice(0, -1);
+                        
+                        // Robust Model Name Mapping
+                        const modelMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity', inventory: 'Inventory', communication: 'Communication', post_sale: 'PostSale', campaigns: 'Campaign' };
+                        const modelName = modelMap[trigger.module] || trigger.module;
                         
                         const Model = mongoose.model(modelName);
                         await Model.updateOne({ _id: entityData._id || entityData.id }, { $set: autoAction.fieldMapping });
