@@ -142,7 +142,7 @@ const NEW_ANGLES_DATA = [];
 
 const PORTAL_DATA = [];
 
-export default function MarketingOverviewPage() {
+export default function MarketingOverviewPage({ onNavigate }) {
   // ── CORE STATE WITH MIRROR PROTOCOL ──
   const { projects: dynamicProjects = [], propertyConfig = {}, sizes = [] } = usePropertyConfig();
   const [activePage, setActivePage] = useState('overview');
@@ -3707,7 +3707,9 @@ export default function MarketingOverviewPage() {
                 <button 
                     className="tact-btn gold" 
                     onClick={() => {
-                        if (typeof window !== 'undefined') {
+                        if (onNavigate) {
+                            onNavigate('sequence-builder', 'new');
+                        } else if (typeof window !== 'undefined') {
                             window.history.pushState({ view: 'sequence-builder', contactId: 'new' }, '', '/marketing/sequences/new');
                             window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'sequence-builder', contactId: 'new' } }));
                         }

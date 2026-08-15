@@ -460,9 +460,19 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
     resolveAndUpdate().then(() => next()).catch(next);
 });
 
+DealSchema.pre('save', function(next) {
+    this._wasNew = this.isNew;
+    next();
+});
+
 DealSchema.post('save', function(doc) {
     invalidateDashboardCache(doc);
-    eventBus.emit('DEAL_CREATED', doc);
+    const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    if (isNew) {
+        eventBus.emit('DEAL_CREATED', doc);
+    } else {
+        eventBus.emit('DEAL_UPDATED', doc);
+    }
 });
 
 DealSchema.post('findOneAndUpdate', function(doc) {

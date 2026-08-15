@@ -577,8 +577,18 @@ InventorySchema.pre('insertMany', function(next, docs) {
     }
     next();
 });
+InventorySchema.pre('save', function(next) {
+    this._wasNew = this.isNew;
+    next();
+});
+
 InventorySchema.post('save', function(doc) {
-    eventBus.emit('INVENTORY_CREATED', doc);
+    const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    if (isNew) {
+        eventBus.emit('INVENTORY_CREATED', doc);
+    } else {
+        eventBus.emit('INVENTORY_UPDATED', doc);
+    }
 });
 
 InventorySchema.post('findOneAndUpdate', function(doc) {

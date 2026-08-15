@@ -489,8 +489,24 @@ LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 
 // Automation Hooks
+LeadSchema.pre('save', function(next) {
+    this._wasNew = this.isNew;
+    next();
+});
+
 LeadSchema.post('save', function(doc) {
-    eventBus.emit('LEAD_CREATED', doc);
+    const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    if (isNew) {
+        eventBus.emit('LEAD_CREATED', doc);
+    } else {
+        eventBus.emit('LEAD_UPDATED', doc);
+    }
+});
+
+LeadSchema.post('insertMany', function(docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => eventBus.emit('LEAD_CREATED', doc));
+    }
 });
 
 LeadSchema.post('findOneAndUpdate', async function(doc) {

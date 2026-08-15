@@ -3,7 +3,8 @@ import AutomatedAction from '../models/AutomatedAction.js';
 import Trigger from '../models/Trigger.js';
 import AutomationLog from '../models/AutomationLog.js';
 import sendWhatsAppMessage from './whatsappService.js';
-// We'll import other services as needed
+import { SequenceEngine } from '../src/utils/SequenceEngine.js';
+import { marketingQueue } from '../src/queues/marketingQueue.js';
 
 class AutomationEngine {
     constructor() {
@@ -23,6 +24,28 @@ class AutomationEngine {
     async processEvent(eventName, entity, entityType) {
         try {
             console.log(`[AutomationEngine] Received ${eventName} for ${entityType} ${entity._id}`);
+
+            // Offload Sequence Evaluation to BullMQ background worker (non-blocking)
+            if (['Lead', 'Deal'].includes(entityType)) {
+                if (marketingQueue) {
+                    marketingQueue.add('process-automation-event', {
+                        eventName,
+                        entityId: entity._id,
+                        entityType
+                    }).catch(err => console.error('[AutomationEngine] Failed to enqueue event job:', err.message));
+                } else {
+                    // Fallback to async setImmediate if Redis is offline
+                    setImmediate(async () => {
+                        const moduleName = entityType.toLowerCase() + 's';
+                        if (eventName.endsWith('_UPDATED')) {
+                            await SequenceEngine.evaluateExitCriteria(entity, moduleName);
+                            await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
+                        } else if (eventName.endsWith('_CREATED')) {
+                            await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
+                        }
+                    });
+                }
+            }
             
             // Map uppercase backend events to frontend trigger event names
             const triggerEventMap = {

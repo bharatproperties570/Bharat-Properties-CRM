@@ -49,21 +49,29 @@ export class SequenceEngine {
             executeAt = this.applyBusinessHours(executeAt, sequence.businessHours);
         }
 
-        const enrollment = await SequenceEnrollment.create({
-            sequenceId: sequence._id,
-            entityId: entity._id,
-            module: moduleName,
-            companyId,
-            status: 'active',
-            currentStepNumber: 1,
-            nextExecutionAt: executeAt
-        });
+        try {
+            const enrollment = await SequenceEnrollment.create({
+                sequenceId: sequence._id,
+                entityId: entity._id,
+                module: moduleName,
+                companyId,
+                status: 'active',
+                currentStepNumber: 1,
+                nextExecutionAt: executeAt
+            });
 
-        // Schedule the job via BullMQ
-        await marketingQueue.add('drip', {
-            enrollmentId: enrollment._id,
-            stepNumber: 1
-        }, { delay: Math.max(0, executeAt.getTime() - Date.now()) });
+            // Schedule the job via BullMQ
+            await marketingQueue.add('drip', {
+                enrollmentId: enrollment._id,
+                stepNumber: 1
+            }, { delay: Math.max(0, executeAt.getTime() - Date.now()) });
+        } catch (err) {
+            if (err.code === 11000) {
+                console.log(`[SequenceEngine] Entity ${entity._id} already enrolled in sequence ${sequence._id} (duplicate key ignored).`);
+            } else {
+                throw err;
+            }
+        }
     }
 
     static calculateNextExecutionTime(baseDate, amount, unit, businessHours) {

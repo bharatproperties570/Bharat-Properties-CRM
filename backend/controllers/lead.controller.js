@@ -969,11 +969,9 @@ export const addLead = async (req, res, next) => {
         // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            const { SequenceEngine } = await import("../src/utils/SequenceEngine.js");
             await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
-            await SequenceEngine.evaluateAutoEnrollment(lead, 'leads', lead.companyId);
         } catch (weError) {
-            console.error('[WorkflowEngine/SequenceEngine] Error firing lead_created:', weError.message);
+            console.error('[WorkflowEngine] Error firing lead_created:', weError.message);
         }
 
         res.status(201).json({ success: true, data: lead, assignedAgent });
@@ -1286,7 +1284,6 @@ export const updateLead = async (req, res, next) => {
         // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            const { SequenceEngine } = await import("../src/utils/SequenceEngine.js");
             if (updateData.stage) {
                 await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', finalLead, finalLead.companyId);
             }
@@ -1296,11 +1293,8 @@ export const updateLead = async (req, res, next) => {
             if (updateData.score) {
                 await WorkflowEngine.fireEvent('leads', 'lead_score_changed', finalLead, finalLead.companyId);
             }
-            // Evaluate Sequence changes on update
-            await SequenceEngine.evaluateExitCriteria(finalLead, 'leads');
-            await SequenceEngine.evaluateAutoEnrollment(finalLead, 'leads', finalLead.companyId);
         } catch (weError) {
-            console.error('[WorkflowEngine/SequenceEngine] Error firing update events:', weError.message);
+            console.error('[WorkflowEngine] Error firing update events:', weError.message);
         }
 
         res.json({ success: true, data: finalLead });

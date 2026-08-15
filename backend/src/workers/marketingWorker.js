@@ -302,6 +302,36 @@ const processMarketingJob = async (job) => {
         return { enrollmentId, stepNumber, completedAt: new Date().toISOString() };
     }
 
+    // ─── PROCESS-AUTOMATION-EVENT: Async sequence evaluation ────────────────
+    if (name === 'process-automation-event') {
+        const { eventName, entityId, entityType } = data;
+        await job.log(`Evaluating automation event ${eventName} for ${entityType} ${entityId}`);
+        const moduleName = entityType.toLowerCase() + 's';
+
+        let Model;
+        if (entityType === 'Lead') {
+            const { default: M } = await import('../../models/Lead.js');
+            Model = M;
+        } else if (entityType === 'Deal') {
+            const { default: M } = await import('../../models/Deal.js');
+            Model = M;
+        }
+
+        if (Model && entityId) {
+            const entity = await Model.findById(entityId);
+            if (entity) {
+                const { SequenceEngine } = await import('../utils/SequenceEngine.js');
+                if (eventName.endsWith('_UPDATED')) {
+                    await SequenceEngine.evaluateExitCriteria(entity, moduleName);
+                    await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
+                } else if (eventName.endsWith('_CREATED')) {
+                    await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
+                }
+            }
+        }
+        return { eventName, entityId, completedAt: new Date().toISOString() };
+    }
+
     // ─── SOCIAL-POST: AI generation + optional publish ────────────────────────
     if (name === 'social-post') {
         const { dealId, platform, publishNow = false } = data;
