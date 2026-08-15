@@ -18,7 +18,7 @@ import { paginate } from "../utils/pagination.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { normalizePhone } from "../utils/normalization.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
-import WorkflowEngine from "../src/utils/WorkflowEngine.js";
+import { WorkflowEngine } from "../src/utils/WorkflowEngine.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
 import { createNotification } from "./notification.controller.js";

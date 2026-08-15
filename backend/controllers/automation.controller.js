@@ -60,6 +60,40 @@ export const createSequence = async (req, res) => {
     }
 };
 
+export const getSequenceById = async (req, res) => {
+    try {
+        const seq = await Sequence.findOne({ _id: req.params.id, companyId: req.user?.companyId });
+        if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+        res.status(200).json(seq);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const updateSequence = async (req, res) => {
+    try {
+        const seq = await Sequence.findOneAndUpdate(
+            { _id: req.params.id, companyId: req.user?.companyId },
+            req.body,
+            { new: true }
+        );
+        if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+        res.status(200).json(seq);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const deleteSequence = async (req, res) => {
+    try {
+        const seq = await Sequence.findOneAndDelete({ _id: req.params.id, companyId: req.user?.companyId });
+        if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+        res.status(200).json({ message: 'Sequence deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // --- AUTOMATED ACTIONS ---
 export const getAutomatedActions = async (req, res) => {
     try {

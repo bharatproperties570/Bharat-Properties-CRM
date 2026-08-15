@@ -291,15 +291,15 @@ const processMarketingJob = async (job) => {
 
     // ─── DRIP: Single drip sequence step ──────────────────────────────────────
     if (name === 'drip') {
-        const { leadId, sequenceId, step = 1 } = data;
-        await job.log(`Running drip step ${step} for lead ${leadId}, sequence: ${sequenceId}`);
+        const { enrollmentId, stepNumber = 1 } = data;
+        await job.log(`Running drip step ${stepNumber} for enrollment ${enrollmentId}`);
 
-        // Use NurtureBot's lead processing for each drip step
-        const stepResult = await nurtureBot.processSingleLead(leadId, { step, sequenceId });
+        const { SequenceEngine } = await import('../utils/SequenceEngine.js');
+        await SequenceEngine.executeNextStep(enrollmentId, stepNumber);
 
         await job.updateProgress(100);
-        console.log(`[MarketingWorker] ✅ Drip step ${step} done for lead ${leadId}`);
-        return { leadId, sequenceId, step, result: stepResult, completedAt: new Date().toISOString() };
+        console.log(`[MarketingWorker] ✅ Drip step ${stepNumber} done for enrollment ${enrollmentId}`);
+        return { enrollmentId, stepNumber, completedAt: new Date().toISOString() };
     }
 
     // ─── SOCIAL-POST: AI generation + optional publish ────────────────────────

@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticate } from '../src/middlewares/auth.middleware.js';
 import {
     getTriggers, createTrigger, updateTrigger, deleteTrigger,
-    getSequences, createSequence,
+    getSequences, createSequence, getSequenceById, updateSequence, deleteSequence,
     getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction
 } from '../controllers/automation.controller.js';
 
@@ -20,6 +20,9 @@ router.delete('/triggers/:id', deleteTrigger);
 // --- Sequences ---
 router.get('/sequences', getSequences);
 router.post('/sequences', createSequence);
+router.get('/sequences/:id', getSequenceById);
+router.put('/sequences/:id', updateSequence);
+router.delete('/sequences/:id', deleteSequence);
 
 // --- Automated Actions ---
 router.get('/actions', getAutomatedActions);

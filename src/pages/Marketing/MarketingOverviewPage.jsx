@@ -63,6 +63,7 @@ const PAGE_META = {
   portals: { title: 'Property Portals', subtitle: 'Marketplace Integration' },
   reports: { title: 'Reports & Performance', subtitle: 'Deep-dive campaign analytics' },
   bna: { title: 'Broker Network Hub', subtitle: 'BNA — Cross-platform broker orchestration' },
+  sequences: { title: 'Drip Sequences', subtitle: 'Manage automated workflow rules' },
 };
 
 const OMNI_CHANNELS_BASE = [
@@ -1613,6 +1614,7 @@ export default function MarketingOverviewPage() {
         <div className="sidebar-section">
           <div className="sidebar-section-label">Campaigns</div>
           <SidebarItem id="campaign" label="Campaign Engine" icon={Megaphone} />
+          <SidebarItem id="sequences" label="Drip Sequences" icon={Workflow} badge="New" />
           <SidebarItem id="bna" label="Broker Network (BNA)" icon={Zap} badge="Active" isLive />
           <SidebarItem id="leads" label="CRM Leads" icon={Home} badge={apiDataLoaded ? (realLeads.length || leads.length) : (stats.hot > 0 ? `${stats.hot}🔥` : '🏠')} />
           <SidebarItem id="portals" label="Property Portals" icon={Globe} badge="5" />
@@ -3697,6 +3699,33 @@ export default function MarketingOverviewPage() {
             </>
           )}
           {/* ════ PROPERTY PORTALS ════ */}
+          {/* ════ DRIP SEQUENCES ════ */}
+          {activePage === 'sequences' && (
+            <div className="campaign-engine-container">
+              <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 className="section-title">Automated Drip Sequences</h3>
+                <button 
+                    className="tact-btn gold" 
+                    onClick={() => {
+                        if (typeof window !== 'undefined') {
+                            window.history.pushState({ view: 'sequence-builder', contactId: 'new' }, '', '/marketing/sequences/new');
+                            window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'sequence-builder', contactId: 'new' } }));
+                        }
+                    }}
+                >
+                    + Create Sequence
+                </button>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text2)' }}>
+                <Workflow size={48} style={{ opacity: 0.2, marginBottom: '15px' }} />
+                <h3>Sequence Engine Ready</h3>
+                <p>Click "Create Sequence" to build a new automated workflow using the visual builder.</p>
+                <p style={{ fontSize: '12px', marginTop: '10px', opacity: 0.6 }}>Existing sequences will automatically sync with CRM triggers.</p>
+              </div>
+            </div>
+          )}
+
           {activePage === 'portals' && (
             <div>
               {/* Portal KPI Strip */}

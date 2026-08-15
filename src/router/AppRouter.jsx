@@ -22,6 +22,7 @@ const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPageV2'));
 const ReportsPage = lazy(() => import('../pages/Reports/ReportsPage'));
 const WizardPage = lazy(() => import('../pages/Wizard/WizardPage'));
 const SettingsPage = lazy(() => import('../pages/Settings/SettingsPage'));
+const SequenceBuilderPage = lazy(() => import('../pages/Marketing/SequenceBuilder'));
 const CommunicationPage = lazy(() => import('../pages/Communication/CommunicationPage'));
 const DealIntakePage = lazy(() => import('../pages/Deals/views/DealIntakePage'));
 const DealMatchingPage = lazy(() => import('../pages/Deals/views/DealMatchingPage'));
@@ -155,6 +156,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
 
             case 'reports':
                 return <ReportsPage />;
+            case 'sequence-builder':
+                return <SequenceBuilderPage sequenceId={currentContactId} onBack={() => onNavigate('marketing-overview')} onNavigate={onNavigate} />;
             case 'profile':
                 return <ProfilePage />;
             case 'deal-intake':

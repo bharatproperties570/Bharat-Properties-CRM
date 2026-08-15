@@ -151,6 +151,7 @@ const AppContent = () => {
         else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;
         else if (view === 'dashboard') url = '/';
         else if (view === 'marketing-overview') url = '/marketing-overview';
+        else if (view === 'sequence-builder' && contactId) url = `/marketing/sequences/${contactId}`;
         else url = `/${view}`;
 
         if (isWeb && safeWindow.history) {
@@ -206,6 +207,9 @@ const AppContent = () => {
                     setCurrentView('reset-password');
                 } else if (path === '/marketing-overview') {
                     setCurrentView('marketing-overview');
+                } else if (path.startsWith('/marketing/sequences/')) {
+                    setCurrentView('sequence-builder');
+                    setCurrentContactId(path.split('/').pop());
                 } else if (path.startsWith('/matches/')) {
                     setCurrentView('public-match-brochure');
                 } else {

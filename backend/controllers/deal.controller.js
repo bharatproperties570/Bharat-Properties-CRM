@@ -14,7 +14,7 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 import { createNotification } from "./notification.controller.js";
 import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
 import { safeRedisCall } from "../src/config/redis.js";
-import WorkflowEngine from "../src/utils/WorkflowEngine.js";
+import { WorkflowEngine } from "../src/utils/WorkflowEngine.js";
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
 

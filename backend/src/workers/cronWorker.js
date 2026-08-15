@@ -155,6 +155,136 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         console.log(`[Cron Worker] Dispatched ${remindersSent} follow-up reminders.`);
         return { remindersDispatched: remindersSent };
     }
+    if (job.name === 'evaluateTimeBasedTriggers') {
+        console.log('[Cron Worker] Evaluating time-based triggers...');
+        const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+        const Trigger = (await import('../../models/Trigger.js')).default;
+        const Deal = (await import('../../models/Deal.js')).default;
+        
+        // Fetch all active time-based triggers
+        const activeTimeTriggers = await Trigger.find({
+            isActive: true,
+            event: { $in: ['lead_inactivity', 'deal_inactivity', 'activity_overdue'] }
+        }).lean();
+
+        let executedCount = 0;
+        const now = new Date();
+        
+        // Identify terminal stages to exclude for leads
+        const lookups = await Lookup.find({ lookup_type: { $regex: /^stage$/i } }).lean();
+        const closedStageIds = lookups
+            .filter(l => {
+                const val = (l.lookup_value || '').toLowerCase();
+                return val.includes('closed') || val.includes('lost') || val.includes('won') || val.includes('dormant') || val.includes('unqualified') || val.includes('junk');
+            })
+            .map(l => l._id);
+
+        for (const trigger of activeTimeTriggers) {
+            const companyId = trigger.companyId;
+            const daysThreshold = parseInt(trigger.conditions?.value) || 5; 
+            
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysThreshold);
+
+            if (trigger.event === 'lead_inactivity') {
+                const inactiveLeadsCursor = Lead.find({
+                    stage: { $nin: closedStageIds },
+                    lastActivityAt: { $lt: cutoffDate },
+                    companyId: companyId
+                }).cursor();
+
+                for await (const lead of inactiveLeadsCursor) {
+                    const idempotencyKey = `time-trigger-${trigger._id}-${lead._id}`;
+                    const hasFired = await AutomationLog.exists({ idempotencyKey });
+                    
+                    if (!hasFired) {
+                        try {
+                            for (const action of trigger.actions) {
+                                await WorkflowEngine.executeAction(action, lead, trigger, companyId, false);
+                            }
+                            await AutomationLog.create({
+                                ruleType: 'TimeBasedTrigger',
+                                ruleId: trigger._id,
+                                targetEntityId: lead._id,
+                                targetModule: 'leads',
+                                status: 'success',
+                                idempotencyKey,
+                                companyId
+                            });
+                            executedCount++;
+                        } catch (err) {
+                            console.error(`[Cron Worker] Failed to execute time-based trigger for Lead ${lead._id}:`, err);
+                        }
+                    }
+                }
+            } else if (trigger.event === 'deal_inactivity') {
+                const inactiveDealsCursor = Deal.find({
+                    stage: { $nin: ['Closed Won', 'Closed Lost', 'Lost', 'Won'] },
+                    lastActivityAt: { $lt: cutoffDate },
+                    companyId: companyId
+                }).cursor();
+
+                for await (const deal of inactiveDealsCursor) {
+                    const idempotencyKey = `time-trigger-${trigger._id}-${deal._id}`;
+                    const hasFired = await AutomationLog.exists({ idempotencyKey });
+                    
+                    if (!hasFired) {
+                        try {
+                            for (const action of trigger.actions) {
+                                await WorkflowEngine.executeAction(action, deal, trigger, companyId, false);
+                            }
+                            await AutomationLog.create({
+                                ruleType: 'TimeBasedTrigger',
+                                ruleId: trigger._id,
+                                targetEntityId: deal._id,
+                                targetModule: 'deals',
+                                status: 'success',
+                                idempotencyKey,
+                                companyId
+                            });
+                            executedCount++;
+                        } catch (err) {
+                            console.error(`[Cron Worker] Failed to execute time-based trigger for Deal ${deal._id}:`, err);
+                        }
+                    }
+                }
+            } else if (trigger.event === 'activity_overdue') {
+                const overdueActivitiesCursor = Activity.find({
+                    status: { $regex: /pending|open|scheduled/i },
+                    dueDate: { $lt: cutoffDate },
+                    companyId: companyId
+                }).cursor();
+
+                for await (const activity of overdueActivitiesCursor) {
+                    const idempotencyKey = `time-trigger-${trigger._id}-${activity._id}`;
+                    const hasFired = await AutomationLog.exists({ idempotencyKey });
+                    
+                    if (!hasFired) {
+                        try {
+                            for (const action of trigger.actions) {
+                                await WorkflowEngine.executeAction(action, activity, trigger, companyId, false);
+                            }
+                            await AutomationLog.create({
+                                ruleType: 'TimeBasedTrigger',
+                                ruleId: trigger._id,
+                                targetEntityId: activity._id,
+                                targetModule: 'activities',
+                                status: 'success',
+                                idempotencyKey,
+                                companyId
+                            });
+                            executedCount++;
+                        } catch (err) {
+                            console.error(`[Cron Worker] Failed to execute time-based trigger for Activity ${activity._id}:`, err);
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log(`[Cron Worker] Evaluated Time-Based Triggers. Fired actions for ${executedCount} entities.`);
+        return { executedCount };
+    }
 
 }, workerOptions);
 

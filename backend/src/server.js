@@ -68,6 +68,7 @@ async function startServer() {
     try {
         cronQueue.add('dailyInactivityCheck', {}, { repeat: { pattern: '0 2 * * *' } }).catch(() => {});
         cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
+        cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
         googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
     } catch (queueErr) {}
 
