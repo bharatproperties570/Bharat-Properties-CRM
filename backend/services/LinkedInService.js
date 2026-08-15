@@ -37,8 +37,8 @@ class LinkedInService {
         const cleanRedirectUri = redirectUri.trim();
 
         // 🌟 Enterprise Smart Scope Resolution:
-        // Universal fallback scopes (compatible with 100% of LinkedIn Developer Apps regardless of OIDC tier)
-        let scopeList = ['w_member_social', 'r_liteprofile', 'r_emailaddress'];
+        // Standard OpenID Connect & Member Social scopes for active LinkedIn Apps
+        let scopeList = ['openid', 'profile', 'email', 'w_member_social'];
 
         // If customScopes specified by user, use custom scopes
         if (customScopes && typeof customScopes === 'string' && customScopes.trim()) {
