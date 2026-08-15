@@ -64,12 +64,15 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
             if (res && res.data && res.data.value) {
                 const loadedConfig = res.data.value;
                 setConfig(prev => ({ 
-                    ...prev, 
                     ...loadedConfig, 
                     token: loadedConfig.token || loadedConfig.apiKey || '',
-                    redirectUri: type === 'linkedin' ? `${window.location.origin}/api/marketing/linkedin/callback` : loadedConfig.redirectUri
+                    redirectUri: type === 'linkedin' ? `https://api.bharatproperties.co/api/marketing/linkedin/callback` : loadedConfig.redirectUri
                 }));
-                setLastKnownStatus(type === 'linkedin' && connectionData?.health === 'EXPIRED' ? 'Expired' : 'Connected');
+                if (type === 'linkedin') {
+                    setLastKnownStatus(connectionData?.connected ? 'Connected' : (connectionData?.health === 'EXPIRED' ? 'Expired' : 'Disconnected'));
+                } else {
+                    setLastKnownStatus('Connected');
+                }
             }
         } catch (err) {
             console.error(`Failed to load ${type} config`, err);
