@@ -942,8 +942,8 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 <div className="card-input-group">
                                     <label>Redirect URI (Standardized)</label>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input type="text" readOnly value={config.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'not-allowed' }} />
-                                        <button onClick={() => { navigator.clipboard.writeText(config.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback`); toast.success('Copied!'); }} style={{ padding: '0 12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
+                                        <input type="text" readOnly value={config.redirectUri || (window.location.hostname.includes('localhost') ? 'http://localhost:4000/api/marketing/linkedin/callback' : 'https://api.bharatproperties.co/api/marketing/linkedin/callback')} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'not-allowed' }} />
+                                        <button onClick={() => { navigator.clipboard.writeText(config.redirectUri || (window.location.hostname.includes('localhost') ? 'http://localhost:4000/api/marketing/linkedin/callback' : 'https://api.bharatproperties.co/api/marketing/linkedin/callback')); toast.success('Copied!'); }} style={{ padding: '0 12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
                                     </div>
                                 </div>
                                 <div className="card-input-group">
