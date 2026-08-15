@@ -1138,6 +1138,14 @@ export const addActivity = async (req, res) => {
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
             await WorkflowEngine.fireEvent('activities', 'activity_created', activity, activity.companyId);
+            
+            // Communication Triggers
+            if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
+                await WorkflowEngine.fireEvent('communication', 'call_logged', activity, activity.companyId);
+                if (activity.details?.callOutcome || activity.completionResult) {
+                    await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', activity, activity.companyId);
+                }
+            }
         } catch (weError) {
             console.error('[WorkflowEngine] Error firing activity_created:', weError.message);
         }
@@ -1160,9 +1168,10 @@ export const updateActivity = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+        const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
-            const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).select('assignedTo subject type').lean();
             if (existingAct && String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
                 await createNotification(
                     updateData.assignedTo,
@@ -1213,8 +1222,18 @@ export const updateActivity = async (req, res) => {
             if (activity.status?.toLowerCase() === 'completed') {
                 await WorkflowEngine.fireEvent('activities', 'activity_completed', activity, activity.companyId);
             }
+            
+            // Communication Triggers
+            if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
+                if (activity.details?.callOutcome || activity.completionResult) {
+                    // Check if outcome actually changed
+                    if (existingAct && (existingAct.details?.callOutcome !== activity.details?.callOutcome || existingAct.completionResult !== activity.completionResult)) {
+                        await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', activity, activity.companyId);
+                    }
+                }
+            }
         } catch (weError) {
-            console.error('[WorkflowEngine] Error firing activity_completed:', weError.message);
+            console.error('[WorkflowEngine] Error firing activity triggers:', weError.message);
         }
 
         res.json({ success: true, data: activity, transition });

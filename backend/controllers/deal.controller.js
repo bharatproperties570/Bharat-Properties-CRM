@@ -14,7 +14,7 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 import { createNotification } from "./notification.controller.js";
 import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
 import { safeRedisCall } from "../src/config/redis.js";
-
+import WorkflowEngine from "../src/utils/WorkflowEngine.js";
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
 
@@ -2023,6 +2023,21 @@ export const addDeal = async (req, res) => {
             }, 100);
         }
 
+        // Trigger Workflow Engine
+        try {
+            await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
+            
+            // If Deal is linked to Inventory on creation, fire inventory hook
+            if (deal.inventoryId) {
+                const linkedInv = await Inventory.findById(deal.inventoryId).lean();
+                if (linkedInv) {
+                    await WorkflowEngine.fireEvent('inventory', 'inventory_linked_to_deal', linkedInv, linkedInv.companyId);
+                }
+            }
+        } catch (weErr) {
+            console.error('[WorkflowEngine] Trigger failed:', weErr.message);
+        }
+
         res.status(201).json({ success: true, data: deal });
     } catch (error) {
         console.error("[ADD_DEAL_ERROR]", error);
@@ -2303,6 +2318,14 @@ export const updateDeal = async (req, res) => {
             } catch (smsError) {
                 console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
             }
+        }
+        // Trigger Workflow Engine for Stage Change
+        try {
+            if (sanitizedData.stage && existing && sanitizedData.stage !== existing.stage) {
+                await WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId);
+            }
+        } catch (weErr) {
+            console.error('[WorkflowEngine] deal_stage_changed trigger failed:', weErr.message);
         }
 
         res.json({ success: true, data: deal, deal: deal });

@@ -18,6 +18,7 @@ import { paginate } from "../utils/pagination.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { normalizePhone } from "../utils/normalization.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
+import WorkflowEngine from "../src/utils/WorkflowEngine.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
 import { createNotification } from "./notification.controller.js";
@@ -1488,6 +1489,15 @@ export const updateInventory = async (req, res) => {
         if (!inventory) {
             console.warn(`[DEBUG] Inventory not found: ${req.params.id}`);
             return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        // Trigger Workflow Engine for Status Change
+        try {
+            if (data.status && currentInv && String(data.status) !== String(currentInv.status)) {
+                await WorkflowEngine.fireEvent('inventory', 'inventory_status_changed', inventory, inventory.companyId);
+            }
+        } catch (weErr) {
+            console.error('[WorkflowEngine] inventory_status_changed trigger failed:', weErr.message);
         }
 
         console.log(`[DEBUG] updateInventory SUCCESS for ID: ${req.params.id}`);

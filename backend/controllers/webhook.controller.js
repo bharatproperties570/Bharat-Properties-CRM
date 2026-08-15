@@ -380,6 +380,14 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 
                 await conversation.save();
 
+                // Trigger Workflow Engine
+                try {
+                    const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
+                    const companyId = lead?.companyId || contact?.companyId || null;
+                    await WorkflowEngine.fireEvent('communication', 'message_received', conversation, companyId);
+                } catch (weErr) {
+                    console.error('[WorkflowEngine] message_received trigger failed:', weErr.message);
+                }
                 const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
                 const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
                 
