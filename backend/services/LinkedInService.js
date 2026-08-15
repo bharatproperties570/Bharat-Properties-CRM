@@ -102,14 +102,14 @@ class LinkedInService {
 
         console.log('[LinkedInService] Exchanging code for token...', { clientId, redirectUri });
 
-        const response = await axios.post(this.tokenUrl, null, {
-            params: {
-                grant_type: 'authorization_code',
-                code,
-                client_id: clientId,
-                client_secret: clientSecret,
-                redirect_uri: redirectUri
-            },
+        const bodyParams = new URLSearchParams();
+        bodyParams.append('grant_type', 'authorization_code');
+        bodyParams.append('code', code);
+        bodyParams.append('client_id', clientId);
+        bodyParams.append('client_secret', clientSecret);
+        bodyParams.append('redirect_uri', redirectUri);
+
+        const response = await axios.post(this.tokenUrl, bodyParams.toString(), {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
@@ -162,13 +162,13 @@ class LinkedInService {
         console.log('[LinkedInService] Refreshing access token...');
         
         try {
-            const response = await axios.post(this.tokenUrl, null, {
-                params: {
-                    grant_type: 'refresh_token',
-                    refresh_token: refreshToken,
-                    client_id: clientId,
-                    client_secret: clientSecret
-                },
+            const bodyParams = new URLSearchParams();
+            bodyParams.append('grant_type', 'refresh_token');
+            bodyParams.append('refresh_token', refreshToken);
+            bodyParams.append('client_id', clientId);
+            bodyParams.append('client_secret', clientSecret);
+
+            const response = await axios.post(this.tokenUrl, bodyParams.toString(), {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }

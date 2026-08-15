@@ -21,7 +21,8 @@ export const getLinkedInAuthUrl = async (req, res) => {
 export const handleLinkedInCallback = async (req, res) => {
     try {
         const { code } = req.query;
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
+        const rawFrontend = process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+        const frontendUrl = rawFrontend.includes('localhost') ? 'https://crm.bharatproperties.co' : rawFrontend;
 
         if (!code) {
             const errorParam = req.query.error;
@@ -57,7 +58,8 @@ export const handleLinkedInCallback = async (req, res) => {
         fs.appendFileSync(logPath, errorMessage);
 
         console.error('[LinkedInCallback] Error:', error.message);
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
+        const rawFrontend = process.env.FRONTEND_URL || 'https://crm.bharatproperties.co';
+        const frontendUrl = rawFrontend.includes('localhost') ? 'https://crm.bharatproperties.co' : rawFrontend;
         res.redirect(`${frontendUrl}/settings?tab=integrations&error=${encodeURIComponent(error.message)}`);
     }
 };
