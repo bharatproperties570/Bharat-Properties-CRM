@@ -3,7 +3,7 @@ import { authenticate } from '../src/middlewares/auth.middleware.js';
 import {
     getTriggers, createTrigger, updateTrigger, deleteTrigger,
     getSequences, createSequence,
-    getAutomatedActions, createAutomatedAction
+    getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction
 } from '../controllers/automation.controller.js';
 
 const router = express.Router();
@@ -24,5 +24,7 @@ router.post('/sequences', createSequence);
 // --- Automated Actions ---
 router.get('/actions', getAutomatedActions);
 router.post('/actions', createAutomatedAction);
+router.put('/actions/:id', updateAutomatedAction);
+router.delete('/actions/:id', deleteAutomatedAction);
 
 export default router;

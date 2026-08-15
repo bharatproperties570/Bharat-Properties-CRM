@@ -146,13 +146,31 @@ export const AutomatedActionsProvider = ({ children }) => {
         }
     }, []);
 
-    const toggleAction = useCallback((id) => {
-        setActions(prev => prev.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a));
-    }, []);
+    const toggleAction = useCallback(async (id) => {
+        try {
+            const actionToUpdate = actions.find(a => a.id === id || a._id === id);
+            if (!actionToUpdate) return;
+            const updated = await automationAPI.updateAutomatedAction(actionToUpdate._id || actionToUpdate.id, { isActive: !actionToUpdate.isActive });
+            setActions(prev => prev.map(a => (a.id === id || a._id === id) ? updated : a));
+            toast.success(`Action ${updated.isActive ? 'activated' : 'deactivated'}`);
+        } catch (error) {
+            console.error("Failed to toggle action:", error);
+            toast.error("Failed to update action status");
+        }
+    }, [actions]);
 
-    const deleteAction = useCallback((id) => {
-        setActions(prev => prev.filter(a => a.id !== id));
-    }, []);
+    const deleteAction = useCallback(async (id) => {
+        try {
+            const actionToDelete = actions.find(a => a.id === id || a._id === id);
+            if (!actionToDelete) return;
+            await automationAPI.deleteAutomatedAction(actionToDelete._id || actionToDelete.id);
+            setActions(prev => prev.filter(a => (a.id !== id && a._id !== id)));
+            toast.success("Automated action deleted successfully");
+        } catch (error) {
+            console.error("Failed to delete action:", error);
+            toast.error("Failed to delete action");
+        }
+    }, [actions]);
 
     const value = {
         actions,

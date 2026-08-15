@@ -61,11 +61,11 @@ const AutomatedActionsSettingsPage = () => {
                 {activeTab === 'list' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {actions.map(action => (
-                            <div key={action.id} style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                            <div key={action._id || action.id} style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                         <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{action.name}</h4>
-                                        <span style={{ fontSize: '0.65rem', background: 'var(--bg-light)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 700 }}>{action.id}</span>
+                                        <span style={{ fontSize: '0.65rem', background: 'var(--bg-light)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 700 }}>{action._id || action.id}</span>
                                     </div>
                                     <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
@@ -75,7 +75,7 @@ const AutomatedActionsSettingsPage = () => {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <div
-                                        onClick={() => toggleAction(action.id)}
+                                        onClick={() => toggleAction(action._id || action.id)}
                                         style={{
                                             width: '36px',
                                             height: '20px',
@@ -89,7 +89,7 @@ const AutomatedActionsSettingsPage = () => {
                                         <div style={{ width: '16px', height: '16px', background: 'var(--bg-card)', borderRadius: '50%', position: 'absolute', right: action.isActive ? '2px' : 'auto', left: action.isActive ? 'auto' : '2px', transition: '0.2s' }}></div>
                                     </div>
                                     <button onClick={() => handleEdit(action)} style={{ background: 'none', border: '1px solid var(--border-color)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-edit"></i></button>
-                                    <button onClick={() => deleteAction(action.id)} style={{ background: 'none', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash"></i></button>
+                                    <button onClick={() => deleteAction(action._id || action.id)} style={{ background: 'none', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash"></i></button>
                                 </div>
                             </div>
                         ))}

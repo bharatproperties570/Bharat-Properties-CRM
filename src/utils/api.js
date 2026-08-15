@@ -189,6 +189,8 @@ export const automationAPI = {
 
     getAutomatedActions: () => api.get('/automations/actions').then(res => res.data),
     createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),
+    updateAutomatedAction: (id, data) => api.put(`/automations/actions/${id}`, data).then(res => res.data),
+    deleteAutomatedAction: (id) => api.delete(`/automations/actions/${id}`).then(res => res.data),
 };
 
 

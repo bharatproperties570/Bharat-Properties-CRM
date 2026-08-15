@@ -1134,6 +1134,13 @@ export const addActivity = async (req, res) => {
 
         // Sync to Google Calendar
         googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
+        try {
+            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
+            await WorkflowEngine.fireEvent('activities', 'activity_created', activity, activity.companyId);
+        } catch (weError) {
+            console.error('[WorkflowEngine] Error firing activity_created:', weError.message);
+        }
 
         res.status(201).json({ success: true, data: activity, transition });
     } catch (error) {
@@ -1200,6 +1207,15 @@ export const updateActivity = async (req, res) => {
 
         // Sync to Google Calendar
         googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
+        try {
+            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
+            if (activity.status?.toLowerCase() === 'completed') {
+                await WorkflowEngine.fireEvent('activities', 'activity_completed', activity, activity.companyId);
+            }
+        } catch (weError) {
+            console.error('[WorkflowEngine] Error firing activity_completed:', weError.message);
+        }
 
         res.json({ success: true, data: activity, transition });
     } catch (error) {

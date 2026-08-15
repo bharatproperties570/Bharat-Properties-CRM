@@ -966,6 +966,14 @@ export const addLead = async (req, res, next) => {
             ).catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
         }
 
+        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
+        try {
+            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
+            await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
+        } catch (weError) {
+            console.error('[WorkflowEngine] Error firing lead_created:', weError.message);
+        }
+
         res.status(201).json({ success: true, data: lead, assignedAgent });
     } catch (error) {
         console.error("[ERROR] addLead failed:", error);
@@ -1272,6 +1280,23 @@ export const updateLead = async (req, res, next) => {
                 ).catch(e => console.error('[SMS Trigger Error] Stage change failed:', e.message));
             }
         }
+
+        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
+        try {
+            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
+            if (updateData.stage) {
+                await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', finalLead, finalLead.companyId);
+            }
+            if (updateData.status) {
+                await WorkflowEngine.fireEvent('leads', 'lead_status_changed', finalLead, finalLead.companyId);
+            }
+            if (updateData.score) {
+                await WorkflowEngine.fireEvent('leads', 'lead_score_changed', finalLead, finalLead.companyId);
+            }
+        } catch (weError) {
+            console.error('[WorkflowEngine] Error firing update events:', weError.message);
+        }
+
         res.json({ success: true, data: finalLead });
     } catch (error) {
         next(error);
