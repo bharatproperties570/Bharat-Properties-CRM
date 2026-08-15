@@ -976,6 +976,34 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                     </div>
 
+                    {/* LinkedIn OAuth CTA Block */}
+                    {type === 'linkedin' && (
+                        <div style={{ marginTop: '20px', padding: '20px', borderRadius: '16px', background: 'rgba(0, 119, 181, 0.05)', border: '1px solid rgba(0, 119, 181, 0.2)' }}>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        const res = await marketingAPI.getLinkedInAuthUrl();
+                                        if (res.success && res.url) {
+                                            window.location.href = res.url;
+                                        } else {
+                                            toast.error('Failed to get LinkedIn Auth URL');
+                                        }
+                                    } catch (err) {
+                                        toast.error('Connection Error: ' + err.message);
+                                    }
+                                }}
+                                style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(0, 119, 181, 0.3)' }}
+                            >
+                                <i className="fab fa-linkedin"></i> {connectionData?.status === 'connected' ? 'Re-Authorize LinkedIn' : (connectionData?.health === 'EXPIRED' ? 'Reconnect LinkedIn' : 'Connect LinkedIn via OAuth')}
+                            </button>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', margin: '10px 0 0' }}>
+                                {connectionData?.status === 'connected' 
+                                    ? 'Click above to refresh your active OAuth authorization session.' 
+                                    : 'Click above after saving configuration to authorize access.'}
+                            </p>
+                        </div>
+                    )}
+
                     {/* Modal Footer: Action Buttons */}
                     <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                         <button
@@ -1034,107 +1062,6 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         input:checked + .slider { background-color: var(--primary-color); }
                         input:checked + .slider:before { transform: translateX(22px); }
                     `}</style>
-
-
-                        {type === 'linkedin' && connectionData?.status === 'connected' && (
-                            <div style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-light)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Connection Health</span>
-                                    <span style={{ fontSize: '0.7rem', color: connectionData?.health === 'EXPIRED' ? '#f59e0b' : '#10b981', fontWeight: 800 }}>
-                                        {connectionData?.health === 'EXPIRED' ? 'EXPIRED (NEEDS RE-AUTH)' : 'EXCELLENT'}
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span>Token Refresh:</span>
-                                        <strong>Every 60 Days (Auto)</strong>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span>Permanent Auth:</span>
-                                        <strong>Active (Permanent)</strong>
-                                    </div>
-                                    {connectionData.expiresAt && (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', borderTop: '1px dashed var(--border-color)', paddingTop: '4px' }}>
-                                            <span>Session Expiry:</span>
-                                            <span>{new Date(connectionData.expiresAt).toLocaleDateString()}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {type === 'linkedin' && connectionData?.status === 'connected' && (
-                            <div style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#1e40af' }}>Lead Generation</h4>
-                                    <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#3b82f6' }}>Automated Lead Sync is <strong>Active</strong></p>
-                                </div>
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            toast.info('Syncing leads from LinkedIn...');
-                                            const res = await marketingAPI.triggerLinkedInSync();
-                                            if (res.success) {
-                                                toast.success(`Sync Complete: ${res.syncedCount} leads imported.`);
-                                            }
-                                        } catch (err) {
-                                            toast.error('Sync Failed: ' + err.message);
-                                        }
-                                    }}
-                                    style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#ffffff', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)' }}
-                                >
-                                    <i className="fas fa-sync-alt"></i> Sync Now
-                                </button>
-                            </div>
-                        )}
-
-                        {type === 'linkedin' && (
-                            <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            const res = await marketingAPI.getLinkedInAuthUrl();
-                                            if (res.success && res.url) {
-                                                window.location.href = res.url;
-                                            } else {
-                                                toast.error('Failed to get LinkedIn Auth URL');
-                                            }
-                                        } catch (err) {
-                                            toast.error('Connection Error: ' + err.message);
-                                        }
-                                    }}
-                                    style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '15px' }}
-                                >
-                                    <i className="fab fa-linkedin"></i> {connectionData?.status === 'connected' ? 'Re-Authorize LinkedIn' : (connectionData?.health === 'EXPIRED' ? 'Reconnect LinkedIn' : 'Connect LinkedIn via OAuth')}
-                                </button>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                                    {connectionData?.status === 'connected' 
-                                        ? 'Step 2: Re-Authorize to refresh your active permanent session.' 
-                                        : 'Step 2: Connect to LinkedIn via OAuth after saving credentials.'}
-                                </p>
-                            </div>
-                        )}
-
-                        <div style={{ marginTop: 'auto', paddingTop: '30px', display: 'flex', gap: '16px' }}>
-                            {['twilio', 'openai', 'gemini', 'claude', 'facebook', 'instagram', 'whatsapp'].includes(type) && (
-                                <button
-                                    onClick={handleTest}
-                                    disabled={testing}
-                                    style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 800, cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                                >
-                                    {testing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-flask"></i>}
-                                    {type === 'twilio' ? 'Test SMS' : (['facebook', 'instagram', 'whatsapp'].includes(type) ? 'Test Connection' : 'Test AI')}
-                                </button>
-                            )}
-                            <button
-                                onClick={handleSave}
-                                disabled={isSaving}
-                                style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: 'var(--primary-color)', color: '#ffffff', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                            >
-                                {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
-                                {type === 'linkedin' ? 'Step 1: Save Configuration' : 'Save & Validate Gateway'}
-                            </button>
-                        </div>
                 </div>
             </div>
         </div>
