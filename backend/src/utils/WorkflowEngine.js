@@ -153,15 +153,70 @@ export class WorkflowEngine {
                 return; // Automated action logic executed successfully
             }
 
-            if (action.type === 'send_communication' && action.channel === 'whatsapp') {
-                // Here we would dispatch to the WhatsApp API
-                console.log(`[WorkflowEngine] Sending WhatsApp Template '${action.templateId}' to ${entityData.mobile}`);
-                // await WhatsAppService.sendTemplate(entityData.mobile, action.templateId, ...);
-            } else if (action.type === 'start_sequence') {
-                console.log(`[WorkflowEngine] Enrolling entity ${entityData._id} into Sequence ${action.sequenceId}`);
-                // Add entity to Sequence tracking collection
+            // ─── Native Raw Trigger Actions ───
+            if (action.type === 'send_communication') {
+                if (!entityData.mobile) {
+                    console.log(`[WorkflowEngine] Skipping send_communication (Raw): No mobile number for entity ${entityData._id || entityData.id}`);
+                } else {
+                    const VariableResolver = (await import('./VariableResolver.js')).default;
+                    if (action.channel === 'whatsapp') {
+                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
+                        // Assuming action.templateId holds the template text for raw triggers from UI
+                        const resolvedTemplate = VariableResolver.resolve(action.templateId || '', entityData);
+                        console.log(`[WorkflowEngine] Sending WhatsApp (Raw) to ${entityData.mobile}`);
+                        await WhatsAppService.sendMessage(entityData.mobile, resolvedTemplate);
+                    } else if (action.channel === 'sms') {
+                        const resolvedSms = VariableResolver.resolve(action.templateId || '', entityData);
+                        console.log(`[WorkflowEngine] Sending SMS (Raw) to ${entityData.mobile}`);
+                        // Example dispatch if smsService is available:
+                        // const smsService = (await import('../../modules/sms/sms.service.js')).default;
+                        // await smsService.sendSMS(entityData.mobile, resolvedSms);
+                    }
+                }
+            } else if (action.type === 'start_sequence' && action.sequenceId) {
+                console.log(`[WorkflowEngine] Enrolling entity ${entityData._id || entityData.id} into Sequence ${action.sequenceId}`);
+                try {
+                    const mod = await import('../../src/queues/marketingQueue.js');
+                    const marketingQueue = mod.marketingQueue;
+                    if (marketingQueue) {
+                        await marketingQueue.add('drip', { 
+                            leadId: entityData._id || entityData.id, 
+                            sequenceId: action.sequenceId, 
+                            step: 1 
+                        }, { delay: 0 });
+                    }
+                } catch (qErr) {
+                    console.error('[WorkflowEngine] Failed to enqueue sequence:', qErr.message);
+                }
+            } else if (action.type === 'send_notification' && action.message) {
+                console.log(`[WorkflowEngine] Sending Internal Notification (Raw) to ${action.target}`);
+                try {
+                    const { createNotification } = await import('../../controllers/notification.controller.js');
+                    // Resolve target user (defaulting to entity owner/assignedTo)
+                    const targetUserId = entityData.owner || entityData.assignedTo;
+                    if (targetUserId) {
+                        await createNotification(
+                            targetUserId,
+                            'system',
+                            'Automated Trigger Alert',
+                            action.message,
+                            `/${trigger.module}/${entityData._id || entityData.id}`,
+                            { source: 'WorkflowEngine' }
+                        );
+                    } else {
+                        console.log(`[WorkflowEngine] Skipping send_notification (Raw): No owner/assignedTo found on entity`);
+                    }
+                } catch (nErr) {
+                    console.error('[WorkflowEngine] Failed to send notification:', nErr.message);
+                }
+            } else if (action.type === 'update_field' && action.field && action.value) {
+                console.log(`[WorkflowEngine] Updating field (Raw) for ${trigger.module} ID ${entityData._id || entityData.id}: ${action.field} = ${action.value}`);
+                const mongoose = (await import('mongoose')).default;
+                const modelMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity', inventory: 'Inventory', communication: 'Communication', post_sale: 'PostSale', campaigns: 'Campaign' };
+                const modelName = modelMap[trigger.module] || trigger.module;
+                const Model = mongoose.model(modelName);
+                await Model.updateOne({ _id: entityData._id || entityData.id }, { $set: { [action.field]: action.value } });
             }
-            // Add other action types as needed
             
             await AutomationLog.create({
                 ruleType: 'Trigger',
