@@ -10,7 +10,8 @@ export default defineConfig(({ mode }) => {
         resolve: {
             alias: {
                 'react-native': 'react-native-web',
-            }
+            },
+            dedupe: ['react', 'react-dom']
         },
         define: {
             // This ensures process.env is available for both Vite and Metro

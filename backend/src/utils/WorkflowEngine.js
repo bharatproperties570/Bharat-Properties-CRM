@@ -155,22 +155,55 @@ export class WorkflowEngine {
 
             // ─── Native Raw Trigger Actions ───
             if (action.type === 'send_communication') {
-                if (!entityData.mobile) {
-                    console.log(`[WorkflowEngine] Skipping send_communication (Raw): No mobile number for entity ${entityData._id || entityData.id}`);
+                let recipientMobile = entityData.mobile || entityData.primaryPhone || null;
+                if (!recipientMobile && entityData.entityId) {
+                    try {
+                        const mongoose = (await import('mongoose')).default;
+                        const Lead = mongoose.model('Lead');
+                        const leadDoc = await Lead.findById(entityData.entityId).select('mobile primaryPhone').lean();
+                        if (leadDoc) {
+                            recipientMobile = leadDoc.primaryPhone || leadDoc.mobile;
+                        }
+                    } catch (lErr) {
+                        console.error('[WorkflowEngine] Failed to resolve Lead mobile:', lErr.message);
+                    }
+                }
+
+                if (!recipientMobile) {
+                    console.log(`[WorkflowEngine] Skipping send_communication (Raw): No mobile number found for entity ${entityData._id || entityData.id}`);
                 } else {
                     const VariableResolver = (await import('./VariableResolver.js')).default;
                     if (action.channel === 'whatsapp') {
-                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
-                        // Assuming action.templateId holds the template text for raw triggers from UI
-                        const resolvedTemplate = VariableResolver.resolve(action.templateId || '', entityData);
-                        console.log(`[WorkflowEngine] Sending WhatsApp (Raw) to ${entityData.mobile}`);
-                        await WhatsAppService.sendMessage(entityData.mobile, resolvedTemplate);
+                        const { sendWhatsAppMessage } = await import('../../controllers/social.controller.js');
+                        const resolvedTemplate = VariableResolver.resolve(action.templateId || action.message || '', entityData);
+                        console.log(`[WorkflowEngine] Sending WhatsApp to ${recipientMobile} | Template: ${action.templateId || 'text'}`);
+
+                        // 🚀 ENTERPRISE: Build templateComponents with named parameters for Meta API
+                        let templateComponents = [];
+                        if (action.templateId) {
+                            try {
+                                templateComponents = await this._buildTemplateComponents(entityData, trigger.module, companyId);
+                                console.log(`[WorkflowEngine] Built ${templateComponents.length} template components for ${trigger.module}`);
+                            } catch (tcErr) {
+                                console.error('[WorkflowEngine] Failed to build template components:', tcErr.message);
+                            }
+                        }
+
+                        const mockReq = {
+                            user: { companyId },
+                            body: {
+                                mobile: recipientMobile,
+                                message: resolvedTemplate,
+                                type: action.templateId ? 'template' : 'text',
+                                templateId: action.templateId,
+                                templateComponents: templateComponents.length > 0 ? templateComponents : undefined
+                            }
+                        };
+                        const mockRes = { status: () => mockRes, json: () => mockRes };
+                        await sendWhatsAppMessage(mockReq, mockRes, () => {}).catch(e => console.error('[WorkflowEngine] Meta API err:', e.message));
                     } else if (action.channel === 'sms') {
                         const resolvedSms = VariableResolver.resolve(action.templateId || '', entityData);
-                        console.log(`[WorkflowEngine] Sending SMS (Raw) to ${entityData.mobile}`);
-                        // Example dispatch if smsService is available:
-                        // const smsService = (await import('../../modules/sms/sms.service.js')).default;
-                        // await smsService.sendSMS(entityData.mobile, resolvedSms);
+                        console.log(`[WorkflowEngine] Sending SMS (Raw) to ${recipientMobile}`);
                     }
                 }
             } else if (action.type === 'start_sequence' && action.sequenceId) {
@@ -238,6 +271,135 @@ export class WorkflowEngine {
                 companyId
             });
         }
+    }
+
+    /**
+     * 🚀 ENTERPRISE: Build comprehensive templateComponents from entity data.
+     * Maps CRM fields to Meta-approved template variables so that WhatsApp
+     * templates receive real, dynamic data instead of empty placeholders.
+     * Also generates JWT tokens for CTA button URLs (public form pre-fill).
+     */
+    static async _buildTemplateComponents(entityData, moduleName, companyId) {
+        const mongoose = (await import('mongoose')).default;
+        const LeadTokenGenerator = (await import('./LeadTokenGenerator.js')).default;
+
+        // ─── Helper: Format Mixed/Array fields to comma-separated strings ───
+        const formatField = (val) => {
+            if (!val) return '';
+            if (Array.isArray(val)) {
+                return val.map(v => {
+                    if (typeof v === 'object' && v !== null) return v.name || v.label || String(v);
+                    return String(v);
+                }).filter(Boolean).join(', ');
+            }
+            if (typeof val === 'object' && val !== null) return val.name || val.label || String(val);
+            return String(val);
+        };
+
+        // ─── Helper: Format budget to human-readable Indian notation ───
+        const formatBudget = (entity) => {
+            if (entity.budget && typeof entity.budget === 'string') return entity.budget;
+            if (entity.budget && typeof entity.budget === 'object') return entity.budget.name || entity.budget.label || '';
+            const val = Number(entity.budgetMax || entity.budgetMin || 0);
+            if (!val) return '';
+            if (val >= 10000000) return `${(val / 10000000).toFixed(2)} Cr.`;
+            if (val >= 100000) return `${(val / 100000).toFixed(2)} Lac`;
+            return String(val);
+        };
+
+        // ─── Resolve assigned agent (User) details ───
+        let agentName = 'Bharat Properties';
+        let agentMobile = '';
+        let agentEmail = '';
+        const assignedToId = entityData.assignment?.assignedTo || entityData.assignedTo || entityData.createdBy;
+        if (assignedToId) {
+            try {
+                const User = mongoose.model('User');
+                const agent = await User.findById(assignedToId).select('name fullName mobile phone email').lean();
+                if (agent) {
+                    agentName = agent.fullName || agent.name || 'Bharat Properties';
+                    agentMobile = agent.mobile || agent.phone || '';
+                    agentEmail = agent.email || '';
+                }
+            } catch (e) {
+                console.error('[WorkflowEngine] Failed to resolve agent:', e.message);
+            }
+        }
+
+        // ─── Build full name ───
+        const fullName = [entityData.firstName, entityData.lastName].filter(Boolean).join(' ')
+            || entityData.fullName || entityData.name || 'Valued Customer';
+
+        // ─── Build location string ───
+        const locationParts = [
+            formatField(entityData.location),
+            entityData.sector,
+            entityData.locArea,
+            entityData.locCity
+        ].filter(Boolean);
+        const locationStr = locationParts.join(', ');
+
+        // ─── Generate JWT token for CTA button URLs ───
+        let leadToken = '';
+        if (moduleName === 'leads' && (entityData._id || entityData.id)) {
+            leadToken = LeadTokenGenerator.generate(entityData._id || entityData.id);
+        }
+
+        // ─── Comprehensive Variable Map (covers ALL Settings > Messaging > Variables) ───
+        const variableMap = {
+            // Customer / Lead Data
+            'lead_name': fullName,
+            'full_name': fullName,
+            'first_name': entityData.firstName || fullName.split(' ')[0] || '',
+            'last_name': entityData.lastName || '',
+            'mobile': entityData.mobile || '',
+            'email': entityData.email || '',
+            'lead_source': formatField(entityData.source),
+            'lead_status': formatField(entityData.status),
+            'lead_stage': formatField(entityData.stage),
+            'lead_requirement': formatField(entityData.requirement),
+
+            // Property Requirement
+            'size': formatField(entityData.sizeType),
+            'property_size': formatField(entityData.sizeType),
+            'sub_category': formatField(entityData.subType),
+            'property_subcategory': formatField(entityData.subType),
+            'location': locationStr,
+            'preferred_area': formatField(entityData.location) || entityData.locArea || entityData.sector || '',
+            'preferred_city': entityData.locCity || '',
+            'budget': formatBudget(entityData),
+            'budget_max': formatBudget(entityData),
+            'budget_min': entityData.budgetMin ? String(entityData.budgetMin) : '',
+
+            // Agent / Employee Data
+            'employee_name': agentName,
+            'employee_mobile': agentMobile,
+            'agent_name': agentName,
+            'agent_mobile': agentMobile,
+            'agent_email': agentEmail,
+
+            // Feedback-style Aliases
+            'OwnerName': fullName,
+            'ownername': fullName,
+            'EmployeeName': agentName,
+            'employeename': agentName,
+            'EmployeeMobile': agentMobile,
+            'employeemobile': agentMobile,
+
+            // System
+            'company_name': 'Bharat Properties',
+
+            // CTA Button URL Token (for {{1}} in Meta button URLs)
+            'lead_token': leadToken,
+            '1': leadToken,
+        };
+
+        return Object.entries(variableMap)
+            .filter(([_, val]) => val !== undefined && val !== null)
+            .map(([key, val]) => ({
+                parameter_name: key,
+                text: String(val || '')
+            }));
     }
 
     static async fireEvent(moduleName, eventName, entityData, companyId) {

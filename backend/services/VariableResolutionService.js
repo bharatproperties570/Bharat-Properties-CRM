@@ -92,7 +92,7 @@ class VariableResolutionService {
             "siteVisitToken": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return 'visit';
+                    if (!leadId) return '?ref=demo_token';
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -101,7 +101,7 @@ class VariableResolutionService {
                         unit: p.inventoryId?.unitNumber || ''
                     })) : [];
                     
-                    return jwt.sign(
+                    return '?ref=' + jwt.sign(
                         { 
                             leadId: String(leadId), 
                             source: 'wa_match_centre',
@@ -113,12 +113,12 @@ class VariableResolutionService {
                         process.env.JWT_SECRET || 'crm_secret_key',
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return 'visit'; }
+                } catch(e) { return '?ref=demo_token'; }
             })(),
             "site_visit_token": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return 'visit';
+                    if (!leadId) return '?ref=demo_token';
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -127,7 +127,7 @@ class VariableResolutionService {
                         unit: p.inventoryId?.unitNumber || ''
                     })) : [];
                     
-                    return jwt.sign(
+                    return '?ref=' + jwt.sign(
                         { 
                             leadId: String(leadId), 
                             source: 'wa_match_centre',
@@ -139,7 +139,7 @@ class VariableResolutionService {
                         process.env.JWT_SECRET || 'crm_secret_key',
                         { expiresIn: '30d' }
                     );
-                } catch(e) { return 'visit'; }
+                } catch(e) { return '?ref=demo_token'; }
             })(),
 
             // --- Activity Specific Variables ---

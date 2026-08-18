@@ -23,24 +23,44 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const getItemName = (item) => {
+        if (!item) return 'Unknown';
+        if (item.fullName && typeof item.fullName === 'string' && !item.fullName.includes('null') && !item.fullName.includes('undefined')) return item.fullName;
+        if (item.name && typeof item.name === 'string' && !item.name.includes('null') && !item.name.includes('undefined')) return item.name;
+        const combined = `${item.firstName || ''} ${item.lastName || ''}`.trim();
+        if (combined) return combined;
+        return item.mobile || item.email || 'Lead/Contact';
+    };
+
     const fetchResults = useCallback(async (term) => {
-        if (!term || term.length < 2) {
+        const trimmed = (term || '').trim();
+        if (!trimmed) {
             setSearchResults({ leads: [], contacts: [] });
+            setIsSearching(false);
             return;
         }
 
         setIsSearching(true);
         try {
             const [leadsRes, contactsRes] = await Promise.all([
-                api.get('/leads', { params: { search: term, limit: 5 } }),
-                api.get('/contacts', { params: { search: term, limit: 5 } })
+                api.get('/leads', { params: { search: trimmed, limit: 10 } }).catch(() => null),
+                api.get('/contacts', { params: { search: trimmed, limit: 10 } }).catch(() => null)
             ]);
 
+            const extractRecords = (res) => {
+                if (!res) return [];
+                const d = res.data;
+                if (Array.isArray(d)) return d;
+                if (Array.isArray(d?.data)) return d.data;
+                if (Array.isArray(d?.records)) return d.records;
+                if (Array.isArray(res?.records)) return res.records;
+                return [];
+            };
+
             setSearchResults({
-                leads: leadsRes.data?.records || leadsRes.data?.data || (Array.isArray(leadsRes.data) ? leadsRes.data : []),
-                contacts: contactsRes.data?.records || contactsRes.data?.data || (Array.isArray(contactsRes.data) ? contactsRes.data : [])
+                leads: extractRecords(leadsRes),
+                contacts: extractRecords(contactsRes)
             });
-            setShowResults(true);
         } catch (err) {
             console.error('Search failed:', err);
         } finally {
@@ -49,11 +69,11 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
     }, []);
 
     useEffect(() => {
-        if (debouncedSearch) {
+        if (debouncedSearch && debouncedSearch.trim().length > 0) {
             fetchResults(debouncedSearch);
         } else {
             setSearchResults({ leads: [], contacts: [] });
-            setShowResults(false);
+            setIsSearching(false);
         }
     }, [debouncedSearch, fetchResults]);
 
@@ -61,7 +81,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
         if (onAddRelation) {
             onAddRelation({
                 id: item._id || item.id,
-                name: item.fullName || item.name || 'Unknown',
+                name: getItemName(item),
                 model: model
             });
         }
@@ -123,8 +143,14 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                     <input
                         type="text"
                         value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        onFocus={() => searchTerm.length >= 2 && setShowResults(true)}
+                        onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            if (e.target.value.trim().length > 0) setShowResults(true);
+                        }}
+                        onFocus={() => {
+                            setShowResults(true);
+                            if (searchTerm.trim().length > 0) fetchResults(searchTerm);
+                        }}
                         placeholder="Search Lead or Contact to link..."
                         style={{
                             width: '100%',
@@ -150,65 +176,83 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                         top: '100%',
                         left: 0,
                         right: 0,
-                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+                        backgroundColor: isDark ? '#1e293b' : '#fff',
                         borderRadius: '12px',
-                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)',
                         border: '1px solid #e2e8f0',
                         marginTop: '8px',
                         zIndex: 100,
                         maxHeight: '300px',
                         overflowY: 'auto'
                     }}>
-                        {/* Leads */}
-                        {searchResults.leads.length > 0 && (
-                            <div>
-                                <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Leads</div>
-                                {searchResults.leads.map(lead => (
-                                    <div 
-                                        key={lead._id} 
-                                        onClick={() => handleSelect(lead, 'Lead')}
-                                        style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                        onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                                    >
-                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
-                                            <i className="fas fa-bullseye" style={{ fontSize: '0.8rem' }}></i>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{lead.fullName || lead.name}</div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.email || 'Lead'}</div>
-                                        </div>
-                                    </div>
-                                ))}
+                        {isSearching ? (
+                            <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <i className="fas fa-spinner fa-spin" style={{ color: '#3b82f6' }}></i> Searching leads and contacts...
                             </div>
-                        )}
-
-                        {/* Contacts */}
-                        {searchResults.contacts.length > 0 && (
-                            <div>
-                                <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Contacts</div>
-                                {searchResults.contacts.map(contact => (
-                                    <div 
-                                        key={contact._id} 
-                                        onClick={() => handleSelect(contact, 'Contact')}
-                                        style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                        onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                                    >
-                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
-                                            <i className="fas fa-user" style={{ fontSize: '0.8rem' }}></i>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{contact.name || contact.fullName}</div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{contact.mobile || contact.email || 'Contact'}</div>
-                                        </div>
+                        ) : (
+                            <>
+                                {/* Leads */}
+                                {searchResults.leads.length > 0 && (
+                                    <div>
+                                        <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Leads</div>
+                                        {searchResults.leads.map(lead => (
+                                            <div 
+                                                key={lead._id || lead.id} 
+                                                onClick={() => handleSelect(lead, 'Lead')}
+                                                style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                                onMouseOver={e => e.currentTarget.style.backgroundColor = isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'}
+                                                onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                            >
+                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                                                    <i className="fas fa-bullseye" style={{ fontSize: '0.8rem' }}></i>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{getItemName(lead)}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.email || 'Lead'}</div>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                )}
 
-                        {searchResults.leads.length === 0 && searchResults.contacts.length === 0 && (
-                            <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches found</div>
+                                {/* Contacts */}
+                                {searchResults.contacts.length > 0 && (
+                                    <div>
+                                        <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Contacts</div>
+                                        {searchResults.contacts.map(contact => (
+                                            <div 
+                                                key={contact._id || contact.id} 
+                                                onClick={() => handleSelect(contact, 'Contact')}
+                                                style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                                onMouseOver={e => e.currentTarget.style.backgroundColor = isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'}
+                                                onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                            >
+                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                                                    <i className="fas fa-user" style={{ fontSize: '0.8rem' }}></i>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{getItemName(contact)}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{contact.mobile || contact.email || 'Contact'}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* No matches found ONLY when user has typed text */}
+                                {searchTerm.trim().length > 0 && searchResults.leads.length === 0 && searchResults.contacts.length === 0 && (
+                                    <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                        No matches found for "{searchTerm}"
+                                    </div>
+                                )}
+
+                                {/* Empty input placeholder */}
+                                {searchTerm.trim().length === 0 && (
+                                    <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                        Type a name, mobile, or email to search...
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 )}

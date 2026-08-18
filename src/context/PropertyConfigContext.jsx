@@ -2471,13 +2471,35 @@ export const PropertyConfigProvider = ({ children }) => {
             });
 
             if (res && res.data) {
-                const added = {
+                const sizeObj = {
                     id: res.data._id,
                     name: res.data.lookup_value,
                     ...res.data.metadata
                 };
-                setSizesWithCache(prev => [...prev, added]);
-                return added;
+
+                // 🚀 ENTERPRISE FIX: If backend returned an existing/updated record,
+                // update the cache entry instead of blindly appending a duplicate.
+                const isExistingRecord = res.message && (
+                    res.message.includes('already exists') || 
+                    res.message.includes('updated with new mappings')
+                );
+
+                if (isExistingRecord) {
+                    setSizesWithCache(prev => {
+                        const existsInCache = prev.some(s => s.id === sizeObj.id);
+                        if (existsInCache) {
+                            // Update existing cache entry with merged metadata from backend
+                            return prev.map(s => s.id === sizeObj.id ? sizeObj : s);
+                        } else {
+                            // Size exists in DB but was missing from local cache — add it
+                            return [...prev, sizeObj];
+                        }
+                    });
+                } else {
+                    // Genuinely new record — append to cache
+                    setSizesWithCache(prev => [...prev, sizeObj]);
+                }
+                return sizeObj;
             }
         } catch (error) {
             console.error('Failed to save property size:', error);

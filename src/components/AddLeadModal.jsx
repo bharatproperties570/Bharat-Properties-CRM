@@ -698,7 +698,22 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     }, [contactData]);
 
     // Auto-fill or Reset Form
+    // 🚀 ENTERPRISE FIX: Use a ref guard to prevent the 'add' mode from resetting
+    // the form multiple times when dependency references (like getLookupValue) change.
+    // Without this, selecting subType/sizeType triggers re-render → getLookupValue ref
+    // could change → useEffect re-fires → form resets → selected values vanish.
+    const formInitializedRef = React.useRef(false);
+    const prevModeRef = React.useRef(mode);
+    const prevIsOpenRef = React.useRef(isOpen);
+
     useEffect(() => {
+        // Reset the guard when modal closes or mode changes
+        if (!isOpen || mode !== prevModeRef.current || (!prevIsOpenRef.current && isOpen)) {
+            formInitializedRef.current = false;
+        }
+        prevModeRef.current = mode;
+        prevIsOpenRef.current = isOpen;
+
         if (!isOpen) return;
 
         if (mode === 'edit' && initialData) {
@@ -751,8 +766,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             if (cd) {
                 setSelectedContact(cd);
             }
-        } else if (mode === 'add') {
-            // Reset form for New Lead
+            formInitializedRef.current = true;
+        } else if (mode === 'add' && !formInitializedRef.current) {
+            // Reset form for New Lead — ONLY ONCE when modal first opens
             setFormData({
                 title: '',
                 name: '',
@@ -808,6 +824,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             setSimilarContacts([]);
             setIsBlocked(false);
             setFieldErrors({});
+            formInitializedRef.current = true;
         }
     }, [isOpen, initialData, mode, getLookupValue]);
 

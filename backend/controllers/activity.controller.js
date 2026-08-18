@@ -993,127 +993,11 @@ export const addActivity = async (req, res) => {
         // 🚀 ENTERPRISE FIX: Mobile App Trigger Execution
         // Mobile APIs bypass the React Frontend TriggerEngine. We must process WhatsApp Activity Triggers here.
         try {
-            if (['Site Visit', 'Meeting'].includes(activity.type)) {
-                const TriggerModel = mongoose.model('Trigger');
-                const query = {
-                    module: 'activities', // MUST match enum in Trigger.js
-                    event: 'activity_created',
-                    isActive: true
-                };
-                if (req.user?.companyId) {
-                    query.$or = [{ companyId: req.user.companyId }, { companyId: null }, { companyId: { $exists: false } }];
-                }
-
-                const activeTriggers = await TriggerModel.find(query);
-
-                if (activeTriggers.length > 0) {
-                    const entity = activity.entityType?.toLowerCase() === 'lead' ? await Lead.findById(activity.entityId) : null;
-                    const recipientPhone = entity?.primaryPhone || entity?.mobile || null;
-                    
-                    if (recipientPhone) {
-                        for (const trigger of activeTriggers) {
-                            let shouldFire = false;
-                            if (trigger.conditions?.rules?.length > 0) {
-                                shouldFire = trigger.conditions.rules.some(r => r.field === 'type' && (r.value === activity.type || r.value?.includes?.(activity.type)));
-                            } else {
-                                shouldFire = true; 
-                            }
-                            
-                            if (shouldFire) {
-                                for (const action of trigger.actions) {
-                                    if (action.type === 'send_communication' && action.channel === 'whatsapp') {
-                                        let body = action.body || action.message || '';
-                                        let ownerName = 'Valued Client';
-                                        if (entity) {
-                                            const fn = entity.firstName || '';
-                                            const ln = entity.lastName || '';
-                                            const combined = `${fn} ${ln}`.trim();
-                                            if (combined) {
-                                                ownerName = combined;
-                                            } else if (entity.fullName && !entity.fullName.includes('null') && !entity.fullName.includes('undefined')) {
-                                                ownerName = entity.fullName;
-                                            }
-                                        }
-                                        
-                                        let rawLocation = activity.details?.location || activity.location || 'Site';
-                                        let searchLocation = rawLocation;
-                                        if (activity.type?.toLowerCase() === 'site visit') {
-                                            const hasUnit = activity.details?.visitedProperties && activity.details.visitedProperties.length > 0 && activity.details.visitedProperties[0].property;
-                                            if (activity.details?.sendUnitLocation !== false && hasUnit) {
-                                                const prop = activity.details.visitedProperties[0];
-                                                rawLocation = `${prop.project || 'Project'} - Block ${prop.block || ''}, Unit ${prop.property}`;
-                                                searchLocation = `${prop.project || ''} ${prop.block || ''} Kurukshetra`;
-                                            } else {
-                                                rawLocation = req.user?.preferences?.officeLocation || '166, Huda Market, Sector 3, Kurukshetra';
-                                                searchLocation = req.user?.preferences?.officeLocation || 'Bharat Properties Kurukshetra';
-                                            }
-                                        } else if (activity.type?.toLowerCase() === 'meeting') {
-                                            const meetType = activity.details?.meetingType || '';
-                                            const meetLoc = activity.details?.meetingLocation || '';
-                                            rawLocation = meetType ? `${meetType} - ${meetLoc}` : (meetLoc || 'Office');
-                                            searchLocation = meetLoc || 'Bharat Properties Kurukshetra';
-                                        }
-                                        const locationLink = searchLocation ? `${rawLocation} (https://maps.google.com/?q=${encodeURIComponent(searchLocation)})` : rawLocation;
-                                        
-                                        let summaryText = activity.subject || activity.description || 'Discussion';
-                                        if (activity.type?.toLowerCase() === 'meeting' && activity.details?.agenda) {
-                                            summaryText = activity.details.agenda;
-                                        } else if (activity.type?.toLowerCase() === 'site visit' && activity.details?.purpose) {
-                                            summaryText = activity.details.purpose;
-                                        } else if (activity.details?.agenda) {
-                                            summaryText = activity.details.agenda;
-                                        }
-
-                                        const placeholders = {
-                                            '{agentName}': req.user?.name || 'Your Agent',
-                                            '{leadName}': ownerName,
-                                            '{activityType}': activity.type,
-                                            '{date}': activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : 'soon',
-                                            '{time}': activity.dueDate ? new Date(activity.dueDate).toLocaleTimeString() : '',
-                                            '{{First name}}': ownerName.split(' ')[0],
-                                            '{{ContactName}}': ownerName,
-                                            '{{ProjectName}}': activity.details?.project || 'our project',
-                                            
-                                            // Exact mapping for Meta named variables (like meeting_sitevisit_schedule)
-                                            '{lead_name}': ownerName,
-                                            '{activity_type}': activity.type,
-                                            '{activity_date}': activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : 'soon',
-                                            '{activity_time}': activity.dueDate ? new Date(activity.dueDate).toLocaleTimeString() : '',
-                                            '{activity_location}': locationLink,
-                                            '{activity_summary}': summaryText,
-                                            '{employee_name}': req.user?.name || 'Bharat Properties Agent',
-                                            '{employee_mobile}': req.user?.phone || req.user?.mobile || '9999999999'
-                                        };
-                                        Object.keys(placeholders).forEach(key => {
-                                            body = body.replaceAll(key, placeholders[key] || '');
-                                        });
-
-                                        const templateComponents = Object.keys(placeholders).map(key => ({
-                                            parameter_name: key.replace(/[{}]/g, ''),
-                                            text: placeholders[key]
-                                        }));
-
-                                        // Mock req/res to call internal social controller without network overhead
-                                        const { sendWhatsAppMessage } = await import('./social.controller.js');
-                                        const mockReq = {
-                                            user: { companyId: req.user?.companyId },
-                                            body: { 
-                                                mobile: recipientPhone, 
-                                                message: body, 
-                                                type: action.templateId ? 'template' : 'text', 
-                                                templateId: action.templateId,
-                                                templateComponents
-                                            }
-                                        };
-                                        const mockRes = { status: () => mockRes, json: () => mockRes };
-                                        await sendWhatsAppMessage(mockReq, mockRes, () => {}).catch(e => console.error('[Backend Trigger] Meta API err:', e.message));
-                                        console.log(`[Backend Trigger] Dispatched WhatsApp to ${recipientPhone} via Mobile App Trigger`);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            const { default: ActivityTriggerService } = await import('../src/services/ActivityTriggerService.js');
+            await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_created');
+            
+            if (activity.status?.toLowerCase() === 'completed') {
+                await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_completed');
             }
         } catch (triggerErr) {
             console.error('[Backend Trigger] Failed to execute mobile triggers:', triggerErr);
@@ -1211,6 +1095,16 @@ export const updateActivity = async (req, res) => {
         let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
             transition = await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
+        }
+
+        // Trigger WhatsApp feedbacks for Task Management page completion
+        if (activity.status === 'Completed' && existingAct && existingAct.status !== 'Completed') {
+            try {
+                const { default: ActivityTriggerService } = await import('../src/services/ActivityTriggerService.js');
+                await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_completed');
+            } catch (err) {
+                console.error('[UpdateActivity] Trigger service err:', err);
+            }
         }
 
         // Sync to Google Calendar

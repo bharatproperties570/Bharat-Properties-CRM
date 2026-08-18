@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 // PROJECTS_LIST import removed, using context instead
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
@@ -213,21 +213,31 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
     const [quickProject, setQuickProject] = useState('');
     const [quickBlock, setQuickBlock] = useState('');
 
+    // 🚀 ENTERPRISE FIX: Ref guard to prevent form reset when propertyConfig
+    // reference changes mid-edit (same pattern as AddLeadModal fix)
+    const sizeFormInitRef = useRef(false);
+
     useEffect(() => {
-        if (isOpen) {
-            if (initialData) {
-                setSizeData(initialData);
-            } else {
-                const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
-                const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
-                    ? propertyConfig[initialCat].subCategories[0].name
-                    : '';
-                setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub });
-            }
-            setQuickProject('');
-            setQuickBlock('');
-            setNameConflict(false);
+        if (!isOpen) {
+            sizeFormInitRef.current = false;
+            return;
         }
+
+        if (sizeFormInitRef.current) return; // Already initialized for this open cycle
+
+        if (initialData) {
+            setSizeData(initialData);
+        } else {
+            const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
+            const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
+                ? propertyConfig[initialCat].subCategories[0].name
+                : '';
+            setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub });
+        }
+        setQuickProject('');
+        setQuickBlock('');
+        setNameConflict(false);
+        sizeFormInitRef.current = true;
     }, [isOpen, initialData, propertyConfig, defaultState]);
 
     const quickBlocks = useMemo(() => {

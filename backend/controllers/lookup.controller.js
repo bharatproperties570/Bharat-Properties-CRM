@@ -127,7 +127,7 @@ export const getLookups = async (req, res) => {
  */
 export const addLookup = async (req, res) => {
     try {
-        const { lookup_type, lookup_value, parent_lookup_id } = req.body;
+        const { lookup_type, lookup_value, parent_lookup_id, metadata } = req.body;
         
         if (lookup_type && lookup_value) {
             // Case-insensitive duplicate check
@@ -144,6 +144,33 @@ export const addLookup = async (req, res) => {
             
             const existing = await Lookup.findOne(filter);
             if (existing) {
+                // 🚀 ENTERPRISE FIX: For 'Size' lookups, merge new metadata (projectMappings, etc.)
+                // instead of silently returning stale data. This ensures that adding the same
+                // size name for a different project/block properly updates the record.
+                if (lookup_type === 'Size' && metadata) {
+                    const oldMeta = existing.metadata || {};
+                    const oldMappings = Array.isArray(oldMeta.projectMappings) ? oldMeta.projectMappings : [];
+                    const newMappings = Array.isArray(metadata.projectMappings) ? metadata.projectMappings : [];
+                    
+                    // Merge new projectMappings into existing (avoid duplicates)
+                    const mergedMappings = [...oldMappings];
+                    newMappings.forEach(nm => {
+                        const alreadyExists = mergedMappings.some(om => om.project === nm.project && om.block === nm.block);
+                        if (!alreadyExists) {
+                            mergedMappings.push(nm);
+                        }
+                    });
+                    
+                    // Update metadata fields that were missing (category, subCategory, unitType, areas, etc.)
+                    const updatedMeta = { ...oldMeta, ...metadata, projectMappings: mergedMappings };
+                    existing.metadata = updatedMeta;
+                    existing.markModified('metadata');
+                    await existing.save();
+                    
+                    console.log(`[Lookup] Size "${lookup_value}" already exists — merged metadata & projectMappings`);
+                    return res.status(200).json({ status: "success", data: existing, message: "Size updated with new mappings" });
+                }
+                
                 return res.status(200).json({ status: "success", data: existing, message: "Lookup already exists" });
             }
         }
