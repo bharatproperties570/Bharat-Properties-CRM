@@ -218,6 +218,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
     const sizeFormInitRef = useRef(false);
 
     useEffect(() => {
+        console.log('[AddSizeModal] Main useEffect triggered. isOpen:', isOpen, 'ref:', sizeFormInitRef.current);
         if (!isOpen) {
             sizeFormInitRef.current = false;
             return;
@@ -225,6 +226,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
         if (sizeFormInitRef.current) return; // Already initialized for this open cycle
 
+        console.log('[AddSizeModal] Initializing sizeData. initialData:', initialData);
         if (initialData) {
             setSizeData(initialData);
         } else {
@@ -245,6 +247,17 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         const proj = allProjects.find(p => p.name === quickProject);
         return proj?.blocks || [];
     }, [quickProject, allProjects]);
+
+    // Handle late propertyConfig load
+    useEffect(() => {
+        if (isOpen && !initialData && !sizeData.category && propertyConfig && Object.keys(propertyConfig).length > 0) {
+            const initialCat = Object.keys(propertyConfig)[0];
+            const initialSub = Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
+                ? propertyConfig[initialCat].subCategories[0].name
+                : '';
+            setSizeData(prev => ({ ...prev, category: initialCat, subCategory: initialSub }));
+        }
+    }, [propertyConfig, isOpen, initialData, sizeData.category]);
 
     // Auto-generate name from unitType + area
     useEffect(() => {
@@ -353,12 +366,14 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                 const subs = propertyConfig?.[cat]?.subCategories || [];
                                 setSizeData({ ...sizeData, category: cat, subCategory: subs.length > 0 ? subs[0].name : '', unitType: '' });
                             }} style={customSelectStyle}>
+                                <option value="">Select Category</option>
                                 {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                             </select>
                         </div>
                         <div>
                             <label style={labelStyle}>Sub Category</label>
                             <select value={sizeData.subCategory} onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, unitType: '' })} style={customSelectStyle}>
+                                <option value="">Select Sub Category</option>
                                 {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
                                     <option key={sub.name} value={sub.name}>{sub.name}</option>
                                 ))}
