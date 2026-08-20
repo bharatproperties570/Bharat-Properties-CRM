@@ -339,12 +339,9 @@ export const matchDeals = async (req, res) => {
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out", "Closed (Lost)", "Closed Won", "Closed (Won)", "Lost", "Closed", "Junk"] }
         };
 
-        // 🚀 ENTERPRISE PRE-FILTERING (Database Level)
-        // Prevent fetching the entire CRM database into Node.js RAM by pushing category and intent filters to MongoDB.
-        query.$and = query.$and || [];
-
+        // 🚀 ENTERPRISE PRE-FILTERING (Database Level via Aggregation)
+        const validIntentIds = [];
         if (leadReq) {
-            const validIntentIds = [];
             allLookups.filter(l => l.lookup_type === 'Intent').forEach(l => {
                 const d = String(l.lookup_value).toLowerCase();
                 let matched = false;
@@ -354,19 +351,10 @@ export const matchDeals = async (req, res) => {
                 else if (d === leadReq || d.includes(leadReq) || leadReq.includes(d)) matched = true;
                 if (matched) validIntentIds.push(l._id);
             });
-            if (validIntentIds.length > 0) {
-                query.$and.push({
-                    $or: [
-                        { intent: { $in: validIntentIds } },
-                        { intent: null },
-                        { intent: { $exists: false } }
-                    ]
-                });
-            }
         }
 
+        const validCategoryIds = [];
         if (leadCats.length > 0) {
-            const validCategoryIds = [];
             allLookups.filter(l => l.lookup_type === 'Category').forEach(l => {
                 const d = String(l.lookup_value).toLowerCase();
                 let matched = (
@@ -378,33 +366,47 @@ export const matchDeals = async (req, res) => {
                 );
                 if (matched) validCategoryIds.push(l._id);
             });
-            if (validCategoryIds.length > 0) {
-                query.$and.push({
-                    $or: [
-                        { category: { $in: validCategoryIds } },
-                        { category: null },
-                        { category: { $exists: false } }
-                    ]
-                });
-            }
         }
 
-        if (query.$and.length === 0) delete query.$and;
+        const aggMatchStage = {
+            $and: []
+        };
 
-        // DB Level Budget Pre-filter
+        if (validIntentIds.length > 0) {
+            aggMatchStage.$and.push({
+                $or: [
+                    { activeIntent: { $in: validIntentIds } },
+                    { activeIntent: null },
+                    { activeIntent: { $exists: false } }
+                ]
+            });
+        }
+        if (validCategoryIds.length > 0) {
+            aggMatchStage.$and.push({
+                $or: [
+                    { activeCategory: { $in: validCategoryIds } },
+                    { activeCategory: null },
+                    { activeCategory: { $exists: false } }
+                ]
+            });
+        }
+        
+        // Budget Pre-filter (Using existing lBudgetMin / lBudgetMax from line 319)
         if (lBudgetMin > 0 || lBudgetMax !== Infinity) {
             const bFlex = parseFloat(budgetFlexibility) / 100;
             const minB = lBudgetMin * (1 - bFlex);
             const maxB = lBudgetMax !== Infinity ? lBudgetMax * (1 + bFlex) : Infinity;
             
-            // Allow deals in budget range, OR deals with no price specified
-            query.$or = [
-                { price: { $gte: minB, $lte: maxB } },
-                { quotePrice: { $gte: minB, $lte: maxB } },
-                { price: { $in: [null, 0, ""] }, quotePrice: { $in: [null, 0, ""] } },
-                { price: { $exists: false }, quotePrice: { $exists: false } }
-            ];
+            aggMatchStage.$and.push({
+                $or: [
+                    { activePrice: { $gte: minB, $lte: maxB } },
+                    { activePrice: { $in: [null, 0, ""] } },
+                    { activePrice: { $exists: false } }
+                ]
+            });
         }
+
+        if (aggMatchStage.$and.length === 0) delete aggMatchStage.$and;
 
         let deals = [];
         const dealDistanceMap = new Map();
@@ -432,16 +434,50 @@ export const matchDeals = async (req, res) => {
             });
 
             // Fetch the populated deals for those IDs, plus any deals that don't have geoPoints
-            deals = await Deal.find({
-                $or: [
-                    { _id: { $in: geoDealIds } },
-                    { ...query, geoPoint: { $exists: false } }
-                ]
-            }).populate('inventoryId').lean();
+            
+            const geoPipeline = [
+                { $match: {
+                    $or: [
+                        { _id: { $in: geoDealIds } },
+                        { ...query, geoPoint: { $exists: false } }
+                    ]
+                }},
+                { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', as: 'inventoryId' } },
+                { $unwind: { path: '$inventoryId', preserveNullAndEmptyArrays: true } },
+                { $addFields: { 
+                    activeCategory: { $ifNull: ["$category", "$inventoryId.category"] },
+                    activeIntent: { $ifNull: ["$intent", "$inventoryId.intent"] },
+                    activePrice: { $max: [ { $convert: { input: "$price", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$quotePrice", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$inventoryId.price", to: "double", onError: 0, onNull: 0 } } ] }
+                }}
+            ];
+            
+            if (aggMatchStage.$and && aggMatchStage.$and.length > 0) {
+                geoPipeline.push({ $match: aggMatchStage });
+            }
+            
+            deals = await Deal.aggregate(geoPipeline);
+
 
         } else {
             // Fallback for leads without exact geo coordinates
-            deals = await Deal.find(query).populate('inventoryId').lean();
+            
+            const basePipeline = [
+                { $match: query },
+                { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', as: 'inventoryId' } },
+                { $unwind: { path: '$inventoryId', preserveNullAndEmptyArrays: true } },
+                { $addFields: { 
+                    activeCategory: { $ifNull: ["$category", "$inventoryId.category"] },
+                    activeIntent: { $ifNull: ["$intent", "$inventoryId.intent"] },
+                    activePrice: { $max: [ { $convert: { input: "$price", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$quotePrice", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$inventoryId.price", to: "double", onError: 0, onNull: 0 } } ] }
+                }}
+            ];
+            
+            if (aggMatchStage.$and && aggMatchStage.$and.length > 0) {
+                basePipeline.push({ $match: aggMatchStage });
+            }
+            
+            deals = await Deal.aggregate(basePipeline);
+
         }
 
         // Pre-fetch selected projects to get their coordinates
