@@ -1573,21 +1573,9 @@ export const getDeals = async (req, res) => {
         });
         console.timeEnd("getDeals_Lookup_Resolution");
 
-        // --- Fetch Preferred Match Counts ---
-        // 🚀 SENIOR OPTIMIZATION: Skip for compact/mobile list views — the O(N×M) loop
-        // comparing all deals against all leads is the largest single bottleneck.
-        // Match counts are only needed on the Deal Detail page.
-        if (!isCompactView) {
-            try {
-                const { getBulkDealExactMatchCounts } = await import('./lead.controller.js');
-                const bulkMatchCounts = await getBulkDealExactMatchCounts(enrichedRecords, req.user);
-                enrichedRecords.forEach(deal => {
-                    deal.exactMatchCount = bulkMatchCounts[deal._id.toString()] || 0;
-                });
-            } catch (e) {
-                console.error("[getDeals] Failed to fetch preferred match counts:", e);
-            }
-        }
+        // 🚀 ENTERPRISE PERFORMANCE FIX: Bulk Exact Match Count calculation has been removed from the Deal List View API.
+        // Reason: It was fetching ALL active leads in the system and running an O(N*M) calculation across all deals on the page.
+        // This was causing 35-40s delays per page load. Match counts should only be fetched asynchronously or on the Detail view.
 
         const responseObj = {
             success: true,
