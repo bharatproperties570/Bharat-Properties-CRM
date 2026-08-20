@@ -349,7 +349,7 @@ export const matchDeals = async (req, res) => {
                 else if ((d.includes("rent") || d.includes("lease")) && (leadReq.includes("rent") || leadReq.includes("lease"))) matched = true;
                 else if ((d.includes("buy") || d.includes("purchase")) && (leadReq.includes("sell") || leadReq.includes("sale"))) matched = true;
                 else if (d === leadReq || d.includes(leadReq) || leadReq.includes(d)) matched = true;
-                if (matched) { validIntentIds.push(l._id); validIntentIds.push(l.lookup_value); }
+                if (matched) { validIntentIds.push(l._id); validIntentIds.push(String(l._id)); validIntentIds.push(l.lookup_value); }
             });
         }
 
@@ -364,7 +364,7 @@ export const matchDeals = async (req, res) => {
                     (d.includes("agri") && leadCats.some(c => c.includes("agri"))) ||
                     leadCats.some(c => d.includes(c) || c.includes(d))
                 );
-                if (matched) { validCategoryIds.push(l._id); validCategoryIds.push(l.lookup_value); }
+                if (matched) { validCategoryIds.push(l._id); validCategoryIds.push(String(l._id)); validCategoryIds.push(l.lookup_value); }
             });
         }
 
