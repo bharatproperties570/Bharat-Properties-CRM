@@ -6,22 +6,44 @@ import { sendWhatsAppMessage } from '../../controllers/social.controller.js'; //
 
 export class WorkflowEngine {
     static evaluateCondition(rule, entityData) {
-        const value = entityData[rule.field];
+        let rawValue = entityData[rule.field];
         
+        // Extract string representation if it's a populated object (e.g. status, stage)
+        const extractValue = (v) => {
+            if (v && typeof v === 'object') {
+                return String(v.lookup_value || v.name || v.title || v._id || v);
+            }
+            return v !== null && v !== undefined ? String(v) : '';
+        };
+
+        const value = Array.isArray(rawValue) 
+            ? rawValue.map(extractValue).join(',') // If array of objects, convert to comma-separated string for simpler IN logic
+            : extractValue(rawValue);
+        
+        // For comparison, normalize everything to lowercase for case-insensitive matching
+        const valStr = value.toLowerCase();
+
         switch (rule.operator) {
-            case '==': return value == rule.value;
-            case '!=': return value != rule.value;
+            case '==': return valStr == String(rule.value || '').toLowerCase();
+            case '!=': return valStr != String(rule.value || '').toLowerCase();
             case '>': return value > rule.value;
             case '>=': return value >= rule.value;
             case '<': return value < rule.value;
             case '<=': return value <= rule.value;
             case 'IN': {
-                const arr = Array.isArray(rule.value) ? rule.value : String(rule.value || '').split(',').map(s => s.trim());
-                return arr.includes(value);
+                const arr = Array.isArray(rule.value) ? rule.value : String(rule.value || '').split(',').map(s => s.trim().toLowerCase());
+                // Handle case where entity field is an array (e.g. tags) by checking if ANY element matches
+                if (Array.isArray(rawValue)) {
+                     return rawValue.map(extractValue).some(v => arr.includes(v.toLowerCase()));
+                }
+                return arr.includes(valStr);
             }
             case 'NOT_IN': {
-                const arr = Array.isArray(rule.value) ? rule.value : String(rule.value || '').split(',').map(s => s.trim());
-                return !arr.includes(value);
+                const arr = Array.isArray(rule.value) ? rule.value : String(rule.value || '').split(',').map(s => s.trim().toLowerCase());
+                if (Array.isArray(rawValue)) {
+                     return !rawValue.map(extractValue).some(v => arr.includes(v.toLowerCase()));
+                }
+                return !arr.includes(valStr);
             }
             default: return false;
         }
