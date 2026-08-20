@@ -214,7 +214,7 @@ export const matchDeals = async (req, res) => {
         ];
         const allLookups = await Lookup.find({ 
             lookup_type: { $in: lookupTypes } 
-        }).lean();
+        }).select('_id lookup_type lookup_value').lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 
@@ -1487,7 +1487,7 @@ export const getDeals = async (req, res) => {
                 }
             ]).then(async (categoryStatsAgg) => {
                 const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
-                const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
+                const categories = await Lookup.find({ lookup_type: 'Category' }).select('_id lookup_type lookup_value').lean();
                 return categories.map(cat => ({
                     name: cat.lookup_value,
                     count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
@@ -1576,7 +1576,7 @@ export const getDeals = async (req, res) => {
         const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
         const allLookups = await Lookup.find({ 
             lookup_type: { $in: lookupTypes } 
-        }).lean();
+        }).select('_id lookup_type lookup_value').lean();
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 
@@ -2678,7 +2678,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
             'Locality', 'Area', 'Location', 'Size', 'City', 'State', 'Requirement',
             'Facing', 'Direction', 'RoadWidth', 'BuiltupType', 'Orientation'
         ];
-        const allLookups = await Lookup.find({ lookup_type: { $in: lookupTypes } }).lean();
+        const allLookups = await Lookup.find({ lookup_type: { $in: lookupTypes } }).select('_id lookup_type lookup_value').lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
         
         const getLookupValueLocal = (val) => {
