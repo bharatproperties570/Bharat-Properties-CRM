@@ -339,6 +339,73 @@ export const matchDeals = async (req, res) => {
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out", "Closed (Lost)", "Closed Won", "Closed (Won)", "Lost", "Closed", "Junk"] }
         };
 
+        // 🚀 ENTERPRISE PRE-FILTERING (Database Level)
+        // Prevent fetching the entire CRM database into Node.js RAM by pushing category and intent filters to MongoDB.
+        query.$and = query.$and || [];
+
+        if (leadReq) {
+            const validIntentIds = [];
+            allLookups.filter(l => l.lookup_type === 'Intent').forEach(l => {
+                const d = String(l.lookup_value).toLowerCase();
+                let matched = false;
+                if ((d.includes("sell") || d.includes("sale")) && (leadReq.includes("buy") || leadReq.includes("purchase") || leadReq.includes("req"))) matched = true;
+                else if ((d.includes("rent") || d.includes("lease")) && (leadReq.includes("rent") || leadReq.includes("lease"))) matched = true;
+                else if ((d.includes("buy") || d.includes("purchase")) && (leadReq.includes("sell") || leadReq.includes("sale"))) matched = true;
+                else if (d === leadReq || d.includes(leadReq) || leadReq.includes(d)) matched = true;
+                if (matched) validIntentIds.push(l._id);
+            });
+            if (validIntentIds.length > 0) {
+                query.$and.push({
+                    $or: [
+                        { intent: { $in: validIntentIds } },
+                        { intent: null },
+                        { intent: { $exists: false } }
+                    ]
+                });
+            }
+        }
+
+        if (leadCats.length > 0) {
+            const validCategoryIds = [];
+            allLookups.filter(l => l.lookup_type === 'Category').forEach(l => {
+                const d = String(l.lookup_value).toLowerCase();
+                let matched = (
+                    (d.includes("res") && leadCats.some(c => c.includes("res"))) ||
+                    (d.includes("comm") && leadCats.some(c => c.includes("comm"))) ||
+                    (d.includes("plot") && leadCats.some(c => c.includes("plot"))) ||
+                    (d.includes("agri") && leadCats.some(c => c.includes("agri"))) ||
+                    leadCats.some(c => d.includes(c) || c.includes(d))
+                );
+                if (matched) validCategoryIds.push(l._id);
+            });
+            if (validCategoryIds.length > 0) {
+                query.$and.push({
+                    $or: [
+                        { category: { $in: validCategoryIds } },
+                        { category: null },
+                        { category: { $exists: false } }
+                    ]
+                });
+            }
+        }
+
+        if (query.$and.length === 0) delete query.$and;
+
+        // DB Level Budget Pre-filter
+        if (lBudgetMin > 0 || lBudgetMax !== Infinity) {
+            const bFlex = parseFloat(budgetFlexibility) / 100;
+            const minB = lBudgetMin * (1 - bFlex);
+            const maxB = lBudgetMax !== Infinity ? lBudgetMax * (1 + bFlex) : Infinity;
+            
+            // Allow deals in budget range, OR deals with no price specified
+            query.$or = [
+                { price: { $gte: minB, $lte: maxB } },
+                { quotePrice: { $gte: minB, $lte: maxB } },
+                { price: { $in: [null, 0, ""] }, quotePrice: { $in: [null, 0, ""] } },
+                { price: { $exists: false }, quotePrice: { $exists: false } }
+            ];
+        }
+
         let deals = [];
         const dealDistanceMap = new Map();
 
