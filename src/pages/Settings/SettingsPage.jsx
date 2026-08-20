@@ -27,7 +27,6 @@ import DealSettingsPage from './views/DealSettingsPage';
 import DealDetailsPage from './views/DealDetailsPage';
 import ActivitySettingsPage from './views/ActivitySettingsPage';
 
-import FeedbackTemplatePage from './views/FeedbackTemplatePage';
 import TriggersSettingsPage from './views/TriggersSettingsPage';
 import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
 import DistributionRulesPage from './views/DistributionRulesPage';
@@ -925,7 +924,7 @@ const SettingsPage = () => {
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'export', label: 'Export' }, { id: 'forms', label: 'Forms' }, { id: 'address-master', label: 'Address Master' }, { id: 'discovery', label: 'Google Discovery' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
-        { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
+        { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'post-sales', label: 'Post Sales' }, { id: 'deal-details', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'ai-agents', label: 'AI Agent Hub' }, { id: 'api', label: 'API' }] },
         { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }, { id: 'stage-c', label: 'Stage' }] },
@@ -1154,8 +1153,6 @@ const SettingsPage = () => {
                         <ContactSettingsPage />
                     ) : activeTab === 'task-c' ? (
                         <ActivitySettingsPage />
-                    ) : activeTab === 'feedback-templates' ? (
-                        <FeedbackTemplatePage />
                     ) : activeTab === 'triggers' ? (
                         <TriggersSettingsPage />
                     ) : activeTab === 'field-rules' ? (

@@ -259,15 +259,6 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                     }}></span>
                                                 </label>
                                             </div>
-                                            <select
-                                                value={rule.templateKey || ''}
-                                                onChange={(e) => updateRule('templateKey', e.target.value)}
-                                                disabled={rule.sendMsg === false}
-                                                style={{ ...customSelectStyle, opacity: rule.sendMsg === false ? 0.5 : 1 }}
-                                            >
-                                                <option value="">Default (Outcome Template)</option>
-                                                {Object.keys(masterFields.responseTemplates || {}).map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
                                         </div>
                                         <div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>

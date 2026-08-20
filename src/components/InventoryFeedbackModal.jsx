@@ -212,16 +212,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             let emailTemplateStr = emailTemplates.find(t => t.id === baseId)?.content || '';
             let emailSubject = `Update regarding ${unitInfo}`;
 
-            const dbTemplate = masterFields?.responseTemplates?.[resultStr] || {};
-            // contextTemplate (Feedback Form Meta Flow) ALWAYS wins — never override it with legacy DB templates
-            if (dbTemplate.whatsapp && !contextTemplate) waTemplateStr = dbTemplate.whatsapp;
-            if (dbTemplate.sms) smsTemplateStr = dbTemplate.sms;
-            if (dbTemplate.email) {
-                const eStr = typeof dbTemplate.email === 'string' ? dbTemplate.email : '';
-                emailSubject = eStr.match(/Subject: (.*)\n/)?.[1] || emailSubject;
-                emailTemplateStr = eStr.replace(/Subject:.*\n/, '').trim();
-            }
-
             setChannelMessages({
                 whatsapp: processTemplate(waTemplateStr),
                 sms: processTemplate(smsTemplateStr),
@@ -278,7 +268,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             else if (activeTriggers.email) setPreviewChannel('email');
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields?.responseTemplates, masterFields?.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
+    }, [formData.result, formData.reason, formData.nextActionType, formData.nextActionDate, formData.nextActionTime, scheduleFollowUp, inventory, masterFields?.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email, getFeedbackFormTemplate]);
 
     const prevResultRef = useRef();
     const prevReasonRef = useRef();
