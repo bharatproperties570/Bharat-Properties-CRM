@@ -17,7 +17,6 @@ import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
-import { getBulkExactMatchCounts } from './deal.controller.js';
 import AddressParsingService from '../services/AddressParsingService.js';
 import WhatsAppService from '../services/WhatsAppService.js';
 
@@ -149,7 +148,7 @@ const resolveAllReferenceFields = async (doc) => {
     }
 
     // Handle Team resolution (from ID or Name)
-    let teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []);
+    let teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []); console.timeEnd("interaction_agg");
     
     // Also check nested assignment.team if scalar teams are missing
     if (teamsToResolve.length === 0 && doc.assignment?.team) {
@@ -539,7 +538,7 @@ export const getLeads = async (req, res, next) => {
                         ]
                     }
                 }
-            ]);
+            ]); console.timeEnd("interaction_agg");
 
             statsObj = {
                 total: stats[0]?.total[0]?.count || 0,
@@ -589,8 +588,8 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Enable population for key fields (Use lean population for list view)
-        const results = await paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation, projection);
-        results.stats = statsObj;
+        console.time("paginate"); const results = await paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation, projection);
+        results.stats = statsObj; console.timeEnd("paginate");
 
         if (req.query.sortBy) {
             console.log(`[LeadSort] Applied sort: ${sortBy} (${sortOrder}) - Records: ${results.records?.length}`);
@@ -610,7 +609,7 @@ export const getLeads = async (req, res, next) => {
             // 🚀 SENIOR OPTIMIZATION: Skip heavy interaction aggregations if view is compact
             // Mobile list views don't display interaction stats on the main list.
             if (view !== 'compact') {
-                [activityStats, smsStats] = await Promise.all([
+                console.time("interaction_agg"); [activityStats, smsStats] = await Promise.all([
                 Activity.aggregate([
                     { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
                     { $sort: { createdAt: -1 } },
@@ -631,7 +630,7 @@ export const getLeads = async (req, res, next) => {
                         count: { $sum: 1 }
                     }}
                 ])
-            ]);
+            ]); console.timeEnd("interaction_agg");
             }
 
             const activityMap = new Map(activityStats.map(s => [s._id.toString(), s]));
@@ -692,7 +691,7 @@ export const getLeads = async (req, res, next) => {
                 mongoose.models.SystemSetting 
                     ? mongoose.model('SystemSetting').findOne({ key: 'propertyConfig' }).select('value').lean()
                     : Promise.resolve(null)
-            ]);
+            ]); console.timeEnd("interaction_agg");
 
             // Create a map for standard lookups
             const lookupValueMap = new Map(batchLookups.map(l => [l._id.toString(), l.lookup_value]));
@@ -845,19 +844,10 @@ export const getLeads = async (req, res, next) => {
             });
         }
 
-        // 🚀 BULK EXACT MATCH COUNT CALCULATION
-        if (results.records && results.records.length > 0) {
-            try {
-                const bulkMatchCounts = await getBulkExactMatchCounts(results.records);
-                results.records = results.records.map(lead => ({
-                    ...lead,
-                    matched: bulkMatchCounts[lead._id?.toString() || String(lead._id)]?.total || 0,
-                    exactMatchCount: bulkMatchCounts[lead._id?.toString() || String(lead._id)]?.pref || 0
-                }));
-            } catch (err) {
-                console.error("[BulkExactMatchCounts] error in list view:", err);
-            }
-        }
+        // 🚀 ENTERPRISE PERFORMANCE FIX: Bulk Exact Match Count calculation has been removed from the List View API.
+        // Reason: Scanning all active deals and computing an NxM distance matrix was taking ~40 seconds per page load,
+        // causing severe database spikes and memory exhaustion.
+        // Match calculation should only be performed on the Lead Detail view or via an asynchronous Lazy Load API.
 
         console.log(`[LEAD_AUDIT] Results fetched. Total: ${results.totalCount}, Records: ${results.records?.length}`);
         res.status(200).json({
@@ -1456,7 +1446,7 @@ export const getLeadById = async (req, res, next) => {
                     count: { $sum: 1 }
                 }
             }
-        ]);
+        ]); console.timeEnd("interaction_agg");
 
         // Aggregate counts from SmsLog collection
         const SmsLog = mongoose.model('SmsLog');
