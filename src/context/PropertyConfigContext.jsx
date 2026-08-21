@@ -1419,7 +1419,8 @@ export const PropertyConfigProvider = ({ children }) => {
                     // 3. Build Types
                     const types = propertyTypes.filter(t => {
                         const pid = t.parent_lookup_id ? t.parent_lookup_id.toString() : null;
-                        return pid === sub._id?.toString() || pid === sub.id?.toString();
+                        const pval = t.parent_lookup_value ? String(t.parent_lookup_value).trim() : null;
+                        return pid === sub._id?.toString() || pid === sub.id?.toString() || (pval && pval === String(sub.lookup_value).trim());
                     });
                     
                     types.forEach(t => {
