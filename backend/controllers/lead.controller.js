@@ -220,6 +220,7 @@ const leadPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'propertyType', select: 'lookup_value' },
     { path: 'subType', select: 'lookup_value' },
+    { path: 'sizeType', select: 'lookup_value' },
     { path: 'unitType', select: 'lookup_value' },
     { path: 'facing', select: 'lookup_value' },
     { path: 'roadWidth', select: 'lookup_value' },
