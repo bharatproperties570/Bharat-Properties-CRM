@@ -361,6 +361,31 @@ class VariableResolutionService {
             case 'locState':
                 return lead.locState || '';
 
+            // Enhanced Location Logic
+            case 'projectLocality':
+            case 'location': {
+                const parts = [];
+                // If they used "Search Location"
+                if (lead.locHNo) parts.push(lead.locHNo);
+                if (lead.locStreet) parts.push(lead.locStreet);
+                if (lead.locArea) parts.push(lead.locArea);
+                if (lead.searchLocation) parts.push(lead.searchLocation);
+                if (lead.locCity) parts.push(lead.locCity);
+                
+                // If they used "Select Project" and search fields are mostly empty
+                if (parts.length === 0 || (!lead.locArea && !lead.searchLocation)) {
+                    if (lead.projectName) {
+                        const proj = Array.isArray(lead.projectName) ? lead.projectName.join(', ') : lead.projectName;
+                        parts.push(proj);
+                    }
+                    if (lead.projectCity) {
+                        parts.push(lead.projectCity);
+                    }
+                }
+                
+                return parts.filter(Boolean).join(', ') || '-';
+            }
+
             // Property / Inventory Advanced (Requires enrichment from job context or DB)
             case 'propertyName':
                 return lead.projectName || lead.propertyName || '';

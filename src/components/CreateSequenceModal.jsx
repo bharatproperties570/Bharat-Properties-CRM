@@ -199,6 +199,7 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                                     <option>WhatsApp</option>
                                                     <option>Email</option>
                                                     <option>Reminder</option>
+                                                    <option>Auto-Match Dispatch</option>
                                                 </select>
                                             </div>
                                             <div>

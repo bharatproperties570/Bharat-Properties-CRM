@@ -3543,3 +3543,9 @@ html.dark-mode input::placeholder,
 html.dark-mode textarea::placeholder {
     color: var(--text-muted) !important;
 }
+
+/* Fix Google Places Autocomplete z-index behind Modals */
+.pac-container {
+    z-index: 10000 !important;
+}
+

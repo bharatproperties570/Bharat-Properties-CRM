@@ -169,11 +169,18 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                 } else if (plainTextList.length > plainIdx) {
                                     textVal = plainTextList[plainIdx++];
                                 } else {
-                                    textVal = '—';
+                                    textVal = '-';
                                 }
 
-                                console.log(`[WhatsApp/Debug] Var "${varName}" → "${String(textVal).substring(0, 50)}"`);
-                                const param = { type: 'text', text: String(textVal) };
+                                // 🚀 ENTERPRISE FIX: Meta API rejects empty string variables (e.g. if location is blank).
+                                // We MUST replace empty strings with a fallback character.
+                                let finalVal = String(textVal).trim();
+                                if (finalVal === '' || finalVal === 'null' || finalVal === 'undefined') {
+                                    finalVal = '-';
+                                }
+
+                                console.log(`[WhatsApp/Debug] Var "${varName}" → "${finalVal.substring(0, 50)}"`);
+                                const param = { type: 'text', text: finalVal };
                                 // Send Meta's exact variable name (as it appears in template) as parameter_name
                                 if (!isNumberedVar) param.parameter_name = varName;
                                 return param;
@@ -242,7 +249,10 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                     components.push({ 
                         type: 'body', 
                         parameters: templateComponents.map(item => {
-                            const param = { type: 'text', text: typeof item === 'string' ? item : (item?.text || '') };
+                            let textVal = typeof item === 'string' ? item : (item?.text || '');
+                            textVal = String(textVal).trim();
+                            if (textVal === '' || textVal === 'null' || textVal === 'undefined') textVal = '-';
+                            const param = { type: 'text', text: textVal };
                             if (item?.parameter_name) param.parameter_name = item.parameter_name;
                             return param;
                         })

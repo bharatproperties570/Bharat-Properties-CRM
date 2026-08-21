@@ -302,6 +302,73 @@ const processMarketingJob = async (job) => {
         return { enrollmentId, stepNumber, completedAt: new Date().toISOString() };
     }
 
+
+    // ─── AUTO-MATCH-DISPATCH: Triggered by Business Rules ────────────────
+    if (name === 'auto-match-dispatch') {
+        const { leadId, toggles, matchContext, companyId } = data;
+        await job.log(`Auto-matching properties for Lead: ${leadId}`);
+
+        // Lazy load controller logic securely
+        const dealController = await import('../../controllers/deal.controller.js');
+        const marketingController = await import('../../controllers/marketing.controller.js');
+        
+        try {
+            await job.updateProgress(10);
+            
+            // 1. Simulate the Request to leverage Enterprise Scoring Engine
+            let matchedDeals = [];
+            const req = { query: { leadId, budgetFlexibility: 20, sizeFlexibility: 20 } };
+            const res = {
+                status: () => res,
+                json: (response) => {
+                    if (response.success && response.data) {
+                        matchedDeals = response.data;
+                    }
+                    return res;
+                }
+            };
+            
+            await dealController.matchDeals(req, res);
+            await job.updateProgress(50);
+            
+            // Filter top matches (only Preferred Matches or just top 5 by score)
+            // If they are preferred matches we send them, otherwise fallback to top 3 if score > 50
+            const preferred = matchedDeals.filter(d => d.isPreferredMatch);
+            const topDeals = preferred.length > 0 ? preferred.slice(0, 5) : matchedDeals.filter(d => d.score >= 50).slice(0, 3);
+            
+            if (topDeals.length === 0) {
+                await job.log(`No preferred or high-score matches found for Lead ${leadId}. Aborting dispatch.`);
+                console.log(`[MarketingWorker] No preferred matches for Auto-Dispatch (Lead: ${leadId})`);
+                await job.updateProgress(100);
+                return { leadId, success: true, reason: 'No matches found' };
+            }
+            
+            await job.log(`Found ${topDeals.length} matches. Executing Omnichannel Dispatch...`);
+            
+            // 2. Invoke Enterprise Dispatcher
+            const payload = {
+                dealIds: topDeals.map(d => String(d.inventoryId?._id || d.inventoryId || d._id)),
+                leadIds: [leadId],
+                toggles: toggles || { whatsapp: true },
+                hidePrice: false,
+                hideUnit: true,
+                hideLocation: false,
+                matchContext: matchContext || 'perfect'
+            };
+            
+            const dispatchResult = await marketingController.executeDispatch(payload, { _id: null, name: 'System Auto-Match' });
+            
+            await job.updateProgress(100);
+            await job.log(`Dispatch completed.`);
+            console.log(`[MarketingWorker] ✅ Auto-Match Dispatch completed for Lead: ${leadId}`);
+            
+            return { leadId, success: true, dispatchResult };
+        } catch (error) {
+            await job.log(`Auto-match dispatch failed: ${error.message}`);
+            throw error;
+        }
+    }
+
     // ─── PROCESS-AUTOMATION-EVENT: Async sequence evaluation ────────────────
     if (name === 'process-automation-event') {
         const { eventName, entityId, entityType } = data;

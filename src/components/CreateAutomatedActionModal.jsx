@@ -92,9 +92,10 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
     const restrictionMap = {
         Inventory: ['update_field', 'lock_inventory', 'unlock_inventory'],
         Deals: ['update_field', 'send_notification', 'create_record', 'run_ai_lead_match_campaign'],
-        Leads: ['update_field', 'create_record', 'add_tag', 'send_notification'],
+        Leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch'],
+        leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch'],
         Activities: ['update_field', 'create_record'],
-        Other: ['update_field', 'send_notification', 'create_record']
+        Other: ['update_field', 'send_notification', 'create_record', 'auto_match_dispatch']
     };
 
     const actionTypes = [
@@ -103,6 +104,7 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
         { value: 'add_tag', label: 'Add/Remove Tag' },
         { value: 'send_notification', label: 'Send Notification' },
         { value: 'run_ai_lead_match_campaign', label: 'Run AI Lead Match Campaign' },
+        { value: 'auto_match_dispatch', label: 'Auto-Dispatch Matched Deals' },
         { value: 'lock_inventory', label: 'Lock Inventory' },
         { value: 'unlock_inventory', label: 'Unlock Inventory' }
     ];
@@ -382,6 +384,40 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                         })}
                                     </div>
                                     <p style={{ margin: '8px 0 0 0', fontSize: '0.7rem', color: '#991b1b' }}>Strict filters will completely discard a match if that specific field does not match perfectly, regardless of the overall score.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    
+                    {formData.actionType === 'auto_match_dispatch' && (
+                        <div style={{ background: '#eff6ff', padding: '16px', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e3a8a', marginBottom: '16px' }}>
+                                <i className="fas fa-bullseye"></i>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 800 }}>Auto-Dispatch Deal Matches</span>
+                            </div>
+                            <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: '#1e40af' }}>
+                                When a Lead is created, this action will automatically run the 100-Point Match Engine and send the top Preferred Deals directly to the Lead via WhatsApp/Email.
+                            </p>
+                            
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#1e3a8a', marginBottom: '8px' }}>Active Channels</label>
+                                <div style={{ display: 'flex', gap: '16px' }}>
+                                    {['whatsapp', 'email'].map(channel => (
+                                        <label key={channel} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: '#1e3a8a' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.configuration?.toggles?.[channel] || false}
+                                                onChange={(e) => {
+                                                    const newConfig = { ...formData.configuration };
+                                                    if (!newConfig.toggles) newConfig.toggles = { whatsapp: true };
+                                                    newConfig.toggles[channel] = e.target.checked;
+                                                    setFormData({ ...formData, configuration: newConfig });
+                                                }}
+                                            />
+                                            {channel.toUpperCase()}
+                                        </label>
+                                    ))}
                                 </div>
                             </div>
                         </div>

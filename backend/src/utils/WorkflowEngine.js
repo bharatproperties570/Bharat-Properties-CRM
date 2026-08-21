@@ -130,6 +130,24 @@ export class WorkflowEngine {
                                 console.log(`[WorkflowEngine] Sending SMS to ${entityData.mobile}: ${resolvedSms}`);
                             }
                         }
+
+                    } else if (autoAction.actionType === 'auto_match_dispatch') {
+                        console.log(`[WorkflowEngine] Enqueueing Auto-Match Dispatch for Lead ${entityData._id || entityData.id}`);
+                        try {
+                            const { marketingQueue } = await import('../../queues/marketingQueue.js');
+                            if (marketingQueue) {
+                                await marketingQueue.add('auto-match-dispatch', {
+                                    leadId: entityData._id || entityData.id,
+                                    toggles: autoAction.configuration?.toggles || { whatsapp: true },
+                                    matchContext: autoAction.configuration?.matchContext || 'perfect',
+                                    companyId: companyId
+                                });
+                            } else {
+                                console.error('[WorkflowEngine] Cannot dispatch match: marketingQueue is not initialized.');
+                            }
+                        } catch (err) {
+                            console.error('[WorkflowEngine] AutoMatch queue error:', err);
+                        }
                     } else if (autoAction.actionType === 'update_field') {
                         console.log(`[WorkflowEngine] Updating field for ${trigger.module} ID ${entityData._id || entityData.id} with data:`, autoAction.fieldMapping);
                         const mongoose = (await import('mongoose')).default;
@@ -305,16 +323,59 @@ export class WorkflowEngine {
         const mongoose = (await import('mongoose')).default;
         const LeadTokenGenerator = (await import('./LeadTokenGenerator.js')).default;
 
+        // ─── Resolve Lookups ───
+        // If entityData has raw ObjectIds for lookup fields, resolve them to human-readable text
+        const resolvedFields = {};
+        try {
+            const LookupModel = mongoose.models.Lookup || mongoose.model('Lookup');
+            const extractIds = (val) => {
+                if (Array.isArray(val)) return val.map(extractIds).flat().filter(Boolean);
+                if (typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val)) return [val];
+                if (val && typeof val === 'object' && val._id) return [val._id.toString()];
+                return [];
+            };
+            
+            const lookupFields = ['sizeType', 'propertyType', 'subType', 'transactionType', 'source', 'status', 'stage', 'requirement', 'location'];
+            const idsToResolve = [];
+            lookupFields.forEach(field => {
+                const ids = extractIds(entityData[field]);
+                if (ids && ids.length) idsToResolve.push(...ids);
+            });
+            
+            if (idsToResolve.length > 0) {
+                const lookups = await LookupModel.find({ _id: { $in: idsToResolve } }).lean();
+                const lookupMap = {};
+                lookups.forEach(l => lookupMap[l._id.toString()] = l.label || l.value || l.lookup_value || l.name);
+                
+                lookupFields.forEach(field => {
+                    const val = entityData[field];
+                    if (!val) return;
+                    if (Array.isArray(val)) {
+                        resolvedFields[field] = val.map(v => {
+                            const id = typeof v === 'object' ? v._id?.toString() : String(v);
+                            return lookupMap[id] || (typeof v === 'object' ? (v.label || v.value || v.lookup_value || v.name) : v);
+                        }).filter(Boolean).join(', ');
+                    } else {
+                        const id = typeof val === 'object' ? val._id?.toString() : String(val);
+                        resolvedFields[field] = lookupMap[id] || (typeof val === 'object' ? (val.label || val.value || val.lookup_value || val.name) : val);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('[WorkflowEngine] Failed to resolve lookups:', err);
+        }
+
         // ─── Helper: Format Mixed/Array fields to comma-separated strings ───
-        const formatField = (val) => {
+        const formatField = (val, fieldName) => {
+            if (fieldName && resolvedFields[fieldName]) return resolvedFields[fieldName];
             if (!val) return '';
             if (Array.isArray(val)) {
                 return val.map(v => {
-                    if (typeof v === 'object' && v !== null) return v.name || v.label || String(v);
+                    if (typeof v === 'object' && v !== null) return v.label || v.value || v.lookup_value || v.name || String(v);
                     return String(v);
                 }).filter(Boolean).join(', ');
             }
-            if (typeof val === 'object' && val !== null) return val.name || val.label || String(val);
+            if (typeof val === 'object' && val !== null) return val.label || val.value || val.lookup_value || val.name || String(val);
             return String(val);
         };
 
@@ -336,7 +397,7 @@ export class WorkflowEngine {
         const assignedToId = entityData.assignment?.assignedTo || entityData.assignedTo || entityData.createdBy;
         if (assignedToId) {
             try {
-                const User = mongoose.model('User');
+                const User = mongoose.models.User || mongoose.model('User');
                 const agent = await User.findById(assignedToId).select('name fullName mobile phone email').lean();
                 if (agent) {
                     agentName = agent.fullName || agent.name || 'Bharat Properties';
@@ -354,7 +415,7 @@ export class WorkflowEngine {
 
         // ─── Build location string ───
         const locationParts = [
-            formatField(entityData.location),
+            formatField(entityData.location, 'location'),
             entityData.sector,
             entityData.locArea,
             entityData.locCity
@@ -376,18 +437,20 @@ export class WorkflowEngine {
             'last_name': entityData.lastName || '',
             'mobile': entityData.mobile || '',
             'email': entityData.email || '',
-            'lead_source': formatField(entityData.source),
-            'lead_status': formatField(entityData.status),
-            'lead_stage': formatField(entityData.stage),
-            'lead_requirement': formatField(entityData.requirement),
+            'lead_source': formatField(entityData.source, 'source'),
+            'lead_status': formatField(entityData.status, 'status'),
+            'lead_stage': formatField(entityData.stage, 'stage'),
+            'lead_requirement': formatField(entityData.requirement, 'requirement'),
 
             // Property Requirement
-            'size': formatField(entityData.sizeType),
-            'property_size': formatField(entityData.sizeType),
-            'sub_category': formatField(entityData.subType),
-            'property_subcategory': formatField(entityData.subType),
+            'intent': formatField(entityData.requirement, 'requirement'),
+            'transaction_type': formatField(entityData.transactionType, 'transactionType'),
+            'size': formatField(entityData.sizeType, 'sizeType'),
+            'property_size': formatField(entityData.sizeType, 'sizeType'),
+            'sub_category': formatField(entityData.subType, 'subType'),
+            'property_subcategory': formatField(entityData.subType, 'subType'),
             'location': locationStr,
-            'preferred_area': formatField(entityData.location) || entityData.locArea || entityData.sector || '',
+            'preferred_area': formatField(entityData.location, 'location') || entityData.locArea || entityData.sector || '',
             'preferred_city': entityData.locCity || '',
             'budget': formatBudget(entityData),
             'budget_max': formatBudget(entityData),

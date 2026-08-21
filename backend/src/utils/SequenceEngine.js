@@ -202,6 +202,19 @@ export class SequenceEngine {
                     companyId: enrollment.companyId, 
                     idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` 
                 });
+
+            } else if (step.action.type === 'auto_match_dispatch' || step.action.type === 'Auto-Match Dispatch') {
+                const autoActionFormat = {
+                    actionType: 'auto_match_dispatch',
+                    configuration: {
+                        toggles: { whatsapp: true },
+                        matchContext: 'drip_sequence'
+                    }
+                };
+                await WorkflowEngine.executeAction(autoActionFormat, entityData, { 
+                    companyId: enrollment.companyId, 
+                    idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` 
+                });
             } else if (step.action.type === 'update_field') {
                 await WorkflowEngine.executeAction({
                     actionType: 'update_field',
