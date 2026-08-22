@@ -1,3 +1,5 @@
+import IntegrationGuard from "../src/utils/IntegrationGuard.js";
+
 import { getDriveService } from '../utils/googleAuth.js';
 import fs from 'fs';
 import path from 'path';
@@ -76,6 +78,11 @@ export const getStructuredFolder = async (pathSegments = []) => {
  * @returns {Promise<Object>} - File details
  */
 export const uploadFileToDrive = async (file, options = {}) => {
+    if (!IntegrationGuard.canExecuteWebhooks()) {
+        IntegrationGuard.logBlock("Google Drive Upload", file.originalname || "file");
+        return { fileId: "staging-mock-file-id", webViewLink: "https://mock.drive/file", webContentLink: "https://mock.drive/dl" };
+    }
+
     let { folderId, entityType, entityName, docCategory, docType } = options;
     
     const driveService = await getDriveService();
