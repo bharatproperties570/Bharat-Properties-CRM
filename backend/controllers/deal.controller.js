@@ -1463,6 +1463,7 @@ export const getDeals = async (req, res) => {
         let categoryStatsPromise = Promise.resolve([]);
         
         if (Number(page) === 1) {
+            // 🚀 PHASE 2.3-S OPT1: Add pipeline projection to $lookup — only fetch 'category' from inventories
             categoryStatsPromise = Deal.aggregate([
                 { $match: { ...query } },
                 {
@@ -1470,6 +1471,7 @@ export const getDeals = async (req, res) => {
                         from: 'inventories',
                         localField: 'inventoryId',
                         foreignField: '_id',
+                        pipeline: [{ $project: { category: 1 } }],
                         as: 'inventory'
                     }
                 },
@@ -1496,11 +1498,14 @@ export const getDeals = async (req, res) => {
         }
 
         // Execute queries concurrently
+        // 🚀 PHASE 2.3-S OPT2: Fetch lookups in parallel with paginate+categoryStats instead of sequentially after
         console.log(">> getDeals API: starting Promise.all");
         console.time("getDeals_Paginate_Category");
-        const [results, categoryCounts] = await Promise.all([
+        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
+        const [results, categoryCounts, allLookups] = await Promise.all([
             paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields, null, dealListProjection),
-            categoryStatsPromise
+            categoryStatsPromise,
+            Lookup.find({ lookup_type: { $in: lookupTypes } }).select('_id lookup_type lookup_value').lean()
         ]);
         console.timeEnd("getDeals_Paginate_Category");
         console.log(">> getDeals API: finished Promise.all");
@@ -1531,52 +1536,18 @@ export const getDeals = async (req, res) => {
         console.timeEnd("getDeals_Activity_Fetch");
 
         // --- OPTIMIZATION 10: Batch Inventory Fetch & Fallback Unlinked Matching ---
-        // 🚀 SENIOR OPTIMIZATION: Skip second inventory fetch for compact/mobile list views.
-        // The paginate() call already populates inventoryId with the necessary fields.
-        // This second fetch only adds Contact owner/associate info, which is not shown on mobile cards.
+        // 🚀 PHASE 2.3-S OPT3: Skip second inventory re-fetch entirely for list view.
+        // paginate() already populates inventoryId with all required metadata fields.
+        // The owner/associatedContact are already populated via deal's own fields in dealListPopulateFields.
+        // This eliminates expensive Inventory.find().populate(Contact) for 19k+ inventories.
         console.time("getDeals_Inventory_Fetch");
         const inventoryMap = new Map();
         const unlinkedInventoryMap = new Map();
-
-        if (!isCompactView) {
-            const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
-            const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
-
-            if (inventoryIdsToFetch.length > 0) {
-                const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' })
-                    .select('+sizeLabel +sizeConfig')
-                    .lean();
-                inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
-            }
-
-            if (unlinkedDeals.length > 0) {
-                const unlinkedQuery = {
-                    $or: unlinkedDeals.map(d => ({
-                        projectName: { $regex: new RegExp(`^${escapeRegExp(d.projectName)}$`, 'i') },
-                        unitNo: { $regex: new RegExp(`^${escapeRegExp(d.unitNo)}$`, 'i') }
-                    }))
-                };
-                const unlinkedInventories = await Inventory.find(unlinkedQuery)
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' })
-                    .select('+sizeLabel +sizeConfig')
-                    .lean();
-                unlinkedInventories.forEach(inv => {
-                    const key = `${String(inv.projectName).toLowerCase().trim()}_${String(inv.unitNo).toLowerCase().trim()}`;
-                    unlinkedInventoryMap.set(key, inv);
-                });
-            }
-        }
         console.timeEnd("getDeals_Inventory_Fetch");
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
+        // 🚀 PHASE 2.3-S OPT2: allLookups already fetched in parallel above — just build maps
         console.time("getDeals_Lookup_Resolution");
-        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
-        const allLookups = await Lookup.find({ 
-            lookup_type: { $in: lookupTypes } 
-        }).select('_id lookup_type lookup_value').lean();
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 
@@ -1597,6 +1568,10 @@ export const getDeals = async (req, res) => {
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
             let inventory = invId ? inventoryMap.get(String(invId)) : null;
 
+            // 🚀 PHASE 2.3-S FIX: Fall back to already-populated inventoryId from paginate
+            if (!inventory && typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null && dealObj.inventoryId._id) {
+                inventory = dealObj.inventoryId;
+            }
             if (!inventory && dealObj.projectName && dealObj.unitNo) {
                 const key = `${String(dealObj.projectName).toLowerCase().trim()}_${String(dealObj.unitNo).toLowerCase().trim()}`;
                 inventory = unlinkedInventoryMap.get(key);
