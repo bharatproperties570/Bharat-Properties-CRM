@@ -15,14 +15,14 @@ export const getDashboardStats = async (req, res) => {
     try {
         const { userId, teamId } = req.query;
         const userIdForCache = req.user?._id || req.user?.id || 'anonymous';
-        const cacheKey = `dashboard_kpis_v2_${userIdForCache}`;
+        // 🚀 PHASE 2.3-T: Per-user cache key includes filter params for isolation
+        const cacheKey = `dashboard_kpis_v3_${userIdForCache}_${userId || 'all'}_${teamId || 'all'}`;
+        const DASHBOARD_CACHE_TTL = 300; // 5 minutes
         let cachedKpis = null;
-        if (!userId && !teamId) {
-            cachedKpis = await safeRedisCall('get', cacheKey);
-        }
+        cachedKpis = await safeRedisCall('get', cacheKey);
 
         if (cachedKpis) {
-            console.log(`[Dashboard] Serving cached stats for user: ${userIdForCache}`);
+            console.log(`[Dashboard] Serving cached stats for user: ${userIdForCache} (key: ${cacheKey})`);
             return res.json({ success: true, data: JSON.parse(cachedKpis), cached: true });
         }
 
@@ -670,10 +670,8 @@ export const getDashboardStats = async (req, res) => {
             priceTrendDeals
         };
 
-        // Optional: Cache background-calculated KPIs for 1 min (User-specific)
-        if (!userId && !teamId) {
-            await safeRedisCall('setex', cacheKey, 60, JSON.stringify(dashboardData));
-        }
+        // 🚀 PHASE 2.3-T: Always cache per-user dashboard data (5 min TTL)
+        await safeRedisCall('setex', cacheKey, DASHBOARD_CACHE_TTL, JSON.stringify(dashboardData));
 
         // Resolve Stage/Status names for category mapping
         // We do this AFTER the base queries to ensure we have the lookup values if needed
