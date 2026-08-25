@@ -123,8 +123,10 @@ export const getDashboardStats = async (req, res) => {
             /^WhatsApp$/i, /^SMS$/i, /^Email$/i, /^RCS$/i, 
             /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i
         ];
+        // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in for index utilization
+        const PENDING_STATUSES = ['Pending', 'In Progress'];
         const [overdueCount, todayActivityCount, upcomingCount, thisMonthActivities] = await Promise.all([
-            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $lt: today }, status: { $regex: /pending|in progress/i } }),
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $lt: today }, status: { $in: PENDING_STATUSES } }),
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: today, $lt: tomorrow } }),
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: tomorrow } }),
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: thisMonthStart } })
@@ -219,15 +221,23 @@ export const getDashboardStats = async (req, res) => {
         const soldIds = matchLookupIds(/sold/i);
         const blockedIds = matchLookupIds(/block|reserved/i);
 
-        const [inventoryStatsRaw, , soldCount, blockedCount] = await Promise.all([
-            Inventory.aggregate([
-                { $match: baseInvQuery },
-                { $group: { _id: "$status", count: { $sum: 1 } } }
-            ]),
-            Inventory.countDocuments({ ...baseInvQuery, status: { $in: availableIds } }),
-            Inventory.countDocuments({ ...baseInvQuery, status: { $in: soldIds } }),
-            Inventory.countDocuments({ ...baseInvQuery, status: { $in: blockedIds } })
+        // 🚀 PHASE 2.3-R OPT2: Single aggregation, derive sold/blocked counts from result
+        const inventoryStatsRaw = await Inventory.aggregate([
+            { $match: baseInvQuery },
+            { $group: { _id: "$status", count: { $sum: 1 } } }
         ]);
+
+        // Derive soldCount and blockedCount from aggregation result instead of 3 extra countDocuments
+        const soldIdSet = new Set(soldIds.map(id => id.toString()));
+        const blockedIdSet = new Set(blockedIds.map(id => id.toString()));
+        let soldCount = 0;
+        let blockedCount = 0;
+        (inventoryStatsRaw || []).forEach(item => {
+            const idStr = item._id?.toString() || '';
+            if (soldIdSet.has(idStr)) soldCount += item.count;
+            if (blockedIdSet.has(idStr)) blockedCount += item.count;
+        });
+
         const populatedInventory = (inventoryStatsRaw || []).map(item => ({
             status: lookupMap[item._id?.toString()] || item._id || 'Available',
             count: item.count
@@ -331,8 +341,9 @@ export const getDashboardStats = async (req, res) => {
         const revenueTrendGrowth = calcGrowth(totalRevenue, lastMonthRevenue[0]?.total || 0);
 
         // Average Response Time Calculation
+        // 🚀 PHASE 2.3-R OPT1: Replace regex with exact match
         const completedCalls = await Activity.aggregate([
-            { $match: { ...baseActQuery, type: 'Call', status: { $regex: /completed/i }, createdAt: { $gte: thisMonthStart } } },
+            { $match: { ...baseActQuery, type: 'Call', status: 'Completed', createdAt: { $gte: thisMonthStart } } },
             { $project: { responseTime: { $subtract: ["$updatedAt", "$createdAt"] } } },
             { $group: { _id: null, avg: { $avg: "$responseTime" } } }
         ]);
@@ -359,10 +370,11 @@ export const getDashboardStats = async (req, res) => {
                 timestamp: { $gte: thisMonthStart }
             }),
             // IDs of leads with pending activities
+            // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
             Activity.distinct('entityId', {
                 ...baseActQuery,
-                status: { $regex: /pending|in progress|open/i },
-                entityType: { $regex: /lead/i }
+                status: { $in: ['Pending', 'In Progress'] },
+                entityType: 'Lead'
             })
         ]);
 
@@ -393,10 +405,11 @@ export const getDashboardStats = async (req, res) => {
         const conversionRate = totalLeads > 0 ? Math.round((dealsThisMonth / newLeadsThisMonth) * 100) : 0;
         const leadMoMGrowth = calcGrowth(newLeadsThisMonth, lastMonthLeads);
         
+        // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
         const [rawTasks, rawSiteVisits] = await Promise.all([
             Activity.find({ 
                 ...baseActQuery, 
-                status: { $regex: /pending|in progress/i }, 
+                status: { $in: PENDING_STATUSES }, 
                 type: { $in: ['Task', 'Call', 'Meeting', 'Call Back', 'Meeting Scheduled'] } 
             })
             .sort({ dueDate: 1 })
@@ -404,7 +417,7 @@ export const getDashboardStats = async (req, res) => {
             .lean(),
             Activity.find({ 
                 ...baseActQuery, 
-                status: { $regex: /pending|in progress/i }, 
+                status: { $in: PENDING_STATUSES }, 
                 type: 'Site Visit' 
             })
             .sort({ dueDate: 1 })
@@ -419,7 +432,8 @@ export const getDashboardStats = async (req, res) => {
         tomorrowZero.setDate(tomorrowZero.getDate() + 1);
 
         const agendaStatsRaw = await Activity.aggregate([
-            { $match: { ...baseActQuery, status: { $regex: /pending|in progress|open/i } } },
+            // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
+            { $match: { ...baseActQuery, status: { $in: PENDING_STATUSES } } },
             {
                 $project: {
                     type: 1,
@@ -533,11 +547,37 @@ export const getDashboardStats = async (req, res) => {
         ];
 
         // ━━ 8. PRICE TREND ANALYTICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Lightweight fetch of all deals for dynamic frontend price trend aggregation
-        const priceTrendDeals = await Deal.find({ ...baseDealQuery })
-            .select('price closedPrice size sizeUnit sizeConfig stage location propertyType category createdAt inventoryId unitSpecification')
-            .populate('inventoryId', 'builtUpArea builtupType ageOfConstruction constructionAge unitSpecification area size sizeUnit')
-            .lean();
+        // 🚀 PHASE 2.3-R OPT3: Database-side aggregation replaces full document fetch + populate
+        const priceTrendDeals = await Deal.aggregate([
+            { $match: baseDealQuery },
+            {
+                $lookup: {
+                    from: 'inventories',
+                    localField: 'inventoryId',
+                    foreignField: '_id',
+                    pipeline: [{ $project: { builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1, area: 1, size: 1, sizeUnit: 1 } }],
+                    as: 'inventoryData'
+                }
+            },
+            { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1,
+                    stage: 1, location: 1, propertyType: 1, category: 1,
+                    createdAt: 1, unitSpecification: 1,
+                    inventory: {
+                        builtUpArea: '$inventoryData.builtUpArea',
+                        builtupType: '$inventoryData.builtupType',
+                        ageOfConstruction: '$inventoryData.ageOfConstruction',
+                        constructionAge: '$inventoryData.constructionAge',
+                        unitSpecification: '$inventoryData.unitSpecification',
+                        area: '$inventoryData.area',
+                        size: '$inventoryData.size',
+                        sizeUnit: '$inventoryData.sizeUnit'
+                    }
+                }
+            }
+        ]);
 
         // ━━ COMPOSE FINAL RESPONSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const dashboardData = {
