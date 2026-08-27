@@ -384,15 +384,77 @@ export const getBooking = async (req, res) => {
 };
 
 export const updateBooking = async (req, res) => {
+    const session = await mongoose.startSession();
+    let updatedBooking = null;
+
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const booking = await Booking.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true, runValidators: true });
-        if (!booking) return res.status(404).json({ success: false, message: "Booking record unavailable or access denied." });
-        
+        await session.withTransaction(async () => {
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const booking = await Booking.findOne({ _id: req.params.id, ...visibilityFilter }).session(session);
+            
+            if (!booking) throw new Error("Booking record unavailable or access denied.");
+
+            // 1. Reject Property Reassignment
+            if (req.body.property && req.body.property.toString() !== (booking.property ? booking.property.toString() : '')) {
+                throw new Error("Property reassignment is not supported via updateBooking. Please cancel and recreate the booking.");
+            }
+
+            // 2. Reject 'Registry' direct status update
+            if (req.body.status === 'Registry' && booking.status !== 'Registry') {
+                throw new Error("Registry closure must go through the dedicated closeBooking API.");
+            }
+
+            // 3. Handle Cancellation
+            if (req.body.status === 'Cancelled' && booking.status !== 'Cancelled') {
+                booking.status = 'Cancelled';
+                
+                // Release Inventory to 'Available'
+                if (booking.property) {
+                    const Inventory = mongoose.model('Inventory');
+                    const Lookup = mongoose.model('Lookup');
+                    const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: 'Available' }).select('_id').lean().session(session);
+                    const availableStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Available';
+
+                    await Inventory.findByIdAndUpdate(booking.property, { 
+                        status: availableStatusId
+                    }, { session });
+                }
+
+                // Deal Synchronization Note:
+                // Because there is no existing cancellationReason to differentiate customer
+                // cancellation from administrative correction, we are deliberately NOT forcing
+                // the Deal to 'Closed Lost' to preserve the pipeline state.
+            } else if (req.body.status && ['Pending', 'Booked', 'Agreement'].includes(req.body.status)) {
+                booking.status = req.body.status;
+            }
+
+            // 4. Apply Safe Fields
+            const ALLOWED_FIELDS = [
+                'type', 'bookingDate', 'applicationNo', 'totalDealAmount', 'tokenAmount', 
+                'agreementAmount', 'agreementDate', 'partPaymentAmount', 'partPaymentDate', 
+                'finalPaymentDate', 'registryDate', 'sellerBrokeragePercent', 
+                'sellerBrokerageAmount', 'buyerBrokeragePercent', 'buyerBrokerageAmount',
+                'channelPartnerBrokeragePercent', 'channelPartnerBrokerageAmount',
+                'executiveIncentivePercent', 'executiveIncentiveAmount',
+                'remarks', 'paymentSchedule'
+            ];
+
+            for (const field of ALLOWED_FIELDS) {
+                if (req.body[field] !== undefined) {
+                    booking[field] = req.body[field];
+                }
+            }
+
+            await booking.save({ session });
+            updatedBooking = booking;
+        });
+
         console.log(`[BOOKING_ENGINE] Updated Booking ${req.params.id}`);
-        res.status(200).json({ success: true, data: booking });
+        res.status(200).json({ success: true, data: updatedBooking });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
+    } finally {
+        await session.endSession();
     }
 };
 
