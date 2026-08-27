@@ -178,7 +178,7 @@ export const getInventory = async (req, res) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter };
+        let query = {};
 
         if (ownerPhone) {
             // [SECURITY FIX] Use $and to MERGE with visibility filter, not overwrite it
@@ -482,6 +482,10 @@ export const getInventory = async (req, res) => {
 
         // Only populate fields that are reliably ObjectIds (Contact references)
         // category, status, etc. in Inventory seem to be stored as objects or strings already
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, Object.keys(query).length > 0 ? query : {}] };
+        }
+
         console.log(`[INVENTORY_QUERY] projectId:`, finalProject, `Query:`, JSON.stringify(query, null, 2));
         const populateFields = [
             { path: "owners", select: "name phones emails title personalAddress correspondenceAddress" },

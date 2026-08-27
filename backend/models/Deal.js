@@ -193,7 +193,7 @@ const DealSchema = new mongoose.Schema({
     assignment: {
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
-        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' },
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Team' },
         history: [{
             assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
             assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -201,7 +201,7 @@ const DealSchema = new mongoose.Schema({
             notes: String
         }]
     },
-    visibleTo: { type: String, default: "Public" },
+    visibleTo: { type: String, default: "Team" },
     
     // Website Integration
     isPublished: { type: Boolean, default: false, index: true },

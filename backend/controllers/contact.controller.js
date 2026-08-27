@@ -74,7 +74,7 @@ export const getContacts = async (req, res, next) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter, isMerged: { $ne: true } };
+        let query = { isMerged: { $ne: true } };
 
         // Handle Mobile CRM business vs individual filter
         if (req.query.contactType === "business") {
@@ -147,6 +147,10 @@ export const getContacts = async (req, res, next) => {
             } else {
                 Object.assign(query, searchFilter);
             }
+        }
+
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, query] };
         }
 
         // ─── DYNAMIC SORTING (Senior Professional Optimization) ───

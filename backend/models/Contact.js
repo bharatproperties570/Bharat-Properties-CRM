@@ -39,10 +39,10 @@ const ContactSchema = new mongoose.Schema({
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
         assignedAt: { type: Date, default: Date.now },
         assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Team' }
     },
     department: { type: String, index: true }, // Explicit branch/regional isolation
-    visibleTo: { type: String, default: "Everyone" },
+    visibleTo: { type: String, default: "Team" },
 
 
     // Personal Address

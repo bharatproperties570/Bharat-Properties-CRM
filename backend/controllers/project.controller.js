@@ -22,7 +22,7 @@ export const getProjects = async (req, res) => {
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // Professional Search Logic
-        let query = { ...visibilityFilter };
+        let query = {};
         
         if (developerId && mongoose.Types.ObjectId.isValid(developerId)) {
             query.developerId = developerId;
@@ -38,6 +38,10 @@ export const getProjects = async (req, res) => {
                 { 'address.city': searchRegex },
                 { developerName: searchRegex }
             ];
+        }
+
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, Object.keys(query).length > 0 ? query : {}] };
         }
 
         // Professional Sorting Engine
