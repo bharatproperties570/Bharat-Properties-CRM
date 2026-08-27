@@ -74,13 +74,8 @@ export const getDashboardStats = async (req, res) => {
         // Professional fix: Dashboard now respects Multi-Team intersection rules
         const visibilityFilter = await getVisibilityFilter(req.user);
         
-        // Deep Diagnostic Logging
-        const rawLeadCount = await Lead.countDocuments({});
-        const filteredLeadCount = await Lead.countDocuments(visibilityFilter);
-        console.log(`[Dashboard-Audit] User: ${req.user?._id} (${req.user?.fullName})`);
-        console.log(`[Dashboard-Audit] Role: ${req.user?.role?.name}, Scope: ${req.user?.dataScope}`);
-        console.log(`[Dashboard-Audit] Visibility Filter: ${JSON.stringify(visibilityFilter)}`);
-        console.log(`[Dashboard-Audit] Leads (Raw): ${rawLeadCount}, Leads (Filtered): ${filteredLeadCount}`);
+        // 🚀 PHASE 2.3-U: Removed 2 diagnostic Lead.countDocuments calls (saved ~400ms)
+        console.log(`[Dashboard-Audit] User: ${req.user?._id} (${req.user?.fullName}), Role: ${req.user?.role?.name}`);
         
         const baseLeadQuery = { ...visibilityFilter };
         const baseDealQuery = { ...visibilityFilter };
@@ -125,35 +120,84 @@ export const getDashboardStats = async (req, res) => {
         ];
         // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in for index utilization
         const PENDING_STATUSES = ['Pending', 'In Progress'];
-        const [overdueCount, todayActivityCount, upcomingCount, thisMonthActivities] = await Promise.all([
+
+        // 🚀 PHASE 2.3-U: Batch all independent queries into controlled groups
+        // ━━ BATCH A: All independent queries across Activity, Lead, Deal, Inventory, Booking ━━
+const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
+        
+        const matchLookupIds = (regex) => Object.entries(lookupMap).filter(([, val]) => regex.test(val)).map(([id]) => new mongoose.Types.ObjectId(id));
+        const availableIds = matchLookupIds(/available/i);
+        const soldIds = matchLookupIds(/sold/i);
+        const blockedIds = matchLookupIds(/block|reserved/i);
+
+        const todayZero = new Date(); todayZero.setHours(0, 0, 0, 0);
+        const tomorrowZero = new Date(todayZero); tomorrowZero.setDate(tomorrowZero.getDate() + 1);
+
+        const [
+            overdueCount, todayActivityCount, upcomingCount, thisMonthActivities, activityTypeBreakdown,
+            leadsByStageRaw, leadsBySource, newLeadsThisMonth, newLeadsLastMonth, leadTrendRaw,
+            dealsByStageRaw, dealsThisMonth, recentDeals,
+            inventoryStatsRaw, portfolioRaw, inventoryByProject,
+            revenueBySourceRaw, cashFlowRaw, revenueAgg, mtdRevenueAgg,
+            lastMonthLeads, lastMonthDeals, lastMonthRevenue,
+            completedCalls,
+            projectCount, projectList,
+            reengagedCount, leadsWithActivities,
+            rawTasks, rawSiteVisits, agendaStatsRaw,
+            recentActivityFeed, priceTrendDeals
+        ] = await Promise.all([
+            // Activity stats
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $lt: today }, status: { $in: PENDING_STATUSES } }),
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: today, $lt: tomorrow } }),
             Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: tomorrow } }),
-            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: thisMonthStart } })
-        ]);
-
-        const activityTypeBreakdown = await Activity.aggregate([
-            { $match: { ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
-            { $group: { _id: '$type', count: { $sum: 1 } } },
-            { $sort: { count: -1 } },
-            { $limit: 6 }
-        ]);
-
-        // ━━ 2. LEAD STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const [leadsByStageRaw, newLeadsThisMonth, newLeadsLastMonth, leadsBySource] = await Promise.all([
-            Lead.aggregate([
-                { $match: baseLeadQuery },
-                { $group: { _id: "$stage", count: { $sum: 1 } } }
-            ]),
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: thisMonthStart } }),
+            Activity.aggregate([{ $match: { ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: new Date(Date.now() - 30 * 86400000) } } }, { $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 6 }]),
+            // Lead stats
+            Lead.aggregate([{ $match: baseLeadQuery }, { $group: { _id: "$stage", count: { $sum: 1 } } }]),
+            Lead.aggregate([{ $match: baseLeadQuery }, { $group: { _id: '$source', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 6 }]),
             Lead.countDocuments({ ...baseLeadQuery, createdAt: { $gte: thisMonthStart } }),
             Lead.countDocuments({ ...baseLeadQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
-            Lead.aggregate([
-                { $match: baseLeadQuery },
-                { $group: { _id: '$source', count: { $sum: 1 } } },
-                { $sort: { count: -1 } }, { $limit: 6 }
-            ])
+            Lead.aggregate([{ $match: { ...baseLeadQuery, createdAt: { $gte: new Date(Date.now() - 180 * 86400000) } } }, { $group: { _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } }, count: { $sum: 1 } } }, { $sort: { '_id.year': 1, '_id.month': 1 } }]),
+            // Deal stats
+            Deal.aggregate([{ $match: baseDealQuery }, { $group: { _id: "$stage", count: { $sum: 1 }, value: { $sum: "$price" } } }]),
+            Deal.countDocuments({ ...baseDealQuery, createdAt: { $gte: thisMonthStart } }),
+            Deal.find({ ...baseDealQuery }).sort({ updatedAt: -1 }).limit(5).select('unitNo projectName stage price createdAt stageChangedAt').lean(),
+            // Inventory stats
+            Inventory.aggregate([{ $match: baseInvQuery }, { $group: { _id: "$status", count: { $sum: 1 } } }]),
+            Inventory.aggregate([{ $match: baseInvQuery }, { $group: { _id: "$category", count: { $sum: 1 }, totalValue: { $sum: "$price" } } }]),
+            Inventory.aggregate([{ $match: baseInvQuery }, { $group: { _id: "$projectName", count: { $sum: 1 }, available: { $sum: { $cond: [{ $in: ["$status", availableIds] }, 1, 0] } } } }, { $sort: { count: -1 } }, { $limit: 5 }]),
+            // Booking/Financial stats
+            Booking.aggregate([{ $match: baseBookingQuery }, { $lookup: { from: "leads", localField: "lead", foreignField: "_id", as: "leadDoc" } }, { $unwind: { path: "$leadDoc", preserveNullAndEmptyArrays: true } }, { $group: { _id: "$leadDoc.source", count: { $sum: 1 }, total: { $sum: "$commissionReceived" } } }, { $sort: { total: -1 } }, { $limit: 6 }]),
+            Booking.aggregate([{ $match: { ...baseBookingQuery, bookingDate: { $gte: sixMonthsAgo } } }, { $group: { _id: { month: { $month: '$bookingDate' }, year: { $year: '$bookingDate' } }, total: { $sum: '$commissionReceived' }, deals: { $sum: 1 } } }, { $sort: { '_id.year': 1, '_id.month': 1 } }]),
+            Booking.aggregate([{ $match: baseBookingQuery }, { $group: { _id: null, total: { $sum: "$commissionReceived" }, pending: { $sum: "$commissionPending" } } }]),
+            Booking.aggregate([{ $match: { ...baseBookingQuery, bookingDate: { $gte: thisMonthStart } } }, { $group: { _id: null, total: { $sum: "$commissionReceived" } } }]),
+            // MoM growth stats
+            Lead.countDocuments({ ...baseLeadQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
+            Deal.countDocuments({ ...baseDealQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
+            Booking.aggregate([{ $match: { ...baseBookingQuery, bookingDate: { $gte: lastMonthStart, $lt: lastMonthEnd } } }, { $group: { _id: null, total: { $sum: "$commissionReceived" } } }]),
+            // Avg response time
+            Activity.aggregate([{ $match: { ...baseActQuery, type: 'Call', status: 'Completed', createdAt: { $gte: thisMonthStart } } }, { $project: { responseTime: { $subtract: ["$updatedAt", "$createdAt"] } } }, { $group: { _id: null, avg: { $avg: "$responseTime" } } }]),
+            // Projects
+            Project.countDocuments(baseProjQuery),
+            Project.find(baseProjQuery).limit(5).select('name').lean(),
+            // Revival stats
+            AuditLog.countDocuments({ eventType: 'lead_revived_automation', timestamp: { $gte: thisMonthStart } }),
+            Activity.distinct('entityId', { ...baseActQuery, status: { $in: PENDING_STATUSES }, entityType: 'Lead' }),
+            // Agenda/Activities
+            Activity.find({ ...baseActQuery, status: { $in: PENDING_STATUSES }, type: { $in: ['Task', 'Call', 'Meeting', 'Call Back', 'Meeting Scheduled'] } }).sort({ dueDate: 1 }).limit(15).lean(),
+            Activity.find({ ...baseActQuery, status: { $in: PENDING_STATUSES }, type: 'Site Visit' }).sort({ dueDate: 1 }).limit(15).lean(),
+            Activity.aggregate([{ $match: { ...baseActQuery, status: { $in: PENDING_STATUSES } } }, { $project: { type: 1, dueDate: 1, bucket: { $switch: { branches: [ { case: { $lt: ["$dueDate", todayZero] }, then: "overdue" }, { case: { $and: [{ $gte: ["$dueDate", todayZero] }, { $lt: ["$dueDate", tomorrowZero] }] }, then: "today" }, { case: { $gte: ["$dueDate", tomorrowZero] }, then: "pending" } ], default: "pending" } }, category: { $switch: { branches: [ { case: { $in: ["$type", ["Task", "Call", "Call Back", "Followup"]] }, then: "Followup" }, { case: { $in: ["$type", ["Meeting", "Meeting Scheduled"]] }, then: "Meeting" }, { case: { $eq: ["$type", "Site Visit"] }, then: "Site Visit" } ], default: "Followup" } } } }, { $group: { _id: { category: "$category", bucket: "$bucket" }, count: { $sum: 1 } } }]),
+            Activity.find({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES } }).sort({ createdAt: -1 }).limit(10).lean(),
+            // Price Trend
+            Deal.aggregate([{ $match: baseDealQuery }, { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', pipeline: [{ $project: { builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1, area: 1, size: 1, sizeUnit: 1 } }], as: 'inventoryData' } }, { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } }, { $project: { price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1, stage: 1, location: 1, propertyType: 1, category: 1, createdAt: 1, unitSpecification: 1, inventory: { builtUpArea: '$inventoryData.builtUpArea', builtupType: '$inventoryData.builtupType', ageOfConstruction: '$inventoryData.ageOfConstruction', constructionAge: '$inventoryData.constructionAge', unitSpecification: '$inventoryData.unitSpecification', area: '$inventoryData.area', size: '$inventoryData.size', sizeUnit: '$inventoryData.sizeUnit' } } }])
         ]);
 
+        // ━━ BATCH B: Dependent Queries ━━
+        const activeStages = [...CATEGORY_MAPPING.INCOMING, ...CATEGORY_MAPPING.PROSPECT, ...CATEGORY_MAPPING.OPPORTUNITY, ...CATEGORY_MAPPING.NEGOTIATION];
+        const activeStageIds = Object.entries(lookupMap).filter(([, val]) => activeStages.includes(val)).map(([id]) => new mongoose.Types.ObjectId(id));
+        const nfaCount = await Lead.countDocuments({ ...baseLeadQuery, stage: { $in: activeStageIds }, _id: { $nin: leadsWithActivities } });
+
+        // ━━ DATA PROCESSING (IN-MEMORY) ━━
         const leadCategories = { INCOMING: 0, PROSPECT: 0, OPPORTUNITY: 0, NEGOTIATION: 0, WON: 0, LOST: 0 };
         leadsByStageRaw.forEach(item => {
             const label = lookupMap[item._id?.toString()] || item._id || 'New';
@@ -163,47 +207,13 @@ export const getDashboardStats = async (req, res) => {
         const populatedLeads = Object.entries(leadCategories).map(([status, count]) => ({ status, count }));
         const totalLeads = leadsByStageRaw.reduce((sum, l) => sum + l.count, 0);
 
-        const leadTrendRaw = await Lead.aggregate([
-            { $match: { ...baseLeadQuery, createdAt: { $gte: new Date(Date.now() - 180 * 86400000) } } },
-            {
-                $group: {
-                    _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } },
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { '_id.year': 1, '_id.month': 1 } }
-        ]);
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const leadTrend = {
-            categories: leadTrendRaw.map(l => {
-                const mIdx = (l._id.month || 1) - 1;
-                return `${monthNames[mIdx] || 'Jan'} ${String(l._id.year || today.getFullYear()).slice(-2)}`;
-            }),
+            categories: leadTrendRaw.map(l => { const mIdx = (l._id.month || 1) - 1; return `${monthNames[mIdx] || 'Jan'} ${String(l._id.year || today.getFullYear()).slice(-2)}`; }),
             series: [{ name: 'New Leads', data: leadTrendRaw.map(l => l.count) }]
         };
 
-        // ━━ 3. DEAL STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const [dealsByStageRaw, dealsThisMonth, recentDeals] = await Promise.all([
-            Deal.aggregate([
-                { $match: baseDealQuery },
-                { $group: { _id: "$stage", count: { $sum: 1 }, value: { $sum: "$price" } } }
-            ]),
-            Deal.countDocuments({ ...baseDealQuery, createdAt: { $gte: thisMonthStart } }),
-            Deal.find({ ...baseDealQuery })
-                .sort({ updatedAt: -1 })
-                .limit(5)
-                .select('unitNo projectName stage price createdAt stageChangedAt')
-                .lean()
-        ]);
-
-        const dealCategories = {
-            INCOMING: { count: 0, value: 0 },
-            PROSPECT: { count: 0, value: 0 },
-            OPPORTUNITY: { count: 0, value: 0 },
-            NEGOTIATION: { count: 0, value: 0 },
-            WON: { count: 0, value: 0 },
-            LOST: { count: 0, value: 0 }
-        };
+        const dealCategories = { INCOMING: { count: 0, value: 0 }, PROSPECT: { count: 0, value: 0 }, OPPORTUNITY: { count: 0, value: 0 }, NEGOTIATION: { count: 0, value: 0 }, WON: { count: 0, value: 0 }, LOST: { count: 0, value: 0 } };
         dealsByStageRaw.forEach(item => {
             const label = lookupMap[item._id?.toString()] || item._id || 'Open';
             const cat = reverseMapping[label.toString().toLowerCase()] || 'INCOMING';
@@ -211,269 +221,51 @@ export const getDashboardStats = async (req, res) => {
             dealCategories[cat].value += (item.value || 0);
         });
         const performanceDeals = Object.entries(dealCategories).map(([stage, stats]) => ({ stage, count: stats.count, value: stats.value }));
-
-        // Pipeline value = sum of all non-closed deals
         const pipelineValue = (dealCategories.INCOMING.value + dealCategories.PROSPECT.value + dealCategories.OPPORTUNITY.value + dealCategories.NEGOTIATION.value);
 
-        // ━━ 4. INVENTORY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const matchLookupIds = (regex) => Object.entries(lookupMap).filter(([, val]) => regex.test(val)).map(([id]) => new mongoose.Types.ObjectId(id));
-        const availableIds = matchLookupIds(/available/i);
-        const soldIds = matchLookupIds(/sold/i);
-        const blockedIds = matchLookupIds(/block|reserved/i);
-
-        // 🚀 PHASE 2.3-R OPT2: Single aggregation, derive sold/blocked counts from result
-        const inventoryStatsRaw = await Inventory.aggregate([
-            { $match: baseInvQuery },
-            { $group: { _id: "$status", count: { $sum: 1 } } }
-        ]);
-
-        // Derive soldCount and blockedCount from aggregation result instead of 3 extra countDocuments
         const soldIdSet = new Set(soldIds.map(id => id.toString()));
         const blockedIdSet = new Set(blockedIds.map(id => id.toString()));
-        let soldCount = 0;
-        let blockedCount = 0;
+        let soldCount = 0; let blockedCount = 0;
         (inventoryStatsRaw || []).forEach(item => {
             const idStr = item._id?.toString() || '';
             if (soldIdSet.has(idStr)) soldCount += item.count;
             if (blockedIdSet.has(idStr)) blockedCount += item.count;
         });
+        const populatedInventory = (inventoryStatsRaw || []).map(item => ({ status: lookupMap[item._id?.toString()] || item._id || 'Available', count: item.count }));
+        const portfolioMix = { labels: portfolioRaw.map(p => lookupMap[p._id?.toString()] || p._id || 'Uncategorized'), series: portfolioRaw.map(p => p.count) };
 
-        const populatedInventory = (inventoryStatsRaw || []).map(item => ({
-            status: lookupMap[item._id?.toString()] || item._id || 'Available',
-            count: item.count
-        }));
-
-        // Portfolio mix (by property type/category)
-        const portfolioRaw = await Inventory.aggregate([
-            { $match: baseInvQuery },
-            { $group: { _id: "$category", count: { $sum: 1 }, totalValue: { $sum: "$price" } } }
-        ]);
-        const portfolioMix = {
-            labels: portfolioRaw.map(p => lookupMap[p._id?.toString()] || p._id || 'Uncategorized'),
-            series: portfolioRaw.map(p => p.count)
-        };
-
-        // Inventory velocity: avg days to sell (from blocked/sold)
-        const inventoryByProject = await Inventory.aggregate([
-            { $match: baseInvQuery },
-            {
-                $group: {
-                    _id: "$projectName",
-                    count: { $sum: 1 },
-                    available: { $sum: { $cond: [{ $in: ["$status", availableIds] }, 1, 0] } }
-                }
-            },
-            { $sort: { count: -1 } }, { $limit: 5 }
-        ]);
-
-        // ━━ 5. FINANCIAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const revenueBySourceRaw = await Booking.aggregate([
-            { $match: baseBookingQuery },
-            { 
-                $lookup: {
-                    from: "leads",
-                    localField: "lead",
-                    foreignField: "_id",
-                    as: "leadDoc"
-                }
-            },
-            { $unwind: { path: "$leadDoc", preserveNullAndEmptyArrays: true } },
-            { $group: { _id: "$leadDoc.source", count: { $sum: 1 }, total: { $sum: "$commissionReceived" } } },
-            { $sort: { total: -1 } }, { $limit: 6 }
-        ]);
         const revenueBySource = {
             categories: revenueBySourceRaw.map(r => lookupMap[r._id?.toString()] || r._id || 'Direct'),
             series: [{ name: 'Commission (₹)', data: revenueBySourceRaw.map(r => Math.round(r.total || 0)) }]
         };
-
-        console.log("[Dashboard] Processing Financials from Booking model...");
-        // Cash flow last 6 months
-        const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
-        const cashFlowRaw = await Booking.aggregate([
-            { $match: { ...baseBookingQuery, bookingDate: { $gte: sixMonthsAgo } } },
-            {
-                $group: {
-                    _id: { month: { $month: '$bookingDate' }, year: { $year: '$bookingDate' } },
-                    total: { $sum: '$commissionReceived' },
-                    deals: { $sum: 1 }
-                }
-            },
-            { $sort: { '_id.year': 1, '_id.month': 1 } }
-        ]);
-
         const cashFlowProjection = {
-            categories: cashFlowRaw.map(c => {
-                const mIdx = (c._id.month || 1) - 1;
-                return `${monthNames[mIdx] || 'Jan'} ${String(c._id.year || today.getFullYear()).slice(-2)}`;
-            }),
+            categories: cashFlowRaw.map(c => { const mIdx = (c._id.month || 1) - 1; return `${monthNames[mIdx] || 'Jan'} ${String(c._id.year || today.getFullYear()).slice(-2)}`; }),
             series: [{ name: 'Commission Collected', data: cashFlowRaw.map(c => c.total || 0) }],
             dealsPerMonth: cashFlowRaw.map(c => c.deals || 0)
         };
-
-        // Total revenue (all-time commission collected & pending)
-        const revenueAgg = await Booking.aggregate([
-            { $match: baseBookingQuery },
-            { $group: { _id: null, total: { $sum: "$commissionReceived" }, pending: { $sum: "$commissionPending" } } }
-        ]);
         const totalRevenue = revenueAgg[0]?.total || 0;
         const pendingCommission = revenueAgg[0]?.pending || 0;
-
-        // MTD Revenue (Secured this month)
-        const mtdRevenueAgg = await Booking.aggregate([
-            { $match: { ...baseBookingQuery, bookingDate: { $gte: thisMonthStart } } },
-            { $group: { _id: null, total: { $sum: "$commissionReceived" } } }
-        ]);
         const achievedAmount = mtdRevenueAgg[0]?.total || 0;
-
-        // New MoM Growth Calculations
-        const [lastMonthLeads, lastMonthDeals, lastMonthRevenue] = await Promise.all([
-            Lead.countDocuments({ ...baseLeadQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
-            Deal.countDocuments({ ...baseDealQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
-            Booking.aggregate([
-                { $match: { ...baseBookingQuery, bookingDate: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
-                { $group: { _id: null, total: { $sum: "$commissionReceived" } } }
-            ])
-        ]);
 
         const calcGrowth = (curr, prev) => prev === 0 ? (curr > 0 ? 100 : 0) : Math.round(((curr - prev) / prev) * 100);
         const leadTrendGrowth = calcGrowth(newLeadsThisMonth, lastMonthLeads);
         const dealsTrendGrowth = calcGrowth(dealsThisMonth, lastMonthDeals);
         const revenueTrendGrowth = calcGrowth(totalRevenue, lastMonthRevenue[0]?.total || 0);
 
-        // Average Response Time Calculation
-        // 🚀 PHASE 2.3-R OPT1: Replace regex with exact match
-        const completedCalls = await Activity.aggregate([
-            { $match: { ...baseActQuery, type: 'Call', status: 'Completed', createdAt: { $gte: thisMonthStart } } },
-            { $project: { responseTime: { $subtract: ["$updatedAt", "$createdAt"] } } },
-            { $group: { _id: null, avg: { $avg: "$responseTime" } } }
-        ]);
         const avgResponseTimeMs = completedCalls[0]?.avg || 0;
         const avgResponseTimeMin = avgResponseTimeMs > 0 ? Math.round(avgResponseTimeMs / 60000) : 0;
-
-        // Lead Velocity (Avg. Stage movements this month)
         const leadVelocity = totalLeads > 0 ? Math.min(100, Math.round((dealsThisMonth / newLeadsThisMonth) * 100)) : 0;
 
-        // ━━ FIX: Defining missing variables found in the response object ━━━━━━
-        const missedCalls = 0;
-        const missedFollowups = 0;
-        const [projectCount, projectList, mtdVisitsByProject, mtdBookingsByProject] = await Promise.all([
-            Project.countDocuments(baseProjQuery),
-            Project.find(baseProjQuery).limit(5).select('name').lean(),
-            Promise.resolve([]), // Placeholder for MTD visits
-            Promise.resolve([])  // Placeholder for MTD bookings
-        ]);
-        // ━━ 6. REVIVAL & NFA STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const [reengagedCount, leadsWithActivities] = await Promise.all([
-            // Count leads moved to Prospect from Dormant this month (via AuditLog created by RevivalSyncService)
-            AuditLog.countDocuments({
-                eventType: 'lead_revived_automation',
-                timestamp: { $gte: thisMonthStart }
-            }),
-            // IDs of leads with pending activities
-            // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
-            Activity.distinct('entityId', {
-                ...baseActQuery,
-                status: { $in: ['Pending', 'In Progress'] },
-                entityType: 'Lead'
-            })
-        ]);
+        const missedCalls = 0; const missedFollowups = 0;
+        const mtdVisitsByProject = []; const mtdBookingsByProject = [];
 
-        // NFA Count = Active Leads (Incoming/Prospect/Opp/Neg) NOT in the leadsWithActivities list
-        const activeStages = [
-            ...CATEGORY_MAPPING.INCOMING,
-            ...CATEGORY_MAPPING.PROSPECT,
-            ...CATEGORY_MAPPING.OPPORTUNITY,
-            ...CATEGORY_MAPPING.NEGOTIATION
-        ];
-        
-        // Find Stage IDs for active stages
-        const activeStageIds = Object.entries(lookupMap)
-            .filter(([, val]) => activeStages.includes(val))
-            .map(([id]) => new mongoose.Types.ObjectId(id));
-
-        const nfaCount = await Lead.countDocuments({
-            ...baseLeadQuery,
-            stage: { $in: activeStageIds },
-            _id: { $nin: leadsWithActivities }
-        });
-
-        // ━━ 7. FINAL MAPPING & AGGREGATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const availability = populatedInventory.reduce((sum, i) => sum + i.count, 0);
         const leadSourceStats = leadsBySource.map(l => ({ source: lookupMap[l._id] || l._id, count: l.count }));
-        const targetAmount = 50000000; // Mock Target: 5 Crore
-        // MTD Achieved Amount is already calculated above as achievedAmount
+        const targetAmount = 50000000;
         const conversionRate = totalLeads > 0 ? Math.round((dealsThisMonth / newLeadsThisMonth) * 100) : 0;
         const leadMoMGrowth = calcGrowth(newLeadsThisMonth, lastMonthLeads);
-        
-        // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
-        const [rawTasks, rawSiteVisits] = await Promise.all([
-            Activity.find({ 
-                ...baseActQuery, 
-                status: { $in: PENDING_STATUSES }, 
-                type: { $in: ['Task', 'Call', 'Meeting', 'Call Back', 'Meeting Scheduled'] } 
-            })
-            .sort({ dueDate: 1 })
-            .limit(15)
-            .lean(),
-            Activity.find({ 
-                ...baseActQuery, 
-                status: { $in: PENDING_STATUSES }, 
-                type: 'Site Visit' 
-            })
-            .sort({ dueDate: 1 })
-            .limit(15)
-            .lean()
-        ]);
 
-        const todayZero = new Date();
-        todayZero.setHours(0, 0, 0, 0);
-        
-        const tomorrowZero = new Date(todayZero);
-        tomorrowZero.setDate(tomorrowZero.getDate() + 1);
-
-        const agendaStatsRaw = await Activity.aggregate([
-            // 🚀 PHASE 2.3-R OPT1: Replace regex with exact $in
-            { $match: { ...baseActQuery, status: { $in: PENDING_STATUSES } } },
-            {
-                $project: {
-                    type: 1,
-                    dueDate: 1,
-                    bucket: {
-                        $switch: {
-                            branches: [
-                                { case: { $lt: ["$dueDate", todayZero] }, then: "overdue" },
-                                { case: { $and: [{ $gte: ["$dueDate", todayZero] }, { $lt: ["$dueDate", tomorrowZero] }] }, then: "today" },
-                                { case: { $gte: ["$dueDate", tomorrowZero] }, then: "pending" }
-                            ],
-                            default: "pending"
-                        }
-                    },
-                    category: {
-                        $switch: {
-                            branches: [
-                                { case: { $in: ["$type", ["Task", "Call", "Call Back", "Followup"]] }, then: "Followup" },
-                                { case: { $in: ["$type", ["Meeting", "Meeting Scheduled"]] }, then: "Meeting" },
-                                { case: { $eq: ["$type", "Site Visit"] }, then: "Site Visit" }
-                            ],
-                            default: "Followup"
-                        }
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: { category: "$category", bucket: "$bucket" },
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        const agendaStats = {
-            Followup: { today: 0, overdue: 0, pending: 0 },
-            Meeting: { today: 0, overdue: 0, pending: 0 },
-            "Site Visit": { today: 0, overdue: 0, pending: 0 }
-        };
-
+        const agendaStats = { Followup: { today: 0, overdue: 0, pending: 0 }, Meeting: { today: 0, overdue: 0, pending: 0 }, "Site Visit": { today: 0, overdue: 0, pending: 0 } };
         agendaStatsRaw.forEach(stat => {
             if (agendaStats[stat._id.category] && stat._id.bucket) {
                 agendaStats[stat._id.category][stat._id.bucket] = stat.count;
@@ -485,34 +277,20 @@ export const getDashboardStats = async (req, res) => {
             const date = new Date(dueDate);
             if (isNaN(date.getTime())) return 'Pending';
             
-            const todayDate = new Date();
-            todayDate.setHours(0,0,0,0);
-            const tomorrowDate = new Date(todayDate);
-            tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-            const yesterdayDate = new Date(todayDate);
-            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-            
-            const dateZero = new Date(date);
-            dateZero.setHours(0,0,0,0);
+            const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+            const tomorrowDate = new Date(todayDate); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const yesterdayDate = new Date(todayDate); yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            const dateZero = new Date(date); dateZero.setHours(0,0,0,0);
             
             let dateStr = '';
-            if (dateZero.getTime() === todayDate.getTime()) {
-                dateStr = 'Today';
-            } else if (dateZero.getTime() === tomorrowDate.getTime()) {
-                dateStr = 'Tomorrow';
-            } else if (dateZero.getTime() === yesterdayDate.getTime()) {
-                dateStr = 'Yesterday';
-            } else if (dateZero.getTime() < todayDate.getTime()) {
+            if (dateZero.getTime() === todayDate.getTime()) { dateStr = 'Today'; } 
+            else if (dateZero.getTime() === tomorrowDate.getTime()) { dateStr = 'Tomorrow'; } 
+            else if (dateZero.getTime() === yesterdayDate.getTime()) { dateStr = 'Yesterday'; } 
+            else if (dateZero.getTime() < todayDate.getTime()) {
                 const diffDays = Math.floor((todayDate - dateZero) / 86400000);
                 dateStr = `${diffDays}d Overdue`;
-            } else {
-                dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-            }
-            
-            if (dueTime) {
-                return `${dateStr}, ${dueTime}`;
-            }
-            return dateStr;
+            } else { dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); }
+            return dueTime ? `${dateStr}, ${dueTime}` : dateStr;
         };
 
         const liveTasks = rawTasks.map(task => ({
@@ -532,10 +310,6 @@ export const getDashboardStats = async (req, res) => {
             status: visit.status || 'Pending'
         }));
 
-
-        const recentActivityFeed = await Activity.find({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES } }).sort({ createdAt: -1 }).limit(10).lean();
-
-        // AI Alert Hub Mockery (based on actual counts)
         const aiAlertHub = {
             followupFailure: nfaCount > 5 ? [{ id: 'nfa_alert', title: 'NFA Alert', message: `${nfaCount} leads have no future actions scheduled.`, severity: 'high' }] : [],
             hotLeads: leadsByStageRaw.filter(l => (lookupMap[l._id] || '').toLowerCase() === 'hot').map(l => ({ id: l._id, title: 'Hot Lead Found', message: `${l.count} hot leads need immediate attention.` }))
@@ -545,39 +319,6 @@ export const getDashboardStats = async (req, res) => {
             { type: 'strategy', text: 'Focus on Web leads as they have 3x higher conversion this month.' },
             { type: 'optimization', text: 'Site visits are peaking on Saturdays. Adjust roster accordingly.' }
         ];
-
-        // ━━ 8. PRICE TREND ANALYTICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 🚀 PHASE 2.3-R OPT3: Database-side aggregation replaces full document fetch + populate
-        const priceTrendDeals = await Deal.aggregate([
-            { $match: baseDealQuery },
-            {
-                $lookup: {
-                    from: 'inventories',
-                    localField: 'inventoryId',
-                    foreignField: '_id',
-                    pipeline: [{ $project: { builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1, area: 1, size: 1, sizeUnit: 1 } }],
-                    as: 'inventoryData'
-                }
-            },
-            { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } },
-            {
-                $project: {
-                    price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1,
-                    stage: 1, location: 1, propertyType: 1, category: 1,
-                    createdAt: 1, unitSpecification: 1,
-                    inventory: {
-                        builtUpArea: '$inventoryData.builtUpArea',
-                        builtupType: '$inventoryData.builtupType',
-                        ageOfConstruction: '$inventoryData.ageOfConstruction',
-                        constructionAge: '$inventoryData.constructionAge',
-                        unitSpecification: '$inventoryData.unitSpecification',
-                        area: '$inventoryData.area',
-                        size: '$inventoryData.size',
-                        sizeUnit: '$inventoryData.sizeUnit'
-                    }
-                }
-            }
-        ]);
 
         // ━━ COMPOSE FINAL RESPONSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const dashboardData = {
