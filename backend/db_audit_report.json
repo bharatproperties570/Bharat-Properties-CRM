@@ -1,0 +1,1985 @@
+{
+  "booking-details": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "parsingrules": {
+    "count": 761,
+    "avgObjSize": 131,
+    "size": 100297,
+    "indexes": [
+      "_id_",
+      "tenantId_1",
+      "tenantId_1_type_1_value_1_category_1"
+    ],
+    "keys": [
+      "_id",
+      "type",
+      "value",
+      "category",
+      "tenantId",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "add_templates": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "enrichmentlogs": {
+    "count": 50,
+    "avgObjSize": 321,
+    "size": 16097,
+    "indexes": [
+      "_id_",
+      "leadId_1"
+    ],
+    "keys": [
+      "_id",
+      "leadId",
+      "ruleId",
+      "ruleType",
+      "ruleName",
+      "triggerType",
+      "appliedTags",
+      "oldIntentIndex",
+      "newIntentIndex",
+      "details",
+      "timestamp",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "parsingruleaudits": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "tenantId_1",
+      "ruleId_1",
+      "changedBy_1"
+    ],
+    "keys": []
+  },
+  "companies": {
+    "count": 87,
+    "avgObjSize": 919,
+    "size": 80023,
+    "indexes": [
+      "_id_",
+      "name_1",
+      "team_1",
+      "teams_1",
+      "department_1",
+      "groups_1",
+      "updatedAt_-1",
+      "createdAt_-1",
+      "industry_1_updatedAt_-1",
+      "relationshipType_1_updatedAt_-1",
+      "owner_1_updatedAt_-1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "phones",
+      "emails",
+      "companyType",
+      "industry",
+      "description",
+      "gstNumber",
+      "campaign",
+      "source",
+      "subSource",
+      "team",
+      "owner",
+      "visibleTo",
+      "addresses",
+      "employees",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "agreementDetails",
+      "commissionAgreementStatus",
+      "creditLimit",
+      "documents",
+      "incentiveSlabs",
+      "isPreferredPartner",
+      "outstandingAmount",
+      "partnerScore",
+      "relationshipType",
+      "groups"
+    ]
+  },
+  "smsproviders": {
+    "count": 2,
+    "avgObjSize": 447,
+    "size": 895,
+    "indexes": [
+      "_id_",
+      "provider_1"
+    ],
+    "keys": [
+      "_id",
+      "provider",
+      "__v",
+      "config",
+      "createdAt",
+      "isActive",
+      "status",
+      "updatedAt",
+      "lastTestedAt"
+    ]
+  },
+  "sub-admins": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "leadinfos": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "notifications": {
+    "count": 3153,
+    "avgObjSize": 346,
+    "size": 1091221,
+    "indexes": [
+      "_id_",
+      "user_1",
+      "isRead_1"
+    ],
+    "keys": [
+      "_id",
+      "user",
+      "type",
+      "title",
+      "message",
+      "link",
+      "isRead",
+      "metadata",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "marketingcontents": {
+    "count": 48,
+    "avgObjSize": 728,
+    "size": 34977,
+    "indexes": [
+      "_id_",
+      "date_1_status_1",
+      "dealId_1"
+    ],
+    "keys": [
+      "_id",
+      "title",
+      "content",
+      "platform",
+      "type",
+      "date",
+      "time",
+      "status",
+      "mediaUrls",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "dispatchjobs": {
+    "count": 3,
+    "avgObjSize": 245,
+    "size": 735,
+    "indexes": [
+      "_id_",
+      "status_1_scheduledAt_1"
+    ],
+    "keys": [
+      "_id",
+      "leadIds",
+      "dealIds",
+      "toggles",
+      "hidePrice",
+      "matchContext",
+      "scheduledAt",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "collectorrates": {
+    "count": 3,
+    "avgObjSize": 440,
+    "size": 1322,
+    "indexes": [
+      "_id_",
+      "state_1_district_1_tehsil_1_category_1",
+      "state_1_district_1_tehsil_1_location_1_category_1",
+      "state_1_district_1_tehsil_1_location_1_category_1_configName_1",
+      "state_1_district_1_tehsil_1_location_1_configName_1",
+      "state_1_district_1_tehsil_1_location_1_category_1_subCategory_1_configName_1_effectiveFrom_1",
+      "category_1",
+      "subCategory_1",
+      "unitType_1",
+      "builtupType_1"
+    ],
+    "keys": [
+      "_id",
+      "state",
+      "district",
+      "tehsil",
+      "location",
+      "category",
+      "subCategory",
+      "rate",
+      "rateApplyOn",
+      "rateUnit",
+      "roadMultipliers",
+      "floorMultipliers",
+      "effectiveFrom",
+      "effectiveTo",
+      "versionNo",
+      "configName",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "builtupType",
+      "unitType"
+    ]
+  },
+  "users": {
+    "count": 9,
+    "avgObjSize": 7038,
+    "size": 63342,
+    "indexes": [
+      "_id_",
+      "email_1",
+      "username_1",
+      "department_1",
+      "role_1",
+      "dataScope_1",
+      "isActive_1",
+      "status_1",
+      "department_1_status_1",
+      "reportingTo_1",
+      "team_1",
+      "teams_1",
+      "tenantId_1"
+    ],
+    "keys": [
+      "_id",
+      "fullName",
+      "email",
+      "password",
+      "department",
+      "role",
+      "reportingTo",
+      "dataScope",
+      "locationScope",
+      "financialPermissions",
+      "failedLoginAttempts",
+      "isActive",
+      "status",
+      "passwordHistory",
+      "passwordExpiresAt",
+      "lastPasswordChange",
+      "loginHistory",
+      "__v",
+      "createdAt",
+      "updatedAt"
+    ]
+  },
+  "triggers": {
+    "count": 5,
+    "avgObjSize": 496,
+    "size": 2482,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "module",
+      "event",
+      "priority",
+      "isActive",
+      "conditions",
+      "actions",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "inventories": {
+    "count": 19817,
+    "avgObjSize": 1555,
+    "size": 30827664,
+    "indexes": [
+      "_id_",
+      "projectId_1",
+      "propertyType_1",
+      "intent_1",
+      "price_1",
+      "city_1",
+      "sector_1",
+      "status_1",
+      "category_1",
+      "subCategory_1",
+      "project_1",
+      "team_1",
+      "unitType_1",
+      "assignedTo_1",
+      "sizeConfig_1",
+      "projectName_1",
+      "block_1",
+      "unitNumber_1",
+      "unitNo_1",
+      "builtupType_1",
+      "teams_1",
+      "sizeType_1",
+      "followUpDate_1",
+      "lastContactedAt_1",
+      "projectName_1_block_1_unitNo_1",
+      "projectName_1_block_1_unitNumber_1",
+      "teams_1_status_1",
+      "assignedTo_1_status_1",
+      "department_1",
+      "facing_1",
+      "direction_1",
+      "geoPoint_2dsphere",
+      "updatedAt_-1",
+      "createdAt_-1",
+      "status_1_updatedAt_-1",
+      "category_1_updatedAt_-1",
+      "projectId_1_updatedAt_-1",
+      "owners_1",
+      "projectName_1_updatedAt_-1",
+      "sizeId_1"
+    ],
+    "keys": [
+      "_id",
+      "category",
+      "subCategory",
+      "unitType",
+      "sizeConfig",
+      "projectId",
+      "projectName",
+      "block",
+      "unitNumber",
+      "unitNo",
+      "intent",
+      "status",
+      "price",
+      "totalCost",
+      "allInclusivePrice",
+      "size",
+      "sizeUnit",
+      "facing",
+      "direction",
+      "roadWidth",
+      "builtupType",
+      "ownership",
+      "builtUpArea",
+      "carpetArea",
+      "totalSaleableArea",
+      "length",
+      "width",
+      "sizeLabel",
+      "address",
+      "owners",
+      "associates",
+      "visibleTo",
+      "tags",
+      "latitude",
+      "longitude",
+      "builtupDetails",
+      "inventoryDocuments",
+      "inventoryImages",
+      "inventoryVideos",
+      "__v",
+      "createdAt",
+      "updatedAt",
+      "orientation",
+      "assignedTo",
+      "team",
+      "teams",
+      "rentPrice",
+      "geoPoint",
+      "sizeId"
+    ]
+  },
+  "teams": {
+    "count": 2,
+    "avgObjSize": 196,
+    "size": 393,
+    "indexes": [
+      "_id_",
+      "name_1",
+      "department_1_isActive_1",
+      "manager_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "description",
+      "manager",
+      "department",
+      "parentTeam",
+      "isActive",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "bookings": {
+    "count": 9,
+    "avgObjSize": 923,
+    "size": 8309,
+    "indexes": [
+      "_id_",
+      "department_1",
+      "teams_1"
+    ],
+    "keys": [
+      "_id",
+      "type",
+      "property",
+      "lead",
+      "bookingDate",
+      "applicationNo",
+      "totalDealAmount",
+      "agreementAmount",
+      "agreementDate",
+      "partPaymentAmount",
+      "partPaymentDate",
+      "finalPaymentDate",
+      "salesAgent",
+      "buyerSide",
+      "sellerBrokeragePercent",
+      "sellerBrokerageAmount",
+      "buyerBrokeragePercent",
+      "buyerBrokerageAmount",
+      "executiveIncentivePercent",
+      "executiveIncentiveAmount",
+      "remarks",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "sequences": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "add_developers": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "automation_rules": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "ai_agents": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "add_instanceids": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "leadinfo-personals": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "add_towers": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "activities": {
+    "count": 26794,
+    "avgObjSize": 721,
+    "size": 19341713,
+    "indexes": [
+      "_id_",
+      "type_1",
+      "entityType_1",
+      "entityId_1",
+      "googleEventId_1",
+      "entityId_1_status_1_createdAt_-1",
+      "dueDate_1_status_1",
+      "type_1_createdAt_-1",
+      "entityType_1_entityId_1",
+      "teams_1",
+      "createdBy_1",
+      "teams_1_dueDate_1_status_1",
+      "department_1",
+      "dueDate_1",
+      "createdAt_-1",
+      "type_1_dueDate_1",
+      "status_1_dueDate_1"
+    ],
+    "keys": [
+      "_id",
+      "type",
+      "subject",
+      "entityType",
+      "entityId",
+      "relatedTo",
+      "participants",
+      "dueDate",
+      "dueTime",
+      "priority",
+      "status",
+      "description",
+      "details",
+      "tasks",
+      "performedAt",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "teams"
+    ]
+  },
+  "leadforms": {
+    "count": 3,
+    "avgObjSize": 1291,
+    "size": 3875,
+    "indexes": [
+      "_id_",
+      "slug_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "slug",
+      "isActive",
+      "sections",
+      "settings",
+      "analytics",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "automated_actions": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "meetingtask_forms": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "pricingbenchmarks": {
+    "count": 1,
+    "avgObjSize": 495,
+    "size": 495,
+    "indexes": [
+      "_id_",
+      "location_1",
+      "subCategory_1",
+      "period_1",
+      "computedAt_1",
+      "location_1_subCategory_1_period_1",
+      "location_1_subCategory_1_trend_1",
+      "computedAt_-1",
+      "isStale_1"
+    ],
+    "keys": [
+      "_id",
+      "location",
+      "period",
+      "subCategory",
+      "__v",
+      "avgBuyerDiscountPct",
+      "avgClosedRPU",
+      "avgDaysToClose",
+      "avgExpectedRPU",
+      "avgNegotiationGapPct",
+      "avgOfferRPU",
+      "avgQuotedRPU",
+      "computedAt",
+      "createdAt",
+      "dataSourceIds",
+      "dealCount",
+      "isStale",
+      "maxClosedRPU",
+      "maxExpectedRPU",
+      "maxOfferRPU",
+      "maxQuotedRPU",
+      "medianClosedRPU",
+      "minClosedRPU",
+      "minExpectedRPU",
+      "minOfferRPU",
+      "minQuotedRPU",
+      "trend",
+      "trendPct",
+      "updatedAt"
+    ]
+  },
+  "scoringrules": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "active_1_category_1"
+    ],
+    "keys": []
+  },
+  "add_payment_details": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "sessions": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "userId_1",
+      "token_1",
+      "refreshToken_1",
+      "isActive_1",
+      "lastActivity_1",
+      "expiresAt_1",
+      "userId_1_isActive_1"
+    ],
+    "keys": []
+  },
+  "smstemplates": {
+    "count": 4,
+    "avgObjSize": 306,
+    "size": 1224,
+    "indexes": [
+      "_id_",
+      "name_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "body",
+      "category",
+      "dltTemplateId",
+      "dltHeaderId",
+      "isActive",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "notificationsettings": {
+    "count": 4,
+    "avgObjSize": 251,
+    "size": 1004,
+    "indexes": [
+      "_id_",
+      "user_1"
+    ],
+    "keys": [
+      "_id",
+      "user",
+      "presets",
+      "webPermissions",
+      "personalizedRules",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "add_leadscores": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "mailtask_forms": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "stagetransitionlogs": {
+    "count": 40,
+    "avgObjSize": 361,
+    "size": 14479,
+    "indexes": [
+      "_id_",
+      "createdAt_-1",
+      "leadId_1",
+      "status_1"
+    ],
+    "keys": [
+      "_id",
+      "leadId",
+      "activityId",
+      "activityType",
+      "purpose",
+      "outcome",
+      "reason",
+      "status",
+      "matchedRuleId",
+      "newStage",
+      "failureReason",
+      "triggeredByUser",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "sizes": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "system_settings": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "key_1"
+    ],
+    "keys": []
+  },
+  "sequenceenrollments": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "sequenceId_1_entityId_1",
+      "companyId_1_status_1_nextExecutionAt_1"
+    ],
+    "keys": []
+  },
+  "feedbacksubmissions": {
+    "count": 6,
+    "avgObjSize": 341,
+    "size": 2046,
+    "indexes": [
+      "_id_",
+      "department_1",
+      "teams_1"
+    ],
+    "keys": [
+      "_id",
+      "form",
+      "lead",
+      "responses",
+      "rating",
+      "sourceMeta",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "automatedintakesources": {
+    "count": 2,
+    "avgObjSize": 284,
+    "size": 568,
+    "indexes": [
+      "_id_",
+      "url_1_createdBy_1",
+      "tenantId_1",
+      "url_1_tenantId_1"
+    ],
+    "keys": [
+      "_id",
+      "url",
+      "source",
+      "frequency",
+      "schedule_cron",
+      "is_active",
+      "last_run_status",
+      "createdBy",
+      "error_log",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "last_run_at"
+    ]
+  },
+  "portfolios": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "leadId_1",
+      "token_1"
+    ],
+    "keys": []
+  },
+  "prospectenrichmentrules": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "dynamicforms": {
+    "count": 1,
+    "avgObjSize": 2274,
+    "size": 2274,
+    "indexes": [
+      "_id_",
+      "slug_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "slug",
+      "isActive",
+      "category",
+      "description",
+      "sections",
+      "settings",
+      "analytics",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "blacklistedtokens": {
+    "count": 8,
+    "avgObjSize": 278,
+    "size": 2224,
+    "indexes": [
+      "_id_",
+      "token_1",
+      "createdAt_1"
+    ],
+    "keys": [
+      "_id",
+      "token",
+      "createdAt",
+      "__v"
+    ]
+  },
+  "companygroups": {
+    "count": 9,
+    "avgObjSize": 175,
+    "size": 1579,
+    "indexes": [
+      "_id_",
+      "name_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "description",
+      "category",
+      "color",
+      "createdBy",
+      "isSystem",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "leads": {
+    "count": 146,
+    "avgObjSize": 3753,
+    "size": 548072,
+    "indexes": [
+      "_id_",
+      "mobile_1",
+      "budget_1",
+      "location_1",
+      "status_1",
+      "stage_1",
+      "stageChangedAt_1",
+      "lastActivityAt_1",
+      "owner_1_stage_1_updatedAt_-1",
+      "assignment.team_1_stage_1",
+      "assignment.assignedTo_1_updatedAt_-1",
+      "mobile_1_email_1",
+      "teams_1_stage_1",
+      "project_1_requirement_1_subRequirement_1",
+      "projectName_1_updatedAt_-1",
+      "department_1",
+      "firstName_1",
+      "intent_index_-1",
+      "lastActivityAt_-1",
+      "leadScore_-1",
+      "geoPoint_2dsphere",
+      "consecutiveFailedContacts_1",
+      "isAtRisk_1",
+      "isArchived_1",
+      "owner_1_stage_1",
+      "companyId_1_isArchived_1",
+      "status_1_createdAt_-1"
+    ],
+    "keys": [
+      "_id",
+      "salutation",
+      "firstName",
+      "lastName",
+      "mobile",
+      "email",
+      "requirement",
+      "source",
+      "tags",
+      "description",
+      "budgetMin",
+      "budgetMax",
+      "areaMin",
+      "areaMax",
+      "areaMetric",
+      "propertyType",
+      "subType",
+      "unitType",
+      "facing",
+      "roadWidth",
+      "direction",
+      "purpose",
+      "nri",
+      "funding",
+      "timeline",
+      "furnishing",
+      "transactionType",
+      "projectName",
+      "locCity",
+      "locArea",
+      "locBlock",
+      "locPinCode",
+      "locState",
+      "locCountry",
+      "searchLocation",
+      "isContacted",
+      "assignment",
+      "contactDetails",
+      "documents",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "enrichment_last_run",
+      "intent_index",
+      "intent_tags",
+      "stageChangedAt",
+      "stageHistory",
+      "stage",
+      "lead_classification",
+      "assignedTo",
+      "team",
+      "teams",
+      "region",
+      "status",
+      "activityScore",
+      "decay_score",
+      "interestedInventory",
+      "leadScore",
+      "negotiation_window",
+      "owner",
+      "pre_intent_score",
+      "lastActivityAt",
+      "scoreBreakdown",
+      "capture_form",
+      "project",
+      "department",
+      "enrichment_formula_score",
+      "ai_closing_probability",
+      "ai_intent_summary",
+      "customFields",
+      "dealHealthScore",
+      "dealHealthStatus",
+      "campaign",
+      "locHNo",
+      "locLat",
+      "locLng",
+      "locStreet",
+      "range",
+      "sizeType",
+      "streetAddress",
+      "subSource"
+    ]
+  },
+  "automatedactions": {
+    "count": 5,
+    "avgObjSize": 498,
+    "size": 2492,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "isActive",
+      "actionType",
+      "targetModule",
+      "invokedByTrigger",
+      "notificationConfig",
+      "rollbackPolicy",
+      "delay",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "googlereviews": {
+    "count": 5,
+    "avgObjSize": 597,
+    "size": 2987,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "place_id",
+      "author_name",
+      "time",
+      "__v",
+      "author_url",
+      "createdAt",
+      "language",
+      "profile_photo_url",
+      "rating",
+      "relative_time_description",
+      "text",
+      "updatedAt"
+    ]
+  },
+  "dealforms": {
+    "count": 3,
+    "avgObjSize": 1760,
+    "size": 5280,
+    "indexes": [
+      "_id_",
+      "slug_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "slug",
+      "isActive",
+      "sections",
+      "settings",
+      "analytics",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "automationlogs": {
+    "count": 62,
+    "avgObjSize": 205,
+    "size": 12767,
+    "indexes": [
+      "_id_",
+      "idempotencyKey_1"
+    ],
+    "keys": [
+      "_id",
+      "ruleType",
+      "ruleId",
+      "targetEntityId",
+      "targetModule",
+      "status",
+      "details",
+      "executedAt",
+      "__v"
+    ]
+  },
+  "socialreviews": {
+    "count": 37,
+    "avgObjSize": 415,
+    "size": 15366,
+    "indexes": [
+      "_id_",
+      "place_id_1",
+      "author_name_1_time_1_platform_1_text_1"
+    ],
+    "keys": [
+      "_id",
+      "author_name",
+      "platform",
+      "text",
+      "__v",
+      "createdAt",
+      "place_id",
+      "profile_photo_url",
+      "rating",
+      "relative_time_description",
+      "time",
+      "updatedAt"
+    ]
+  },
+  "calltask_forms": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "add_feedbacks": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "integrationsettings": {
+    "count": 1,
+    "avgObjSize": 201,
+    "size": 201,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "openaiKey",
+      "elevenLabsKey",
+      "whatsappToken",
+      "whatsappPhoneNumberId",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "updatedBy"
+    ]
+  },
+  "intentkeywordrules": {
+    "count": 5,
+    "avgObjSize": 164,
+    "size": 821,
+    "indexes": [
+      "_id_",
+      "keyword_1"
+    ],
+    "keys": [
+      "_id",
+      "keyword",
+      "autoTag",
+      "roleType",
+      "intentImpact",
+      "isActive",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "duplicationrules": {
+    "count": 3,
+    "avgObjSize": 237,
+    "size": 711,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "entityType",
+      "fields",
+      "matchType",
+      "actionType",
+      "isActive",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "contactgroups": {
+    "count": 3,
+    "avgObjSize": 185,
+    "size": 556,
+    "indexes": [
+      "_id_",
+      "name_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "description",
+      "category",
+      "color",
+      "createdBy",
+      "isSystem",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "feedbackforms": {
+    "count": 2,
+    "avgObjSize": 1210,
+    "size": 2421,
+    "indexes": [
+      "_id_",
+      "slug_1",
+      "department_1",
+      "teams_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "slug",
+      "teams",
+      "isActive",
+      "description",
+      "sections",
+      "settings",
+      "analytics",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "visibleTo"
+    ]
+  },
+  "deals": {
+    "count": 125,
+    "avgObjSize": 4179,
+    "size": 522492,
+    "indexes": [
+      "_id_",
+      "team_1",
+      "stageChangedAt_1",
+      "lastActivityAt_1",
+      "isPublished_1",
+      "websiteMetadata.slug_1",
+      "teams_1",
+      "department_1",
+      "shareableId_1",
+      "sizeConfig_1",
+      "isVisible_1_updatedAt_-1",
+      "stage_1_isVisible_1",
+      "intent_1",
+      "category_1",
+      "projectId_1",
+      "inventoryId_1",
+      "owner_1",
+      "dealId_1",
+      "geoPoint_2dsphere",
+      "leadId_1",
+      "leads_1"
+    ],
+    "keys": [
+      "_id",
+      "projectName",
+      "projectId",
+      "block",
+      "unitNo",
+      "unitType",
+      "propertyType",
+      "category",
+      "subCategory",
+      "location",
+      "intent",
+      "size",
+      "sizeUnit",
+      "price",
+      "quotePrice",
+      "pricingMode",
+      "ratePrice",
+      "quoteRatePrice",
+      "priceInWords",
+      "quotePriceInWords",
+      "pricingNature",
+      "inventoryId",
+      "stage",
+      "status",
+      "isQualified",
+      "tags",
+      "dealProbability",
+      "dealScore",
+      "commission",
+      "financialDetails",
+      "documents",
+      "dealType",
+      "transactionType",
+      "flexiblePercentage",
+      "source",
+      "isOwnerSelected",
+      "isAssociateSelected",
+      "publishOn",
+      "sendMatchedDeal",
+      "owner",
+      "associatedContact",
+      "teams",
+      "team",
+      "department",
+      "assignedTo",
+      "assignment",
+      "visibleTo",
+      "isPublished",
+      "websiteMetadata",
+      "broadcastMetadata",
+      "remarks",
+      "date",
+      "isVisible",
+      "closingDetails",
+      "negotiation_window",
+      "unitSpecification",
+      "locationDetails",
+      "builtupDetails",
+      "furnishing",
+      "securityDeposit",
+      "lockInMonths",
+      "leaseTermMonths",
+      "offerHistory",
+      "negotiationRounds",
+      "stageHistory",
+      "createdAt",
+      "updatedAt",
+      "sizeConfig",
+      "__v",
+      "stageChangedAt",
+      "publishedAt",
+      "stageSyncReason",
+      "leads"
+    ]
+  },
+  "add_activities": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "contacts": {
+    "count": 13334,
+    "avgObjSize": 859,
+    "size": 11460373,
+    "indexes": [
+      "_id_",
+      "mobile_1",
+      "team_1",
+      "googleContactId_1",
+      "teams_1",
+      "assignedTo_1",
+      "owner_1",
+      "department_1",
+      "name_1",
+      "surname_1",
+      "fatherName_1",
+      "personalAddress.hNo_1",
+      "personalAddress.location_1",
+      "phones.number_1",
+      "emails.address_1",
+      "assignedTo_1_updatedAt_-1",
+      "teams_1_updatedAt_-1",
+      "createdAt_-1",
+      "groups_1",
+      "isMerged_1",
+      "mergedInto_1"
+    ],
+    "keys": [
+      "_id",
+      "title",
+      "name",
+      "surname",
+      "fatherName",
+      "countryCode",
+      "phones",
+      "emails",
+      "tags",
+      "description",
+      "professionCategory",
+      "professionSubCategory",
+      "designation",
+      "company",
+      "workOffice",
+      "source",
+      "visibleTo",
+      "personalAddress",
+      "correspondenceAddress",
+      "gender",
+      "maritalStatus",
+      "birthDate",
+      "anniversaryDate",
+      "educations",
+      "loans",
+      "socialMedia",
+      "incomes",
+      "documents",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "addOn",
+      "groups",
+      "isActionable",
+      "stage",
+      "status",
+      "assignment",
+      "owner",
+      "team",
+      "teams",
+      "assignedTo",
+      "googleContactId",
+      "isMerged",
+      "mergedInto"
+    ]
+  },
+  "discoveryconfigs": {
+    "count": 1,
+    "avgObjSize": 1001,
+    "size": 1001,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "keywords",
+      "location_filters",
+      "property_types",
+      "schedule_cron",
+      "is_active",
+      "last_run_status",
+      "urls_discovered_count",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "last_run_at"
+    ]
+  },
+  "intakes": {
+    "count": 401,
+    "avgObjSize": 44976,
+    "size": 18035623,
+    "indexes": [
+      "_id_",
+      "receivedAt_-1",
+      "duplicate_hash_1",
+      "status_1",
+      "tenantId_1"
+    ],
+    "keys": [
+      "_id",
+      "source",
+      "content",
+      "status",
+      "receivedAt",
+      "campaignName",
+      "meta",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "category"
+    ]
+  },
+  "auditlogs": {
+    "count": 22133,
+    "avgObjSize": 362,
+    "size": 8032646,
+    "indexes": [
+      "_id_",
+      "eventType_1",
+      "userId_1",
+      "timestamp_1",
+      "userId_1_timestamp_-1",
+      "eventType_1_timestamp_-1",
+      "actorId_1_timestamp_-1",
+      "timestamp_-1",
+      "department_1"
+    ],
+    "keys": [
+      "_id",
+      "eventType",
+      "userId",
+      "userName",
+      "userEmail",
+      "description",
+      "metadata",
+      "ipAddress",
+      "userAgent",
+      "status",
+      "timestamp",
+      "__v"
+    ]
+  },
+  "systemsettings": {
+    "count": 47,
+    "avgObjSize": 2544,
+    "size": 119593,
+    "indexes": [
+      "_id_",
+      "key_1",
+      "category_1_active_1",
+      "category_1"
+    ],
+    "keys": [
+      "_id",
+      "key",
+      "__v",
+      "active",
+      "category",
+      "createdAt",
+      "isEncrypted",
+      "isPublic",
+      "updatedAt",
+      "value"
+    ]
+  },
+  "projects": {
+    "count": 29,
+    "avgObjSize": 4123,
+    "size": 119575,
+    "indexes": [
+      "_id_",
+      "name_1",
+      "developerId_1",
+      "isPublished_1",
+      "websiteMetadata.slug_1",
+      "owner_1",
+      "assign_1",
+      "teams_1",
+      "department_1",
+      "geoPoint_2dsphere"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "developerName",
+      "isJointVenture",
+      "secondaryDeveloper",
+      "reraNumber",
+      "description",
+      "category",
+      "subCategory",
+      "landArea",
+      "landAreaUnit",
+      "totalBlocks",
+      "totalFloors",
+      "totalUnits",
+      "launchDate",
+      "expectedCompletionDate",
+      "possessionDate",
+      "parkingType",
+      "approvedBank",
+      "assign",
+      "visibleTo",
+      "locationSearch",
+      "latitude",
+      "longitude",
+      "address",
+      "projectDocuments",
+      "projectImages",
+      "projectVideos",
+      "amenities",
+      "blocks",
+      "pricing",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "status",
+      "isPublished",
+      "websiteMetadata",
+      "publishedAt",
+      "team",
+      "teams",
+      "owner",
+      "geoPoint"
+    ]
+  },
+  "dynamicformsubmissions": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "add_projects": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "settings": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "sharedmatches": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "token_1",
+      "expiresAt_1"
+    ],
+    "keys": []
+  },
+  "add_contacts": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "conversations": {
+    "count": 52,
+    "avgObjSize": 3328,
+    "size": 173058,
+    "indexes": [
+      "_id_",
+      "lead_1",
+      "phoneNumber_1",
+      "contact_1"
+    ],
+    "keys": [
+      "_id",
+      "lead",
+      "channel",
+      "phoneNumber",
+      "status",
+      "messages",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "add_inventories": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "fieldrules": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "module_1_active_1_priority_1",
+      "module_1"
+    ],
+    "keys": []
+  },
+  "customfields": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_",
+      "module_1",
+      "module_1_active_1_order_1",
+      "module_1_fieldName_1"
+    ],
+    "keys": []
+  },
+  "salesgoals": {
+    "count": 1,
+    "avgObjSize": 191,
+    "size": 191,
+    "indexes": [
+      "_id_",
+      "user_1",
+      "user_1_month_1_year_1",
+      "department_1"
+    ],
+    "keys": [
+      "_id",
+      "user",
+      "year",
+      "month",
+      "__v",
+      "createdAt",
+      "dealsGoal",
+      "isActive",
+      "period",
+      "revenueGoal",
+      "siteVisitsGoal",
+      "updatedAt"
+    ]
+  },
+  "smslogs": {
+    "count": 44344,
+    "avgObjSize": 391,
+    "size": 17348283,
+    "indexes": [
+      "_id_",
+      "to_1",
+      "status_1",
+      "entityId_1",
+      "providerId_1"
+    ],
+    "keys": [
+      "_id",
+      "to",
+      "message",
+      "provider",
+      "status",
+      "entityType",
+      "sentAt",
+      "createdAt",
+      "updatedAt",
+      "__v",
+      "error"
+    ]
+  },
+  "leadinfo-requirments": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "integrations": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "marketingjobs": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "activitycompletions": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "distributionrules": {
+    "count": 1,
+    "avgObjSize": 309,
+    "size": 309,
+    "indexes": [
+      "_id_",
+      "entity_1_active_1_priority_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "entity",
+      "logic",
+      "isActive",
+      "conditions",
+      "assignedAgents",
+      "weightage",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  " projects": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "lookups": {
+    "count": 12445,
+    "avgObjSize": 239,
+    "size": 2983112,
+    "indexes": [
+      "_id_",
+      "category_1",
+      "lookup_type_1",
+      "type_1",
+      "type_1_active_1_order_1",
+      "type_1_parentValue_1"
+    ],
+    "keys": [
+      "_id",
+      "lookup_type",
+      "lookup_value",
+      "parent_lookup_id",
+      "parent_lookup_value",
+      "isActive",
+      "order",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "sitevisit_forms": {
+    "count": 0,
+    "avgObjSize": 0,
+    "size": 0,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": []
+  },
+  "admin_lookups": {
+    "count": 17,
+    "avgObjSize": 159,
+    "size": 2703,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "lookup_type",
+      "lookup_value",
+      "parent_lookup_value",
+      "is_active",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "roles": {
+    "count": 10,
+    "avgObjSize": 1046,
+    "size": 10468,
+    "indexes": [
+      "_id_",
+      "name_1",
+      "active_1",
+      "department_1",
+      "department_1_isSystemRole_1",
+      "name_1_department_1"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "department",
+      "description",
+      "isSystemRole",
+      "moduleAccess",
+      "defaultDataScope",
+      "financialPermissions",
+      "approvalRights",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  },
+  "aiagents": {
+    "count": 8,
+    "avgObjSize": 2130,
+    "size": 17042,
+    "indexes": [
+      "_id_"
+    ],
+    "keys": [
+      "_id",
+      "name",
+      "role",
+      "systemPrompt",
+      "useCases",
+      "memoryAccess",
+      "isActive",
+      "provider",
+      "modelName",
+      "createdBy",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  }
+}

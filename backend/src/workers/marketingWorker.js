@@ -317,7 +317,7 @@ const processMarketingJob = async (job) => {
             
             // 1. Simulate the Request to leverage Enterprise Scoring Engine
             let matchedDeals = [];
-            const req = { query: { leadId, budgetFlexibility: 20, sizeFlexibility: 20 } };
+            const req = { user: { email: "bharatproperties570@gmail.com", dataScope: "all" }, query: { leadId, budgetFlexibility: 20, sizeFlexibility: 20 } };
             const res = {
                 status: () => res,
                 json: (response) => {

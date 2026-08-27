@@ -239,6 +239,14 @@ class VariableResolutionService {
     /**
      * Core extraction logic for 50+ enterprise fields.
      */
+    
+    extractArrayValue(val) {
+        if (!val) return '';
+        if (Array.isArray(val)) {
+            return val.map(v => typeof v === 'object' ? (v.lookup_value || v.name || v.label || '') : String(v)).filter(Boolean).join(', ');
+        }
+        return typeof val === 'object' ? (val.lookup_value || val.name || val.label || '') : String(val);
+    }
     extractValue(lead, source, customVal = '') {
         if (!source) return '';
         if (source === 'custom') return customVal;
@@ -479,11 +487,19 @@ class VariableResolutionService {
                     
                     let pr = 'Price on call';
                     if (!lead.hidePrice && !lead.hidePrices) {
-                        const rawPrice = p.price || inv.price?.value || inv.price;
-                        if (rawPrice && !isNaN(rawPrice)) {
+                        let rawPrice = p.price;
+                        if (rawPrice === undefined || rawPrice === null) {
+                            rawPrice = inv.price?.value !== undefined ? inv.price.value : inv.price;
+                        }
+                        
+                        if (typeof rawPrice === 'object' && rawPrice !== null) {
+                            rawPrice = rawPrice.lookup_value || rawPrice.label || rawPrice.name || 'On Request';
+                        }
+
+                        if (rawPrice && !isNaN(rawPrice) && Number(rawPrice) > 0) {
                             pr = `₹${(Number(rawPrice) / 10000000).toFixed(2)} Cr`;
                         } else {
-                            pr = rawPrice || 'On Request';
+                            pr = (rawPrice === 0 || rawPrice === '0') ? 'On Request' : (rawPrice || 'On Request');
                         }
                     }
 

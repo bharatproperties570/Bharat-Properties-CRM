@@ -220,6 +220,7 @@ const leadPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'propertyType', select: 'lookup_value' },
     { path: 'subType', select: 'lookup_value' },
+    { path: 'sizeType', select: 'lookup_value' },
     { path: 'unitType', select: 'lookup_value' },
     { path: 'facing', select: 'lookup_value' },
     { path: 'roadWidth', select: 'lookup_value' },
@@ -943,7 +944,7 @@ export const addLead = async (req, res, next) => {
             console.warn('[DISTRIBUTION] distributeEntity failed (non-critical):', distErr.message);
         }
 
-        await lead.populate(leadPopulateFields);
+        await lead.populate(leadPopulateFields); console.log("Lead Status after populate:", lead.status);
 
         // SMS Trigger: Welcome Message via registered DLT template
         if (lead.mobile) {
@@ -958,7 +959,7 @@ export const addLead = async (req, res, next) => {
         // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
+            console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
         } catch (weError) {
             console.error('[WorkflowEngine] Error firing lead_created:', weError.message);
         }
@@ -1274,13 +1275,13 @@ export const updateLead = async (req, res, next) => {
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
             if (updateData.stage) {
-                await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', finalLead, finalLead.companyId);
+                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', finalLead, finalLead.companyId);
             }
             if (updateData.status) {
-                await WorkflowEngine.fireEvent('leads', 'lead_status_changed', finalLead, finalLead.companyId);
+                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_status_changed', finalLead, finalLead.companyId);
             }
             if (updateData.score) {
-                await WorkflowEngine.fireEvent('leads', 'lead_score_changed', finalLead, finalLead.companyId);
+                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_score_changed', finalLead, finalLead.companyId);
             }
         } catch (weError) {
             console.error('[WorkflowEngine] Error firing update events:', weError.message);

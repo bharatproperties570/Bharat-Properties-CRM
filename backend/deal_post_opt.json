@@ -1,0 +1,610 @@
+{
+  "success": true,
+  "records": [
+    {
+      "_id": "6a8d99d812f0e4e47e5cc55b",
+      "projectName": "Sector 29 (Jindal City) Kurukshetra",
+      "unitNo": "574",
+      "unitType": {
+        "_id": "69a96e243a56674b285e0100",
+        "lookup_type": "UnitType",
+        "lookup_value": "Ordinary"
+      },
+      "propertyType": {
+        "_id": "69955276a08eee85d64611a3",
+        "lookup_type": "PropertyType",
+        "lookup_value": "Residential"
+      },
+      "category": {
+        "_id": "6995e15f74ec320348f2319c",
+        "lookup_type": "Category",
+        "lookup_value": "Residential"
+      },
+      "subCategory": {
+        "_id": "6995e16074ec320348f231ab",
+        "lookup_type": "SubCategory",
+        "lookup_value": "Plot"
+      },
+      "location": null,
+      "intent": {
+        "_id": "699c1e5b5ab8add9a6c59cad",
+        "lookup_type": "Intent",
+        "lookup_value": "Sell"
+      },
+      "size": {
+        "unit": "Sq.Ft."
+      },
+      "price": 12000000,
+      "pricingMode": "Total",
+      "ratePrice": null,
+      "inventoryId": {
+        "_id": "6a38c1f99f4aaab19fa3b2da",
+        "block": "East Block",
+        "unitNo": "574",
+        "builtUpArea": {
+          "unit": "Sq.Ft."
+        },
+        "builtupType": "Vacant",
+        "latitude": "29.948484",
+        "longitude": "76.883749",
+        "projectName": "Sector 29 (Jindal City) Kurukshetra",
+        "size": {
+          "unit": "Sq.Ft."
+        },
+        "sizeConfig": {
+          "_id": "6a355d10fe7d00ac986216cd",
+          "lookup_type": "Size",
+          "lookup_value": "6 Marla (162.10 Sq Yd)"
+        },
+        "unitNumber": "574"
+      },
+      "stage": "Open",
+      "status": {
+        "_id": "69a2c3c43d404bf0fe37cc17",
+        "lookup_type": "Status",
+        "lookup_value": "Open"
+      },
+      "dealProbability": 50,
+      "dealScore": 0,
+      "owner": null,
+      "teams": [
+        {
+          "_id": "6991ad69e07eb3dd7dd46681",
+          "name": "Kurukshetra Team"
+        }
+      ],
+      "team": {
+        "_id": "6991ad69e07eb3dd7dd46681",
+        "name": "Kurukshetra Team"
+      },
+      "assignedTo": {
+        "_id": "69c4be0fd8c5cd0d6c90e999",
+        "fullName": "Suraj Keshwar",
+        "email": "suraj@bharatproperties.co"
+      },
+      "assignment": {
+        "team": [
+          {
+            "_id": "6991ad69e07eb3dd7dd46681",
+            "name": "Kurukshetra Team"
+          }
+        ],
+        "assignedTo": {
+          "_id": "69c4be0fd8c5cd0d6c90e999",
+          "fullName": "Suraj Keshwar",
+          "email": "suraj@bharatproperties.co"
+        }
+      },
+      "isVisible": true,
+      "createdAt": "2026-08-25T13:34:16.283Z",
+      "latitude": "29.948484",
+      "longitude": "76.883749",
+      "block": "East Block",
+      "sizeConfig": {
+        "_id": "6a355d10fe7d00ac986216cd",
+        "lookup_type": "Size",
+        "lookup_value": "6 Marla (162.10 Sq Yd)"
+      },
+      "lastActivity": null
+    },
+    {
+      "_id": "6a8d54fb12f0e4e47e570a2a",
+      "projectName": "Sector 4 Kurukshetra",
+      "unitNo": "1169 P",
+      "unitType": {
+        "_id": "69a96e243a56674b285e0100",
+        "lookup_type": "UnitType",
+        "lookup_value": "Ordinary"
+      },
+      "propertyType": {
+        "_id": "69955276a08eee85d64611a3",
+        "lookup_type": "PropertyType",
+        "lookup_value": "Residential"
+      },
+      "category": {
+        "_id": "6995e15f74ec320348f2319c",
+        "lookup_type": "Category",
+        "lookup_value": "Residential"
+      },
+      "subCategory": {
+        "_id": "6995e16074ec320348f231ab",
+        "lookup_type": "SubCategory",
+        "lookup_value": "Plot"
+      },
+      "location": {
+        "_id": "6a6c6aba7a1a51b4a30d5f6a",
+        "lookup_type": "Location",
+        "lookup_value": "Sector 4"
+      },
+      "intent": {
+        "_id": "699c1e5b5ab8add9a6c59cad",
+        "lookup_type": "Intent",
+        "lookup_value": "Sell"
+      },
+      "size": {
+        "value": 0,
+        "unit": "Sq.Ft."
+      },
+      "price": 13000000,
+      "pricingMode": "Total",
+      "ratePrice": null,
+      "inventoryId": {
+        "_id": "69e30bf2119142437aa92237",
+        "projectName": "Sector 4 Kurukshetra",
+        "block": "First Block",
+        "builtUpArea": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "builtupType": "69999d8331d19e8a9538ee1e",
+        "latitude": "29.962637",
+        "longitude": "76.883804",
+        "size": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "sizeConfig": {
+          "_id": "69c4ded65482316ddeef65a5",
+          "lookup_type": "Size",
+          "lookup_value": "4 Marla (133.95 Sq Yd)"
+        },
+        "sizeLabel": "69c4ded65482316ddeef65a5",
+        "sizeUnit": "Sq.Ft.",
+        "unitNo": "1169 P",
+        "unitNumber": "1169 P"
+      },
+      "stage": "Open",
+      "status": {
+        "_id": "69a2c3c43d404bf0fe37cc17",
+        "lookup_type": "Status",
+        "lookup_value": "Open"
+      },
+      "dealProbability": 50,
+      "dealScore": 0,
+      "owner": {
+        "_id": "6a6dfdbf9d3de196224a6e10",
+        "name": "MEENA DEVI",
+        "phones": [
+          {
+            "number": "9466345400",
+            "type": "Personal",
+            "_id": "6a6dfdbf9d3de196224a6e11"
+          }
+        ]
+      },
+      "teams": [
+        {
+          "_id": "6991ad69e07eb3dd7dd46681",
+          "name": "Kurukshetra Team"
+        }
+      ],
+      "team": {
+        "_id": "6991ad69e07eb3dd7dd46681",
+        "name": "Kurukshetra Team"
+      },
+      "assignedTo": {
+        "_id": "69c4be0fd8c5cd0d6c90e999",
+        "fullName": "Suraj Keshwar",
+        "email": "suraj@bharatproperties.co"
+      },
+      "assignment": {
+        "team": [
+          {
+            "_id": "6991ad69e07eb3dd7dd46681",
+            "name": "Kurukshetra Team"
+          }
+        ],
+        "assignedTo": {
+          "_id": "69c4be0fd8c5cd0d6c90e999",
+          "fullName": "Suraj Keshwar",
+          "email": "suraj@bharatproperties.co"
+        }
+      },
+      "isVisible": true,
+      "createdAt": "2026-08-25T08:40:27.875Z",
+      "latitude": "29.962637",
+      "longitude": "76.883804",
+      "block": "First Block",
+      "sizeUnit": "Sq.Ft.",
+      "sizeLabel": "69c4ded65482316ddeef65a5",
+      "sizeConfig": {
+        "_id": "69c4ded65482316ddeef65a5",
+        "lookup_type": "Size",
+        "lookup_value": "4 Marla (133.95 Sq Yd)"
+      },
+      "lastActivity": null
+    },
+    {
+      "_id": "6a8d44b712f0e4e47e55253f",
+      "projectName": "Sector 32 (Ansal Sushant City) Kurukshetra",
+      "unitNo": "2055",
+      "unitType": {
+        "_id": "69a96e243a56674b285e0100",
+        "lookup_type": "UnitType",
+        "lookup_value": "Ordinary"
+      },
+      "propertyType": {
+        "_id": "69955276a08eee85d64611a3",
+        "lookup_type": "PropertyType",
+        "lookup_value": "Residential"
+      },
+      "category": {
+        "_id": "6995e15f74ec320348f2319c",
+        "lookup_type": "Category",
+        "lookup_value": "Residential"
+      },
+      "subCategory": {
+        "_id": "6995e16074ec320348f231ab",
+        "lookup_type": "SubCategory",
+        "lookup_value": "Plot"
+      },
+      "location": {
+        "_id": "699b1a825649dd307db56767",
+        "lookup_type": "Location",
+        "lookup_value": "Sector 32"
+      },
+      "intent": {
+        "_id": "699c1e5b5ab8add9a6c59cad",
+        "lookup_type": "Intent",
+        "lookup_value": "Sell"
+      },
+      "size": {
+        "value": 0,
+        "unit": "Sq.Ft."
+      },
+      "price": 18500000,
+      "pricingMode": "Total",
+      "ratePrice": null,
+      "inventoryId": {
+        "_id": "6a040cf7742d2975995ef481",
+        "projectName": "Sector 32 (Ansal Sushant City) Kurukshetra",
+        "block": "C Block",
+        "builtUpArea": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "builtupType": "69999d8331d19e8a9538ee1e",
+        "latitude": "29.957726",
+        "longitude": "76.908568",
+        "size": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "sizeConfig": "69fec6f280a100ba782e7b66",
+        "sizeLabel": "69fec6f280a100ba782e7b66",
+        "sizeUnit": "Sq.Ft.",
+        "unitNo": "2055",
+        "unitNumber": "2055"
+      },
+      "stage": "Open",
+      "status": {
+        "_id": "69a2c3c43d404bf0fe37cc17",
+        "lookup_type": "Status",
+        "lookup_value": "Open"
+      },
+      "dealProbability": 50,
+      "dealScore": 0,
+      "owner": {
+        "_id": "6a8bdb3eadeb38b13aaeac5b",
+        "name": "Surender",
+        "phones": [
+          {
+            "number": "8860081911",
+            "type": "Personal",
+            "_id": "6a8bdb3eadeb38b13aaeac5c"
+          }
+        ]
+      },
+      "teams": [
+        {
+          "_id": "6991ad69e07eb3dd7dd46681",
+          "name": "Kurukshetra Team"
+        }
+      ],
+      "team": {
+        "_id": "6991ad69e07eb3dd7dd46681",
+        "name": "Kurukshetra Team"
+      },
+      "assignedTo": {
+        "_id": "69c4be0fd8c5cd0d6c90e999",
+        "fullName": "Suraj Keshwar",
+        "email": "suraj@bharatproperties.co"
+      },
+      "assignment": {
+        "team": [
+          {
+            "_id": "6991ad69e07eb3dd7dd46681",
+            "name": "Kurukshetra Team"
+          }
+        ],
+        "assignedTo": {
+          "_id": "69c4be0fd8c5cd0d6c90e999",
+          "fullName": "Suraj Keshwar",
+          "email": "suraj@bharatproperties.co"
+        }
+      },
+      "isVisible": true,
+      "createdAt": "2026-08-25T07:31:03.649Z",
+      "latitude": "29.957726",
+      "longitude": "76.908568",
+      "block": "C Block",
+      "sizeUnit": "Sq.Ft.",
+      "sizeLabel": "69fec6f280a100ba782e7b66",
+      "sizeConfig": "69fec6f280a100ba782e7b66",
+      "lastActivity": null
+    },
+    {
+      "_id": "6a8aac45adeb38b13aa843bc",
+      "projectName": "Sector 3 Kurukshetra",
+      "unitNo": "262",
+      "unitType": {
+        "_id": "69a96e243a56674b285e0100",
+        "lookup_type": "UnitType",
+        "lookup_value": "Ordinary"
+      },
+      "propertyType": {
+        "_id": "69955276a08eee85d64611a3",
+        "lookup_type": "PropertyType",
+        "lookup_value": "Residential"
+      },
+      "category": {
+        "_id": "6995e15f74ec320348f2319c",
+        "lookup_type": "Category",
+        "lookup_value": "Residential"
+      },
+      "subCategory": {
+        "_id": "6995e17464a4428b9d832259",
+        "lookup_type": "SubCategory",
+        "lookup_value": "House"
+      },
+      "location": null,
+      "intent": {
+        "_id": "69acf61bef8894180f0f711b",
+        "lookup_type": "Intent",
+        "lookup_value": "Rent"
+      },
+      "size": {
+        "value": 0,
+        "unit": "Sq.Ft."
+      },
+      "price": 13000,
+      "pricingMode": "Total",
+      "ratePrice": null,
+      "inventoryId": {
+        "_id": "69fff7141ffec29d6656242d",
+        "block": "First Block",
+        "projectName": "Sector 3 Kurukshetra",
+        "builtUpArea": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "builtupType": "69cfec263dc8a3ece3679439",
+        "latitude": "29.963825",
+        "longitude": "76.891572",
+        "size": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "sizeConfig": "69fae2835d6df41724a0df48",
+        "sizeLabel": "69fae2835d6df41724a0df48",
+        "sizeUnit": "Sq.Ft.",
+        "unitNo": "262",
+        "unitNumber": "262"
+      },
+      "stage": "Open",
+      "status": {
+        "_id": "69a2c3c43d404bf0fe37cc17",
+        "lookup_type": "Status",
+        "lookup_value": "Open"
+      },
+      "dealProbability": 50,
+      "dealScore": 0,
+      "owner": {
+        "_id": "6a26330211d0da160fc06ee9",
+        "name": "SUDESH SAINI",
+        "phones": [
+          {
+            "number": "9871290727",
+            "type": "Personal",
+            "_id": "6a26330211d0da160fc06eea"
+          }
+        ]
+      },
+      "teams": [
+        {
+          "_id": "6991ad69e07eb3dd7dd46681",
+          "name": "Kurukshetra Team"
+        }
+      ],
+      "team": {
+        "_id": "6991ad69e07eb3dd7dd46681",
+        "name": "Kurukshetra Team"
+      },
+      "assignedTo": {
+        "_id": "69c4be0fd8c5cd0d6c90e999",
+        "fullName": "Suraj Keshwar",
+        "email": "suraj@bharatproperties.co"
+      },
+      "assignment": {
+        "team": [
+          {
+            "_id": "6991ad69e07eb3dd7dd46681",
+            "name": "Kurukshetra Team"
+          }
+        ],
+        "assignedTo": {
+          "_id": "69c4be0fd8c5cd0d6c90e999",
+          "fullName": "Suraj Keshwar",
+          "email": "suraj@bharatproperties.co"
+        }
+      },
+      "isVisible": true,
+      "createdAt": "2026-08-23T08:16:05.205Z",
+      "latitude": "29.963825",
+      "longitude": "76.891572",
+      "block": "First Block",
+      "sizeUnit": "Sq.Ft.",
+      "sizeLabel": "69fae2835d6df41724a0df48",
+      "sizeConfig": "69fae2835d6df41724a0df48",
+      "lastActivity": null
+    },
+    {
+      "_id": "6a882e5d0465afe731e7afdf",
+      "projectName": "Sector 4 Kurukshetra",
+      "unitNo": "723",
+      "unitType": {
+        "_id": "69a96e243a56674b285e0100",
+        "lookup_type": "UnitType",
+        "lookup_value": "Ordinary"
+      },
+      "propertyType": {
+        "_id": "69955276a08eee85d64611a3",
+        "lookup_type": "PropertyType",
+        "lookup_value": "Residential"
+      },
+      "category": {
+        "_id": "6995e15f74ec320348f2319c",
+        "lookup_type": "Category",
+        "lookup_value": "Residential"
+      },
+      "subCategory": {
+        "_id": "6995e16074ec320348f231ab",
+        "lookup_type": "SubCategory",
+        "lookup_value": "Plot"
+      },
+      "location": {
+        "_id": "6a6c6aba7a1a51b4a30d5f6a",
+        "lookup_type": "Location",
+        "lookup_value": "Sector 4"
+      },
+      "intent": {
+        "_id": "699c1e5b5ab8add9a6c59cad",
+        "lookup_type": "Intent",
+        "lookup_value": "Sell"
+      },
+      "size": {
+        "value": 0,
+        "unit": "Sq.Ft."
+      },
+      "price": 25000000,
+      "pricingMode": "Total",
+      "ratePrice": null,
+      "inventoryId": {
+        "_id": "69e30bf2119142437aa9236e",
+        "projectName": "Sector 4 Kurukshetra",
+        "block": "First Block",
+        "builtUpArea": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "builtupType": "69999d8331d19e8a9538ee1e",
+        "latitude": "29.962915",
+        "longitude": "76.879157",
+        "size": {
+          "value": 0,
+          "unit": "Sq.Ft."
+        },
+        "sizeConfig": "69c4a964d8c5cd0d6c90b617",
+        "sizeLabel": "69c4a964d8c5cd0d6c90b617",
+        "sizeUnit": "Sq.Ft.",
+        "unitNo": "723",
+        "unitNumber": "723"
+      },
+      "stage": "Open",
+      "status": {
+        "_id": "69a2c3c43d404bf0fe37cc17",
+        "lookup_type": "Status",
+        "lookup_value": "Open"
+      },
+      "dealProbability": 50,
+      "dealScore": 0,
+      "owner": {
+        "_id": "6a6de4639d3de196224988ec",
+        "name": "RAJ KUMARI",
+        "phones": []
+      },
+      "teams": [
+        {
+          "_id": "6991ad69e07eb3dd7dd46681",
+          "name": "Kurukshetra Team"
+        }
+      ],
+      "team": {
+        "_id": "6991ad69e07eb3dd7dd46681",
+        "name": "Kurukshetra Team"
+      },
+      "assignedTo": {
+        "_id": "69c4be0fd8c5cd0d6c90e999",
+        "fullName": "Suraj Keshwar",
+        "email": "suraj@bharatproperties.co"
+      },
+      "assignment": {
+        "team": [
+          {
+            "_id": "6991ad69e07eb3dd7dd46681",
+            "name": "Kurukshetra Team"
+          }
+        ],
+        "assignedTo": {
+          "_id": "69c4be0fd8c5cd0d6c90e999",
+          "fullName": "Suraj Keshwar",
+          "email": "suraj@bharatproperties.co"
+        }
+      },
+      "isVisible": true,
+      "createdAt": "2026-08-21T10:54:21.473Z",
+      "latitude": "29.962915",
+      "longitude": "76.879157",
+      "block": "First Block",
+      "sizeUnit": "Sq.Ft.",
+      "sizeLabel": "69c4a964d8c5cd0d6c90b617",
+      "sizeConfig": "69c4a964d8c5cd0d6c90b617",
+      "lastActivity": null
+    }
+  ],
+  "totalCount": 120,
+  "totalPages": 24,
+  "currentPage": 1,
+  "categoryStats": [
+    {
+      "name": "Residential",
+      "count": 8
+    },
+    {
+      "name": "Commercial",
+      "count": 3
+    },
+    {
+      "name": "Institutional",
+      "count": 0
+    },
+    {
+      "name": "Industrial",
+      "count": 0
+    },
+    {
+      "name": "Agricultural",
+      "count": 0
+    }
+  ]
+}
