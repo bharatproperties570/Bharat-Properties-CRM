@@ -60,7 +60,7 @@ export const createBooking = async (req, res) => {
                         return; 
                     }
                     try {
-                        await AutomationLog.create([{ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }], { session });
+                        await AutomationLog.collection.insertOne({ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }, { session });
                     } catch (err) {
                         if (err.code === 11000) {
                             throw new Error('IDEMPOTENT_CONFLICT: Booking creation in progress.');
@@ -125,20 +125,32 @@ export const createBooking = async (req, res) => {
                 if (bookingData.property) {
                     console.log(`[BOOKING_ENGINE] Marking Inventory ${bookingData.property} as BOOKED.`);
                     const Inventory = mongoose.model('Inventory');
+                    const Lookup = mongoose.model('Lookup');
+                    
+                    // 1. Resolve 'Available' and 'Active' ObjectIds
+                    const sourceLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Available', 'Active'] } }).select('_id').lean().session(session);
+                    const sourceIds = sourceLookups.map(l => l._id);
+                    
+                    // 2. Resolve 'Booked' ObjectId
+                    const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: 'Booked' }).select('_id').lean().session(session);
+                    const targetStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Booked';
+
+                    const invQuery = { 
+                        _id: bookingData.property,
+                        $or: [
+                            { status: null },
+                            { status: { $exists: false } }
+                        ]
+                    };
+                    if (sourceIds.length > 0) {
+                        invQuery.$or.push({ status: { $in: sourceIds } });
+                    }
                     
                     const updatedInv = await Inventory.findOneAndUpdate(
-                        { 
-                            _id: bookingData.property,
-                            $or: [
-                                { status: 'Available' },
-                                { status: 'Active' },
-                                { status: null },
-                                { status: { $exists: false } }
-                            ]
-                        },
+                        invQuery,
                         { 
                             $set: { 
-                                status: 'Booked',
+                                status: targetStatusId,
                                 lastStatusUpdate: new Date()
                             }
                         },
@@ -153,13 +165,18 @@ export const createBooking = async (req, res) => {
                 // 📝 Record Activity
                 const Activity = mongoose.model('Activity');
                 await Activity.create([{
-                    type: 'Booking',
-                    title: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
+                    type: 'Task',
+                    subject: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
+                    entityType: savedBooking.dealId ? 'Deal' : 'Lead',
+                    entityId: savedBooking.dealId || savedBooking.lead,
+                    dueDate: new Date(),
+                    status: 'Completed',
                     description: `Booking confirmed for deal amount ₹${savedBooking.totalDealAmount} with token ₹${savedBooking.tokenAmount}.`,
-                    leadId: savedBooking.lead,
-                    dealId: savedBooking.dealId,
-                    createdBy: req.user?._id,
-                    timestamp: new Date()
+                    relatedTo: [{
+                        id: savedBooking.lead,
+                        model: 'Lead'
+                    }],
+                    createdBy: req.user?._id
                 }], { session });
             });
         } catch (err) {
