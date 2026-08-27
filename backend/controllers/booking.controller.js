@@ -408,52 +408,101 @@ export const deleteBooking = async (req, res) => {
 };
 
 export const closeBooking = async (req, res) => {
+    const session = await mongoose.startSession();
+    let updatedBooking = null;
+
     try {
         const { id } = req.params;
         const { checklist, closingDate, remarks, newOwnerId } = req.body;
 
-        const booking = await Booking.findById(id).populate('property lead seller');
-        if (!booking) return res.status(404).json({ success: false, message: "Booking reference missing." });
-
-        booking.status = 'Registry'; 
-        booking.closingDetails = {
-            isClosed: true,
-            closingDate: closingDate || new Date(),
-            checklist: checklist,
-            remarks: remarks,
-            feedbackStatus: { buyerContacted: false, sellerContacted: false }
-        };
-        await booking.save();
-
-        if (booking.property) {
-            const Inventory = mongoose.model('Inventory');
-            const updateFields = { status: 'Sold Out' };
-
-            if (newOwnerId) {
-                updateFields.owners = [newOwnerId];
-            } else if (booking.lead) {
-                updateFields.owners = [booking.lead._id || booking.lead];
+        await session.withTransaction(async () => {
+            // [SECURITY] Validate Visibility and Team Isolation
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const booking = await Booking.findOne({ _id: id, ...visibilityFilter }).populate('property lead seller').session(session);
+            if (!booking) throw new Error("Booking reference missing or access denied.");
+            
+            if (booking.status === 'Registry' || booking.status === 'Cancelled') {
+                throw new Error(`Booking cannot be closed from current status: ${booking.status}`);
             }
 
-            await Inventory.findByIdAndUpdate(booking.property._id || booking.property, updateFields);
-        }
+            // 1. Update Booking Status
+            booking.status = 'Registry'; 
+            booking.closingDetails = {
+                isClosed: true,
+                closingDate: closingDate || new Date(),
+                checklist: checklist,
+                remarks: remarks,
+                feedbackStatus: { buyerContacted: false, sellerContacted: false }
+            };
+            await booking.save({ session });
+            updatedBooking = booking;
 
-        if (booking.dealId) {
-            const Deal = mongoose.model('Deal');
-            await Deal.findByIdAndUpdate(booking.dealId, { 
-                stage: 'Closed',
-                status: 'Won',
-                closingDetails: {
-                    isClosed: true,
-                    closingDate: booking.updatedAt,
-                    remarks: `Post-Sale Registry confirmed.`
+            // 2. ATOMIC INVENTORY TRANSITION
+            if (booking.property) {
+                const Inventory = mongoose.model('Inventory');
+                const Lookup = mongoose.model('Lookup');
+                
+                const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).select('_id').lean().session(session);
+                const targetStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Sold Out';
+
+                const sourceLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Available', 'Active', 'Blocked', 'Booked', 'Token Received'] } }).select('_id').lean().session(session);
+                const sourceIds = sourceLookups.map(l => l._id);
+
+                // Atomic query (prevent Invalid state transition)
+                const invQuery = { 
+                    _id: booking.property._id || booking.property,
+                    $or: [
+                        { status: null },
+                        { status: { $exists: false } },
+                        { status: { $in: ['Available', 'Active', 'Blocked', 'Booked', 'Token Received'] } }
+                    ]
+                };
+                if (sourceIds.length > 0) {
+                    invQuery.$or.push({ status: { $in: sourceIds } });
                 }
-            });
-        }
 
-        res.status(200).json({ success: true, message: "Transaction finalized and ownership transferred.", data: booking });
+                const updateFields = { status: targetStatusId };
+                if (newOwnerId) {
+                    updateFields.owners = [newOwnerId];
+                } else if (booking.lead) {
+                    updateFields.owners = [booking.lead._id || booking.lead];
+                }
+
+                const invUpdate = await Inventory.findOneAndUpdate(invQuery, updateFields, { new: true, session });
+                if (!invUpdate) {
+                    throw new Error("INVENTORY_UNAVAILABLE: The associated property cannot transition to Sold Out. It may be reserved or in an invalid state.");
+                }
+            }
+
+            // 3. ATOMIC DEAL UPDATE
+            if (booking.dealId) {
+                const Deal = mongoose.model('Deal');
+                await Deal.findOneAndUpdate(
+                    { _id: booking.dealId },
+                    { 
+                        stage: 'Closed',
+                        status: 'Won',
+                        closingDetails: {
+                            isClosed: true,
+                            closingDate: booking.updatedAt || new Date(),
+                            remarks: 'Post-Sale Registry confirmed.'
+                        }
+                    },
+                    { new: true, session }
+                );
+            }
+        });
+
+        // External side effects
+        res.status(200).json({ success: true, message: "Transaction finalized and ownership transferred.", data: updatedBooking });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        const msg = error.message;
+        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('access denied') || msg.includes('Booking cannot be closed')) {
+            return res.status(400).json({ success: false, message: msg });
+        }
+        res.status(500).json({ success: false, message: msg });
+    } finally {
+        await session.endSession();
     }
 };
 
