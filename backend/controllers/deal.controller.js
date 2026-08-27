@@ -2252,20 +2252,30 @@ export const addDeal = async (req, res) => {
 
 export const updateDeal = async (req, res) => {
     console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
+    
+    if (!isValidObjectId(req.params.id)) {
+        return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
+    }
+    
+    let deal = null;
+    let notificationsToDispatch = [];
+    const sanitizedData = sanitizeData(req.body);
+    console.log(`[DealController] Sanitized Payload:`, JSON.stringify(sanitizedData, null, 2));
+
+    const session = await mongoose.startSession();
+
     try {
-        if (!isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
-        }
-        const sanitizedData = sanitizeData(req.body);
-        console.log(`[DealController] Sanitized Payload:`, JSON.stringify(sanitizedData, null, 2));
+        await session.withTransaction(async () => {
+            // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
+                .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName inventoryId owner')
+                .session(session);
+                
+            if (!existing) {
+                throw new Error('NOT_FOUND: Deal not found or unauthorized');
+            }
 
-        // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
-            .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
-            .lean();
-
-        if (existing) {
             const now = new Date();
             const historyUpdate = {};
             let requiresHistoryUpdate = false;
@@ -2309,47 +2319,43 @@ export const updateDeal = async (req, res) => {
 
                 // Audit Log Assignment
                 const AuditLog = mongoose.model('AuditLog');
-                await AuditLog.logEntityUpdate(
-                    'assignment_changed',
-                    'deal',
-                    req.params.id,
-                    existing.projectName || 'Active Deal',
-                    req.user?.id || null,
-                    { before: oldRM, after: newRM },
-                    `Deal reassigned to a new owner.`
-                );
+                await AuditLog.create([{
+                    eventType: 'assignment_changed',
+                    targetType: 'deal',
+                    targetId: req.params.id,
+                    targetName: existing.projectName || 'Active Deal',
+                    userId: req.user?.id || null,
+                    changes: { before: oldRM, after: newRM },
+                    description: `Deal reassigned to a new owner.`
+                }], { session });
 
-                // [NOTIFICATION] Notify new owner of reassignment
                 if (String(newRM) !== String(req.user?.id)) {
-                    await createNotification(
-                        newRM,
-                        'assignment',
-                        '🔄 Deal Reassigned to You',
-                        `Deal for project "${existing.projectName}" has been reassigned to you.`,
-                        `/deals/${req.params.id}`,
-                        { dealId: req.params.id, type: 'deal_reassigned' }
-                    ).catch(() => {});
+                    notificationsToDispatch.push({
+                        userId: newRM,
+                        type: 'assignment',
+                        title: '🔄 Deal Reassigned to You',
+                        message: `Deal for project "${existing.projectName}" has been reassigned to you.`,
+                        url: `/deals/${req.params.id}`,
+                        meta: { dealId: req.params.id, type: 'deal_reassigned' }
+                    });
                 }
             }
 
-            // [NOTIFICATION] High-Value Stage Change
             const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
             if (sanitizedData.stage && sanitizedData.stage !== existing.stage) {
                 const ownerId = sanitizedData.assignedTo || existing.assignedTo || existing.owner;
                 if (ownerId && String(ownerId) !== String(req.user?.id)) {
-                    await createNotification(
-                        ownerId,
-                        'deal',
-                        `🔥 Deal Stage: ${sanitizedData.stage}`,
-                        `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
-                        `/deals/${req.params.id}`,
-                        { dealId: req.params.id, stage: sanitizedData.stage }
-                    ).catch(() => {});
+                    notificationsToDispatch.push({
+                        userId: ownerId,
+                        type: 'deal',
+                        title: `🔥 Deal Stage: ${sanitizedData.stage}`,
+                        message: `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
+                        url: `/deals/${req.params.id}`,
+                        meta: { dealId: req.params.id, stage: sanitizedData.stage }
+                    });
                 }
 
-                // 🌟 SENIOR ADDITION: Global Team Notification for High-Value Stages
                 if (milestoneStages.includes(sanitizedData.stage)) {
-                    // Notify managers or team leads
                     const User = mongoose.model('User');
                     const managers = await User.find({ 
                         $or: [{ role: 'manager' }, { role: 'admin' }],
@@ -2357,200 +2363,114 @@ export const updateDeal = async (req, res) => {
                     }).select('_id').lean();
                     
                     for (const mgr of managers) {
-                        await createNotification(
-                            mgr._id,
-                            'deal',
-                            `💰 Achievement: Deal ${sanitizedData.stage}!`,
-                            `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
-                            `/deals/${req.params.id}`,
-                            { dealId: req.params.id, type: 'milestone' }
-                        ).catch(() => {});
+                        notificationsToDispatch.push({
+                            userId: mgr._id,
+                            type: 'deal',
+                            title: `💰 Achievement: Deal ${sanitizedData.stage}!`,
+                            message: `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
+                            url: `/deals/${req.params.id}`,
+                            meta: { dealId: req.params.id, type: 'milestone' }
+                        });
                     }
                 }
             }
+
             if (requiresHistoryUpdate) {
                 const atomicUpdate = { ...historyUpdate };
                 delete atomicUpdate.$push;
                 
-                // 1. Update exiting stage details ($set) to avoid path collision
                 if (Object.keys(atomicUpdate).length > 0) {
-                    await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate });
+                    await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate }, { session });
                 }
-                
-                // 2. Push new stage history record ($push)
                 if (historyUpdate.$push) {
-                    await Deal.findByIdAndUpdate(req.params.id, { $push: historyUpdate.$push });
+                    await Deal.findByIdAndUpdate(req.params.id, { $push: historyUpdate.$push }, { session });
                 }
             }
-        }
 
-        // [ENTERPRISE HARDENING]: coordinate-based duplicate check (Update Phase)
-        if (sanitizedData.inventoryId || sanitizedData.unitNo) {
-            const current = await Deal.findById(req.params.id).lean();
-            const projectName = sanitizedData.projectName || current.projectName;
-            const block = sanitizedData.block || current.block;
-            const unitNo = sanitizedData.unitNo || current.unitNo;
+            // [ENTERPRISE HARDENING]: coordinate-based duplicate check
+            if (sanitizedData.inventoryId || sanitizedData.unitNo) {
+                const projectName = sanitizedData.projectName || existing.projectName;
+                const block = sanitizedData.block || existing.block;
+                const unitNo = sanitizedData.unitNo || existing.unitNo;
 
-            const coordQuery = {
-                _id: { $ne: req.params.id },
-                projectName,
-                block,
-                unitNo,
-                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-            };
-
-            const duplicateDeal = await Deal.findOne(coordQuery);
-            if (duplicateDeal) {
-                return res.status(400).json({
-                    success: false,
-                    error: `DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`
-                });
-            }
-        }
-
-        // [ENTERPRISE HARDENING]: Update-time Snapshotting
-        if (sanitizedData.inventoryId) {
-            const existingDeal = await Deal.findById(req.params.id);
-            // If inventory is changing OR if deal currently has missing owner data
-            if (existingDeal && (String(existingDeal.inventoryId) !== String(sanitizedData.inventoryId) || !existingDeal.owner)) {
-                const inventory = await Inventory.findById(sanitizedData.inventoryId)
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' });
-                
-                if (inventory) {
-                    if (!sanitizedData.owner && inventory.owners?.[0]) {
-                        sanitizedData.owner = inventory.owners[0]._id;
-                    }
-                    if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
-                        sanitizedData.associatedContact = inventory.associates[0].contact._id;
-                    }
-                    
-                    // Snapshot metadata labels
-                    if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
-                    if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
-                    if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
-                    if (!sanitizedData.category) sanitizedData.category = inventory.category;
-                    if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
-                    if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
-                }
-            }
-        }
-
-        const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
-        
-        // Trigger Sync if documents were updated
-        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
-            const metadata = {
-                projectName: deal.projectName,
-                block: deal.block,
-                unitNumber: deal.unitNo
-            };
-            await syncDocumentsToContact(sanitizedData.documents, metadata);
-        }
-
-        await syncInventoryStatus(deal);
-
-        // 🚀 ENTERPRISE RULE: If Deal is Closed Lost, log its journey to the Inventory Activity Timeline
-        if (sanitizedData.stage === 'Closed Lost' && deal.inventoryId) {
-            try {
-                const enteredAt = new Date(deal.createdAt);
-                const lostAt = new Date();
-                const daysActive = Math.max(1, Math.floor((lostAt - enteredAt) / 86400000));
-                
-                let lostPriceMsg = '';
-                if (sanitizedData.closingDetails?.lostPrice) {
-                    lostPriceMsg = ` It was lost at a market price of ₹${Number(sanitizedData.closingDetails.lostPrice).toLocaleString('en-IN')}`;
-                    if (sanitizedData.closingDetails?.lostDate) {
-                        lostPriceMsg += ` on ${new Date(sanitizedData.closingDetails.lostDate).toLocaleDateString('en-IN')}.`;
-                    } else {
-                        lostPriceMsg += '.';
-                    }
-                }
-
-                await Activity.create({
-                    entityId: deal.inventoryId,
-                    entityType: 'Inventory',
-                    type: 'system_note',
-                    subType: 'deal_lost',
-                    user: req.user?.id || null,
-                    title: `Deal Lost after ${daysActive} days`,
-                    description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
-                    priority: 'medium',
-                    status: 'completed',
-                    completedAt: lostAt
-                });
-            } catch (err) {
-                console.error("Error logging Closed Lost to Inventory:", err);
-            }
-        }
-
-        // 🌐 WEBSITE PUBLISHING: Handle updates to publishing status
-        if (sanitizedData.publishOn?.website && !deal.isPublished) {
-            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            await Deal.findByIdAndUpdate(deal._id, {
-                isPublished: true,
-                publishedAt: new Date(),
-                'websiteMetadata.slug': slugBase,
-                'websiteMetadata.title': deal.projectName || 'Updated Listing',
-                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this updated property listing at Bharat Properties.'
-            });
-        } else if (sanitizedData.publishOn && sanitizedData.publishOn.website === false && deal.isPublished) {
-            await Deal.findByIdAndUpdate(deal._id, { isPublished: false });
-        }
-
-        // BUG D4 FIX: Correctly extract phone from phones array for stage updates
-        if (sanitizedData.stage) {
-            try {
-                const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
-                
-                const extractPhone = (contact) => {
-                    if (!contact) return null;
-                    if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
-                        return contact.phones[0].number;
-                    }
-                    return contact.phone || contact.mobile || null;
+                const coordQuery = {
+                    _id: { $ne: req.params.id },
+                    projectName,
+                    block,
+                    unitNo,
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
                 };
 
-                const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
-                
-                if (phone) {
-                    smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
-                        dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
-                        stage: dealPop.stage
-                    }).catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
+                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                if (duplicateDeal) {
+                    throw new Error(`DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`);
                 }
-            } catch (smsError) {
-                console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
             }
-        }
-        // Trigger Workflow Engine for Stage Change
-        try {
-            if (sanitizedData.stage && existing && sanitizedData.stage !== existing.stage) {
-                await WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId);
-            }
-        } catch (weErr) {
-            console.error('[WorkflowEngine] deal_stage_changed trigger failed:', weErr.message);
-        }
 
-        res.json({ success: true, data: deal, deal: deal });
-        
-        // 🚀 AUTO-MARKETING: Fire campaign engine if publishing flags or stage changed
-        // This is non-blocking (fire-and-forget)
-        setTimeout(() => {
-            CampaignEngine.launch(deal._id).catch(err =>
-                console.error('[CampaignEngine] Auto-launch error for updated deal:', err.message)
-            );
-        }, 100);
-    } catch (error) {
-        console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: error.message, 
-            message: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            // [ENTERPRISE HARDENING]: Update-time Snapshotting
+            if (sanitizedData.inventoryId) {
+                if (String(existing.inventoryId) !== String(sanitizedData.inventoryId) || !existing.owner) {
+                    const inventory = await mongoose.model('Inventory').findById(sanitizedData.inventoryId)
+                        .populate({ path: 'owners', model: 'Contact' })
+                        .populate({ path: 'associates.contact', model: 'Contact' })
+                        .session(session);
+                    
+                    if (inventory) {
+                        if (!sanitizedData.owner && inventory.owners?.[0]) {
+                            sanitizedData.owner = inventory.owners[0]._id;
+                        }
+                        if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
+                            sanitizedData.associatedContact = inventory.associates[0].contact._id;
+                        }
+                        
+                        if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
+                        if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
+                        if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
+                        if (!sanitizedData.category) sanitizedData.category = inventory.category;
+                        if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
+                        if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
+                    }
+                }
+            }
+
+            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, session });
+            if (!deal) {
+                throw new Error('NOT_FOUND: Deal not found');
+            }
+            
+            await syncInventoryStatus(deal, session);
         });
+    } catch (error) {
+        session.endSession();
+        if (error.message.includes('DUPLICATE PROTECTION')) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        if (error.message.includes('INVENTORY_UNAVAILABLE')) {
+            return res.status(400).json({ success: false, error: error.message });
+        }
+        if (error.message.includes('NOT_FOUND')) {
+            return res.status(404).json({ success: false, error: error.message.split(': ')[1] });
+        }
+        console.error("Deal update error:", error);
+        return res.status(500).json({ success: false, error: error.message });
     }
+    session.endSession();
+
+    // Side Effects outside the transaction
+    for (const notif of notificationsToDispatch) {
+        createNotification(notif.userId, notif.type, notif.title, notif.message, notif.url, notif.meta).catch(() => {});
+    }
+
+    if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
+        const metadata = {
+            projectName: deal.projectName,
+            block: deal.block,
+            unitNumber: deal.unitNo
+        };
+        syncDocumentsToContact(sanitizedData.documents, metadata).catch(e => console.error(e));
+    }
+
+    res.status(200).json({ success: true, data: deal });
 };
 
 export const deleteDeal = async (req, res) => {
