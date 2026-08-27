@@ -41,76 +41,139 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        const booking = new Booking(bookingData);
-        await booking.save();
-
-        // 🚀 Deal Lifecycle Synchronization
-        const Deal = mongoose.model('Deal');
-        let dealToUpdate = null;
-
-        if (bookingData.dealId) {
-            dealToUpdate = await Deal.findById(bookingData.dealId);
-        } else if (bookingData.property && (bookingData.lead || bookingData.customer)) {
-            // Contextual Fallback: Find open deal for same entity
-            dealToUpdate = await Deal.findOne({
-                inventoryId: bookingData.property,
-                associatedContact: bookingData.lead || bookingData.customer,
-                stage: { $ne: 'Closed' }
-            });
-        }
-
-        if (dealToUpdate) {
-            console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
-            dealToUpdate.stage = 'Booked';
-            dealToUpdate.status = 'Won';
-            dealToUpdate.bookingId = booking._id;
-            
-            // Add to deal negotiation history
-            if (dealToUpdate.negotiationRounds) {
-                dealToUpdate.negotiationRounds.push({
-                    round: (dealToUpdate.negotiationRounds.length + 1),
-                    offerPrice: booking.totalDealAmount,
-                    status: 'Accepted',
-                    date: new Date(),
-                    note: `Booking confirmed with Token: ₹${booking.tokenAmount}`
-                });
-            }
-            
-            await dealToUpdate.save();
-
-            // Circular link
-            if (!booking.dealId) {
-                booking.dealId = dealToUpdate._id;
-                await booking.save();
-            }
-        }
-
-        // 🏠 Inventory State management
-        if (booking.property) {
-            console.log(`[BOOKING_ENGINE] Marking Inventory ${booking.property} as BOOKED.`);
-            const Inventory = mongoose.model('Inventory');
-            await Inventory.findByIdAndUpdate(booking.property, { 
-                status: 'Booked',
-                lastStatusUpdate: new Date()
-            });
-        }
-
-        // 📝 Record Activity
+        let bookingId;
+        const session = await mongoose.startSession();
+        
         try {
-            await Activity.create({
-                type: 'Booking',
-                title: `Property Booked: ${booking.applicationNo || 'New Booking'}`,
-                description: `Booking confirmed for deal amount ₹${booking.totalDealAmount} with token ₹${booking.tokenAmount}.`,
-                leadId: booking.lead,
-                dealId: booking.dealId,
-                createdBy: req.user?._id,
-                timestamp: new Date()
-            });
-        } catch (actErr) {
-            console.warn(`[BOOKING_ENGINE] Activity logging skipped: ${actErr.message}`);
-        }
+            let isIdempotentReturn = false;
+            await session.withTransaction(async () => {
+                const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
+                let idK = null;
+                const AutomationLog = mongoose.model('AutomationLog');
 
-        const populated = await Booking.findById(booking._id)
+                if (idempotencyKey) {
+                    idK = `booking_${idempotencyKey}`;
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
+                    if (existingLog && existingLog.entityId) {
+                        bookingId = existingLog.entityId;
+                        isIdempotentReturn = true;
+                        return; 
+                    }
+                    try {
+                        await AutomationLog.create([{ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }], { session });
+                    } catch (err) {
+                        if (err.code === 11000) {
+                            throw new Error('IDEMPOTENT_CONFLICT: Booking creation in progress.');
+                        }
+                        throw err;
+                    }
+                }
+
+                const booking = new Booking(bookingData);
+                const savedBookings = await Booking.create([bookingData], { session });
+                const savedBooking = savedBookings[0];
+                bookingId = savedBooking._id;
+                if (idK) {
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: bookingId } }, { session });
+                }
+
+                // 🚀 Deal Lifecycle Synchronization
+                const Deal = mongoose.model('Deal');
+                let dealToUpdate = null;
+
+                if (bookingData.dealId) {
+                    dealToUpdate = await Deal.findById(bookingData.dealId).session(session);
+                } else if (bookingData.property && (bookingData.lead || bookingData.customer)) {
+                    dealToUpdate = await Deal.findOne({
+                        inventoryId: bookingData.property,
+                        associatedContact: bookingData.lead || bookingData.customer,
+                        stage: { $ne: 'Closed' }
+                    }).session(session);
+                }
+
+                if (dealToUpdate) {
+                    console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
+                    
+                    const updateOps = {
+                        $set: {
+                            stage: 'Booked',
+                            status: 'Won',
+                            bookingId: savedBooking._id
+                        }
+                    };
+
+                    if (dealToUpdate.negotiationRounds) {
+                        updateOps.$push = {
+                            negotiationRounds: {
+                                round: (dealToUpdate.negotiationRounds.length + 1),
+                                offerPrice: savedBooking.totalDealAmount,
+                                status: 'Accepted',
+                                date: new Date(),
+                                note: `Booking confirmed with Token: ₹${savedBooking.tokenAmount}`
+                            }
+                        };
+                    }
+                    
+                    await Deal.findByIdAndUpdate(dealToUpdate._id, updateOps, { session });
+
+                    if (!savedBooking.dealId) {
+                        await Booking.findByIdAndUpdate(savedBooking._id, { $set: { dealId: dealToUpdate._id } }, { session });
+                    }
+                }
+
+                // 🏠 Inventory State management
+                if (bookingData.property) {
+                    console.log(`[BOOKING_ENGINE] Marking Inventory ${bookingData.property} as BOOKED.`);
+                    const Inventory = mongoose.model('Inventory');
+                    
+                    const updatedInv = await Inventory.findOneAndUpdate(
+                        { 
+                            _id: bookingData.property,
+                            $or: [
+                                { status: 'Available' },
+                                { status: 'Active' },
+                                { status: null },
+                                { status: { $exists: false } }
+                            ]
+                        },
+                        { 
+                            $set: { 
+                                status: 'Booked',
+                                lastStatusUpdate: new Date()
+                            }
+                        },
+                        { new: true, session }
+                    );
+
+                    if (!updatedInv) {
+                        throw new Error(`INVENTORY_UNAVAILABLE: Unit ${bookingData.property} cannot be booked. It may already be reserved.`);
+                    }
+                }
+
+                // 📝 Record Activity
+                const Activity = mongoose.model('Activity');
+                await Activity.create([{
+                    type: 'Booking',
+                    title: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
+                    description: `Booking confirmed for deal amount ₹${savedBooking.totalDealAmount} with token ₹${savedBooking.tokenAmount}.`,
+                    leadId: savedBooking.lead,
+                    dealId: savedBooking.dealId,
+                    createdBy: req.user?._id,
+                    timestamp: new Date()
+                }], { session });
+            });
+        } catch (err) {
+            session.endSession();
+            // Map the transaction error to a 400 Bad Request if it's our inventory business rule
+            if (err.message && err.message.includes('INVENTORY_UNAVAILABLE')) {
+                return res.status(400).json({ success: false, message: err.message });
+            }
+            throw err;
+        }
+        
+        session.endSession();
+
+        const populated = await Booking.findById(bookingId)
             .populate('property')
             .populate('lead')
             .populate('salesAgent', 'fullName name');

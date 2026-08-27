@@ -949,7 +949,45 @@ export const matchDeals = async (req, res) => {
     }
 };
 
-const syncInventoryStatus = async (deal) => {
+
+export const transitionInventoryState = async (inventoryId, targetStatus, session) => {
+    if (!inventoryId) return null;
+    const Inventory = mongoose.model('Inventory');
+    
+    const query = { _id: inventoryId };
+    
+    if (targetStatus === 'Blocked' || targetStatus === 'Booked') {
+        query.$or = [
+            { status: 'Available' },
+            { status: 'Active' },
+            { status: null },
+            { status: { $exists: false } }
+        ];
+    } else if (targetStatus === 'Sold Out' || targetStatus === 'Sold') {
+        query.$or = [
+            { status: 'Available' },
+            { status: 'Active' },
+            { status: 'Blocked' },
+            { status: 'Booked' },
+            { status: 'Token Received' },
+            { status: null },
+            { status: { $exists: false } }
+        ];
+    }
+
+    const updated = await Inventory.findOneAndUpdate(
+        query,
+        { $set: { status: targetStatus, lastStatusUpdate: new Date() } },
+        { new: true, session }
+    );
+
+    if (!updated) {
+        throw new Error(`INVENTORY_UNAVAILABLE: Unit ${inventoryId} cannot transition to ${targetStatus}. It may be reserved or in an invalid state.`);
+    }
+    return updated;
+};
+
+const syncInventoryStatus = async (deal, session) => {
     if (!deal.inventoryId) return;
 
     let targetStatus = 'Active';
@@ -959,7 +997,7 @@ const syncInventoryStatus = async (deal) => {
         targetStatus = 'Blocked';
     }
 
-    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
+    await transitionInventoryState(deal.inventoryId, targetStatus, session);
 };
 
 export const sanitizeDeal = async (req, res) => {
@@ -1999,56 +2037,100 @@ export const addDeal = async (req, res) => {
             }
         }
 
-        const deal = await Deal.create(sanitizedData);
 
-        // Trigger Sync if documents were provided during creation
+        const session = await mongoose.startSession();
+        let deal;
+        let isIdempotentReturn = false;
+
+        try {
+            await session.withTransaction(async () => {
+                const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
+                let idK = null;
+                const AutomationLog = mongoose.model('AutomationLog');
+
+                if (idempotencyKey) {
+                    idK = `deal_${idempotencyKey}`;
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
+                    if (existingLog && existingLog.entityId) {
+                        deal = await Deal.findById(existingLog.entityId).session(session);
+                        if (deal) {
+                            isIdempotentReturn = true;
+                            return; 
+                        }
+                    }
+                    try {
+                        await AutomationLog.create([{ idempotencyKey: idK, status: 'success', description: 'Deal Creation Idempotency Lock' }], { session });
+                    } catch (err) {
+                        if (err.code === 11000) {
+                            throw new Error('IDEMPOTENT_CONFLICT: Deal creation in progress.');
+                        }
+                        throw err;
+                    }
+                }
+
+                const createdDeals = await Deal.create([sanitizedData], { session });
+                deal = createdDeals[0];
+
+                if (idK) {
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: deal._id } }, { session });
+                }
+
+                await Deal.findByIdAndUpdate(deal._id, {
+                    $push: {
+                        stageHistory: {
+                            stage: deal.stage || 'Open',
+                            enteredAt: new Date(),
+                            triggeredBy: 'system',
+                            reason: 'Deal created'
+                        }
+                    },
+                    $set: { stageChangedAt: new Date() }
+                }, { session });
+
+                await syncInventoryStatus(deal, session);
+                
+                if (sanitizedData.publishOn?.website) {
+                    const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                    await Deal.findByIdAndUpdate(deal._id, {
+                        isPublished: true,
+                        publishedAt: new Date(),
+                        'websiteMetadata.slug': slugBase,
+                        'websiteMetadata.title': deal.projectName || 'New Listing',
+                        'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing.'
+                    }, { session });
+                }
+
+                if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
+                    await mongoose.model('AuditLog').create([{
+                        eventType: 'deal_converted',
+                        targetType: 'deal',
+                        targetId: deal._id,
+                        targetName: deal.projectName || 'New Deal',
+                        userId: req.user?._id,
+                        changes: { before: null, after: deal.stage || 'Open' },
+                        description: `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`,
+                        timestamp: new Date()
+                    }], { session });
+                }
+            });
+        } catch (err) {
+            session.endSession();
+            throw err;
+        }
+        session.endSession();
+
+        if (isIdempotentReturn) {
+            return res.status(200).json({ success: true, data: deal, message: 'Returned existing idempotent deal' });
+        }
+
+        // Move syncDocumentsToContact outside transaction because it doesn't support sessions
         if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
             const metadata = {
                 projectName: deal.projectName,
                 block: deal.block,
                 unitNumber: deal.unitNo
             };
-            await syncDocumentsToContact(sanitizedData.documents, metadata);
-        }
-
-        // BUG D3 FIX: Write initial stageHistory entry so time-in-stage metrics work from day 1
-        await Deal.findByIdAndUpdate(deal._id, {
-            $push: {
-                stageHistory: {
-                    stage: deal.stage || 'Open',
-                    enteredAt: new Date(),
-                    triggeredBy: 'system',
-                    reason: 'Deal created'
-                }
-            },
-            $set: { stageChangedAt: new Date() }
-        });
-
-        await syncInventoryStatus(deal);
-        
-        // 🌐 WEBSITE PUBLISHING: Auto-generate slug and metadata if requested
-        if (sanitizedData.publishOn?.website) {
-            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            await Deal.findByIdAndUpdate(deal._id, {
-                isPublished: true,
-                publishedAt: new Date(),
-                'websiteMetadata.slug': slugBase,
-                'websiteMetadata.title': deal.projectName || 'New Listing',
-                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing at Bharat Properties.'
-            });
-        }
-
-        // Audit Log Deal Conversion
-        if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
-            await AuditLog.logEntityUpdate(
-                'deal_converted',
-                'deal',
-                deal._id,
-                deal.projectName || 'New Deal',
-                req.user?.id,
-                { before: null, after: deal.stage || 'Open' },
-                `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`
-            );
+            syncDocumentsToContact(sanitizedData.documents, metadata).catch(e => console.error(e));
         }
 
         // BUG D4 FIX: Correctly extract phone from phones array (Contact model)
