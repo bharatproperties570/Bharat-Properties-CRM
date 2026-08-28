@@ -49,7 +49,6 @@ async function runMigration() {
     
     console.log(`[MIGRATION] Target Database: ${dbName}`);
 
-    // Production Safety Guard
     if (dbName === 'bharatproperties1') {
         if (nodeEnv !== 'production') {
             console.error(`[MIGRATION] FATAL: Connected to Production DB but NODE_ENV=${nodeEnv}. ABORTING to prevent accidental prod modification.`);
@@ -72,9 +71,8 @@ async function runMigration() {
         console.log(`\n--- Evaluating Collection: ${colName} ---`);
         const collection = db.collection(colName);
         
-        // 1. Soft Delete Backfill (Idempotent)
+        // 1. Soft Delete Backfill
         const missingSoftDelete = await collection.countDocuments({ isDeleted: { $exists: false } });
-        
         if (missingSoftDelete > 0) {
             if (DRY_RUN) {
                 console.log(`[DRY-RUN] Would backfill isDeleted=false for ${missingSoftDelete} documents.`);
@@ -88,28 +86,31 @@ async function runMigration() {
             }
         }
 
-        // 2. Ownership Backfill (Only Tier 1 & Safe logic)
+        // 2. Ownership Backfill
         if (TIER_1_MODELS.includes(colName)) {
-            let ownershipFilter = { ownerId: { $exists: false } };
-            
-            if (colName === 'deals') {
-                ownershipFilter = {
-                    ...ownershipFilter,
-                    $or: [
-                        { owner: { $exists: false } },
-                        { assignedTo: { $exists: false } },
-                        { $expr: { $eq: ["$owner", "$assignedTo"] } }
-                    ]
-                };
-            }
-
             const deterministicFilter = {
-                ...ownershipFilter,
-                $or: [
-                    { owner: { $exists: true, $ne: null } },
-                    { assignedTo: { $exists: true, $ne: null } }
+                $and: [
+                    { ownerId: { $exists: false } },
+                    {
+                        $or: [
+                            { owner: { $exists: true, $ne: null } },
+                            { assignedTo: { $exists: true, $ne: null } }
+                        ]
+                    }
                 ]
             };
+            
+            if (colName === 'deals') {
+                deterministicFilter.$and.push({
+                    $or: [
+                        { owner: { $exists: false } },
+                        { owner: null },
+                        { assignedTo: { $exists: false } },
+                        { assignedTo: null },
+                        { $expr: { $eq: ["$owner", "$assignedTo"] } }
+                    ]
+                });
+            }
             
             const docsToMigrate = await collection.countDocuments(deterministicFilter);
 

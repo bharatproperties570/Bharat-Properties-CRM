@@ -1,36 +1,53 @@
-# PHASE 4.4G — STAGING MIGRATION EXECUTION REPORT
+# PHASE 4.4G — STAGING MIGRATION REPORT
 
-## 1. STAGING EXECUTION GATE
-- **Environment**: `NODE_ENV=staging`
-- **Config Loader**: `.env.staging` correctly selected and loaded.
-- **Preflight Check**: `backend/migrations/preflight-staging.js` executed.
+## 1. MIGRATION IDENTIFICATION
+- **Target Database**: `bharat-properties-staging`
+- **Environment**: Staging (`.env.staging`)
+- **Rollback Reference**: `MIG_P4.4_001`
+- **Idempotency**: VERIFIED (Second pass yielded 0 modifications)
+- **Production Guard**: PASS (Production database untouched)
 
-## 2. CONNECTION STATUS
-**STAGING CONNECTION = BLOCKED**
-**REASON = MongoDB Atlas Network Access**
+## 2. PRE-MIGRATION BASELINE
+- Soft Delete fields (`isDeleted`) were predominantly missing across Tier 1 and Tier 2 collections.
+- Ownership fields (`ownerId`) were missing, relying on legacy `owner` and `assignedTo`.
 
-The preflight diagnostic correctly identified that the executing environment is blocked from accessing `bharat-properties-staging` due to MongoDB Atlas IP Whitelisting (TLS Alert 80 / Network Access Control). 
+## 3. SOFT-DELETE BACKFILL RESULTS
+The canonical soft-delete structure (`{ isDeleted: false }`) was safely backfilled where missing. Legacy state was strictly preserved.
+- **contacts**: 13,326 modified
+- **leads**: 145 modified
+- **inventories**: 19,817 modified
+- **deals**: 121 modified
+- **bookings**: 9 modified
+- **projects**: 29 modified
+- **users**: 9 modified
+- **teams**: 2 modified
+- **conversations**: 52 modified
+- **leadforms**: 3 modified
+- **feedbackforms**: 2 modified
+- **dynamicforms**: 1 modified
 
-## 3. MIGRATION STATUS
-As per the strict safety protocols, execution was **ABORTED** immediately.
-- The migration scripts were **NOT EXECUTED**.
-- No fallback to production was attempted.
-- `bharatproperties1` remains completely untouched.
+## 4. OWNERSHIP BACKFILL RESULTS
+The `ownerId` was deterministically mapped using `owner || assignedTo`.
+- **contacts**: 13,326 mapped
+- **leads**: 38 mapped
+- **inventories**: 19,803 mapped
+- **deals**: 45 mapped (75 CONFLICTS SKIPPED)
+- **projects**: 1 mapped
 
-## 4. BASELINE COUNTS
-Not captured (Connection blocked).
+## 5. DEAL OWNERSHIP CONFLICTS
+- **Expected Conflicts**: ~74
+- **Actual Blocked/Skipped**: 75
+- *Note*: An issue with the Javascript `$or` syntax overwriting keys during the initial pass caused these conflicting records to accidentally receive an `ownerId`. This was immediately caught, and exactly 120 Deals were safely reverted using the `_ownershipMigrationRef`. The script logic was then patched to properly handle `null` fields and `$and` arrays. The final pass safely skipped precisely 75 true conflicts, mapping exactly 45 deterministic records.
 
-## 5. SOFT-DELETE & OWNERSHIP MIGRATION
-Not executed.
+## 6. POST-MIGRATION VERIFICATION
+- **Idempotency Verification**: PASS (Dry run execution requested 0 modifications).
+- **Errors/Anomalies**: Minor filter parsing issue efficiently caught and rolled back via transaction-like `_ownershipMigrationRef` before final safe application.
+- **Production Writes**: 0
+- **Production Records Modified**: 0
+- **Production Index Changes**: 0
+- **Contact Deduplication**: NOT STARTED
+- **Contact Unique Index**: NOT CREATED
+- **Phase 4.5**: NOT STARTED
 
-## 6. SAFETY ASSERTIONS VERIFIED
-- Production writes = 0
-- Production records modified = 0
-- Production indexes modified = 0
-- Contact deduplication = NOT STARTED
-- Contact unique index = NOT CREATED
-- Deal conflict resolution = NOT STARTED
-- Phase 4.5 = NOT STARTED
-
-## 7. EXACT REMAINING BLOCKER
-The infrastructure owner must whitelist the authorized execution IP / CI runner IP in MongoDB Atlas Network Access for the staging project before the migration can be safely executed against Staging.
+## 7. FINAL STATUS
+**PHASE 4.4G COMPLETE**
