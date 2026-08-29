@@ -2653,7 +2653,6 @@ export const convertLeadToContact = async (req, res, next) => {
                 },
                 {
                     $set: {
-                        isConverted: true,
                         contactDetails: newContact._id,
                         stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
                         stageChangedAt: new Date(),

@@ -81,7 +81,7 @@ async function runTests() {
         }
 
         const checkLeadB = await Lead.findById(lead._id);
-        if (checkLeadB.isConverted) throw new Error("Lead was converted despite Contact failure!");
+        if (checkLeadB.contactDetails) throw new Error("Lead was converted despite Contact failure!");
         console.log("✅ TEST B PASSED: Rolled back on Contact failure.");
 
         Contact.prototype.save = originalContactSave;
@@ -103,7 +103,7 @@ async function runTests() {
         }
 
         const checkLeadD = await Lead.findById(lead._id);
-        if (checkLeadD.isConverted) throw new Error("Lead was converted despite Activity failure!");
+        if (checkLeadD.contactDetails) throw new Error("Lead was converted despite Activity failure!");
         
         const checkContactD = await Contact.findOne({ name: 'Transaction Test Lead' });
         if (checkContactD) throw new Error("Contact persisted despite Activity failure!");
@@ -132,7 +132,7 @@ async function runTests() {
         const checkAbortLead = await Lead.findById(lead._id);
         const checkAbortContact = await Contact.findById(abortContactId);
         
-        if (checkAbortLead.isConverted) throw new Error("Lead persisted after abort!");
+        if (checkAbortLead.contactDetails) throw new Error("Lead persisted after abort!");
         if (checkAbortContact) throw new Error("Contact persisted after abort!");
         console.log("✅ TEST E PASSED: Rollback verified.");
 
@@ -151,7 +151,7 @@ async function runTests() {
         console.log("✅ TEST F PASSED: API Format Maintained.");
 
         const checkSuccessLead = await Lead.findById(lead._id);
-        if (!checkSuccessLead.isConverted) throw new Error("Lead was not marked converted.");
+        if (!checkSuccessLead.contactDetails) throw new Error("Lead was not marked converted.");
         
         const contactId = checkSuccessLead.contactDetails;
         if (contactId) testSessionIds.contacts.push(contactId);
@@ -180,7 +180,7 @@ async function runTests() {
         const concurrencyLead = await Lead.create({
             firstName: 'Concurrency',
             lastName: 'Race Lead',
-            mobile: '9999999999',
+            mobile: '7776665555',
             stage: new mongoose.Types.ObjectId(),
             status: new mongoose.Types.ObjectId()
         });
