@@ -1,76 +1,99 @@
-# PHASE 4.3 — TRANSACTION & CONSISTENCY ARCHITECTURE
+# PHASE 4.3 — ENTERPRISE TRANSACTION ARCHITECTURE (DESIGN & AUDIT)
 
-## 1. CURRENT TRANSACTION MAP & AUDIT
-An extensive codebase audit reveals the following current state of transactions:
+## 1. EXISTING TRANSACTION INFRASTRUCTURE
+A codebase scan for `startSession` and `withTransaction` reveals an inconsistent transaction implementation:
+- **`backend/src/utils/intakeEngine.js`**: Utilizes `startSession` and `session.withTransaction` for incoming external integrations.
+- **`backend/utils/withMongoTransaction.js`**: A centralized utility wrapper introduced previously, but currently unused by core CRM controllers.
+- **`backend/services/contactMerge.service.js`**: Uses `session.withTransaction` for deduplication.
+- **RBAC Controllers (`user.controller.js`, `role.controller.js`)**: Manually call `session.startTransaction()` and `session.commitTransaction()` without the MongoDB Native Driver's auto-retry wrapper.
+- **Core CRM Controllers (`deal`, `lead`, `inventory`, `contact`)**: Do **NOT** use transactions for standard CRUD operations.
 
-| WORKFLOW | MULTI-DOC WRITE? | CURRENT TRANSACTION? | ROLLBACK SAFE? | RISK |
+## 2. CURRENT TRANSACTION GAPS
+Because Core CRM endpoints do not use transactions, the system is exposed to:
+- **Orphaned Records**: Creating a Deal but failing to write the `Timeline` activity.
+- **Partial Updates**: A Booking is created but the Deal state fails to update.
+- **Transient Network Failures**: Lack of retry logic for `MongoNetworkError` or `TransientTransactionError` in manual `startTransaction` implementations.
+
+## 3. CORE WORKFLOW ANALYSIS
+
+| Entity | Operation | Documents Written | Transaction? | Partial Failure Risk |
 |---|---|---|---|---|
-| Lead Creation | Yes (Lead + LeadForm + Activity) | **NO** | **NO** | HIGH |
-| Deal Creation | Yes (Deal + Activity) | **NO** | **NO** | HIGH |
-| Deal Stage Change | Yes (Deal + Activity) | **NO** | **NO** | HIGH |
-| Inventory Creation| Yes (Inventory + Assignment) | **NO** | **NO** | HIGH |
-| Booking Creation | Yes (Booking + Deal + Activity)| **NO** | **NO** | CRITICAL |
-| Contact Merge | Yes (Contacts + Deals + Bookings)| **YES** | YES | LOW |
-| Bulk Import | Yes (Bulk Leads/Contacts) | **NO** (ordered: false) | **NO** | HIGH |
-| Role/User Sync | Yes (Roles + Users) | **YES** | YES | LOW |
+| **Contact** | CREATE | `Contact`, `Activity` (System Log) | NO | Orphaned Contact without initial audit trail. |
+| **Lead** | CREATE | `Lead`, `Contact` (Link/Create), `Activity` | NO | Lead created, but Contact linkage fails. |
+| **Deal** | CREATE | `Deal`, `Inventory` (State), `Timeline` | NO | Deal created, but Inventory status out-of-sync. |
+| **Inventory**| CREATE | `Inventory`, `History` (Owner Link) | NO | Inventory created, but history log lost. |
+| **Booking** | CREATE | `Booking`, `Deal` (Stage), `Ledger` | NO | Severe: Financial data misaligned with Deal stage. |
+| **Import** | CREATE | Batch entities (Contacts/Leads) | NO | Partial imports, duplication on manual retry. |
 
-*Finding*: Transactions exist ONLY in `role.controller`, `user.controller`, `contact.controller` and `contactMerge.service`. The core CRM business logic (Leads, Deals, Bookings, Inventory) currently relies on non-transactional sequential promises.
-
-## 2. EXISTING TRANSACTION WEAKNESSES
-The existing implementations in `role/user/contactMerge` correctly use `startSession` and `withTransaction`. However, they suffer from:
-1. **Boilerplate Duplication**: Controller logic repeats the session startup, commit, abort, and `endSession` logic.
-2. **Missing Retry Logic**: There is no automatic retry handling for `TransientTransactionError` (MongoDB write conflicts).
-
-## 3. CANONICAL TRANSACTION DESIGN
-Created `backend/utils/withMongoTransaction.js`.
-This utility abstracts:
-- `startSession()` initialization.
-- Automatic retry on `TransientTransactionError` or `UnknownTransactionCommitResult`.
-- Ensures `session.endSession()` runs in a `finally` block preventing connection leaks.
-- Supports exponential backoff.
-
-## 4. SESSION PROPAGATION MODEL
-**Phase 5 Standard**:
-- Transactions MUST begin in the **Service** layer, not the router/controller.
-- Controllers extract `req.body`, pass it to a Service.
-- The Service calls `withMongoTransaction`, generating a `session`.
-- The Service passes `{ session }` as the last parameter to any internal Repository or Mongoose model calls (e.g., `Deal.create([data], { session })`).
+## 4. ATOMIC BOUNDARY DEFINITIONS
+To avoid long-running lock contention, transactions must be scoped strictly to the minimum business requirement.
+- **Lead Creation**: `Lead` doc + `Contact` association/creation + Initial `Activity` log.
+- **Deal Creation**: `Deal` doc + `Inventory` status change (e.g., locking unit) + `Timeline` event.
+- **Booking Creation**: `Booking` doc + `Deal` stage update (to "Booked") + `Ledger`/Payment entry.
+- **Contact Creation**: `Contact` doc + Lookup associations (if nested creation occurs).
+*Note: Read-only lookups (e.g., verifying a Team ID) can happen outside the transaction to reduce lock duration.*
 
 ## 5. EXTERNAL SIDE-EFFECT STRATEGY
-**CRITICAL**: `sendEmail` and `sendWhatsAppMessage` currently exist inside the request lifecycle.
-If placed inside a transaction block, an email could be dispatched before the transaction commits. If the transaction fails and rolls back, the user still receives the email.
-- **Rule**: External APIs MUST NEVER be called inside `withMongoTransaction`.
-- **Pattern**: 
-  1. Commit the transaction.
-  2. Emit an asynchronous event (e.g., `eventEmitter.emit('deal.created', deal)`).
-  3. Send email/WhatsApp inside the event listener.
+**Problem**: Sending an SMS/Email inside a MongoDB transaction is an anti-pattern. If the transaction aborts after the email is sent, the email cannot be "un-sent." Conversely, if the SMS API hangs, the database lock is held open indefinitely.
+**Enterprise Pattern**:
+1. Open Transaction.
+2. Write Business Entities (`Deal`, etc.).
+3. Write an Outbox/Event record (`EventLog` collection).
+4. Commit Transaction.
+5. (Post-Transaction) Event worker picks up `EventLog` and executes external side-effects (WhatsApp, SMS, Webhooks).
 
-## 6. IDEMPOTENCY ARCHITECTURE
-Incoming webhooks (WhatsApp, Meta Leads, Exotel) currently write to MongoDB without strict transaction locks or idempotency keys.
-- **Future State**: Webhook models must contain a unique `externalId` (e.g., `message_id`).
-- DB indexes must enforce unique `externalId` to reject duplicate webhook deliveries natively without application-level race conditions.
+## 6. IMPORT TRANSACTION STRATEGY
+**Problem**: Wrapping a 10,000-row CSV import into a single transaction will exceed the 16MB oplog limit or cause massive lock contention (WiredTiger cache pressure).
+**Enterprise Pattern**:
+- Validate file structure (No Transaction).
+- Chunk into batches of 100-500 records.
+- For each batch, use `bulkWrite` wrapped in a single transaction.
+- If a batch fails, record the batch failure in an `ImportJob` document (outside the transaction) and continue to the next batch.
+- This ensures resumability and idempotency.
 
-## 7. IMPORT TRANSACTION STRATEGY
-Existing `Contact.bulkWrite(..., { ordered: false })` is non-transactional and causes partial failure data corruption.
-- **Enterprise Strategy**: Do not wrap a 50,000-row import in one transaction.
-- Instead, batch the import into chunks of `100`. Wrap each chunk in `withMongoTransaction`. If a chunk fails, record the chunk offset in an `ImportJob` document and resume later.
+## 7. SOFT-DELETE TRANSACTION STRATEGY
+Currently, `softDelete.plugin.js` modifies records but has no built-in transaction session propagation awareness.
+**Safe Design**:
+- **Normal Delete**: Controllers must pass the `session` object into `.softDelete(userId, session)`.
+- **Hard Delete**: Explicit elevated endpoints only, requiring an audit log written in the *same* transaction.
+- **Bulk Delete**: Convert to `updateMany({ $set: { isDeleted: true } }, { session })`.
 
-## 8. CONCURRENCY & BOOKING CONSISTENCY
-A real-estate CRM cannot allow two users to simultaneously book the same Inventory.
-- **Requirement**: `Booking.create` MUST include a transactional lock or optimistic concurrency check:
-  `Inventory.findOneAndUpdate({ _id: invId, status: 'Available' }, { status: 'Booked' }, { session })`
-  If this returns null, the transaction immediately aborts because the inventory was claimed by another concurrent request.
+## 8. RETRY & IDEMPOTENCY
+- **Transaction Retry**: Native driver handles `TransientTransactionError` natively via `withTransaction()`. This retries the *database commit*, not the business logic.
+- **Business Idempotency**: APIs must accept an `Idempotency-Key` header (especially for integrations/webhooks). If a webhook retries a Lead creation, the system must recognize the key and return the existing Lead without duplicating it.
 
-## 9. DEAL OWNERSHIP BLOCKER
-Phase 4.2 found 74 Deal records where `owner != assignedTo`. 
-- **STATUS**: BLOCKED FOR BACKFILL. 
-- **Resolution**: Business logic must determine ownership precedence for Deals before physical migration. This does not block the architectural development of the transaction utility.
+## 9. SESSION PROPAGATION CONTRACT
+Sessions must not be hidden in global scopes.
+**Rule**:
+- The **Controller** instantiates the session via the wrapper.
+- The **Service** accepts `(data, { session })`.
+- The **Repository/Model** receives the session directly: `Deal.create([data], { session })`. Note the array syntax required by Mongoose for creating docs inside a session.
 
-## 10. CONTACT IDENTITY
-- **STATUS**: STRICT HOLD. 
-- Identity unique indexing cannot proceed until the Contact Deduplication Engine runs in Phase 5/6.
+## 10. STANDARD TRANSACTION UTILITY DESIGN
+The existing `backend/utils/withMongoTransaction.js` should be the unified standard:
+```javascript
+// Conceptual implementation
+export const withTransaction = async (operation) => {
+    const session = await mongoose.startSession();
+    try {
+        let result;
+        await session.withTransaction(async (txnSession) => {
+            result = await operation(txnSession);
+        });
+        return result;
+    } finally {
+        await session.endSession();
+    }
+};
+```
 
-## 11. IMPLEMENTATION FILES
-- `backend/utils/withMongoTransaction.js`
-- `backend/tests/utils/withMongoTransaction.test.js`
-- `docs/architecture/TRANSACTION_DEVELOPER_GUIDE.md`
+## 11. MIGRATION & IMPLEMENTATION SEQUENCE
+1. Apply `withTransaction` wrapper to `Deal` and `Booking` (Highest risk).
+2. Apply `withTransaction` to `Lead` and `Inventory`.
+3. Refactor existing manual RBAC transactions (`startTransaction` / `commitTransaction`) to use the wrapper for automated retries.
+4. Implement Outbox pattern for external services (SMS/Email).
+
+## 12. RISKS & TESTING REQUIREMENTS
+- **Risk**: Mongoose requires arrays for `.create(docs, { session })`. Forgetting the array syntax bypasses the session.
+- **Risk**: Missing indexes on fields heavily queried inside transactions can cause collection scans under lock.
+- **Testing**: Requires automated concurrency tests simulating transient network drops during a transaction commit.
