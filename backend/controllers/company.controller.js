@@ -305,7 +305,7 @@ export const updateCompany = async (req, res, next) => {
 export const deleteCompany = async (req, res, next) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const company = await Company.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const company = await Company.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
         if (!company) return res.status(404).json({ success: false, error: "Company not found or access denied" });
         res.json({ success: true, message: "Company deleted successfully" });
     } catch (error) {
@@ -320,7 +320,7 @@ export const bulkDeleteCompanies = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid IDs provided" });
         }
 
-        const result = await Company.deleteMany({ _id: { $in: ids } });
+        const result = await Company.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
         res.status(200).json({
             success: true,
             message: `Successfully deleted ${result.deletedCount} companies.`

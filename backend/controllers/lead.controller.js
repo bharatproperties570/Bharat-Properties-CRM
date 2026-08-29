@@ -1308,10 +1308,11 @@ export const deleteLead = async (req, res, next) => {
         }
 
         if (deleteContact === 'true' && lead.mobile) {
-            await Contact.deleteMany({ 'phones.number': lead.mobile });
+            // CASCADING DELETE BANNED: Contacts are independent identities.
+            // await Contact.deleteMany({ 'phones.number': lead.mobile });
         }
 
-        await Lead.findByIdAndDelete(id);
+        await Lead.softDeleteOne({ _id: id }, { userId: req.user?._id });
         res.json({ success: true, message: "Lead deleted successfully" });
     } catch (error) {
         next(error);
@@ -1489,11 +1490,12 @@ export const bulkDeleteLeads = async (req, res, next) => {
             const leads = await Lead.find({ _id: { $in: ids } });
             const mobiles = leads.map(l => l.mobile).filter(Boolean);
             if (mobiles.length > 0) {
-                await Contact.deleteMany({ 'phones.number': { $in: mobiles } });
+                // CASCADING DELETE BANNED: Contacts are independent identities.
+                // await Contact.deleteMany({ 'phones.number': { $in: mobiles } });
             }
         }
 
-        await Lead.deleteMany({ _id: { $in: ids } });
+        await Lead.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
         res.status(200).json({ success: true, message: "Deleted" });
     } catch (error) {
         next(error);

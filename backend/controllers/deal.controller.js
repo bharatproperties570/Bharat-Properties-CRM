@@ -1148,7 +1148,7 @@ export const getDeals = async (req, res) => {
         const sortOption = { [finalSortBy]: finalSortOrder };
 
         // [ENTERPRISE FILTERS] Multi-Source Visibility & Query Resolution
-        let query = { ...visibilityFilter, isVisible: { $ne: false } };
+        let query = { isVisible: { $ne: false } };
 
         // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys
         for (const [key, value] of Object.entries(dynamicFilters)) {
@@ -1412,6 +1412,10 @@ export const getDeals = async (req, res) => {
                     query.$or.push(...identityMatches);
                 }
             }
+        }
+
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, query] };
         }
 
         const populateFields = [
@@ -2417,7 +2421,7 @@ export const updateDeal = async (req, res) => {
 export const deleteDeal = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const deal = await Deal.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
 
         // Reset inventory status if the deal was deleted
@@ -2445,7 +2449,7 @@ export const bulkDeleteDeals = async (req, res) => {
             await Inventory.updateMany({ _id: { $in: inventoryIds } }, { status: 'Available' });
         }
 
-        await Deal.deleteMany({ _id: { $in: ids } });
+        await Deal.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
         res.json({ success: true, message: `${ids.length} deals deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

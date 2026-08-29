@@ -74,7 +74,7 @@ export const getContacts = async (req, res, next) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter, isMerged: { $ne: true } };
+        let query = { isMerged: { $ne: true } };
 
         // Handle Mobile CRM business vs individual filter
         if (req.query.contactType === "business") {
@@ -147,6 +147,10 @@ export const getContacts = async (req, res, next) => {
             } else {
                 Object.assign(query, searchFilter);
             }
+        }
+
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, query] };
         }
 
         // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
@@ -649,7 +653,7 @@ export const deleteContact = async (req, res, next) => {
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            Lead.deleteMany({ contactDetails: contactId }),
+            // Lead.deleteMany({ contactDetails: contactId }),
             // Remove from Inventory owners/associates
             Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }),
             Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }),
@@ -658,11 +662,11 @@ export const deleteContact = async (req, res, next) => {
             Booking.updateMany({ seller: contactId }, { $set: { seller: null } }),
             Booking.updateMany({ channelPartner: contactId }, { $set: { channelPartner: null } }),
             // Delete related Activities
-            Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
+            // Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
         ]);
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        await Contact.findOneAndDelete({ _id: id, ...visibilityFilter });
+        await Contact.softDeleteOne({ _id: id, ...visibilityFilter }, { userId: req.user?._id });
 
 
         // Sync to Google
@@ -690,7 +694,7 @@ export const bulkDeleteContacts = async (req, res, next) => {
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            Lead.deleteMany({ contactDetails: { $in: objectIds } }),
+            // Lead.deleteMany({ contactDetails: { $in: objectIds } }),
             // Remove from Inventory
             Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
             Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),
@@ -699,11 +703,11 @@ export const bulkDeleteContacts = async (req, res, next) => {
             Booking.updateMany({ seller: { $in: objectIds } }, { $set: { seller: null } }),
             Booking.updateMany({ channelPartner: { $in: objectIds } }, { $set: { channelPartner: null } }),
             // Delete related Activities
-            Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
+            // Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
         ]);
 
 
-        await Contact.deleteMany({ _id: { $in: objectIds } });
+        await Contact.softDeleteMany({ _id: { $in: objectIds } }, { userId: req.user?._id });
 
         // Sync to Google
         contacts.forEach(contact => {
