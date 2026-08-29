@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
@@ -949,7 +950,7 @@ export const matchDeals = async (req, res) => {
     }
 };
 
-const syncInventoryStatus = async (deal) => {
+const syncInventoryStatus = async (deal, opts = {}) => {
     if (!deal.inventoryId) return;
 
     let targetStatus = 'Active';
@@ -959,7 +960,7 @@ const syncInventoryStatus = async (deal) => {
         targetStatus = 'Blocked';
     }
 
-    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
+    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus }, opts);
 };
 
 export const sanitizeDeal = async (req, res) => {
@@ -1885,13 +1886,10 @@ export const addDeal = async (req, res) => {
                 stage: { $nin: ['Cancelled', 'Closed Lost'] }
             };
 
-            // If intent is provided, check for that specific intent
             if (sanitizedData.intent) {
                 query.intent = sanitizedData.intent;
             }
 
-            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
-            // Fetch policy from SystemSettings (Default: strict)
             const SystemSetting = mongoose.model('SystemSetting');
             const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
             const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
@@ -1920,8 +1918,8 @@ export const addDeal = async (req, res) => {
         }
 
         // [ENTERPRISE HARDENING]: Persistence Layer
-        // If owner/associate are missing but inventoryId is present, snapshot them from Inventory
         if (sanitizedData.inventoryId && (!sanitizedData.owner || !sanitizedData.associatedContact)) {
+            const Inventory = mongoose.model('Inventory');
             const inventory = await Inventory.findById(sanitizedData.inventoryId)
                 .populate({ path: 'owners', model: 'Contact' })
                 .populate({ path: 'associates.contact', model: 'Contact' });
@@ -1936,7 +1934,6 @@ export const addDeal = async (req, res) => {
                     sanitizedData.associatedContact = inventory.associates[0].contact._id;
                 }
                 
-                // Also snapshot location/unit details for permanence
                 if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
                 if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
                 if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
@@ -1946,66 +1943,90 @@ export const addDeal = async (req, res) => {
             }
         }
 
-        const deal = await Deal.create(sanitizedData);
+        let createdDealId;
 
-        // Trigger Sync if documents were provided during creation
-        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
-            const metadata = {
-                projectName: deal.projectName,
-                block: deal.block,
-                unitNumber: deal.unitNo
-            };
-            await syncDocumentsToContact(sanitizedData.documents, metadata);
-        }
+        // ==========================
+        // 🔒 TRANSACTION BOUNDARY
+        // ==========================
+        await withMongoTransaction(async (session) => {
+            // Bundle history and website publishing into initial deal creation to save DB calls
+            const initialStage = sanitizedData.stage || 'Open';
+            sanitizedData.stageHistory = [{
+                stage: initialStage,
+                enteredAt: new Date(),
+                triggeredBy: 'system',
+                reason: 'Deal created'
+            }];
+            sanitizedData.stageChangedAt = new Date();
 
-        // BUG D3 FIX: Write initial stageHistory entry so time-in-stage metrics work from day 1
-        await Deal.findByIdAndUpdate(deal._id, {
-            $push: {
-                stageHistory: {
-                    stage: deal.stage || 'Open',
-                    enteredAt: new Date(),
-                    triggeredBy: 'system',
-                    reason: 'Deal created'
+            if (sanitizedData.publishOn?.website) {
+                if (!sanitizedData._id) sanitizedData._id = new mongoose.Types.ObjectId();
+                const slugBase = `${sanitizedData.projectName || 'property'}-${sanitizedData.unitNo || sanitizedData._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                
+                sanitizedData.isPublished = true;
+                sanitizedData.publishedAt = new Date();
+                sanitizedData.websiteMetadata = {
+                    slug: slugBase,
+                    title: sanitizedData.projectName || 'New Listing',
+                    description: sanitizedData.description || sanitizedData.remarks || 'Check out this new property listing at Bharat Properties.'
+                };
+            }
+
+            const deal = new Deal(sanitizedData);
+            await deal.save({ session });
+            createdDealId = deal._id;
+
+            // Trigger Sync if documents were provided during creation
+            if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
+                const metadata = {
+                    projectName: deal.projectName,
+                    block: deal.block,
+                    unitNumber: deal.unitNo
+                };
+                await syncDocumentsToContact(sanitizedData.documents, metadata, { session });
+            }
+
+            await syncInventoryStatus(deal, { session });
+
+            // Audit Log Deal Conversion (Inline with session)
+            if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
+                const AuditLog = mongoose.model('AuditLog');
+                let user = null;
+                if (req.user?.id) {
+                    try {
+                        const UserModel = mongoose.model('User');
+                        user = await UserModel.findById(req.user.id).select('fullName email department').session(session).lean();
+                    } catch (_) {}
                 }
-            },
-            $set: { stageChangedAt: new Date() }
+                const department = user?.department;
+
+                const auditData = {
+                    eventType: 'deal_converted',
+                    userId: req.user?.id,
+                    userName: user?.fullName || 'System',
+                    userEmail: user?.email || 'system@crm.local',
+                    department,
+                    targetType: 'deal',
+                    targetId: deal._id,
+                    targetName: deal.projectName || 'New Deal',
+                    description: `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`,
+                    changes: { before: null, after: deal.stage || 'Open' }
+                };
+                
+                await AuditLog.create([auditData], { session });
+            }
         });
 
-        await syncInventoryStatus(deal);
-        
-        // 🌐 WEBSITE PUBLISHING: Auto-generate slug and metadata if requested
-        if (sanitizedData.publishOn?.website) {
-            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            await Deal.findByIdAndUpdate(deal._id, {
-                isPublished: true,
-                publishedAt: new Date(),
-                'websiteMetadata.slug': slugBase,
-                'websiteMetadata.title': deal.projectName || 'New Listing',
-                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing at Bharat Properties.'
-            });
-        }
+        // ==========================
+        // 🚀 POST-COMMIT (External Effects)
+        // ==========================
+        const deal = await Deal.findById(createdDealId);
 
-        // Audit Log Deal Conversion
-        if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
-            await AuditLog.logEntityUpdate(
-                'deal_converted',
-                'deal',
-                deal._id,
-                deal.projectName || 'New Deal',
-                req.user?.id,
-                { before: null, after: deal.stage || 'Open' },
-                `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`
-            );
-        }
-
-        // BUG D4 FIX: Correctly extract phone from phones array (Contact model)
         try {
-            // NOTE: 'category' is a Mixed field and 'intent' is a String; do not populate them as they have no 'ref'
             const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact');
             
             const extractPhone = (contact) => {
                 if (!contact) return null;
-                // If populated, it has a phones array. If mixed/other, check for phone/mobile field as fallback.
                 if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
                     return contact.phones[0].number;
                 }
@@ -2021,8 +2042,6 @@ export const addDeal = async (req, res) => {
                 }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
             }
 
-            // ─── PHASE 7: Automated Discovery (SaaS Proactivity) ──────────────
-            // Proactively find matching leads for this new property
             if (deal.inventoryId) {
                 import('../services/discovery.service.js').then(m => {
                     m.runProactiveDiscoveryForInventory(deal.inventoryId);
@@ -2032,20 +2051,16 @@ export const addDeal = async (req, res) => {
             console.error('[Notification Error] SMS trigger isolated:', smsError.message);
         }
 
-        // 🚀 AUTO-MARKETING: Fire campaign engine for new deal (fire-and-forget, non-blocking)
         CampaignEngine.launch(deal._id).catch(err =>
             console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
         );
 
-        // 🎯 AI Lead Matching & Omnichannel Auto-Dispatch
         if (sanitizedData.sendMatchedDeal && Object.values(sanitizedData.sendMatchedDeal).some(v => v === true || (typeof v === 'string' && v !== ''))) {
-            // Run asynchronously so deal creation doesn't block response
             setTimeout(async () => {
                 try {
                     const { matchLeads } = await import('./lead.controller.js');
                     const { executeDispatch } = await import('./marketing.controller.js');
 
-                    // 1. Fetch matching leads using identical rules (same as Deal Match Center)
                     const mockReqForMatch = {
                         method: 'GET',
                         query: { dealId: deal._id.toString(), budgetFlexibility: 20, sizeFlexibility: 20 }
@@ -2059,7 +2074,6 @@ export const addDeal = async (req, res) => {
                     const matchedLeads = mockResForMatch.data?.matchingLeads || [];
                     const leadIds = matchedLeads.map(l => l._id.toString());
 
-                    // 2. Dispatch if matches found and channels are selected
                     const sd = sanitizedData.sendMatchedDeal;
                     const toggles = {
                         whatsapp: !!sd.whatsapp,
@@ -2093,11 +2107,9 @@ export const addDeal = async (req, res) => {
             }, 100);
         }
 
-        // Trigger Workflow Engine
         try {
             await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
             
-            // If Deal is linked to Inventory on creation, fire inventory hook
             if (deal.inventoryId) {
                 const linkedInv = await Inventory.findById(deal.inventoryId).lean();
                 if (linkedInv) {
