@@ -2594,8 +2594,17 @@ export const convertLeadToContact = async (req, res, next) => {
         const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' }).lean();
 
         await withMongoTransaction(async (session) => {
-            // 1. Create Contact
-            newContact = new Contact({
+            // 1. Create or Resolve Contact (Phase 4.6 Identity Deduplication)
+            if (lead.mobile) {
+                newContact = await Contact.findOne({
+                    "phones.number": lead.mobile,
+                    isDeleted: false,
+                    isMerged: false
+                }).session(session);
+            }
+
+            if (!newContact) {
+                newContact = new Contact({
                 name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
                 title: lead.salutation,
                 phones: [{ number: lead.mobile, type: 'Personal' }],
@@ -2621,7 +2630,8 @@ export const convertLeadToContact = async (req, res, next) => {
                 }
             });
 
-            await newContact.save({ session });
+                await newContact.save({ session });
+            }
 
             // 2. Transfer Activities
             await Activity.updateMany(
