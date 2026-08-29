@@ -1489,7 +1489,7 @@ export const updateActivity = async (req, res) => {
 export const deleteActivity = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const activity = await Activity.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const activity = await Activity.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });

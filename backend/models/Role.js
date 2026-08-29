@@ -141,7 +141,8 @@ const RoleSchema = new mongoose.Schema({
         approveDeal: { type: Boolean, default: false },
         approveDiscount: { type: Boolean, default: false },
         approveStageChange: { type: Boolean, default: false },
-        approveListingPublish: { type: Boolean, default: false }
+        approveListingPublish: { type: Boolean, default: false },
+        allowHardDelete: { type: Boolean, default: false } // Enterprise Hard Delete Auth
     },
 
     // ========== Legacy Support ==========

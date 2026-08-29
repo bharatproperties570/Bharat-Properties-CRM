@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
 
-// Global Event Bus for Audit
+// Keeping EventEmitter ONLY as a post-commit notification mechanism for non-audit async tasks
 export const softDeleteEventBus = new EventEmitter();
 
 export default function softDeletePlugin(schema, options = {}) {
@@ -11,22 +11,46 @@ export default function softDeletePlugin(schema, options = {}) {
         deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
     });
 
+    const createAuditRecord = async (modelName, docId, action, userId, reason, previousState, session) => {
+        // Option A - Transactional Audit Record using Native driver to bypass validations, ensuring atomicity
+        const activityCollection = mongoose.connection.collection('activities');
+        await activityCollection.insertOne({
+            entityId: docId,
+            entityType: modelName,
+            subject: `${action}: ${modelName}`,
+            type: 'System Event',
+            dueDate: new Date(),
+            action: action,
+            userId: userId || null,
+            reason: reason || 'Application operation',
+            previousState: previousState,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        }, { session });
+    };
+
     // --- INSTANCE METHODS ---
-    schema.methods.softDelete = function (userId, sessionOpts = {}) {
+    schema.methods.softDelete = async function (userId, sessionOpts = {}) {
         this.isDeleted = true;
         this.deletedAt = new Date();
         if (userId) this.deletedBy = userId;
-        const res = this.save(sessionOpts);
+        const res = await this.save(sessionOpts);
+        
+        await createAuditRecord(this.constructor.modelName, this._id, 'SOFT_DELETE', userId, sessionOpts.reason, null, sessionOpts.session);
         softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.constructor.modelName, id: this._id, userId });
+        
         return res;
     };
 
-    schema.methods.restore = function (sessionOpts = {}) {
+    schema.methods.restore = async function (sessionOpts = {}) {
         this.isDeleted = false;
         this.deletedAt = null;
         this.deletedBy = null;
-        const res = this.save(sessionOpts);
+        const res = await this.save(sessionOpts);
+        
+        await createAuditRecord(this.constructor.modelName, this._id, 'RESTORE', sessionOpts.userId, sessionOpts.reason, null, sessionOpts.session);
         softDeleteEventBus.emit('RESTORE', { modelName: this.constructor.modelName, id: this._id });
+        
         return res;
     };
 
@@ -34,9 +58,13 @@ export default function softDeletePlugin(schema, options = {}) {
     schema.statics.softDeleteOne = async function (query, options = {}) {
         const update = { $set: { isDeleted: true, deletedAt: new Date() } };
         if (options.userId) update.$set.deletedBy = options.userId;
-        const doc = await this.findOne(query);
-        const res = await this.updateOne(query, update, options);
-        if (doc) {
+        
+        const doc = await this.findOne(query, null, { session: options.session });
+        if (!doc) return { matchedCount: 0, modifiedCount: 0 };
+        
+        const res = await this.updateOne({ _id: doc._id }, update, options);
+        if (res.modifiedCount > 0) {
+            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject(), options.session);
             softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.modelName, id: doc._id, userId: options.userId });
         }
         return res;
@@ -45,18 +73,27 @@ export default function softDeletePlugin(schema, options = {}) {
     schema.statics.softDeleteMany = async function (query, options = {}) {
         const update = { $set: { isDeleted: true, deletedAt: new Date() } };
         if (options.userId) update.$set.deletedBy = options.userId;
-        const docs = await this.find(query);
-        const res = await this.updateMany(query, update, options);
-        docs.forEach(doc => {
+        
+        const docs = await this.find(query, null, { session: options.session });
+        if (docs.length === 0) return { matchedCount: 0, modifiedCount: 0 };
+        
+        const ids = docs.map(d => d._id);
+        const res = await this.updateMany({ _id: { $in: ids } }, update, options);
+        
+        for (const doc of docs) {
+            await createAuditRecord(this.modelName, doc._id, 'SOFT_DELETE', options.userId, options.reason, doc.toObject(), options.session);
             softDeleteEventBus.emit('SOFT_DELETE', { modelName: this.modelName, id: doc._id, userId: options.userId });
-        });
+        }
         return res;
     };
 
     schema.statics.restoreOne = async function (query, options = {}) {
-        const doc = await this.findOne(query, null, { includeDeleted: true });
-        const res = await this.updateOne(query, { $set: { isDeleted: false, deletedAt: null, deletedBy: null } }, { ...options, includeDeleted: true });
-        if (doc) {
+        const doc = await this.findOne(query, null, { includeDeleted: true, session: options.session });
+        if (!doc) return { matchedCount: 0, modifiedCount: 0 };
+        
+        const res = await this.updateOne({ _id: doc._id }, { $set: { isDeleted: false, deletedAt: null, deletedBy: null } }, { ...options, includeDeleted: true });
+        if (res.modifiedCount > 0) {
+            await createAuditRecord(this.modelName, doc._id, 'RESTORE', options.userId, options.reason, doc.toObject(), options.session);
             softDeleteEventBus.emit('RESTORE', { modelName: this.modelName, id: doc._id });
         }
         return res;
@@ -81,7 +118,6 @@ export default function softDeletePlugin(schema, options = {}) {
         next();
     });
 
-    // Prevent ReplaceOne and UpdateOne from operating on deleted documents unless explicitly requested
     const preventUpdateOnDeleted = function (next) {
         if (!this.getOptions().includeDeleted) {
             this.where({ isDeleted: { $ne: true } });
@@ -95,7 +131,6 @@ export default function softDeletePlugin(schema, options = {}) {
     schema.pre('replaceOne', preventUpdateOnDeleted);
 
     // --- BULKWRITE PROTECTION ---
-    // Overriding bulkWrite to throw if a delete operation is found
     const originalBulkWrite = schema.statics.bulkWrite || mongoose.Model.bulkWrite;
     schema.statics.bulkWrite = function (ops, options) {
         for (const op of ops) {
@@ -103,8 +138,6 @@ export default function softDeletePlugin(schema, options = {}) {
                 throw new Error("Physical deletion via bulkWrite is strictly prohibited. Convert to updateOne with { $set: { isDeleted: true } }.");
             }
             if (op.replaceOne) {
-                // Ensure replaceOne doesn't resurrect silently by forcing it to fail if trying to replace a deleted doc
-                // Mongoose bulkWrite doesn't trigger query middleware, so we must enforce it in the query filter
                 if (op.replaceOne.filter && !op.replaceOne.filter.isDeleted) {
                      op.replaceOne.filter.isDeleted = { $ne: true };
                 }
