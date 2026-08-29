@@ -46,7 +46,7 @@ async function runTests() {
         entityId: lead._id,
         entityType: 'Lead',
         subject: 'Test Activity 1',
-        activityType: 'Call',
+        type: 'Call',
         dueDate: new Date()
     });
 
@@ -54,7 +54,7 @@ async function runTests() {
         entityId: new mongoose.Types.ObjectId(),
         entityType: 'Deal',
         subject: 'Test Activity 2',
-        activityType: 'Meeting',
+        type: 'Meeting',
         dueDate: new Date(),
         relatedTo: [{ id: lead._id.toString(), type: 'Lead', model: 'Lead' }]
     });
