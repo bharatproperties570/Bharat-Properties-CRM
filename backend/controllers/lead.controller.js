@@ -1,4 +1,5 @@
 import Lead from "../models/Lead.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
@@ -887,7 +888,13 @@ export const addLead = async (req, res, next) => {
             }
         }
 
-        const lead = await Lead.create(data);
+        let createdLeadId;
+        await withMongoTransaction(async (session) => {
+            const leadDoc = new Lead(data);
+            await leadDoc.save({ session });
+            createdLeadId = leadDoc._id;
+        });
+        const lead = await Lead.findById(createdLeadId);
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
         // Auto-run Enrichment & Scoring (wrapped in try-catch to prevent crash)
@@ -2583,65 +2590,69 @@ export const convertLeadToContact = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Lead is already converted' });
         }
 
-        // 1. Create Contact
-        const newContact = new Contact({
-            name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
-            title: lead.salutation,
-            phones: [{ number: lead.mobile, type: 'Personal' }],
-            emails: lead.email ? [{ address: lead.email, type: 'Personal' }] : [],
-            tags: [...(lead.tags || []), 'Converted Lead'],
-            description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
-            source: lead.source,
-            subSource: lead.subSource,
-            campaign: lead.campaign,
-            assignedTo: lead.assignment?.assignedTo || lead.owner,
-            owner: lead.owner,
-            teams: lead.teams || [],
-            department: lead.department,
-            requirement: lead.requirement,
-            budget: lead.budget,
-            location: lead.location,
-            personalAddress: {
-                location: lead.searchLocation || lead.locArea,
-                city: lead.locCity,
-                state: lead.locState,
-                country: lead.locCountry,
-                area: lead.locArea
-            }
-        });
+                let newContact;
+        const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' }).lean();
 
-        await newContact.save();
+        await withMongoTransaction(async (session) => {
+            // 1. Create Contact
+            newContact = new Contact({
+                name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
+                title: lead.salutation,
+                phones: [{ number: lead.mobile, type: 'Personal' }],
+                emails: lead.email ? [{ address: lead.email, type: 'Personal' }] : [],
+                tags: [...(lead.tags || []), 'Converted Lead'],
+                description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
+                source: lead.source,
+                subSource: lead.subSource,
+                campaign: lead.campaign,
+                assignedTo: lead.assignment?.assignedTo || lead.owner,
+                owner: lead.owner,
+                teams: lead.teams || [],
+                department: lead.department,
+                requirement: lead.requirement,
+                budget: lead.budget,
+                location: lead.location,
+                personalAddress: {
+                    location: lead.searchLocation || lead.locArea,
+                    city: lead.locCity,
+                    state: lead.locState,
+                    country: lead.locCountry,
+                    area: lead.locArea
+                }
+            });
 
-        // 2. Transfer Activities
-        await Activity.updateMany(
-            { entityId: lead._id, entityType: 'Lead' },
-            { $set: { entityId: newContact._id, entityType: 'Contact' } }
-        );
+            await newContact.save({ session });
 
-        // Also update relatedTo arrays if they contain the Lead
-        await Activity.updateMany(
-            { "relatedTo.id": lead._id.toString() },
-            { 
-                $set: { 
-                    "relatedTo.$[elem].id": newContact._id.toString(),
-                    "relatedTo.$[elem].model": "Contact",
-                    "relatedTo.$[elem].type": "Contact"
-                } 
-            },
-            { arrayFilters: [{ "elem.id": lead._id.toString() }] }
-        );
+            // 2. Transfer Activities
+            await Activity.updateMany(
+                { entityId: lead._id, entityType: 'Lead' },
+                { $set: { entityId: newContact._id, entityType: 'Contact' } },
+                { session }
+            );
 
-        // 3. Mark Lead as Converted
-        const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' });
-        
-        await Lead.findByIdAndUpdate(id, {
-            $set: {
-                isConverted: true,
-                contactDetails: newContact._id,
-                stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
-                stageChangedAt: new Date(),
-                "customFields.convertedAt": new Date()
-            }
+            // Also update relatedTo arrays if they contain the Lead
+            await Activity.updateMany(
+                { "relatedTo.id": lead._id.toString() },
+                { 
+                    $set: { 
+                        "relatedTo.$[elem].id": newContact._id.toString(),
+                        "relatedTo.$[elem].model": "Contact",
+                        "relatedTo.$[elem].type": "Contact"
+                    } 
+                },
+                { arrayFilters: [{ "elem.id": lead._id.toString() }], session }
+            );
+
+            // 3. Mark Lead as Converted
+            await Lead.findByIdAndUpdate(id, {
+                $set: {
+                    isConverted: true,
+                    contactDetails: newContact._id,
+                    stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
+                    stageChangedAt: new Date(),
+                    "customFields.convertedAt": new Date()
+                }
+            }, { session });
         });
 
         res.status(200).json({
