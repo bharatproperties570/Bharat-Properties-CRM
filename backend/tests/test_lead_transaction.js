@@ -23,9 +23,15 @@ const mockRes = () => {
 };
 
 async function runTests() {
+    const testSessionIds = {
+        leads: [],
+        contacts: [],
+        activities: []
+    };
     console.log("Connecting to Database...");
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Connected.");
+    console.log("MongoDB Database Name:", mongoose.connection.db.databaseName);
 
     // Setup: Create a lead with an activity
     const lead = await Lead.create({
@@ -53,6 +59,8 @@ async function runTests() {
         relatedTo: [{ id: lead._id.toString(), type: 'Lead', model: 'Lead' }]
     });
 
+    testSessionIds.leads.push(lead._id);
+    testSessionIds.activities.push(act1._id, act2._id);
     console.log(`Created Lead: ${lead._id}`);
 
     try {
@@ -146,6 +154,7 @@ async function runTests() {
         if (!checkSuccessLead.isConverted) throw new Error("Lead was not marked converted.");
         
         const contactId = checkSuccessLead.contactDetails;
+        if (contactId) testSessionIds.contacts.push(contactId);
         if (!contactId) throw new Error("Lead lacks contactDetails ID.");
 
         const checkSuccessContact = await Contact.findById(contactId);
@@ -202,18 +211,18 @@ async function runTests() {
 
         console.log("✅ TEST G PASSED: Race condition prevented securely via MongoDB atomic predicate.");
         
-        // Cleanup the concurrency lead
-        await Lead.deleteOne({ _id: concurrencyLead._id });
-        await Contact.deleteOne({ name: 'Concurrency Race Lead' });
+        testSessionIds.leads.push(concurrencyLead._id);
+        if (resC1.body && resC1.body.contact) testSessionIds.contacts.push(resC1.body.contact._id);
+        if (resC2.body && resC2.body.contact) testSessionIds.contacts.push(resC2.body.contact._id);
 
 
     } finally {
-        await Lead.deleteOne({ _id: lead._id });
-        await Contact.deleteMany({ name: 'Transaction Test Lead' });
-        await Activity.deleteMany({ _id: { $in: [act1._id, act2._id] } });
+        if (testSessionIds.leads.length > 0) await Lead.deleteMany({ _id: { $in: testSessionIds.leads } });
+        if (testSessionIds.contacts.length > 0) await Contact.deleteMany({ _id: { $in: testSessionIds.contacts } });
+        if (testSessionIds.activities.length > 0) await Activity.deleteMany({ _id: { $in: testSessionIds.activities } });
         await mongoose.connection.close();
         console.log("\nCleaned up test data and closed connection.");
-        process.exit(0);
+        
     }
 }
 
