@@ -2648,7 +2648,7 @@ export const convertLeadToContact = async (req, res, next) => {
                 {
                     _id: id,
                     isConverted: { $ne: true },
-                    contactDetails: { $exists: false },
+                    contactDetails: null,
                     "customFields.convertedAt": { $exists: false }
                 },
                 {
