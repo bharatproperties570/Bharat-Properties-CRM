@@ -164,6 +164,49 @@ async function runTests() {
 
         console.log("✅ TEST A PASSED: All records committed atomically and relationships transferred.");
 
+        console.log("\n==================================================");
+        console.log("TEST G: CONCURRENCY RACE CONDITION");
+        
+        // Create a new lead specifically for concurrency testing
+        const concurrencyLead = await Lead.create({
+            firstName: 'Concurrency',
+            lastName: 'Race Lead',
+            mobile: '9999999999',
+            stage: new mongoose.Types.ObjectId(),
+            status: new mongoose.Types.ObjectId()
+        });
+        
+        const reqC1 = { params: { id: concurrencyLead._id } };
+        const resC1 = mockRes();
+        const nextC1 = (err) => { resC1.error = err; };
+        
+        const reqC2 = { params: { id: concurrencyLead._id } };
+        const resC2 = mockRes();
+        const nextC2 = (err) => { resC2.error = err; };
+
+        console.log("Firing two conversion requests simultaneously...");
+        await Promise.all([
+            convertLeadToContact(reqC1, resC1, nextC1),
+            convertLeadToContact(reqC2, resC2, nextC2)
+        ]);
+
+        const statuses = [resC1.statusCode, resC2.statusCode];
+        if (!statuses.includes(200) || !statuses.includes(409)) {
+            throw new Error("Concurrency test failed: Expected one 200 and one 409, got: " + statuses.join(', '));
+        }
+
+        const contactCount = await Contact.countDocuments({ name: 'Concurrency Race Lead' });
+        if (contactCount !== 1) {
+            throw new Error("Concurrency test failed: Expected exactly 1 contact created, got " + contactCount);
+        }
+
+        console.log("✅ TEST G PASSED: Race condition prevented securely via MongoDB atomic predicate.");
+        
+        // Cleanup the concurrency lead
+        await Lead.deleteOne({ _id: concurrencyLead._id });
+        await Contact.deleteOne({ name: 'Concurrency Race Lead' });
+
+
     } finally {
         await Lead.deleteOne({ _id: lead._id });
         await Contact.deleteMany({ name: 'Transaction Test Lead' });

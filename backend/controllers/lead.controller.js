@@ -2643,16 +2643,31 @@ export const convertLeadToContact = async (req, res, next) => {
                 { arrayFilters: [{ "elem.id": lead._id.toString() }], session }
             );
 
-            // 3. Mark Lead as Converted
-            await Lead.findByIdAndUpdate(id, {
-                $set: {
-                    isConverted: true,
-                    contactDetails: newContact._id,
-                    stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
-                    stageChangedAt: new Date(),
-                    "customFields.convertedAt": new Date()
-                }
-            }, { session });
+            // 3. Mark Lead as Converted with Atomic Predicate
+            const updatedLead = await Lead.findOneAndUpdate(
+                {
+                    _id: id,
+                    isConverted: { $ne: true },
+                    contactDetails: { $exists: false },
+                    "customFields.convertedAt": { $exists: false }
+                },
+                {
+                    $set: {
+                        isConverted: true,
+                        contactDetails: newContact._id,
+                        stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
+                        stageChangedAt: new Date(),
+                        "customFields.convertedAt": new Date()
+                    }
+                },
+                { session, new: true }
+            );
+
+            if (!updatedLead) {
+                const conflictError = new Error('CONCURRENCY_CONFLICT: Lead was already converted by another transaction.');
+                conflictError.statusCode = 409;
+                throw conflictError;
+            }
         });
 
         res.status(200).json({
@@ -2662,6 +2677,9 @@ export const convertLeadToContact = async (req, res, next) => {
         });
     } catch (error) {
         console.error('[ConvertLeadToContact] Error:', error);
+        if (error.statusCode === 409) {
+            return res.status(409).json({ success: false, message: error.message });
+        }
         next(error);
     }
 };
