@@ -1465,7 +1465,13 @@ export const updateInventory = async (req, res) => {
             delete mongoUpdate.$set;
         }
 
-        const inventory = await Inventory.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, mongoUpdate, {
+        // 🛡️ CONCURRENCY HARDENING: Prevent last-writer-wins on status
+        const filter = { _id: req.params.id, ...visibilityFilter };
+        if (currentInv.status) {
+            filter.status = currentInv.status;
+        }
+
+        const inventory = await Inventory.findOneAndUpdate(filter, mongoUpdate, {
             new: true,
             runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
         }).populate([
@@ -1477,7 +1483,7 @@ export const updateInventory = async (req, res) => {
         ]);
 
         if (!inventory) {
-            return res.status(404).json({ success: false, error: "Inventory item not found" });
+            return res.status(409).json({ success: false, error: "Inventory update failed. The status was modified by a concurrent transaction (e.g. a new booking). Please refresh and try again." });
         }
 
         // Trigger Sync if documents were updated

@@ -1,18 +1,27 @@
 import mongoose from 'mongoose';
 
 /**
- * Enterprise Transaction Wrapper (Phase 4.3)
+ * Enterprise Transaction Wrapper (Phase 4.3 / Phase 4.5A)
  * 
  * Executes a callback within a MongoDB transaction.
  * Ensures the session is properly created, committed, aborted, and ended.
  * Implements retry logic for transient transaction errors.
+ * Supports composability by safely utilizing an existing session if provided.
  *
  * @param {Function} callback - Async function that takes the Mongoose session. 
  *                              Must pass this session to all DB operations: `.save({ session })`
- * @param {Object} options - Transaction options (e.g. readPreference, maxTimeMS, maxRetries)
+ * @param {Object} options - Transaction options (e.g. readPreference, maxTimeMS, maxRetries, session)
  * @returns {Promise<any>} - The result of the callback
  */
 export const withMongoTransaction = async (callback, options = {}) => {
+    // Phase 4.5A: Existing Session Composability
+    if (options && options.session) {
+        // Execute directly within the outer session boundary.
+        // DO NOT start a new session, DO NOT catch/retry locally (delegated to outer boundary),
+        // and DO NOT end the provided session.
+        return await callback(options.session);
+    }
+
     const maxRetries = options.maxRetries || 3;
     let attempt = 0;
 

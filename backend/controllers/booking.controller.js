@@ -4,6 +4,7 @@ import Activity from "../models/Activity.js";
 import AuditLog from "../models/AuditLog.js";
 import Lookup from "../models/Lookup.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 
 /**
  * @section Enterprise Booking Controller
@@ -15,14 +16,17 @@ export const createBooking = async (req, res) => {
         const bookingData = req.body;
         console.log(`[BOOKING_ENGINE] Initializing new booking for Deal: ${bookingData.dealId || 'Manual'}`);
 
-        // Duplicate Check: Prevent duplicate booking for same property, same lead, and same seller
         const BookingModel = mongoose.model('Booking');
+        const Deal = mongoose.model('Deal');
+        const Inventory = mongoose.model('Inventory');
+
+        // 1. PRE-TRANSACTION READS (Validation)
         if (bookingData.property && bookingData.lead && bookingData.seller) {
             const duplicateBooking = await BookingModel.findOne({
                 property: bookingData.property,
                 lead: bookingData.lead,
                 seller: bookingData.seller,
-                status: { $ne: 'Cancelled' } // Allow if previous was cancelled
+                status: { $ne: 'Cancelled' }
             });
             
             if (duplicateBooking) {
@@ -33,7 +37,7 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 🔒 Enterprise Isolation
         if (req.user) {
             if (req.user.department && !bookingData.department) bookingData.department = req.user.department;
             if (req.user.teams && req.user.teams.length > 0 && (!bookingData.teams || bookingData.teams.length === 0)) {
@@ -41,17 +45,10 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        const booking = new Booking(bookingData);
-        await booking.save();
-
-        // 🚀 Deal Lifecycle Synchronization
-        const Deal = mongoose.model('Deal');
         let dealToUpdate = null;
-
         if (bookingData.dealId) {
             dealToUpdate = await Deal.findById(bookingData.dealId);
         } else if (bookingData.property && (bookingData.lead || bookingData.customer)) {
-            // Contextual Fallback: Find open deal for same entity
             dealToUpdate = await Deal.findOne({
                 inventoryId: bookingData.property,
                 associatedContact: bookingData.lead || bookingData.customer,
@@ -60,57 +57,98 @@ export const createBooking = async (req, res) => {
         }
 
         if (dealToUpdate) {
-            console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
-            dealToUpdate.stage = 'Booked';
-            dealToUpdate.status = 'Won';
-            dealToUpdate.bookingId = booking._id;
-            
-            // Add to deal negotiation history
-            if (dealToUpdate.negotiationRounds) {
-                dealToUpdate.negotiationRounds.push({
-                    round: (dealToUpdate.negotiationRounds.length + 1),
-                    offerPrice: booking.totalDealAmount,
+            // Guarantee we don't accidentally mutate assignedTo semantics during the update
+            if (!bookingData.dealId) bookingData.dealId = dealToUpdate._id;
+        }
+        
+        let createdBookingId = null;
+
+        // 2. TRANSACTION BOUNDARY
+        await withMongoTransaction(async (session) => {
+            // A. Create Booking
+            const newBooking = new BookingModel(bookingData);
+            if (dealToUpdate && !newBooking.dealId) {
+                newBooking.dealId = dealToUpdate._id;
+            }
+            await newBooking.save({ session });
+            createdBookingId = newBooking._id;
+
+            // B. Update Deal
+            if (dealToUpdate) {
+                console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status inside transaction.`);
+                const updateData = {
+                    stage: 'Booked',
+                    status: 'Won',
+                    bookingId: newBooking._id
+                };
+                
+                let negotiationRounds = dealToUpdate.negotiationRounds || [];
+                negotiationRounds.push({
+                    round: (negotiationRounds.length + 1),
+                    offerPrice: newBooking.totalDealAmount,
                     status: 'Accepted',
                     date: new Date(),
-                    note: `Booking confirmed with Token: ₹${booking.tokenAmount}`
+                    note: `Booking confirmed with Token: ₹${newBooking.tokenAmount}`
                 });
+                
+                updateData.negotiationRounds = negotiationRounds;
+
+                await Deal.findOneAndUpdate(
+                    { _id: dealToUpdate._id },
+                    { $set: updateData },
+                    { session, new: true }
+                );
             }
-            
-            await dealToUpdate.save();
 
-            // Circular link
-            if (!booking.dealId) {
-                booking.dealId = dealToUpdate._id;
-                await booking.save();
+            // C. Update Inventory (Atomic Reservation)
+            if (newBooking.property) {
+                console.log(`[BOOKING_ENGINE] Marking Inventory ${newBooking.property} as BOOKED inside transaction.`);
+                const Lookup = mongoose.model('Lookup');
+                const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                const availableStatusId = availableLookup ? availableLookup._id : 'Available';
+
+                const invUpdateResult = await Inventory.findOneAndUpdate(
+                    { 
+                        _id: newBooking.property,
+                        $or: [
+                            { status: availableStatusId },
+                            { status: 'Available' }
+                        ]
+                    },
+                    { 
+                        $set: { 
+                            status: 'Booked',
+                            lastStatusUpdate: new Date()
+                        }
+                    },
+                    { session, new: true }
+                );
+
+                if (!invUpdateResult) {
+                    throw new Error("Inventory reservation failed. Property may not exist or is no longer Available.");
+                }
             }
-        }
 
-        // 🏠 Inventory State management
-        if (booking.property) {
-            console.log(`[BOOKING_ENGINE] Marking Inventory ${booking.property} as BOOKED.`);
-            const Inventory = mongoose.model('Inventory');
-            await Inventory.findByIdAndUpdate(booking.property, { 
-                status: 'Booked',
-                lastStatusUpdate: new Date()
-            });
-        }
-
-        // 📝 Record Activity
-        try {
-            await Activity.create({
+            // D. Create Activity (Audit)
+            // NO SILENT SWALLOWING. If this fails, the transaction aborts.
+            await Activity.create([{
                 type: 'Booking',
-                title: `Property Booked: ${booking.applicationNo || 'New Booking'}`,
-                description: `Booking confirmed for deal amount ₹${booking.totalDealAmount} with token ₹${booking.tokenAmount}.`,
-                leadId: booking.lead,
-                dealId: booking.dealId,
+                title: `Property Booked: ${newBooking.applicationNo || 'New Booking'}`,
+                subject: `Property Booked: ${newBooking.applicationNo || 'New Booking'}`,
+                description: `Booking confirmed for deal amount ₹${newBooking.totalDealAmount} with token ₹${newBooking.tokenAmount}.`,
+                leadId: newBooking.lead,
+                dealId: newBooking.dealId,
+                entityType: 'Deal',
+                entityId: newBooking.dealId,
+                dueDate: new Date(),
                 createdBy: req.user?._id,
                 timestamp: new Date()
-            });
-        } catch (actErr) {
-            console.warn(`[BOOKING_ENGINE] Activity logging skipped: ${actErr.message}`);
-        }
+            }], { session });
 
-        const populated = await Booking.findById(booking._id)
+        });
+        
+        // 3. POST-COMMIT (Response Construction)
+        const populated = await BookingModel.findById(createdBookingId)
             .populate('property')
             .populate('lead')
             .populate('salesAgent', 'fullName name');
