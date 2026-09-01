@@ -173,16 +173,87 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
         const dupId = duplicateId;
         
         // 1. Rewire References
-        for (const rw of previewData.referenceRewires) {
+        for (let i = 0; i < audit.referenceRewires.length; i++) {
+            const rw = audit.referenceRewires[i];
             const Model = mongoose.model(rw.collectionName);
+            
+            const doc = await Model.findById(rw.documentId).session(session).lean();
+            if (!doc) continue;
+
             if (rw.field === 'owners' || rw.field === 'employees') {
-                // Array of IDs
-                await Model.updateOne({ _id: rw.documentId }, { $pull: { [rw.field]: dupId }, $addToSet: { [rw.field]: masId } }, { session });
+                const originalArray = doc[rw.field] || [];
+                // Save full exact original array to audit log for mathematically perfect rollback
+                rw.oldValue = originalArray;
+                rw.newValue = masId;
+
+                // Deterministically compute the final array
+                const newArray = [];
+                const seen = new Set();
+                for (const item of originalArray) {
+                    if (!item) continue;
+                    let strId = item.toString();
+                    if (strId === dupId.toString()) strId = masId.toString();
+                    if (!seen.has(strId)) {
+                        seen.add(strId);
+                        newArray.push(new mongoose.Types.ObjectId(strId));
+                    }
+                }
+                
+                await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: newArray } }, { session });
+                
             } else if (rw.field === 'associates.contact') {
-                await Model.updateOne({ _id: rw.documentId, 'associates.contact': dupId }, { $set: { 'associates.$.contact': masId } }, { session });
+                const originalArray = doc.associates || [];
+                rw.oldValue = originalArray;
+                rw.newValue = masId;
+
+                const newArray = [];
+                const seenContacts = new Set();
+                for (const a of originalArray) {
+                    if (!a.contact) {
+                        newArray.push(a);
+                        continue;
+                    }
+                    let cId = a.contact.toString();
+                    if (cId === dupId.toString()) cId = masId.toString();
+                    
+                    if (!seenContacts.has(cId)) {
+                        seenContacts.add(cId);
+                        const newItem = { ...a };
+                        newItem.contact = new mongoose.Types.ObjectId(cId);
+                        newArray.push(newItem);
+                    }
+                }
+                
+                await Model.updateOne({ _id: rw.documentId }, { $set: { associates: newArray } }, { session });
+                
             } else if (rw.field === 'relatedTo.id') {
-                await Model.updateOne({ _id: rw.documentId, 'relatedTo.id': dupId, 'relatedTo.model': 'Contact' }, { $set: { 'relatedTo.$.id': masId } }, { session });
+                const originalArray = doc.relatedTo || [];
+                rw.oldValue = originalArray;
+                rw.newValue = masId;
+
+                const newArray = [];
+                const seen = new Set();
+                for (const r of originalArray) {
+                    if (!r.id || r.model !== 'Contact') {
+                        newArray.push(r);
+                        continue;
+                    }
+                    let rId = r.id.toString();
+                    if (rId === dupId.toString()) rId = masId.toString();
+                    
+                    const key = `${r.model}_${rId}`;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        const newItem = { ...r };
+                        newItem.id = new mongoose.Types.ObjectId(rId);
+                        newArray.push(newItem);
+                    }
+                }
+                
+                await Model.updateOne({ _id: rw.documentId }, { $set: { relatedTo: newArray } }, { session });
+                
             } else {
+                // Primitive field
                 await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: masId } }, { session });
             }
         }
@@ -198,6 +269,7 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
         // 4. Complete Audit
         audit.status = 'COMPLETED';
         audit.completedAt = new Date();
+        audit.markModified("referenceRewires");
         await audit.save({ session });
         
         return audit;
@@ -236,11 +308,26 @@ export const rollbackMerge = async (mergeOperationId) => {
         for (const rw of audit.referenceRewires) {
             const Model = mongoose.model(rw.collectionName);
             if (rw.field === 'owners' || rw.field === 'employees') {
-                await Model.updateOne({ _id: rw.documentId }, { $pull: { [rw.field]: rw.newValue }, $addToSet: { [rw.field]: rw.oldValue } }, { session });
+                if (Array.isArray(rw.oldValue)) {
+                    // Perfect state restoration
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: rw.oldValue } }, { session });
+                } else {
+                    // Legacy fallback
+                    await Model.updateOne({ _id: rw.documentId }, { $pull: { [rw.field]: rw.newValue } }, { session });
+                    await Model.updateOne({ _id: rw.documentId }, { $addToSet: { [rw.field]: rw.oldValue } }, { session });
+                }
             } else if (rw.field === 'associates.contact') {
-                await Model.updateOne({ _id: rw.documentId, 'associates.contact': rw.newValue }, { $set: { 'associates.$.contact': rw.oldValue } }, { session });
+                if (Array.isArray(rw.oldValue)) {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { associates: rw.oldValue } }, { session });
+                } else {
+                    await Model.updateOne({ _id: rw.documentId, 'associates.contact': rw.newValue }, { $set: { 'associates.$.contact': rw.oldValue } }, { session });
+                }
             } else if (rw.field === 'relatedTo.id') {
-                await Model.updateOne({ _id: rw.documentId, 'relatedTo.id': rw.newValue, 'relatedTo.model': 'Contact' }, { $set: { 'relatedTo.$.id': rw.oldValue } }, { session });
+                if (Array.isArray(rw.oldValue)) {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { relatedTo: rw.oldValue } }, { session });
+                } else {
+                    await Model.updateOne({ _id: rw.documentId, 'relatedTo.id': rw.newValue, 'relatedTo.model': 'Contact' }, { $set: { 'relatedTo.$.id': rw.oldValue } }, { session });
+                }
             } else {
                 await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: rw.oldValue } }, { session });
             }
