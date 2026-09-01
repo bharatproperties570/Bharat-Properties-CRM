@@ -555,6 +555,13 @@ export const verifyWebhook = async (req, res) => {
  */
 export const receiveWebhook = async (req, res) => {
     try {
+        // WhatsApp Cloud API is handled exclusively by /api/webhooks/whatsapp-live-bot
+        // (or its temporary /api/social/webhook/v2 compatibility alias). Keeping it
+        // out of this Facebook/Instagram handler prevents duplicate CRM side effects.
+        if (req.body?.object === 'whatsapp_business_account') {
+            return res.status(410).json({ error: 'WhatsApp webhook moved to /api/webhooks/whatsapp-live-bot' });
+        }
+
         // Respond immediately with 200 to acknowledge receipt (required by Meta)
         res.status(200).json({ received: true });
 
