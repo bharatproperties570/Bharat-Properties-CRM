@@ -953,34 +953,74 @@ export const matchDeals = async (req, res) => {
 const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
     if (!deal.inventoryId) return;
 
-    let targetStatus = 'Active';
-    if (deal.stage === 'Closed') {
-        targetStatus = 'Sold Out';
-    } else if (deal.stage === 'Booked') {
-        targetStatus = 'Blocked';
+    const Inventory = mongoose.model('Inventory');
+    const Lookup = mongoose.model('Lookup');
+    const Deal = mongoose.model('Deal');
+
+    const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+    const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    
+    const availableId = availableLookup ? availableLookup._id : 'Available';
+    const activeId = activeLookup ? activeLookup._id : 'Active';
+
+    if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
+        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        return;
     }
 
-    const Inventory = mongoose.model('Inventory');
-    
-    if (forceTransition && targetStatus === 'Blocked') {
-        const Lookup = mongoose.model('Lookup');
-        const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
-        const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
-
+    if (deal.stage === 'Booked') {
         const filter = {
             _id: deal.inventoryId,
             $or: [
-                { status: availableLookup?._id || 'Available' },
-                { status: activeLookup?._id || 'Active' }
+                { status: availableId },
+                { status: activeId },
+                { status: null },
+                { status: { $exists: false } }
             ]
         };
-
-        const result = await Inventory.findOneAndUpdate(filter, { status: targetStatus }, opts);
+        const result = await Inventory.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
         if (!result) {
-            throw new Error(`Inventory transition to ${targetStatus} failed. Property may already be claimed by another Deal or Booking.`);
+            const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
+            err.code = 'INVENTORY_UNAVAILABLE';
+            throw err;
         }
+        return;
+    }
+
+    if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
+        const activeDeals = await Deal.countDocuments({
+            inventoryId: deal.inventoryId,
+            stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+        }).session(opts.session || null);
+        
+        if (activeDeals === 0) {
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+        }
+        return;
+    }
+
+    // For Open / Quote / Negotiation
+    const validStates = [ { status: availableId }, { status: null }, { status: { $exists: false } } ];
+    
+    if (!forceTransition) {
+        // If it's an update, it's allowed to already be Active (since this Deal owns it)
+        validStates.push({ status: activeId });
     } else {
-        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus }, opts);
+        // Even for creation, it might be Active from another deal. Let's strictly prevent concurrent claim!
+        // The first Deal creation will transition Available -> Active.
+        // The second Deal creation will find it Active and fail the filter if forceTransition = true.
+    }
+    
+    const filter = {
+        _id: deal.inventoryId,
+        $or: validStates
+    };
+    const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
+    if (!result) {
+        const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
+        err.code = 'INVENTORY_UNAVAILABLE';
+        err.inventoryId = deal.inventoryId;
+        throw err;
     }
 };
 
