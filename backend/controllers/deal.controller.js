@@ -1015,6 +1015,7 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
         _id: deal.inventoryId,
         $or: validStates
     };
+    
     const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
     if (!result) {
         const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
@@ -2204,7 +2205,7 @@ export const updateDeal = async (req, res) => {
         // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const visibilityFilter = await getVisibilityFilter(req.user);
         const existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
-            .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
+            .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName inventoryId')
             .lean();
 
         if (existing) {
@@ -2396,7 +2397,11 @@ export const updateDeal = async (req, res) => {
                     await syncDocumentsToContact(sanitizedData.documents, metadata, { session });
                 }
 
-                const isTransition = existing && (existing.stage !== txnDeal.stage || String(existing.inventoryId) !== String(txnDeal.inventoryId));
+                // Only force a strict new claim if the inventory ID actually changed.
+                // A stage change alone (Open -> Quote) shouldn't demand 'Available' if we already own it!
+                const isNewInventoryClaim = existing && String(existing.inventoryId) !== String(txnDeal.inventoryId);
+                const isTransition = isNewInventoryClaim;
+                
                 await syncInventoryStatus(txnDeal, { session }, isTransition);
 
                 if (sanitizedData.stage === 'Closed Lost' && txnDeal.inventoryId) {
@@ -2614,7 +2619,7 @@ export const closeDeal = async (req, res) => {
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
 
         // BUG D2 FIX: Write stageHistory entry when deal is closed
-        const existing = await Deal.findById(id).select('stage stageHistory stageChangedAt createdAt').lean();
+        const existing = await Deal.findById(id).select('stage stageHistory stageChangedAt createdAt inventoryId').lean();
         if (existing && existing.stage !== 'Closed') {
             const now = new Date();
             const historyUpdate = {};
