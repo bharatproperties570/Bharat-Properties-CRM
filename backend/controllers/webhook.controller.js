@@ -241,16 +241,107 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment 
     return { duplicate: false, conversation: updated };
 };
 
-const applyFlowFeedback = async (mobile, flowResponse, flowSummary) => {
+export const applyFlowFeedback = async (mobile, flowResponse, flowSummary) => {
     if (!flowResponse) return;
-    const contact = await Contact.findOne({ 'phones.number': mobile }).lean();
-    if (!contact) return;
-    const inventory = await Inventory.findOne({ owners: contact._id }).sort({ updatedAt: -1 });
-    if (!inventory) return;
-    inventory.history = inventory.history || [];
-    inventory.history.push({ date: new Date(), actor: 'System (Meta Flow)', type: 'Feedback', note: flowSummary, details: flowResponse });
-    inventory.lastContactedAt = new Date();
-    await inventory.save();
+    try {
+        const inventory = await Inventory.findOne({
+            $or: [
+                { 'owners.phones.number': mobile },
+                { 'ownerPhone': mobile },
+                { 'associates.contact.phones.number': mobile },
+                { 'associatedPhone': mobile }
+            ]
+        }).sort({ lastContactedAt: -1 }).populate('owners');
+
+        if (!inventory) {
+            console.warn(`[WhatsApp Flow] No matching Inventory found for mobile ${mobile}`);
+            return;
+        }
+
+        let result = 'Not Interested';
+        let reason = 'Unknown';
+        let status = 'Active';
+        let intent = null;
+        let scheduleFollowUp = false;
+
+        if (flowResponse.interested) {
+            result = 'Interested';
+            scheduleFollowUp = true;
+            if (flowResponse.interested === 'ready_to_sell') { reason = 'Ready to Sell Now'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'wants_to_buy') { reason = 'Wants to Buy (Invest)'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'sell_and_buy') { reason = 'Sell & Buy (Re-invest)'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'wants_to_rent') { reason = 'Wants to Rent'; intent = 'For Rent'; }
+        } else if (flowResponse.not_interested) {
+            result = 'Not Interested';
+            if (flowResponse.not_interested === 'sold_out') { reason = 'Sold Out'; status = 'Sold Out'; }
+            else if (flowResponse.not_interested === 'rented_out') { reason = 'Rented Out'; status = 'Rented Out'; }
+            else if (flowResponse.not_interested === 'unreasonable_demand') { reason = 'Unreasonable demand'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'plan_dropped') { reason = 'Plan Dropped/Personal'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'family_dispute') { reason = 'Family Dispute'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'self_use') { reason = 'Self Use'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'sell_future') { reason = 'Sell in Future'; status = 'Inactive'; scheduleFollowUp = true; }
+            else if (flowResponse.not_interested === 'inquiring_rates') { reason = 'Inquiring Rates Only'; status = 'Inactive'; }
+        }
+
+        const customMessage = flowResponse.message || '';
+        const interactionNote = `${result} (${reason}) - Flow Auto-Reply: ${customMessage}`;
+
+        const updatePayload = {
+            $push: {
+                interactions: {
+                    note: interactionNote,
+                    actor: mobile,
+                    details: { result, reason, feedback: customMessage, source: 'WhatsApp Flow' }
+                }
+            },
+            $set: {
+                lastContactedAt: new Date().toISOString(),
+                lastContactDate: new Date().toLocaleDateString('en-GB'),
+                lastContactUser: 'Auto (Flow)',
+                remarks: `${result} (${reason}): ${customMessage}`,
+                status: status
+            }
+        };
+
+        if (intent && !inventory.intent?.includes(intent)) updatePayload.$addToSet = { intent };
+
+        let nextActionDateObj = null;
+        if (flowResponse.call_date && flowResponse.call_date !== 'undefined' && flowResponse.call_date !== 'null') {
+            const parsedDate = new Date(parseInt(flowResponse.call_date));
+            if (!isNaN(parsedDate.getTime())) {
+                const dateStr = parsedDate.toISOString().split('T')[0];
+                let timeStr = '10:00';
+                if (flowResponse.call_time === 'afternoon') timeStr = '14:00';
+                else if (flowResponse.call_time === 'evening') timeStr = '17:00';
+                nextActionDateObj = new Date(`${dateStr}T${timeStr}:00`);
+                updatePayload.$set.followUpDate = nextActionDateObj.toISOString();
+                scheduleFollowUp = true;
+            }
+        }
+
+        await Inventory.findByIdAndUpdate(inventory._id, updatePayload);
+
+        if (scheduleFollowUp && nextActionDateObj) {
+            await Activity.create({
+                type: 'Follow Up',
+                subject: `Flow Follow-up: Call for Unit ${inventory.unitNo}`,
+                status: 'Pending',
+                priority: 'High',
+                scheduledDate: nextActionDateObj,
+                dueDate: nextActionDateObj,
+                relatedTo: [{ id: inventory._id, name: inventory.unitNo, model: 'Inventory' }],
+                participants: [{ name: 'Owner (Flow)', mobile }],
+                description: `Owner requested follow-up via WhatsApp Flow.\nReason: ${reason}\nMessage: ${customMessage}`
+            });
+        }
+
+        if (inventory.assignedTo) {
+            const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
+            await NotificationEngine.notifyWhatsApp(inventory.assignedTo, mobile, `📱 Flow Feedback Received! Owner of Unit ${inventory.unitNo} submitted feedback via WhatsApp: ${result} (${reason}).`, `/inventory/${inventory._id}`, inventory._id);
+        }
+    } catch (e) {
+        console.error(`[WhatsApp Flow] Error processing Flow submission for ${mobile}:`, e.message);
+    }
 };
 
 const reviveTerminalLeadOnInboundWhatsApp = async (lead, text) => {
@@ -361,18 +452,23 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
     const appSecret = process.env.FB_APP_SECRET;
     if (!isValidMetaSignature(req.rawBody, req.headers['x-hub-signature-256'], appSecret)) return res.sendStatus(401);
     if (req.body?.object !== 'whatsapp_business_account') return res.sendStatus(404);
-    try {
-        for (const value of extractWhatsAppChanges(req.body)) {
-            for (const status of value.statuses || []) {
-                await Conversation.updateOne({ 'messages.metadata.waId': status.id }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
+
+    // 1. Acknowledge Meta immediately to prevent timeouts and duplicate retries
+    res.sendStatus(200);
+
+    // 2. Process asynchronously
+    setImmediate(async () => {
+        try {
+            for (const value of extractWhatsAppChanges(req.body)) {
+                for (const status of value.statuses || []) {
+                    await Conversation.updateOne({ 'messages.metadata.waId': status.id }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
+                }
+                for (const message of value.messages || []) await processInboundMessage(message, value);
             }
-            for (const message of value.messages || []) await processInboundMessage(message, value);
+        } catch (error) {
+            console.error('[WebhookController] Async processing error:', error.message);
         }
-        return res.sendStatus(200);
-    } catch (error) {
-        console.error('[WebhookController] whatsAppLiveBotWebhook error:', error.message);
-        return res.sendStatus(500);
-    }
+    });
 };
 
 // ── POST /api/webhooks/website-chat ─────────────────────────────────────────

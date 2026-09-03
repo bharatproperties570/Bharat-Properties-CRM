@@ -84,3 +84,55 @@ test('8, 9, 10: reserveInboundMessage handles missing message.id, existing dupes
     assert.equal(resOk.duplicate, false);
     assert.equal(resOk.conversation._id, 'conv2');
 });
+
+import { applyFlowFeedback } from './controllers/webhook.controller.js';
+import Inventory from './models/Inventory.js';
+import Activity from './models/Activity.js';
+
+test('17: applyFlowFeedback maps Flow intents, status, and creates activities safely', async () => {
+    let inventoryUpdateCalled = false;
+    let activityCreateCalled = false;
+
+    mock.method(Inventory, 'findOne', () => {
+        return {
+            sort: () => ({
+                populate: async () => ({ _id: 'inv1', unitNo: 'A-101', assignedTo: 'user1' })
+            })
+        };
+    });
+
+    mock.method(Inventory, 'findByIdAndUpdate', async (id, payload) => {
+        inventoryUpdateCalled = true;
+        assert.equal(id, 'inv1');
+        assert.equal(payload.$set.status, 'Sold Out');
+        assert.ok(payload.$push.interactions.note.includes('Sold Out'));
+    });
+
+    mock.method(Activity, 'create', async (payload) => {
+        activityCreateCalled = true; // Shouldn't be called for sold_out
+    });
+
+    await applyFlowFeedback('12345', { not_interested: 'sold_out', message: 'Already sold it' }, 'Summary');
+
+    assert.equal(inventoryUpdateCalled, true);
+    assert.equal(activityCreateCalled, false);
+
+    // Test a follow-up scenario
+    inventoryUpdateCalled = false;
+
+    mock.method(Inventory, 'findByIdAndUpdate', async (id, payload) => {
+        inventoryUpdateCalled = true;
+        assert.equal(payload.$set.status, 'Active');
+        assert.ok(payload.$addToSet.intent.includes('For Sale'));
+    });
+
+    mock.method(Activity, 'create', async (payload) => {
+        activityCreateCalled = true;
+        assert.equal(payload.type, 'Follow Up');
+    });
+
+    await applyFlowFeedback('12345', { interested: 'ready_to_sell', call_date: '1700000000000', call_time: 'morning' }, 'Summary');
+
+    assert.equal(inventoryUpdateCalled, true);
+    assert.equal(activityCreateCalled, true);
+});
