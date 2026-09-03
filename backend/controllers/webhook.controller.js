@@ -29,6 +29,9 @@ import Inventory from '../models/Inventory.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import fs from 'fs';
+import DealVerificationService from '../services/DealVerificationService.js';
+import { extractWhatsAppChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
+import { autoTriggerStageChange } from './activity.controller.js';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
 export const captureLeadWebhook = async (req, res) => {
@@ -169,308 +172,305 @@ export const whatsAppReplyWebhook = async (req, res) => {
     }
 };
 
-// ── GET /api/webhooks/whatsapp-live-bot ─────────────────────────────────────
-// Facebook Webhook Verification
-export const whatsAppLiveBotVerify = (req, res) => {
-    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN || "bharat-properties-webhook-2026"; // A hardcoded secure string or from env
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
+const getVerifyToken = async () => {
+    const config = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+    return config?.value?.verifyToken || process.env.FB_WEBHOOK_VERIFY_TOKEN || '';
+};
 
-    if (mode && token) {
-        if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-            console.log('[WhatsApp Live Bot] Webhook Verified.');
-            res.status(200).send(challenge);
-        } else {
-            res.sendStatus(403);
+export const normalizeInboundMessage = async (message) => {
+    const type = message?.type;
+    const normalizedText = normalizeTextMessage(message);
+    let text = normalizedText.text;
+    let attachment = null;
+    const flowResponse = normalizedText.flowResponse;
+
+    if (['image', 'document', 'video', 'audio', 'sticker'].includes(type)) {
+        const media = message[type] || {};
+        try {
+            const downloaded = await WhatsAppService.downloadMedia(media.id);
+            attachment = { type, url: downloaded.url, mimeType: downloaded.mimeType, filename: media.filename || downloaded.fileName, caption: media.caption || '' };
+            text = media.caption || `[Sent ${type}]`;
+        } catch (error) {
+            console.error('[WhatsApp Live Bot] Media download failed:', error.message);
+            text = `[Sent ${type} - Download Failed]`;
         }
-    } else {
-        res.sendStatus(400);
+    } else if (type === 'location') {
+        const location = message.location || {};
+        attachment = { type: 'location', location: { latitude: location.latitude, longitude: location.longitude, name: location.name, address: location.address } };
+        text = `📍 Location: ${location.name || location.address || 'Shared Location'}`;
+    } else if (type === 'contacts') {
+        attachment = { type: 'contacts', contacts: message.contacts || [] };
+        text = `👤 Shared ${message.contacts?.length || 1} Contact(s)`;
+    }
+    return { text, attachment, flowResponse };
+};
+
+export const reserveInboundMessage = async ({ mobile, message, text, attachment }) => {
+    if (!message.id) return { duplicate: false, conversation: null };
+
+    // Quick check across all conversations for idempotency
+    const existing = await Conversation.exists({ $or: [{ 'messages.metadata.waId': message.id }, { 'messages.waId': message.id }] });
+    if (existing) return { duplicate: true, conversation: null };
+
+    // Step 1: Find or create the active conversation for this user safely
+    // We avoid checking waId here to prevent `upsert: true` from creating a duplicate
+    // active conversation if a concurrent thread just pushed this waId.
+    const conversation = await Conversation.findOneAndUpdate(
+        { phoneNumber: mobile, status: 'active' },
+        { $setOnInsert: { phoneNumber: mobile, channel: 'whatsapp', status: 'active' } },
+        { new: true, upsert: true }
+    );
+
+    // Step 2: Push the new message into the conversation, provided it doesn't already have this waId
+    const now = new Date();
+    const updated = await Conversation.findOneAndUpdate(
+        { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id }, 'messages.waId': { $ne: message.id } },
+        {
+            $push: { messages: { role: 'user', content: text, timestamp: now, metadata: { waId: message.id, attachment: attachment || null } } },
+            $inc: { 'metadata.unreadCount': 1 },
+            $set: { 'metadata.lastMessageAt': now }
+        },
+        { new: true }
+    );
+
+    if (!updated) {
+        // The document wasn't updated because it already contains the waId (concurrent race won by another thread)
+        return { duplicate: true, conversation: null };
+    }
+
+    return { duplicate: false, conversation: updated };
+};
+
+export const applyFlowFeedback = async (mobile, flowResponse, flowSummary) => {
+    if (!flowResponse) return;
+    try {
+        const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
+        const inventory = await Inventory.findOne({
+            $or: [
+                { 'owners.phones.number': { $in: phones } },
+                { 'ownerPhone': { $in: phones } },
+                { 'associates.contact.phones.number': { $in: phones } },
+                { 'associatedPhone': { $in: phones } }
+            ]
+        }).sort({ lastContactedAt: -1 }).populate('owners');
+
+        if (!inventory) {
+            console.warn(`[WhatsApp Flow] No matching Inventory found for mobile ${mobile}`);
+            return;
+        }
+
+        let result = 'Not Interested';
+        let reason = 'Unknown';
+        let status = 'Active';
+        let intent = null;
+        let scheduleFollowUp = false;
+
+        if (flowResponse.interested) {
+            result = 'Interested';
+            scheduleFollowUp = true;
+            if (flowResponse.interested === 'ready_to_sell') { reason = 'Ready to Sell Now'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'wants_to_buy') { reason = 'Wants to Buy (Invest)'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'sell_and_buy') { reason = 'Sell & Buy (Re-invest)'; intent = 'For Sale'; }
+            else if (flowResponse.interested === 'wants_to_rent') { reason = 'Wants to Rent'; intent = 'For Rent'; }
+        } else if (flowResponse.not_interested) {
+            result = 'Not Interested';
+            if (flowResponse.not_interested === 'sold_out') { reason = 'Sold Out'; status = 'Sold Out'; }
+            else if (flowResponse.not_interested === 'rented_out') { reason = 'Rented Out'; status = 'Rented Out'; }
+            else if (flowResponse.not_interested === 'unreasonable_demand') { reason = 'Unreasonable demand'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'plan_dropped') { reason = 'Plan Dropped/Personal'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'family_dispute') { reason = 'Family Dispute'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'self_use') { reason = 'Self Use'; status = 'Inactive'; }
+            else if (flowResponse.not_interested === 'sell_future') { reason = 'Sell in Future'; status = 'Inactive'; scheduleFollowUp = true; }
+            else if (flowResponse.not_interested === 'inquiring_rates') { reason = 'Inquiring Rates Only'; status = 'Inactive'; }
+        }
+
+        const customMessage = flowResponse.message || '';
+        const interactionNote = `${result} (${reason}) - Flow Auto-Reply: ${customMessage}`;
+
+        const updatePayload = {
+            $push: {
+                interactions: {
+                    note: interactionNote,
+                    actor: mobile,
+                    details: { result, reason, feedback: customMessage, source: 'WhatsApp Flow' }
+                }
+            },
+            $set: {
+                lastContactedAt: new Date().toISOString(),
+                lastContactDate: new Date().toLocaleDateString('en-GB'),
+                lastContactUser: 'Auto (Flow)',
+                remarks: `${result} (${reason}): ${customMessage}`,
+                status: status
+            }
+        };
+
+        if (intent && !inventory.intent?.includes(intent)) updatePayload.$addToSet = { intent };
+
+        let nextActionDateObj = null;
+        if (flowResponse.call_date && flowResponse.call_date !== 'undefined' && flowResponse.call_date !== 'null') {
+            const parsedDate = new Date(parseInt(flowResponse.call_date));
+            if (!isNaN(parsedDate.getTime())) {
+                const dateStr = parsedDate.toISOString().split('T')[0];
+                let timeStr = '10:00';
+                if (flowResponse.call_time === 'afternoon') timeStr = '14:00';
+                else if (flowResponse.call_time === 'evening') timeStr = '17:00';
+                nextActionDateObj = new Date(`${dateStr}T${timeStr}:00`);
+                updatePayload.$set.followUpDate = nextActionDateObj.toISOString();
+                scheduleFollowUp = true;
+            }
+        }
+
+        await Inventory.findByIdAndUpdate(inventory._id, updatePayload);
+
+        if (scheduleFollowUp && nextActionDateObj) {
+            await Activity.create({
+                type: 'Follow Up',
+                subject: `Flow Follow-up: Call for Unit ${inventory.unitNo}`,
+                status: 'Pending',
+                priority: 'High',
+                scheduledDate: nextActionDateObj,
+                dueDate: nextActionDateObj,
+                relatedTo: [{ id: inventory._id, name: inventory.unitNo, model: 'Inventory' }],
+                participants: [{ name: 'Owner (Flow)', mobile }],
+                description: `Owner requested follow-up via WhatsApp Flow.\nReason: ${reason}\nMessage: ${customMessage}`
+            });
+        }
+
+        if (inventory.assignedTo) {
+            const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
+            await NotificationEngine.notifyWhatsApp(inventory.assignedTo, mobile, `📱 Flow Feedback Received! Owner of Unit ${inventory.unitNo} submitted feedback via WhatsApp: ${result} (${reason}).`, `/inventory/${inventory._id}`, inventory._id);
+        }
+    } catch (e) {
+        console.error(`[WhatsApp Flow] Error processing Flow submission for ${mobile}:`, e.message);
+    }
+};
+
+const reviveTerminalLeadOnInboundWhatsApp = async (lead, text) => {
+    if (!lead?.stage) return;
+    const stageName = lead.stage.lookup_value || '';
+    const terminalStages = ['closed', 'closed lost', 'closed won', 'dormant', 'stalled'];
+    if (!terminalStages.some(stage => stageName.toLowerCase().includes(stage))) return;
+    const activity = await Activity.create({
+        entityType: 'Lead', entityId: lead._id, type: 'WhatsApp',
+        subject: 'Inbound WhatsApp Revival', description: `Inbound WhatsApp message received: "${text}"`,
+        status: 'Completed', dueDate: new Date(), createdBy: lead.owner || null
+    });
+    await autoTriggerStageChange(activity._id, lead.owner);
+    if (lead.owner) {
+        await createNotification(lead.owner, 'leads', '🔥 Lead Auto-Revived!', `Lead ${lead.firstName || ''} was revived from ${stageName} due to an inbound WhatsApp message.`, `/leads/${lead._id}`);
+    }
+};
+
+// ── GET /api/webhooks/whatsapp-live-bot ─────────────────────────────────────
+export const whatsAppLiveBotVerify = async (req, res) => {
+    try {
+        const token = await getVerifyToken();
+        if (isValidVerifyToken(req.query['hub.mode'], req.query['hub.verify_token'], token)) return res.status(200).send(req.query['hub.challenge']);
+        return res.sendStatus(403);
+    } catch (error) {
+        console.error('[WhatsApp Live Bot] Verification error:', error.message);
+        return res.sendStatus(500);
+    }
+};
+
+const processInboundMessage = async (message, value) => {
+    const fromNumber = message?.from;
+    const mobile = normalizePhone(fromNumber);
+    if (!mobile) return;
+    const { text, attachment, flowResponse } = await normalizeInboundMessage(message);
+    if (!text && !attachment) return;
+
+    const reservation = await reserveInboundMessage({ mobile, message, text, attachment });
+    if (reservation.duplicate) return;
+
+    const conversation = reservation.conversation;
+    if (!conversation) {
+        console.warn(`[WhatsApp Webhook] Null conversation returned for message ${message?.id}. Skipping to avoid crash.`);
+        return;
+    }
+
+    try {
+        if (flowResponse) await applyFlowFeedback(mobile, flowResponse, text);
+
+        // Deal verification remains a distinct domain flow and must not fall through to generic AI.
+        if (await DealVerificationService.processVerificationReply(mobile, text, { message, value })) return;
+
+        const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
+        let lead = await Lead.findOne({ mobile: { $in: phones } });
+        let contact = await Contact.findOne({ 'phones.number': { $in: phones } });
+        const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
+        const intakeResult = await intakeEngine.processIntake({ mobile: fromNumber, message: text, source: 'whatsapp_live_bot', metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name } });
+        if (!lead && intakeResult.type === 'LEAD') lead = intakeResult.data;
+        if (!contact && intakeResult.type === 'CONTACT') contact = intakeResult.data;
+        if (lead) await reviveTerminalLeadOnInboundWhatsApp(await Lead.findById(lead._id).populate('stage'), text);
+
+        const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
+        const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
+
+        conversation.lead = lead?._id || conversation.lead;
+        conversation.contact = contact?._id || conversation.contact;
+        conversation.metadata = { ...(conversation.metadata || {}), entityType, entityId };
+        await conversation.save();
+
+        try {
+            const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
+            await WorkflowEngine.fireEvent('communication', 'message_received', conversation, lead?.companyId || contact?.companyId || null);
+        } catch (error) { console.error('[WorkflowEngine] message_received trigger failed:', error.message); }
+
+        const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
+        const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
+        await NotificationEngine.notifyWhatsApp(targetUserId, fromNumber, text, entityType === 'Lead' ? `/leads/${entityId}` : (entityType === 'Contact' ? `/contacts/${entityId}` : ''), entityId);
+
+        await Activity.create({
+            type: 'WhatsApp', subject: 'Incoming WhatsApp Message', description: text, status: 'Completed', performedBy: targetUserId || 'System', assignedTo: targetUserId, dueDate: new Date(),
+            entityType, entityId, participants: [{ name: lead?.fullName || lead?.name || contact?.name || 'Unknown', mobile }],
+            details: { direction: 'inbound', phoneNumber: mobile, platform: 'whatsapp', attachment: attachment || null, isMatched: !!(lead || contact), waId: message.id, from: fromNumber, department: lead?.department || contact?.department || null }
+        });
+
+        const aiResult = await generateBotResponse(text, {
+            chatHistory: conversation.messages.map(item => `${item.role}: ${item.content}`).join('\n'), userName: value?.contacts?.[0]?.profile?.name || 'Client',
+            entity: lead || contact ? { name: lead?.name || contact?.name, type: entityType, id: entityId, stage: lead?.stage || contact?.stage, requirements: lead?.requirements || contact?.requirements, description: lead?.description, customFields: lead?.customFields } : null,
+            entityType, intakeResult
+        }, { useCase: conversation.currentUseCase || 'whatsapp_live' });
+        if (aiResult.success && aiResult.reply) {
+            const result = await WhatsAppService.sendMessage(fromNumber, aiResult.reply);
+            if (result.success) {
+                conversation.messages.push({ role: 'assistant', content: aiResult.reply, metadata: { waId: result.messageId || null, inReplyToWaId: message.id } });
+                await conversation.save();
+                if (lead) { lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2); await lead.save(); }
+            }
+        }
+    } catch (error) {
+        // Release the reservation so Meta can safely retry a failed message.
+        if (message.id && conversation && conversation._id) {
+            await Conversation.updateOne({ _id: conversation._id }, { $pull: { messages: { 'metadata.waId': message.id } }, $inc: { 'metadata.unreadCount': -1 } });
+        }
+        throw error;
     }
 };
 
 // ── POST /api/webhooks/whatsapp-live-bot ────────────────────────────────────
-// Incoming Live AI Message Processing
 export const whatsAppLiveBotWebhook = async (req, res) => {
-    try {
-        const body = req.body;
+    const appSecret = process.env.FB_APP_SECRET;
+    if (!isValidMetaSignature(req.rawBody, req.headers['x-hub-signature-256'], appSecret)) return res.sendStatus(401);
+    if (req.body?.object !== 'whatsapp_business_account') return res.sendStatus(404);
 
-        if (body.object) {
-            const entryValue = body.entry?.[0]?.changes?.[0]?.value;
-            if (!entryValue) return res.sendStatus(200);
+    // 1. Acknowledge Meta immediately to prevent timeouts and duplicate retries
+    res.sendStatus(200);
 
-            // ── HANDLE MESSAGE STATUS UPDATES (Sent, Delivered, Read, Failed) ──
-            if (entryValue.statuses && entryValue.statuses[0]) {
-                const statusUpdate = entryValue.statuses[0];
-                const wamid = statusUpdate.id;
-                const status = statusUpdate.status;
-
-                await Conversation.updateOne(
-                    { "messages.waId": wamid },
-                    { $set: { "messages.$.status": status } }
-                );
-                return res.sendStatus(200);
+    // 2. Process asynchronously
+    setImmediate(async () => {
+        try {
+            for (const value of extractWhatsAppChanges(req.body)) {
+                for (const status of value.statuses || []) {
+                    await Conversation.updateOne({ $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
+                }
+                for (const message of value.messages || []) await processInboundMessage(message, value);
             }
-
-            // ── HANDLE INCOMING MESSAGES ──
-            if (entryValue.messages && entryValue.messages[0]) {
-                const messageObj = entryValue.messages[0];
-
-                // 🧠 IDEMPOTENCY / DEDUPLICATION GUARD
-                if (messageObj.id) {
-                    const alreadyProcessed = await Conversation.findOne({
-                        "messages.waId": messageObj.id
-                    }).lean();
-                    if (alreadyProcessed) {
-                        console.log(`[WhatsApp Webhook] Message ID ${messageObj.id} already processed. Skipping to avoid duplicate triggers.`);
-                        return res.sendStatus(200);
-                    }
-                }
-
-                const fromNumber = messageObj.from;
-                const msgType = messageObj.type;
-                
-                let messageText = messageObj.text?.body || '';
-                let attachment = null;
-
-                if (msgType === 'button') {
-                    messageText = messageObj.button?.text || messageObj.button?.payload || '';
-                } else if (msgType === 'interactive') {
-                    const interactive = messageObj.interactive;
-                    if (interactive.type === 'button_reply') {
-                        messageText = interactive.button_reply?.title || '';
-                    } else if (interactive.type === 'list_reply') {
-                        messageText = interactive.list_reply?.title || interactive.list_reply?.description || '';
-                    } else if (interactive.type === 'nfm_reply') {
-                        // META FLOW JSON SUBMISSION (Static Form)
-                        const responseJsonStr = interactive.nfm_reply?.response_json || '{}';
-                        try {
-                            const parsedResponse = JSON.parse(responseJsonStr);
-                            let flowSummary = '📝 WhatsApp Flow Feedback:\\n';
-                            if (parsedResponse.interested) flowSummary += `• Interested: ${parsedResponse.interested}\\n`;
-                            if (parsedResponse.not_interested) flowSummary += `• Not Interested: ${parsedResponse.not_interested}\\n`;
-                            if (parsedResponse.call_date) flowSummary += `• Call Date: ${parsedResponse.call_date}\\n`;
-                            if (parsedResponse.call_time) flowSummary += `• Call Time: ${parsedResponse.call_time}\\n`;
-                            if (parsedResponse.message) flowSummary += `• Notes: ${parsedResponse.message}\\n`;
-                            
-                            messageText = flowSummary;
-
-                            // Update Inventory History Directly
-                            const normalizedMobile = normalizePhone(fromNumber);
-                            const customerContact = await Contact.findOne({ 'phones.number': normalizedMobile }).lean();
-                            
-                            if (customerContact) {
-                                // Find their most recently updated inventory
-                                const latestInventory = await Inventory.findOne({
-                                    owners: customerContact._id
-                                }).sort({ updatedAt: -1 });
-
-                                if (latestInventory) {
-                                    latestInventory.history = latestInventory.history || [];
-                                    latestInventory.history.push({
-                                        date: new Date(),
-                                        actor: 'System (Meta Flow)',
-                                        type: 'Feedback',
-                                        note: flowSummary,
-                                        details: parsedResponse
-                                    });
-                                    latestInventory.lastContactedAt = new Date();
-                                    await latestInventory.save();
-                                    console.log(`[WhatsApp Webhook] Applied Flow Feedback to Inventory ${latestInventory._id}`);
-                                }
-                            }
-                        } catch (err) {
-                            console.error('[WhatsApp Webhook] Error parsing nfm_reply JSON:', err);
-                            messageText = '[Meta Flow Form Submitted]';
-                        }
-                    }
-                }
-
-                const waService = (await import('../services/WhatsAppService.js')).default;
-                
-                if (['image', 'document', 'video', 'audio', 'sticker'].includes(msgType)) {
-                    const mediaData = messageObj[msgType];
-                    try {
-                        const downloaded = await waService.downloadMedia(mediaData.id);
-                        attachment = {
-                            type: msgType,
-                            url: downloaded.url,
-                            mimeType: downloaded.mimeType,
-                            filename: mediaData.filename || downloaded.fileName,
-                            caption: mediaData.caption || ''
-                        };
-                        messageText = mediaData.caption || `[Sent ${msgType}]`;
-                    } catch (err) {
-                        console.error(`[WhatsApp Webhook] Media download failed:`, err.message);
-                        messageText = `[Sent ${msgType} - Download Failed]`;
-                    }
-                } else if (msgType === 'location') {
-                    const loc = messageObj.location;
-                    attachment = {
-                        type: 'location',
-                        location: {
-                            latitude: loc.latitude,
-                            longitude: loc.longitude,
-                            name: loc.name,
-                            address: loc.address
-                        }
-                    };
-                    messageText = `📍 Location: ${loc.name || loc.address || 'Shared Location'}`;
-                } else if (msgType === 'contacts') {
-                    attachment = {
-                        type: 'contacts',
-                        contacts: messageObj.contacts
-                    };
-                    messageText = `👤 Shared ${messageObj.contacts?.length || 1} Contact(s)`;
-                }
-
-                if (!messageText && !attachment) return res.sendStatus(200);
-
-                const normalizedMobile = normalizePhone(fromNumber);
-                let lead = await Lead.findOne({ mobile: normalizedMobile });
-                let contact = await Contact.findOne({ 'phones.number': normalizedMobile });
-
-                const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
-                const intakeResult = await intakeEngine.processIntake({
-                    mobile: fromNumber,
-                    message: messageText,
-                    source: 'whatsapp_live_bot',
-                    fromNumber: fromNumber,
-                    metadata: {
-                        wa_id: messageObj.from,
-                        profile_name: body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name
-                    }
-                });
-
-                const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
-                const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
-
-                let conversation = await Conversation.findOne({ 
-                    phoneNumber: normalizedMobile,
-                    status: 'active' 
-                });
-
-                if (!conversation) {
-                    conversation = new Conversation({
-                        phoneNumber: normalizedMobile,
-                        lead: lead ? lead._id : null,
-                        contact: contact ? contact._id : null,
-                        channel: 'whatsapp',
-                        status: 'active',
-                        messages: [],
-                        metadata: {
-                            entityType,
-                            entityId
-                        }
-                    });
-                }
-
-                conversation.messages.push({
-                    role: 'user',
-                    content: messageText,
-                    timestamp: new Date(),
-                    waId: messageObj.id,
-                    metadata: { attachment }
-                });
-                
-                // Increment unreadCount for Real-Time Polling Notifications
-                conversation.metadata = conversation.metadata || {};
-                conversation.metadata.unreadCount = (conversation.metadata.unreadCount || 0) + 1;
-                conversation.metadata.lastMessageAt = new Date();
-                
-                await conversation.save();
-
-                // Trigger Workflow Engine
-                try {
-                    const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-                    const companyId = lead?.companyId || contact?.companyId || null;
-                    await WorkflowEngine.fireEvent('communication', 'message_received', conversation, companyId);
-                } catch (weErr) {
-                    console.error('[WorkflowEngine] message_received trigger failed:', weErr.message);
-                }
-                const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
-                const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
-                
-                await NotificationEngine.notifyWhatsApp(
-                    targetUserId,
-                    fromNumber,
-                    messageText,
-                    entityType === 'Lead' ? `/leads/${entityId}` : (entityType === 'Contact' ? `/contacts/${entityId}` : ''),
-                    entityId
-                );
-
-                const activityDept = lead?.department || contact?.department || null;
-                await Activity.create({
-                    type: 'WhatsApp',
-                    subject: `Incoming WhatsApp Message`,
-                    description: messageText,
-                    status: 'Completed',
-                    performedBy: targetUserId || 'System',
-                    assignedTo: targetUserId,
-                    dueDate: new Date(),
-                    entityType,
-                    entityId,
-                    participants: [{ name: lead?.fullName || lead?.name || contact?.name || 'Unknown', mobile: normalizedMobile }],
-                    details: {
-                        direction: 'inbound',
-                        phoneNumber: normalizedMobile,
-                        platform: 'whatsapp',
-                        attachment: attachment || null,
-                        isMatched: !!(lead || contact)
-                    },
-                    metadata: {
-                        wa_id: messageObj.id,
-                        from: fromNumber,
-                        department: activityDept
-                    }
-                }).catch(err => console.error('[WhatsApp Live Bot] Failed to create Activity:', err.message));
-
-                const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-                
-                const aiContext = {
-                    chatHistory: chatHistoryContext,
-                    userName: body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name || 'Client',
-                    entity: lead || contact ? {
-                        name: lead?.name || contact?.name,
-                        type: entityType,
-                        id: entityId,
-                        stage: lead?.stage || contact?.stage,
-                        requirements: lead?.requirements || contact?.requirements,
-                        description: lead?.description,
-                        customFields: lead?.customFields
-                    } : null,
-                    entityType: entityType,
-                    intakeResult: intakeResult
-                };
-
-                const aiResult = await generateBotResponse(messageText, aiContext, { 
-                    useCase: conversation.currentUseCase || 'whatsapp_live' 
-                });
-
-                if (aiResult.success && aiResult.reply) {
-                    const sendResult = await WhatsAppService.sendMessage(fromNumber, aiResult.reply);
-
-                    if (sendResult.success) {
-                        conversation.messages.push({ role: 'assistant', content: aiResult.reply });
-                        await conversation.save();
-
-                        if (lead) {
-                            lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2);
-                            await lead.save();
-                        }
-                    } else {
-                        console.error(`[WhatsApp Live Bot] Failed to send reply to ${fromNumber}:`, sendResult.error);
-                    }
-                }
-            }
-            res.sendStatus(200); 
-        } else {
-            res.sendStatus(404);
+        } catch (error) {
+            console.error('[WebhookController] Async processing error:', error.message);
         }
-    } catch (error) {
-        console.error(`[WebhookController] whatsAppLiveBotWebhook error:`, error.message);
-        res.sendStatus(500);
-    }
+    });
 };
 
 // ── POST /api/webhooks/website-chat ─────────────────────────────────────────
@@ -517,12 +517,12 @@ export const websiteLiveBotWebhook = async (req, res) => {
         }
 
         // Find or create Conversation
-        let conversation = await Conversation.findOne({ 
+        let conversation = await Conversation.findOne({
             $or: [
                 { 'metadata.sessionId': sessionId },
                 ...(mobile ? [{ phoneNumber: normalizePhone(mobile), channel: 'website_chat' }] : [])
             ],
-            status: 'active' 
+            status: 'active'
         });
 
         if (!conversation) {
@@ -572,7 +572,7 @@ export const websiteLiveBotWebhook = async (req, res) => {
 
         // Context Setup for AI
         const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-        
+
         const aiContext = {
             chatHistory: chatHistoryContext,
             conversationId: conversation._id,
@@ -754,7 +754,7 @@ export const facebookLeadWebhook = async (req, res) => {
             const name = body.name || body.full_name || 'Facebook Test Lead';
             const mobile = body.mobile || body.phone_number;
             const email = body.email || '';
-            
+
             if (mobile) {
                 const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
                 const result = await intakeEngine.processIntake({
@@ -776,7 +776,7 @@ export const facebookLeadWebhook = async (req, res) => {
 
             if (leadgenId) {
                 console.log(`[Facebook Lead Webhook] Processing Leadgen ID: ${leadgenId}`);
-                
+
                 let name = 'Facebook Lead';
                 let mobile = null;
                 let email = '';
@@ -788,7 +788,7 @@ export const facebookLeadWebhook = async (req, res) => {
                         const graphUrl = `https://graph.facebook.com/${process.env.FB_GRAPH_VERSION || 'v19.0'}/${leadgenId}?access_token=${pageToken}`;
                         const response = await axios.get(graphUrl);
                         const fieldData = response.data?.field_data || [];
-                        
+
                         fieldData.forEach(field => {
                             if (['full_name', 'name', 'first_name'].includes(field.name)) {
                                 name = field.values?.[0] || name;
