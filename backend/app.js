@@ -122,6 +122,15 @@ app.use(compression({
         return compression.filter(req, res);
     }
 }));
+// Meta signs the exact request bytes. Capture them only for the two WhatsApp
+// callback paths; all other CRM routes retain the normal JSON parser behavior.
+app.use([
+    '/api/webhooks/whatsapp-live-bot',
+    '/api/social/webhook/v2'
+], express.json({
+    limit: '512kb',
+    verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
@@ -235,7 +244,7 @@ app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
-app.use("/api/social/webhook", whatsappWebhookV2); // High-performance WhatsApp Webhook v2.0
+app.use("/api/social/webhook/v2", whatsappWebhookV2); // Temporary compatibility alias; delegates to canonical processor
 app.use("/api/intake-webhooks", intakeWebhookRoutes); // AI Auto-Verification webhooks
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
