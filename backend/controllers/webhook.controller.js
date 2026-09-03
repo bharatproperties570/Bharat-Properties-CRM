@@ -209,7 +209,7 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment 
     if (!message.id) return { duplicate: false, conversation: null };
 
     // Quick check across all conversations for idempotency
-    const existing = await Conversation.exists({ 'messages.metadata.waId': message.id });
+    const existing = await Conversation.exists({ $or: [{ 'messages.metadata.waId': message.id }, { 'messages.waId': message.id }] });
     if (existing) return { duplicate: true, conversation: null };
 
     // Step 1: Find or create the active conversation for this user safely
@@ -224,7 +224,7 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment 
     // Step 2: Push the new message into the conversation, provided it doesn't already have this waId
     const now = new Date();
     const updated = await Conversation.findOneAndUpdate(
-        { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id } },
+        { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id }, 'messages.waId': { $ne: message.id } },
         {
             $push: { messages: { role: 'user', content: text, timestamp: now, metadata: { waId: message.id, attachment: attachment || null } } },
             $inc: { 'metadata.unreadCount': 1 },
@@ -244,12 +244,13 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment 
 export const applyFlowFeedback = async (mobile, flowResponse, flowSummary) => {
     if (!flowResponse) return;
     try {
+        const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
         const inventory = await Inventory.findOne({
             $or: [
-                { 'owners.phones.number': mobile },
-                { 'ownerPhone': mobile },
-                { 'associates.contact.phones.number': mobile },
-                { 'associatedPhone': mobile }
+                { 'owners.phones.number': { $in: phones } },
+                { 'ownerPhone': { $in: phones } },
+                { 'associates.contact.phones.number': { $in: phones } },
+                { 'associatedPhone': { $in: phones } }
             ]
         }).sort({ lastContactedAt: -1 }).populate('owners');
 
@@ -394,8 +395,9 @@ const processInboundMessage = async (message, value) => {
         // Deal verification remains a distinct domain flow and must not fall through to generic AI.
         if (await DealVerificationService.processVerificationReply(mobile, text, { message, value })) return;
 
-        let lead = await Lead.findOne({ mobile });
-        let contact = await Contact.findOne({ 'phones.number': mobile });
+        const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
+        let lead = await Lead.findOne({ mobile: { $in: phones } });
+        let contact = await Contact.findOne({ 'phones.number': { $in: phones } });
         const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
         const intakeResult = await intakeEngine.processIntake({ mobile: fromNumber, message: text, source: 'whatsapp_live_bot', metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name } });
         if (!lead && intakeResult.type === 'LEAD') lead = intakeResult.data;
@@ -461,7 +463,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
         try {
             for (const value of extractWhatsAppChanges(req.body)) {
                 for (const status of value.statuses || []) {
-                    await Conversation.updateOne({ 'messages.metadata.waId': status.id }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
+                    await Conversation.updateOne({ $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
                 }
                 for (const message of value.messages || []) await processInboundMessage(message, value);
             }
