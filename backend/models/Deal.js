@@ -148,7 +148,7 @@ const DealSchema = new mongoose.Schema({
 
     documents: [{
         name: String,
-        type: String, // Agreement, KYC, Receipt, etc.
+        type: { type: String }, // Agreement, KYC, Receipt, etc.
         url: String,
         uploadedAt: { type: Date, default: Date.now }
     }],

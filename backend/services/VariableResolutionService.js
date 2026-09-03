@@ -346,9 +346,9 @@ class VariableResolutionService {
                 }
             case 'sizeType':
             case 'areaMetric':
-                return lead.sizeType || lead.areaMetric || '';
+                return this.extractArrayValue(lead.sizeType) || this.extractArrayValue(lead.areaMetric) || '';
             case 'unitType':
-                return lead.unitType || '';
+                return this.extractArrayValue(lead.unitType);
             case 'road':
             case 'roadWidth':
                 return lead.road || lead.roadWidth || '';
@@ -381,14 +381,9 @@ class VariableResolutionService {
                 if (lead.locCity) parts.push(lead.locCity);
                 
                 // If they used "Select Project" and search fields are mostly empty
-                if (parts.length === 0 || (!lead.locArea && !lead.searchLocation)) {
-                    if (lead.projectName) {
-                        const proj = Array.isArray(lead.projectName) ? lead.projectName.join(', ') : lead.projectName;
-                        parts.push(proj);
-                    }
-                    if (lead.projectCity) {
-                        parts.push(lead.projectCity);
-                    }
+                if (lead.projectName && lead.projectName.length > 0) {
+                    const proj = Array.isArray(lead.projectName) ? lead.projectName.join(', ') : lead.projectName;
+                    parts.unshift(proj); // Add project name to the start
                 }
                 
                 return parts.filter(Boolean).join(', ') || '-';
@@ -408,7 +403,8 @@ class VariableResolutionService {
             case 'unitNo':
                 return lead.unitNo || lead.unitNumber || '';
             case 'sizeType':
-                return lead.sizeType?.lookup_value || lead.areaMetric || lead.sizeType || '';
+            case 'areaMetric':
+                return this.extractArrayValue(lead.sizeType) || this.extractArrayValue(lead.areaMetric) || '';
             case 'budget':
             case 'price':
                 return lead.budget?.lookup_value || lead.price || lead.budget || '';

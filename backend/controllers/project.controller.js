@@ -219,7 +219,7 @@ export const deleteProject = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid Project ID format" });
         }
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const project = await Project.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const project = await Project.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
         if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
         res.json({ success: true, message: "Project deleted successfully" });
     } catch (error) {

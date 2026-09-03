@@ -115,7 +115,7 @@ export const updateUser = async (req, res, next) => {
  */
 export const deleteUser = async (req, res, next) => {
     try {
-        const user = await User.findByIdAndDelete(req.params.id);
+        const user = await User.softDeleteOne({ _id: req.params.id }, { userId: req.user?._id });
 
         if (!user) {
             throw new AppError('User not found', 404);

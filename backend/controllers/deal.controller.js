@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
@@ -950,65 +951,7 @@ export const matchDeals = async (req, res) => {
 };
 
 
-export const transitionInventoryState = async (inventoryId, targetStatus, session) => {
-    if (!inventoryId) return null;
-    const Inventory = mongoose.model('Inventory');
-    const Lookup = mongoose.models.Lookup || mongoose.model('Lookup');
-    
-    const query = { _id: inventoryId };
-    
-    // Resolve string statuses to ObjectIds for correct MongoDB querying
-    const getStatusIds = async (names) => {
-        const lookups = await Lookup.find({ type: 'Status', value: { $in: names } }).select('_id').lean().session(session);
-        return lookups.map(l => l._id);
-    };
 
-    let allowedIds = [];
-    if (targetStatus === 'Blocked' || targetStatus === 'Booked') {
-        allowedIds = await getStatusIds(['Available', 'Active']);
-    } else if (targetStatus === 'Sold Out' || targetStatus === 'Sold') {
-        allowedIds = await getStatusIds(['Available', 'Active', 'Blocked', 'Booked', 'Token Received']);
-    }
-
-    let names = [];
-    if (targetStatus === 'Blocked' || targetStatus === 'Booked') names = ['Available', 'Active'];
-    else if (targetStatus === 'Sold Out' || targetStatus === 'Sold') names = ['Available', 'Active', 'Blocked', 'Booked', 'Token Received'];
-
-    query.$or = [
-        { status: null },
-        { status: { $exists: false } }
-    ];
-    if (names.length > 0) {
-        query.$or.push({ status: { $in: names } }); // For unmigrated string records or dummy test data
-    }
-    if (allowedIds.length > 0) {
-        query.$or.push({ status: { $in: allowedIds } });
-    }
-
-    const updated = await Inventory.findOneAndUpdate(
-        query,
-        { $set: { status: targetStatus, lastStatusUpdate: new Date() } },
-        { new: true, session }
-    );
-
-    if (!updated) {
-        throw new Error(`INVENTORY_UNAVAILABLE: Unit ${inventoryId} cannot transition to ${targetStatus}. It may be reserved or in an invalid state.`);
-    }
-    return updated;
-};
-
-const syncInventoryStatus = async (deal, session) => {
-    if (!deal.inventoryId) return;
-
-    let targetStatus = 'Active';
-    if (deal.stage === 'Closed') {
-        targetStatus = 'Sold Out';
-    } else if (deal.stage === 'Booked') {
-        targetStatus = 'Blocked';
-    }
-
-    await transitionInventoryState(deal.inventoryId, targetStatus, session);
-};
 
 export const sanitizeDeal = async (req, res) => {
     try {
@@ -1966,6 +1909,79 @@ const sanitizeData = (data) => {
     return sanitized;
 };
 
+const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
+    if (!deal.inventoryId) return;
+
+    const Inventory = mongoose.model('Inventory');
+    const Lookup = mongoose.model('Lookup');
+    const Deal = mongoose.model('Deal');
+
+    const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+    const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    
+    const availableId = availableLookup ? availableLookup._id : 'Available';
+    const activeId = activeLookup ? activeLookup._id : 'Active';
+
+    if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
+        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        return;
+    }
+
+    if (deal.stage === 'Booked') {
+        const filter = {
+            _id: deal.inventoryId,
+            $or: [
+                { status: availableId },
+                { status: activeId },
+                { status: null },
+                { status: { $exists: false } }
+            ]
+        };
+        const result = await Inventory.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        if (!result) {
+            const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
+            err.code = 'INVENTORY_UNAVAILABLE';
+            throw err;
+        }
+        return;
+    }
+
+    if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
+        const activeDeals = await Deal.countDocuments({
+            inventoryId: deal.inventoryId,
+            stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+        }).session(opts.session || null);
+        
+        if (activeDeals === 0) {
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+        }
+        return;
+    }
+
+    // For Open / Quote / Negotiation
+    // CRM Business Rule: Active Inventory is eligible for new Deals.
+    // Duplicate Deal protection is handled at the Deal level, not by hijacking Inventory status.
+    const validStates = [ 
+        { status: availableId }, 
+        { status: activeId }, 
+        { status: null }, 
+        { status: { $exists: false } } 
+    ];
+    
+    const filter = {
+        _id: deal.inventoryId,
+        $or: validStates
+    };
+    
+    const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
+    if (!result) {
+        const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
+        err.code = 'INVENTORY_UNAVAILABLE';
+        err.inventoryId = deal.inventoryId;
+        throw err;
+    }
+};
+
 export const addDeal = async (req, res) => {
     console.log('[DEBUG] Incoming Add Deal Payload:', JSON.stringify(req.body, null, 2));
     try {
@@ -1989,34 +2005,6 @@ export const addDeal = async (req, res) => {
             // If intent is provided, check for that specific intent
             if (sanitizedData.intent) {
                 query.intent = sanitizedData.intent;
-            }
-
-            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
-            // Fetch policy from SystemSettings (Default: strict)
-            const SystemSetting = mongoose.model('SystemSetting');
-            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
-            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
-
-            if (isStrict) {
-                const coordQuery = {
-                    $or: [
-                        { inventoryId: sanitizedData.inventoryId },
-                        { 
-                            projectName: sanitizedData.projectName,
-                            block: sanitizedData.block,
-                            unitNo: sanitizedData.unitNo
-                        }
-                    ],
-                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-                };
-
-                const duplicateDeal = await Deal.findOne(coordQuery);
-                if (duplicateDeal) {
-                    return res.status(400).json({
-                        success: false,
-                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
-                    });
-                }
             }
         }
 
@@ -2048,12 +2036,11 @@ export const addDeal = async (req, res) => {
         }
 
 
-        const session = await mongoose.startSession();
         let deal;
         let isIdempotentReturn = false;
 
         try {
-            await session.withTransaction(async () => {
+            await withMongoTransaction(async (session) => {
                 const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
                 let idK = null;
                 const AutomationLog = mongoose.model('AutomationLog');
@@ -2078,7 +2065,56 @@ export const addDeal = async (req, res) => {
                     }
                 }
 
+                
+                // 🚀 PHASE 4.6 CONCURRENCY LOCK (Zero-pollution temporary barrier)
+                if (sanitizedData.inventoryId) {
+                    await mongoose.model('Inventory').updateOne(
+                        { _id: sanitizedData.inventoryId },
+                        { $set: { _tempTxnLock: new Date() } },
+                        { session }
+                    );
+                }
+
+
+
+            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
+            // Fetch policy from SystemSettings (Default: strict)
+            const SystemSetting = mongoose.model('SystemSetting');
+            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
+            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
+
+            if (isStrict) {
+                const coordQuery = {
+                    $or: [
+                        { inventoryId: sanitizedData.inventoryId },
+                        { 
+                            projectName: sanitizedData.projectName,
+                            block: sanitizedData.block,
+                            unitNo: sanitizedData.unitNo
+                        }
+                    ],
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                };
+
+                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                if (duplicateDeal) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
+                    });
+                }
+            }
+
                 const createdDeals = await Deal.create([sanitizedData], { session });
+
+                if (sanitizedData.inventoryId) {
+                    await mongoose.model('Inventory').updateOne(
+                        { _id: sanitizedData.inventoryId },
+                        { $unset: { _tempTxnLock: 1 } },
+                        { session }
+                    );
+                }
+
                 deal = createdDeals[0];
 
                 if (idK) {
@@ -2097,7 +2133,7 @@ export const addDeal = async (req, res) => {
                     $set: { stageChangedAt: new Date() }
                 }, { session });
 
-                await syncInventoryStatus(deal, session);
+                await syncInventoryStatus(deal, { session });
                 
                 if (sanitizedData.publishOn?.website) {
                     const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -2124,10 +2160,8 @@ export const addDeal = async (req, res) => {
                 }
             });
         } catch (err) {
-            session.endSession();
             throw err;
         }
-        session.endSession();
 
         if (isIdempotentReturn) {
             return res.status(200).json({ success: true, data: deal, message: 'Returned existing idempotent deal' });
@@ -2262,7 +2296,6 @@ export const addDeal = async (req, res) => {
 
 export const updateDeal = async (req, res) => {
     console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
-    const session = await mongoose.startSession();
     let deal = null;
     let existing = null;
     let notificationsToDispatch = [];
@@ -2273,7 +2306,7 @@ export const updateDeal = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
         }
 
-        await session.withTransaction(async () => {
+        await withMongoTransaction(async (session) => {
             // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             const visibilityFilter = await getVisibilityFilter(req.user);
             existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
@@ -2420,7 +2453,7 @@ export const updateDeal = async (req, res) => {
                 throw new Error('Deal not found');
             }
             
-            await syncInventoryStatus(deal, session);
+            await syncInventoryStatus(deal, { session });
 
             // 🚀 ENTERPRISE RULE: Log Closed Lost to Inventory Activity Timeline
             if (sanitizedData.stage === 'Closed Lost' && deal.inventoryId) {

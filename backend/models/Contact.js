@@ -132,12 +132,23 @@ const ContactSchema = new mongoose.Schema({
     googleContactId: { type: String, index: true },
     
     // Enterprise Merge Auditing (Soft-Delete)
-    isMerged: { type: Boolean, default: false, index: true },
+    isDeleted: { type: Boolean, default: false, index: false },
+    isMerged: { type: Boolean, default: false, index: false },
     mergedInto: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact', index: true }
 }, { timestamps: true, strict: true });
 
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ContactSchema.index({ 'phones.number': 1 });
+ContactSchema.index(
+    { "phones.number": 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            "phones.number": { $type: "string" },
+            isDeleted: false,
+            isMerged: false
+        }
+    }
+);
 ContactSchema.index({ 'emails.address': 1 });
 ContactSchema.index({ assignedTo: 1, updatedAt: -1 });
 ContactSchema.index({ teams: 1, updatedAt: -1 });

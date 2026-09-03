@@ -483,11 +483,9 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 });
 
                 // 2. Dispatch Confirmed Outreach via CommunicationDispatcher
-                const owner = inventory.owners?.[0];
-                const recipientPhone = (typeof owner === 'object' ? owner.phones?.[0]?.number : null)
-                    || inventory.ownerPhone || inventory.associatedPhone || '';
-                const recipientEmail = (typeof owner === 'object' ? owner.emails?.[0]?.address : null)
-                    || inventory.ownerEmail || '';
+                const selectedOwnerObj = ownersList.find(o => o.name === formData.selectedOwner) || ownersList[0] || {};
+                const recipientPhone = selectedOwnerObj.mobile || '';
+                const recipientEmail = selectedOwnerObj.email || '';
 
                 const dispatchResults = await dispatchAll({
                     activeTriggers,
@@ -552,7 +550,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                         }],
                         participants: [{
                             name: formData.selectedOwner,
-                            mobile: inventory.ownerPhone || inventory.associatedPhone
+                            mobile: recipientPhone
                         }],
                         description: `Follow up with ${formData.selectedOwner} regarding Unit ${inventory.unitNo} - ${inventory.type}`,
                         details: {

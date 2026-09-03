@@ -270,7 +270,10 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 handleMessageClick={() => {
                                     const contacts = selectedIds.map(id => {
                                         const p = inventoryItems.find(item => item._id === id);
-                                        return p ? { name: p.owners?.[0]?.name || p.ownerName, mobile: p.owners?.[0]?.phones?.[0]?.number || p.ownerPhone } : null;
+                                        return p ? { 
+                                            name: p.owners?.[0]?.name || p.associates?.[0]?.contact?.name || p.ownerName || 'Property Owner', 
+                                            mobile: p.owners?.[0]?.phones?.[0]?.number || p.ownerPhone || p.associates?.[0]?.contact?.phones?.[0]?.number || p.owners?.[0]?.mobile || p.associates?.[0]?.contact?.mobile
+                                        } : null;
                                     }).filter(Boolean);
                                     setModalData(contacts);
                                     setIsMessageModalOpen(true);
@@ -278,7 +281,10 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 handleEmailClick={() => {
                                     const contacts = selectedIds.map(id => {
                                         const p = inventoryItems.find(item => item._id === id);
-                                        return p ? { name: p.owners?.[0]?.name || p.ownerName, email: p.owners?.[0]?.emails?.[0]?.address || p.ownerEmail } : null;
+                                        return p ? { 
+                                            name: p.owners?.[0]?.name || p.associates?.[0]?.contact?.name || p.ownerName || 'Property Owner', 
+                                            email: p.owners?.[0]?.emails?.[0]?.address || p.ownerEmail || p.associates?.[0]?.contact?.emails?.[0]?.address || p.owners?.[0]?.email || p.associates?.[0]?.contact?.email
+                                        } : null;
                                     }).filter(Boolean);
                                     setModalData(contacts);
                                     setIsEmailModalOpen(true);
