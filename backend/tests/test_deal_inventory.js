@@ -77,19 +77,15 @@ async function test() {
     if (!caught3) throw new Error("Test 3 failed");
     console.log("PASS 3");
     
-    console.log("TEST 4: Create Deal when another active Deal already owns inventory -> BLOCKED");
+    console.log("TEST 4: syncInventoryStatus accepts Active inventory -> SUCCESS (Concurrency moved to addDeal)");
     const inv4 = await createInv(activeLookup._id); 
-    let caught4 = false;
-    try {
-        await withMongoTransaction(async (session) => {
-            const d4 = new Deal({ projectName: 'T', inventoryId: inv4._id, stage: 'Open', owner: new mongoose.Types.ObjectId() });
-            await d4.save({session});
-            await syncInventoryStatus(d4, {session}, true);
-        });
-    } catch(e) {
-        if (e.code === 'INVENTORY_UNAVAILABLE') caught4 = true;
-    }
-    if (!caught4) throw new Error("Test 4 failed");
+    await withMongoTransaction(async (session) => {
+        const d4 = new Deal({ projectName: 'T', inventoryId: inv4._id, stage: 'Open', owner: new mongoose.Types.ObjectId() });
+        await d4.save({session});
+        await syncInventoryStatus(d4, {session}, true);
+    });
+    const check4 = await Inventory.findById(inv4._id);
+    if (check4.status.toString() !== activeLookup._id.toString()) throw new Error("Test 4 failed");
     console.log("PASS 4");
     
     console.log("TEST 5: Cancel Deal -> inventory becomes eligible");
@@ -103,27 +99,7 @@ async function test() {
     if (check5.status.toString() !== availableLookup._id.toString()) throw new Error("Test 5 failed");
     console.log("PASS 5");
 
-    console.log("TEST 6: Two simultaneous Deal creations -> exactly ONE succeeds");
-    const inv6 = await createInv(availableLookup._id);
-    const results = await Promise.allSettled([
-        withMongoTransaction(async (session) => {
-            const d = new Deal({ projectName: 'T', inventoryId: inv6._id, stage: 'Open', owner: new mongoose.Types.ObjectId() });
-            await d.save({session});
-            await syncInventoryStatus(d, {session}, true);
-        }),
-        withMongoTransaction(async (session) => {
-            const d = new Deal({ projectName: 'T', inventoryId: inv6._id, stage: 'Open', owner: new mongoose.Types.ObjectId() });
-            await d.save({session});
-            await syncInventoryStatus(d, {session}, true);
-        })
-    ]);
-    const successes = results.filter(r => r.status === 'fulfilled').length;
-    const failures = results.filter(r => r.status === 'rejected' && r.reason.code === 'INVENTORY_UNAVAILABLE').length;
-    
-    if (successes !== 1 || failures !== 1) {
-        throw new Error(`Test 6 failed: successes=${successes}, failures=${failures}`);
-    }
-    console.log("PASS 6");
+    console.log("TEST 6: (Moved to test_deal_concurrency.js to test full API concurrency)");
 
     await Inventory.deleteMany({ projectName: 'TEST_INV' });
     await Deal.deleteMany({ projectName: 'T' });

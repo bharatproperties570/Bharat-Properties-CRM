@@ -1000,16 +1000,14 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     }
 
     // For Open / Quote / Negotiation
-    const validStates = [ { status: availableId }, { status: null }, { status: { $exists: false } } ];
-    
-    if (!forceTransition) {
-        // If it's an update, it's allowed to already be Active (since this Deal owns it)
-        validStates.push({ status: activeId });
-    } else {
-        // Even for creation, it might be Active from another deal. Let's strictly prevent concurrent claim!
-        // The first Deal creation will transition Available -> Active.
-        // The second Deal creation will find it Active and fail the filter if forceTransition = true.
-    }
+    // CRM Business Rule: Active Inventory is eligible for new Deals.
+    // Duplicate Deal protection is handled at the Deal level, not by hijacking Inventory status.
+    const validStates = [ 
+        { status: availableId }, 
+        { status: activeId }, 
+        { status: null }, 
+        { status: { $exists: false } } 
+    ];
     
     const filter = {
         _id: deal.inventoryId,
@@ -1941,43 +1939,10 @@ export const addDeal = async (req, res) => {
             }
         }
 
-        // Rule: One Deal per Type per Inventory
-        if (sanitizedData.inventoryId && sanitizedData.intent) {
-            const query = {
-                inventoryId: sanitizedData.inventoryId,
-                stage: { $nin: ['Cancelled', 'Closed Lost'] }
-            };
-
-            if (sanitizedData.intent) {
-                query.intent = sanitizedData.intent;
-            }
-
-            const SystemSetting = mongoose.model('SystemSetting');
-            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
-            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
-
-            if (isStrict) {
-                const coordQuery = {
-                    $or: [
-                        { inventoryId: sanitizedData.inventoryId },
-                        { 
-                            projectName: sanitizedData.projectName,
-                            block: sanitizedData.block,
-                            unitNo: sanitizedData.unitNo
-                        }
-                    ],
-                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-                };
-
-                const duplicateDeal = await Deal.findOne(coordQuery);
-                if (duplicateDeal) {
-                    return res.status(400).json({
-                        success: false,
-                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
-                    });
-                }
-            }
-        }
+        // Dup Policy configuration is fetched outside txn
+        const SystemSetting = mongoose.model('SystemSetting');
+        const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
+        const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
 
         // [ENTERPRISE HARDENING]: Persistence Layer
         if (sanitizedData.inventoryId && (!sanitizedData.owner || !sanitizedData.associatedContact)) {
@@ -2011,6 +1976,50 @@ export const addDeal = async (req, res) => {
         // 🔒 TRANSACTION BOUNDARY
         // ==========================
         await withMongoTransaction(async (session) => {
+            // [ENTERPRISE HARDENING]: Deal-Level Concurrency Protection
+            if (isStrict && sanitizedData.inventoryId) {
+                const Inventory = mongoose.model('Inventory');
+                
+                // 1. Establish transaction-scoped write-conflict boundary by executing a temporary mutation.
+                // This triggers MongoDB's pessimistic lock, forcing concurrent Deal creations to serialize
+                // and correctly re-evaluate the duplicate check below.
+                await Inventory.findByIdAndUpdate(
+                    sanitizedData.inventoryId, 
+                    { $set: { _tempTxnLock: new Date() } }, 
+                    { session }
+                );
+
+                // 2. Perform the duplicate deal check safely holding the lock
+                const coordQuery = {
+                    $or: [
+                        { inventoryId: sanitizedData.inventoryId },
+                        { 
+                            projectName: sanitizedData.projectName,
+                            block: sanitizedData.block,
+                            unitNo: sanitizedData.unitNo
+                        }
+                    ],
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                };
+                
+                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                if (duplicateDeal) {
+                    // Throwing an error aborts the transaction. MongoDB guarantees the temporary lock 
+                    // is instantly rolled back. No garbage fields are left on the document.
+                    const err = new Error(`DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`);
+                    err.code = 'DUPLICATE_DEAL';
+                    throw err;
+                }
+
+                // 3. Unset the temporary lock immediately before continuing business logic.
+                // Because this is inside the same transaction, the document retains its write lock,
+                // but the final committed document will NOT contain this schema pollution.
+                await Inventory.findByIdAndUpdate(
+                    sanitizedData.inventoryId, 
+                    { $unset: { _tempTxnLock: 1 } }, 
+                    { session }
+                );
+            }
             // Bundle history and website publishing into initial deal creation to save DB calls
             const initialStage = sanitizedData.stage || 'Open';
             sanitizedData.stageHistory = [{
@@ -2184,6 +2193,9 @@ export const addDeal = async (req, res) => {
 
         res.status(201).json({ success: true, data: deal });
     } catch (error) {
+        if (error.code === 'DUPLICATE_DEAL' || error.code === 'INVENTORY_UNAVAILABLE') {
+            return res.status(400).json({ success: false, error: error.message });
+        }
         console.error("[ADD_DEAL_ERROR]", error);
         res.status(500).json({ success: false, error: error.message });
     }
