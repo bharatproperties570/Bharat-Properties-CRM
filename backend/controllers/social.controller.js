@@ -1,3 +1,5 @@
+import IntegrationGuard from "../src/utils/IntegrationGuard.js";
+
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import { resolveMessageTemplate } from '../utils/templateResolver.js';
 import socialCommentService from '../services/SocialCommentService.js';
@@ -97,6 +99,12 @@ export const submitMetaTemplate = async (req, res) => {
  * Enterprise WhatsApp Dispatcher
  */
 export const sendWhatsAppMessage = async (req, res, next) => {
+    if (!IntegrationGuard.canSendWhatsapp()) {
+        IntegrationGuard.logBlock("WhatsApp", req.body.to);
+        if (res && res.status) return res.status(200).json({ success: true, message: "Blocked by Staging Guard", message_id: "staging-blocked-wa" });
+        return { success: true };
+    }
+
     try {
         console.log('[SocialController] RAW PAYLOAD:', JSON.stringify(req.body, null, 2));
         const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language, headerImageUrl } = req.body;

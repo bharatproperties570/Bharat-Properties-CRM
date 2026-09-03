@@ -69,11 +69,11 @@ export class WorkflowEngine {
     static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false) {
         try {
             // Process Delayed Actions if this is a 'fire_automated_action' and not already delayed
-            if (!isDelayedExecution && action.type === 'fire_automated_action' && action.automatedActionId) {
+            if (action.type === 'fire_automated_action' && action.automatedActionId) {
                 const AutomatedAction = (await import('../../models/AutomatedAction.js')).default;
                 const autoAction = await AutomatedAction.findById(action.automatedActionId);
                 
-                if (autoAction && autoAction.delay && autoAction.delay.isActive) {
+                if (!isDelayedExecution && autoAction && autoAction.delay && autoAction.delay.isActive) {
                     const relativeDate = entityData[autoAction.delay.relativeToField] ? new Date(entityData[autoAction.delay.relativeToField]) : new Date();
                     
                     let offsetMs = 0;
@@ -134,7 +134,7 @@ export class WorkflowEngine {
                     } else if (autoAction.actionType === 'auto_match_dispatch') {
                         console.log(`[WorkflowEngine] Enqueueing Auto-Match Dispatch for Lead ${entityData._id || entityData.id}`);
                         try {
-                            const { marketingQueue } = await import('../../queues/marketingQueue.js');
+                            const { marketingQueue } = await import('../queues/marketingQueue.js');
                             if (marketingQueue) {
                                 await marketingQueue.add('auto-match-dispatch', {
                                     leadId: entityData._id || entityData.id,

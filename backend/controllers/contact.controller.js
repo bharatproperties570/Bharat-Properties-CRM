@@ -4,6 +4,10 @@ import Lead from "../models/Lead.js";
 import Inventory from "../models/Inventory.js";
 import Booking from "../models/Booking.js";
 import Activity from "../models/Activity.js";
+import Deal from "../models/Deal.js";
+import Company from "../models/Company.js";
+import Conversation from "../models/Conversation.js";
+import MergeAudit from "../models/MergeAudit.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
@@ -74,7 +78,7 @@ export const getContacts = async (req, res, next) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter, isMerged: { $ne: true } };
+        let query = { isMerged: { $ne: true } };
 
         // Handle Mobile CRM business vs individual filter
         if (req.query.contactType === "business") {
@@ -147,6 +151,10 @@ export const getContacts = async (req, res, next) => {
             } else {
                 Object.assign(query, searchFilter);
             }
+        }
+
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, query] };
         }
 
         // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
@@ -433,6 +441,25 @@ export const createContact = async (req, res, next) => {
             }
         }
 
+        // Phase 4.6 Identity Deduplication Check
+        if (contactData.phones && Array.isArray(contactData.phones)) {
+            const phoneNumbers = contactData.phones.map(p => p.number).filter(n => n);
+            if (phoneNumbers.length > 0) {
+                const existing = await Contact.findOne({
+                    "phones.number": { $in: phoneNumbers },
+                    isDeleted: false,
+                    isMerged: false
+                });
+                if (existing) {
+                    return res.status(409).json({
+                        success: false,
+                        message: "A contact with this phone number already exists.",
+                        data: existing
+                    });
+                }
+            }
+        }
+
         const contact = await Contact.create(contactData);
 
         // Sync to Google
@@ -649,7 +676,7 @@ export const deleteContact = async (req, res, next) => {
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            Lead.deleteMany({ contactDetails: contactId }),
+            // Lead.deleteMany({ contactDetails: contactId }),
             // Remove from Inventory owners/associates
             Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }),
             Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }),
@@ -658,11 +685,11 @@ export const deleteContact = async (req, res, next) => {
             Booking.updateMany({ seller: contactId }, { $set: { seller: null } }),
             Booking.updateMany({ channelPartner: contactId }, { $set: { channelPartner: null } }),
             // Delete related Activities
-            Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
+            // Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
         ]);
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        await Contact.findOneAndDelete({ _id: id, ...visibilityFilter });
+        await Contact.softDeleteOne({ _id: id, ...visibilityFilter }, { userId: req.user?._id });
 
 
         // Sync to Google
@@ -690,7 +717,7 @@ export const bulkDeleteContacts = async (req, res, next) => {
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            Lead.deleteMany({ contactDetails: { $in: objectIds } }),
+            // Lead.deleteMany({ contactDetails: { $in: objectIds } }),
             // Remove from Inventory
             Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
             Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),
@@ -699,11 +726,11 @@ export const bulkDeleteContacts = async (req, res, next) => {
             Booking.updateMany({ seller: { $in: objectIds } }, { $set: { seller: null } }),
             Booking.updateMany({ channelPartner: { $in: objectIds } }, { $set: { channelPartner: null } }),
             // Delete related Activities
-            Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
+            // Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
         ]);
 
 
-        await Contact.deleteMany({ _id: { $in: objectIds } });
+        await Contact.softDeleteMany({ _id: { $in: objectIds } }, { userId: req.user?._id });
 
         // Sync to Google
         contacts.forEach(contact => {
@@ -1374,53 +1401,68 @@ export const mergeContacts = async (req, res, next) => {
         }
         const updatedMaster = await masterDoc.save({ session });
 
-        // 4. Migrate Related Records (Leads, Activities, Bookings, Portfolios, Inventory owners)
-        
-        // Leads
-        await Lead.updateMany(
-            { contactDetails: { $in: duplicateContactIds } },
-            { $set: { contactDetails: masterContactId } },
-            { session }
-        );
+        // 4. Complete Reference Graph Migration (Phase 4.6 Architecture)
 
-        // Activities
+        // SINGULAR REFERENCES ($set)
+        await Lead.updateMany({ contactDetails: { $in: duplicateContactIds } }, { $set: { contactDetails: masterContactId } }, { session });
+        await Booking.updateMany({ lead: { $in: duplicateContactIds } }, { $set: { lead: masterContactId } }, { session });
+        await Booking.updateMany({ seller: { $in: duplicateContactIds } }, { $set: { seller: masterContactId } }, { session });
+        await Booking.updateMany({ channelPartner: { $in: duplicateContactIds } }, { $set: { channelPartner: masterContactId } }, { session });
+        await Conversation.updateMany({ contact: { $in: duplicateContactIds } }, { $set: { contact: masterContactId } }, { session });
+        await Deal.updateMany({ "partyStructure.owner": { $in: duplicateContactIds } }, { $set: { "partyStructure.owner": masterContactId } }, { session });
+        await Deal.updateMany({ "partyStructure.buyer": { $in: duplicateContactIds } }, { $set: { "partyStructure.buyer": masterContactId } }, { session });
+        await Deal.updateMany({ "partyStructure.channelPartner": { $in: duplicateContactIds } }, { $set: { "partyStructure.channelPartner": masterContactId } }, { session });
+        await Deal.updateMany({ owner: { $in: duplicateContactIds } }, { $set: { owner: masterContactId } }, { session });
+        await Deal.updateMany({ associatedContact: { $in: duplicateContactIds } }, { $set: { associatedContact: masterContactId } }, { session });
+
+        // LINEAGE ($set)
+        await Contact.updateMany({ mergedInto: { $in: duplicateContactIds } }, { $set: { mergedInto: masterContactId } }, { session });
+
+        // POLYMORPHIC REFERENCES ($set and arrayFilters)
         await Activity.updateMany(
-            { contact: { $in: duplicateContactIds } },
-            { $set: { contact: masterContactId } },
+            { entityType: 'Contact', entityId: { $in: duplicateContactIds } },
+            { $set: { entityId: masterContactId } },
             { session }
+        );
+        await Activity.updateMany(
+            { "relatedTo.model": "Contact", "relatedTo.id": { $in: duplicateContactIds } },
+            { $set: { "relatedTo.$[elem].id": masterContactId } },
+            { arrayFilters: [{ "elem.model": "Contact", "elem.id": { $in: duplicateContactIds } }], session }
         );
 
-        // Bookings
-        await Booking.updateMany(
-            { lead: { $in: duplicateContactIds } },
-            { $set: { lead: masterContactId } },
-            { session }
-        );
-        await Booking.updateMany(
-            { seller: { $in: duplicateContactIds } },
-            { $set: { seller: masterContactId } },
-            { session }
-        );
-
-        // Inventory owners
+        // NESTED ARRAY REFERENCES (arrayFilters)
         await Inventory.updateMany(
-            { owners: { $in: duplicateContactIds } },
-            { $addToSet: { owners: masterContactId } },
-            { session }
+            { "associates.contact": { $in: duplicateContactIds } },
+            { $set: { "associates.$[elem].contact": masterContactId } },
+            { arrayFilters: [{ "elem.contact": { $in: duplicateContactIds } }], session }
         );
-        // Remove duplicate owner IDs from Inventory
         await Inventory.updateMany(
-            { owners: { $in: duplicateContactIds } },
-            { $pullAll: { owners: duplicateContactIds } },
-            { session }
+            { "ownerHistory.contactId": { $in: duplicateContactIds } },
+            { $set: { "ownerHistory.$[elem].contactId": masterContactId } },
+            { arrayFilters: [{ "elem.contactId": { $in: duplicateContactIds } }], session }
         );
 
-        // 5. Soft Delete Duplicate Contacts
+        // ARRAY REFERENCES ($addToSet followed by $pullAll)
+        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $addToSet: { owners: masterContactId } }, { session });
+        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $pullAll: { owners: duplicateContactIds } }, { session });
+        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $addToSet: { employees: masterContactId } }, { session });
+        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $pullAll: { employees: duplicateContactIds } }, { session });
+
+        // 5. Duplicate State Transition
         await Contact.updateMany(
             { _id: { $in: duplicateContactIds } },
             { $set: { isMerged: true, mergedInto: masterContactId, status: 'Merged' } },
             { session }
         );
+
+        // 6. MergeAudit Creation (One record per duplicate)
+        const auditRecords = duplicateContactIds.map(dupId => ({
+            mergeOperationId: `merge_${Date.now()}_${dupId}`,
+            masterContactId: masterContactId,
+            duplicateContactId: dupId,
+            status: 'COMPLETED'
+        }));
+        await MergeAudit.insertMany(auditRecords, { session });
 
         // Audit Log on Master Contact
         await Activity.create([{

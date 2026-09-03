@@ -12,21 +12,6 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-
-// Initialize BullMQ Queues and Workers
-import { cronQueue, googleSyncQueue, marketingQueue } from "./queues/queueManager.js";
-import "./workers/enrichmentWorker.js";
-import "./workers/googleSyncWorker.js";
-import "./workers/cronWorker.js";
-import "./workers/marketingWorker.js";
-import "./workers/distributionWorker.js";
-
-// ====== END WORKERS ======
-import "../services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
-import "../services/automationQueue/automationWorker.js"; // Automation Delayed Execution Worker
-import automatedIntakeService from "../services/intakeQueue/AutomatedIntakeService.js";
-import googleDiscoveryService from "../services/discovery/GoogleDiscoveryService.js";
-import NurtureBot from "../services/NurtureBot.js";
 import { ensureRedisRunning } from "./utils/redisLauncher.js";
 
 const logStartup = (msg) => {
@@ -45,13 +30,12 @@ process.on('uncaughtException', (err) => {
 async function startServer() {
     let app;
     try {
-        await ensureRedisRunning();
+        if (!config.disableBackgroundTasks) {
+            await ensureRedisRunning();
+        }
         await connectDB();
-        // Initialize background tasks after DB is ready
-        googleDiscoveryService.initialize();
-        automatedIntakeService.initialize();
     } catch (dbErr) {
-        console.error("⚠️ MongoDB Connection Error:", dbErr.message);
+        console.error("⚠️ MongoDB/Redis Connection Error:", dbErr.message);
     }
 
     try {
@@ -62,24 +46,72 @@ async function startServer() {
             const msg = `🚀 CRM Backend running on port ${config.port} (Env: ${config.nodeEnv})`;
             console.log(msg);
             logStartup(msg);
+            
+            if (config.disableBackgroundTasks) {
+                console.log("\n=========================================");
+                console.log("🛡️  STAGING RUNTIME SAFETY GUARD ACTIVE");
+                console.log(`ENVIRONMENT=${config.nodeEnv}`);
+                console.log(`MONGODB_TARGET=${config.mongoUri ? config.mongoUri.split('@')[1]?.split('/')[0] : 'hidden'}`);
+                console.log("BACKGROUND_TASKS=DISABLED");
+                console.log(`EXTERNAL_INTEGRATIONS=${config.disableExternalIntegrations ? 'DISABLED' : 'ENABLED'}`);
+                console.log(`EMAIL=${config.disableEmail ? 'DISABLED' : 'ENABLED'}`);
+                console.log(`SMS=${config.disableSms ? 'DISABLED' : 'ENABLED'}`);
+                console.log(`WHATSAPP=${config.disableWhatsapp ? 'DISABLED' : 'ENABLED'}`);
+                console.log(`WEBHOOKS=${config.disableWebhooks ? 'DISABLED' : 'ENABLED'}`);
+                console.log("=========================================\n");
+            }
         });
     } catch (appErr) {
         console.error("❌ Critical App Initialization Error:", appErr);
         return;
     }
 
-    try {
-        cronQueue.add('dailyInactivityCheck', {}, { repeat: { pattern: '0 2 * * *' } }).catch(() => {});
-        cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
-        cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
-        cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
-        googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
-    } catch (queueErr) {}
+    if (!config.disableBackgroundTasks) {
+        // Initialize background tasks after DB is ready
+        const googleDiscoveryService = (await import("../services/discovery/GoogleDiscoveryService.js")).default;
+        const automatedIntakeService = (await import("../services/intakeQueue/AutomatedIntakeService.js")).default;
+        googleDiscoveryService.initialize();
+        automatedIntakeService.initialize();
 
-    setInterval(() => {
+        // Dynamically load BullMQ Queues and Workers
+        await import("./workers/enrichmentWorker.js");
+        await import("./workers/googleSyncWorker.js");
+        await import("./workers/cronWorker.js");
+        await import("./workers/marketingWorker.js");
+        await import("./workers/distributionWorker.js");
+        await import("../services/intakeQueue/IntakeQueue.js");
+        await import("../services/automationQueue/automationWorker.js");
+
+        const { cronQueue, googleSyncQueue } = await import("./queues/queueManager.js");
+        try {
+            cronQueue.add('dailyInactivityCheck', {}, { repeat: { pattern: '0 2 * * *' } }).catch(() => {});
+            cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
+            cronQueue.add('evaluateTimeBasedTriggers', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
+            cronQueue.add('enforceSLAReassignment', {}, { repeat: { pattern: '*/30 * * * *' } }).catch(() => {});
+            googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
+        } catch (queueErr) {}
+
+        const NurtureBot = (await import("../services/NurtureBot.js")).default;
+        setInterval(() => {
+            NurtureBot.processPendingLeads().catch(() => {});
+        }, 60 * 60 * 1000);
         NurtureBot.processPendingLeads().catch(() => {});
-    }, 60 * 60 * 1000);
-    NurtureBot.processPendingLeads().catch(() => {});
+        
+        // Ensure AgingCronService, initMatchingScheduler etc are handled if imported
+        try {
+            const AgingCronService = (await import("../services/AgingCronService.js")).default;
+            if (AgingCronService && AgingCronService.init) AgingCronService.init();
+            
+            const { initMatchingScheduler } = await import("../services/matchingScheduler.js");
+            if (initMatchingScheduler) initMatchingScheduler();
+            
+            const { startNightlyPricingCron } = await import("../jobs/nightlyPricingCron.js");
+            if (startNightlyPricingCron) startNightlyPricingCron();
+            
+            const { startArchivalCron } = await import("../cron/archivalWorker.js");
+            if (startArchivalCron) startArchivalCron();
+        } catch(e) { /* Ignore optional crons not found */ }
+    }
 }
 
 startServer();

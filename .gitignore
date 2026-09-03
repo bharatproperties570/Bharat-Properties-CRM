@@ -172,3 +172,11 @@ backend_log.txt
 backend/uploads/
 deploy_server.sh
 backend_log_new.txt
+
+# Phase 0 Backups & Tools
+phase0_native_bson_backup/
+phase0_mongo_backup_json/
+mongodb-database-tools-*/
+*.cjs
+*.zip
+.env.staging

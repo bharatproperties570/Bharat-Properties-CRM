@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
@@ -949,18 +950,8 @@ export const matchDeals = async (req, res) => {
     }
 };
 
-const syncInventoryStatus = async (deal) => {
-    if (!deal.inventoryId) return;
 
-    let targetStatus = 'Active';
-    if (deal.stage === 'Closed') {
-        targetStatus = 'Sold Out';
-    } else if (deal.stage === 'Booked') {
-        targetStatus = 'Blocked';
-    }
 
-    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
-};
 
 export const sanitizeDeal = async (req, res) => {
     try {
@@ -1148,7 +1139,7 @@ export const getDeals = async (req, res) => {
         const sortOption = { [finalSortBy]: finalSortOrder };
 
         // [ENTERPRISE FILTERS] Multi-Source Visibility & Query Resolution
-        let query = { ...visibilityFilter, isVisible: { $ne: false } };
+        let query = { isVisible: { $ne: false } };
 
         // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys
         for (const [key, value] of Object.entries(dynamicFilters)) {
@@ -1414,6 +1405,10 @@ export const getDeals = async (req, res) => {
             }
         }
 
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, query] };
+        }
+
         const populateFields = [
             { path: 'inventoryId' },
             { path: 'projectId' },
@@ -1463,6 +1458,7 @@ export const getDeals = async (req, res) => {
         let categoryStatsPromise = Promise.resolve([]);
         
         if (Number(page) === 1) {
+            // 🚀 PHASE 2.3-S OPT1: Add pipeline projection to $lookup — only fetch 'category' from inventories
             categoryStatsPromise = Deal.aggregate([
                 { $match: { ...query } },
                 {
@@ -1470,6 +1466,7 @@ export const getDeals = async (req, res) => {
                         from: 'inventories',
                         localField: 'inventoryId',
                         foreignField: '_id',
+                        pipeline: [{ $project: { category: 1 } }],
                         as: 'inventory'
                     }
                 },
@@ -1496,6 +1493,7 @@ export const getDeals = async (req, res) => {
         }
 
         // Execute queries concurrently
+        // 🚀 PHASE 2.3-S OPT2: Fetch lookups in parallel with paginate+categoryStats instead of sequentially after
         console.log(">> getDeals API: starting Promise.all");
         console.time("getDeals_Paginate_Category");
         const [results, categoryCounts] = await Promise.all([
@@ -1531,54 +1529,75 @@ export const getDeals = async (req, res) => {
         console.timeEnd("getDeals_Activity_Fetch");
 
         // --- OPTIMIZATION 10: Batch Inventory Fetch & Fallback Unlinked Matching ---
-        // 🚀 SENIOR OPTIMIZATION: Skip second inventory fetch for compact/mobile list views.
-        // The paginate() call already populates inventoryId with the necessary fields.
-        // This second fetch only adds Contact owner/associate info, which is not shown on mobile cards.
+        // 🚀 PHASE 2.3-S OPT3: Skip second inventory re-fetch entirely for list view.
+        // paginate() already populates inventoryId with all required metadata fields.
+        // The owner/associatedContact are already populated via deal's own fields in dealListPopulateFields.
+        // This eliminates expensive Inventory.find().populate(Contact) for 19k+ inventories.
         console.time("getDeals_Inventory_Fetch");
         const inventoryMap = new Map();
         const unlinkedInventoryMap = new Map();
-
-        if (!isCompactView) {
-            const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
-            const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
-
-            if (inventoryIdsToFetch.length > 0) {
-                const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' })
-                    .select('+sizeLabel +sizeConfig')
-                    .lean();
-                inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
-            }
-
-            if (unlinkedDeals.length > 0) {
-                const unlinkedQuery = {
-                    $or: unlinkedDeals.map(d => ({
-                        projectName: { $regex: new RegExp(`^${escapeRegExp(d.projectName)}$`, 'i') },
-                        unitNo: { $regex: new RegExp(`^${escapeRegExp(d.unitNo)}$`, 'i') }
-                    }))
-                };
-                const unlinkedInventories = await Inventory.find(unlinkedQuery)
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' })
-                    .select('+sizeLabel +sizeConfig')
-                    .lean();
-                unlinkedInventories.forEach(inv => {
-                    const key = `${String(inv.projectName).toLowerCase().trim()}_${String(inv.unitNo).toLowerCase().trim()}`;
-                    unlinkedInventoryMap.set(key, inv);
-                });
-            }
-        }
         console.timeEnd("getDeals_Inventory_Fetch");
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
         console.time("getDeals_Lookup_Resolution");
-        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
-        const allLookups = await Lookup.find({ 
-            lookup_type: { $in: lookupTypes } 
-        }).select('_id lookup_type lookup_value').lean();
+        
+        // 🚀 PHASE 2.6-A FIX: Targeted Lookup Fetch (Extract only required IDs/Strings)
+        const lookupIdSet = new Set();
+        const lookupStringSet = new Set();
+
+        const extractRef = (val) => {
+            if (!val) return;
+            if (isValidObjectId(val)) lookupIdSet.add(String(val));
+            else if (typeof val === 'string') lookupStringSet.add(val.toLowerCase().trim());
+        };
+
+        results.records.forEach(deal => {
+            extractRef(deal.category);
+            extractRef(deal.subCategory);
+            extractRef(deal.propertyType);
+            extractRef(deal.intent);
+            extractRef(deal.status);
+            extractRef(deal.location);
+            extractRef(deal.unitType);
+            extractRef(deal.sizeConfig);
+
+            const invId = deal.inventoryId?._id || deal.inventoryId;
+            let inventory = invId ? inventoryMap.get(String(invId)) : null;
+            if (!inventory && typeof deal.inventoryId === 'object' && deal.inventoryId !== null && deal.inventoryId._id) {
+                inventory = deal.inventoryId;
+            }
+            if (!inventory && deal.projectName && deal.unitNo) {
+                const key = `${String(deal.projectName).toLowerCase().trim()}_${String(deal.unitNo).toLowerCase().trim()}`;
+                inventory = unlinkedInventoryMap.get(key);
+            }
+
+            if (inventory) {
+                extractRef(inventory.location);
+                extractRef(inventory.category);
+                extractRef(inventory.propertyType);
+                extractRef(inventory.unitType);
+                extractRef(inventory.sizeConfig);
+            }
+        });
+
+        const lookupQuery = {};
+        const conditions = [];
+        if (lookupIdSet.size > 0) {
+            conditions.push({ _id: { $in: Array.from(lookupIdSet) } });
+        }
+        if (lookupStringSet.size > 0) {
+            const regexes = Array.from(lookupStringSet).map(s => new RegExp(`^\\s*${escapeRegExp(s)}\\s*$`, 'i'));
+            conditions.push({ lookup_value: { $in: regexes } });
+        }
+
+        let allLookups = [];
+        if (conditions.length > 0) {
+            lookupQuery.$or = conditions;
+            allLookups = await Lookup.find(lookupQuery).select('_id lookup_type lookup_value').lean();
+        }
+
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
-        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
+        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase().trim(), l]));
 
         const enrichWithLookup = (item, field) => {
             const val = item[field];
@@ -1586,7 +1605,7 @@ export const getDeals = async (req, res) => {
             if (isValidObjectId(val)) {
                 item[field] = lookupMap.get(String(val)) || val;
             } else if (typeof val === 'string') {
-                item[field] = lookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
+                item[field] = lookupValueMap.get(val.toLowerCase().trim()) || { lookup_value: val };
             }
         };
 
@@ -1597,6 +1616,10 @@ export const getDeals = async (req, res) => {
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
             let inventory = invId ? inventoryMap.get(String(invId)) : null;
 
+            // 🚀 PHASE 2.3-S FIX: Fall back to already-populated inventoryId from paginate
+            if (!inventory && typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null && dealObj.inventoryId._id) {
+                inventory = dealObj.inventoryId;
+            }
             if (!inventory && dealObj.projectName && dealObj.unitNo) {
                 const key = `${String(dealObj.projectName).toLowerCase().trim()}_${String(dealObj.unitNo).toLowerCase().trim()}`;
                 inventory = unlinkedInventoryMap.get(key);
@@ -1886,6 +1909,79 @@ const sanitizeData = (data) => {
     return sanitized;
 };
 
+const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
+    if (!deal.inventoryId) return;
+
+    const Inventory = mongoose.model('Inventory');
+    const Lookup = mongoose.model('Lookup');
+    const Deal = mongoose.model('Deal');
+
+    const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+    const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    
+    const availableId = availableLookup ? availableLookup._id : 'Available';
+    const activeId = activeLookup ? activeLookup._id : 'Active';
+
+    if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
+        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        return;
+    }
+
+    if (deal.stage === 'Booked') {
+        const filter = {
+            _id: deal.inventoryId,
+            $or: [
+                { status: availableId },
+                { status: activeId },
+                { status: null },
+                { status: { $exists: false } }
+            ]
+        };
+        const result = await Inventory.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        if (!result) {
+            const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
+            err.code = 'INVENTORY_UNAVAILABLE';
+            throw err;
+        }
+        return;
+    }
+
+    if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
+        const activeDeals = await Deal.countDocuments({
+            inventoryId: deal.inventoryId,
+            stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+        }).session(opts.session || null);
+        
+        if (activeDeals === 0) {
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+        }
+        return;
+    }
+
+    // For Open / Quote / Negotiation
+    // CRM Business Rule: Active Inventory is eligible for new Deals.
+    // Duplicate Deal protection is handled at the Deal level, not by hijacking Inventory status.
+    const validStates = [ 
+        { status: availableId }, 
+        { status: activeId }, 
+        { status: null }, 
+        { status: { $exists: false } } 
+    ];
+    
+    const filter = {
+        _id: deal.inventoryId,
+        $or: validStates
+    };
+    
+    const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
+    if (!result) {
+        const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
+        err.code = 'INVENTORY_UNAVAILABLE';
+        err.inventoryId = deal.inventoryId;
+        throw err;
+    }
+};
+
 export const addDeal = async (req, res) => {
     console.log('[DEBUG] Incoming Add Deal Payload:', JSON.stringify(req.body, null, 2));
     try {
@@ -1909,34 +2005,6 @@ export const addDeal = async (req, res) => {
             // If intent is provided, check for that specific intent
             if (sanitizedData.intent) {
                 query.intent = sanitizedData.intent;
-            }
-
-            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
-            // Fetch policy from SystemSettings (Default: strict)
-            const SystemSetting = mongoose.model('SystemSetting');
-            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
-            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
-
-            if (isStrict) {
-                const coordQuery = {
-                    $or: [
-                        { inventoryId: sanitizedData.inventoryId },
-                        { 
-                            projectName: sanitizedData.projectName,
-                            block: sanitizedData.block,
-                            unitNo: sanitizedData.unitNo
-                        }
-                    ],
-                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-                };
-
-                const duplicateDeal = await Deal.findOne(coordQuery);
-                if (duplicateDeal) {
-                    return res.status(400).json({
-                        success: false,
-                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
-                    });
-                }
             }
         }
 
@@ -1967,56 +2035,146 @@ export const addDeal = async (req, res) => {
             }
         }
 
-        const deal = await Deal.create(sanitizedData);
 
-        // Trigger Sync if documents were provided during creation
+        let deal;
+        let isIdempotentReturn = false;
+
+        try {
+            await withMongoTransaction(async (session) => {
+                const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
+                let idK = null;
+                const AutomationLog = mongoose.model('AutomationLog');
+
+                if (idempotencyKey) {
+                    idK = `deal_${idempotencyKey}`;
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
+                    if (existingLog && existingLog.entityId) {
+                        deal = await Deal.findById(existingLog.entityId).session(session);
+                        if (deal) {
+                            isIdempotentReturn = true;
+                            return; 
+                        }
+                    }
+                    try {
+                        await AutomationLog.create([{ idempotencyKey: idK, status: 'success', description: 'Deal Creation Idempotency Lock' }], { session });
+                    } catch (err) {
+                        if (err.code === 11000) {
+                            throw new Error('IDEMPOTENT_CONFLICT: Deal creation in progress.');
+                        }
+                        throw err;
+                    }
+                }
+
+                
+                // 🚀 PHASE 4.6 CONCURRENCY LOCK (Zero-pollution temporary barrier)
+                if (sanitizedData.inventoryId) {
+                    await mongoose.model('Inventory').updateOne(
+                        { _id: sanitizedData.inventoryId },
+                        { $set: { _tempTxnLock: new Date() } },
+                        { session }
+                    );
+                }
+
+
+
+            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
+            // Fetch policy from SystemSettings (Default: strict)
+            const SystemSetting = mongoose.model('SystemSetting');
+            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
+            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
+
+            if (isStrict) {
+                const coordQuery = {
+                    $or: [
+                        { inventoryId: sanitizedData.inventoryId },
+                        { 
+                            projectName: sanitizedData.projectName,
+                            block: sanitizedData.block,
+                            unitNo: sanitizedData.unitNo
+                        }
+                    ],
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                };
+
+                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                if (duplicateDeal) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
+                    });
+                }
+            }
+
+                const createdDeals = await Deal.create([sanitizedData], { session });
+
+                if (sanitizedData.inventoryId) {
+                    await mongoose.model('Inventory').updateOne(
+                        { _id: sanitizedData.inventoryId },
+                        { $unset: { _tempTxnLock: 1 } },
+                        { session }
+                    );
+                }
+
+                deal = createdDeals[0];
+
+                if (idK) {
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: deal._id } }, { session });
+                }
+
+                await Deal.findByIdAndUpdate(deal._id, {
+                    $push: {
+                        stageHistory: {
+                            stage: deal.stage || 'Open',
+                            enteredAt: new Date(),
+                            triggeredBy: 'system',
+                            reason: 'Deal created'
+                        }
+                    },
+                    $set: { stageChangedAt: new Date() }
+                }, { session });
+
+                await syncInventoryStatus(deal, { session });
+                
+                if (sanitizedData.publishOn?.website) {
+                    const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                    await Deal.findByIdAndUpdate(deal._id, {
+                        isPublished: true,
+                        publishedAt: new Date(),
+                        'websiteMetadata.slug': slugBase,
+                        'websiteMetadata.title': deal.projectName || 'New Listing',
+                        'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing.'
+                    }, { session });
+                }
+
+                if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
+                    await mongoose.model('AuditLog').create([{
+                        eventType: 'deal_converted',
+                        targetType: 'deal',
+                        targetId: deal._id,
+                        targetName: deal.projectName || 'New Deal',
+                        userId: req.user?._id,
+                        changes: { before: null, after: deal.stage || 'Open' },
+                        description: `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`,
+                        timestamp: new Date()
+                    }], { session });
+                }
+            });
+        } catch (err) {
+            throw err;
+        }
+
+        if (isIdempotentReturn) {
+            return res.status(200).json({ success: true, data: deal, message: 'Returned existing idempotent deal' });
+        }
+
+        // Move syncDocumentsToContact outside transaction because it doesn't support sessions
         if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
             const metadata = {
                 projectName: deal.projectName,
                 block: deal.block,
                 unitNumber: deal.unitNo
             };
-            await syncDocumentsToContact(sanitizedData.documents, metadata);
-        }
-
-        // BUG D3 FIX: Write initial stageHistory entry so time-in-stage metrics work from day 1
-        await Deal.findByIdAndUpdate(deal._id, {
-            $push: {
-                stageHistory: {
-                    stage: deal.stage || 'Open',
-                    enteredAt: new Date(),
-                    triggeredBy: 'system',
-                    reason: 'Deal created'
-                }
-            },
-            $set: { stageChangedAt: new Date() }
-        });
-
-        await syncInventoryStatus(deal);
-        
-        // 🌐 WEBSITE PUBLISHING: Auto-generate slug and metadata if requested
-        if (sanitizedData.publishOn?.website) {
-            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            await Deal.findByIdAndUpdate(deal._id, {
-                isPublished: true,
-                publishedAt: new Date(),
-                'websiteMetadata.slug': slugBase,
-                'websiteMetadata.title': deal.projectName || 'New Listing',
-                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing at Bharat Properties.'
-            });
-        }
-
-        // Audit Log Deal Conversion
-        if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
-            await AuditLog.logEntityUpdate(
-                'deal_converted',
-                'deal',
-                deal._id,
-                deal.projectName || 'New Deal',
-                req.user?.id,
-                { before: null, after: deal.stage || 'Open' },
-                `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`
-            );
+            syncDocumentsToContact(sanitizedData.documents, metadata).catch(e => console.error(e));
         }
 
         // BUG D4 FIX: Correctly extract phone from phones array (Contact model)
@@ -2138,208 +2296,167 @@ export const addDeal = async (req, res) => {
 
 export const updateDeal = async (req, res) => {
     console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
+    let deal = null;
+    let existing = null;
+    let notificationsToDispatch = [];
+    const sanitizedData = sanitizeData(req.body);
+
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
         }
-        const sanitizedData = sanitizeData(req.body);
-        console.log(`[DealController] Sanitized Payload:`, JSON.stringify(sanitizedData, null, 2));
 
-        // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
-            .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
-            .lean();
+        await withMongoTransaction(async (session) => {
+            // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
+                .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
+                .lean()
+                .session(session);
 
-        if (existing) {
-            const now = new Date();
-            const historyUpdate = {};
-            let requiresHistoryUpdate = false;
+            if (existing) {
+                const now = new Date();
+                const historyUpdate = {};
+                let requiresHistoryUpdate = false;
 
-            // 1. Stage History
-            const newStage = sanitizedData.stage;
-            if (newStage && newStage !== existing.stage) {
-                requiresHistoryUpdate = true;
-                if (existing.stageHistory?.length > 0) {
-                    const lastIdx = existing.stageHistory.length - 1;
-                    const last = existing.stageHistory[lastIdx];
-                    if (!last.exitedAt) {
-                        const enteredAt = new Date(last.enteredAt || existing.stageChangedAt || existing.createdAt);
-                        const daysInStage = Math.floor((now - enteredAt) / 86400000);
-                        historyUpdate[`stageHistory.${lastIdx}.exitedAt`] = now;
-                        historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
+                // 1. Stage History
+                const newStage = sanitizedData.stage;
+                if (newStage && newStage !== existing.stage) {
+                    requiresHistoryUpdate = true;
+                    if (existing.stageHistory?.length > 0) {
+                        const lastIdx = existing.stageHistory.length - 1;
+                        const last = existing.stageHistory[lastIdx];
+                        if (!last.exitedAt) {
+                            const enteredAt = new Date(last.enteredAt || existing.stageChangedAt || existing.createdAt);
+                            const daysInStage = Math.floor((now - enteredAt) / 86400000);
+                            historyUpdate[`stageHistory.${lastIdx}.exitedAt`] = now;
+                            historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
+                        }
+                    }
+                    historyUpdate.$push = historyUpdate.$push || {};
+                    historyUpdate.$push.stageHistory = {
+                        stage: newStage,
+                        enteredAt: now,
+                        triggeredBy: sanitizedData.triggeredBy || 'manual_override',
+                        reason: sanitizedData.stageSyncReason || sanitizedData.reason || "Stage manually updated"
+                    };
+
+                    // [NOTIFICATION] Queue High-Value Stage Change
+                    const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
+                    const ownerId = sanitizedData.assignedTo || existing.assignedTo || existing.owner;
+                    if (ownerId && String(ownerId) !== String(req.user?.id)) {
+                        notificationsToDispatch.push({
+                            userId: ownerId,
+                            type: 'deal',
+                            title: `🔥 Deal Stage: ${sanitizedData.stage}`,
+                            message: `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
+                            link: `/deals/${req.params.id}`,
+                            meta: { dealId: req.params.id, stage: sanitizedData.stage }
+                        });
+                    }
+
+                    if (milestoneStages.includes(sanitizedData.stage)) {
+                        const User = mongoose.model('User');
+                        const Role = mongoose.models.Role || mongoose.model('Role', new mongoose.Schema({ name: String }, {strict:false}));
+                        const mgrRoles = await Role.find({ name: { $in: ['manager', 'admin'] } }).select('_id').lean().session(session);
+                        const roleIds = mgrRoles.map(r => r._id);
+                        const managers = await User.find({ 
+                            role: { $in: roleIds },
+                            _id: { $ne: req.user?.id } 
+                        }).select('_id').lean().session(session);
+                        
+                        for (const mgr of managers) {
+                            notificationsToDispatch.push({
+                                userId: mgr._id,
+                                type: 'deal',
+                                title: `💰 Achievement: Deal ${sanitizedData.stage}!`,
+                                message: `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
+                                link: `/deals/${req.params.id}`,
+                                meta: { dealId: req.params.id, type: 'milestone' }
+                            });
+                        }
                     }
                 }
-                historyUpdate.$push = historyUpdate.$push || {};
-                historyUpdate.$push.stageHistory = {
-                    stage: newStage,
-                    enteredAt: now,
-                    triggeredBy: sanitizedData.triggeredBy || 'manual_override',
-                    reason: sanitizedData.stageSyncReason || sanitizedData.reason || "Stage manually updated"
-                };
-                sanitizedData.stageChangedAt = now;
-            }
-
-            // 2. Assignment History
-            const newRM = sanitizedData.assignedTo || sanitizedData.assignment?.assignedTo;
-            const oldRM = existing.assignedTo || existing.assignment?.assignedTo;
-            if (newRM && String(newRM) !== String(oldRM)) {
-                requiresHistoryUpdate = true;
-                historyUpdate.$push = historyUpdate.$push || {};
-                historyUpdate.$push['assignment.history'] = {
-                    assignedTo: newRM,
-                    assignedBy: req.user?.id,
-                    assignedAt: now,
-                    notes: sanitizedData.assignmentNote || sanitizedData.reason || "Deal reassigned"
-                };
-
-                // Audit Log Assignment
-                const AuditLog = mongoose.model('AuditLog');
-                await AuditLog.logEntityUpdate(
-                    'assignment_changed',
-                    'deal',
-                    req.params.id,
-                    existing.projectName || 'Active Deal',
-                    req.user?.id || null,
-                    { before: oldRM, after: newRM },
-                    `Deal reassigned to a new owner.`
-                );
-
-                // [NOTIFICATION] Notify new owner of reassignment
-                if (String(newRM) !== String(req.user?.id)) {
-                    await createNotification(
-                        newRM,
-                        'assignment',
-                        '🔄 Deal Reassigned to You',
-                        `Deal for project "${existing.projectName}" has been reassigned to you.`,
-                        `/deals/${req.params.id}`,
-                        { dealId: req.params.id, type: 'deal_reassigned' }
-                    ).catch(() => {});
-                }
-            }
-
-            // [NOTIFICATION] High-Value Stage Change
-            const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
-            if (sanitizedData.stage && sanitizedData.stage !== existing.stage) {
-                const ownerId = sanitizedData.assignedTo || existing.assignedTo || existing.owner;
-                if (ownerId && String(ownerId) !== String(req.user?.id)) {
-                    await createNotification(
-                        ownerId,
-                        'deal',
-                        `🔥 Deal Stage: ${sanitizedData.stage}`,
-                        `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
-                        `/deals/${req.params.id}`,
-                        { dealId: req.params.id, stage: sanitizedData.stage }
-                    ).catch(() => {});
-                }
-
-                // 🌟 SENIOR ADDITION: Global Team Notification for High-Value Stages
-                if (milestoneStages.includes(sanitizedData.stage)) {
-                    // Notify managers or team leads
-                    const User = mongoose.model('User');
-                    const managers = await User.find({ 
-                        $or: [{ role: 'manager' }, { role: 'admin' }],
-                        _id: { $ne: req.user?.id } 
-                    }).select('_id').lean();
+                if (requiresHistoryUpdate) {
+                    const atomicUpdate = { ...historyUpdate };
+                    delete atomicUpdate.$push;
                     
-                    for (const mgr of managers) {
-                        await createNotification(
-                            mgr._id,
-                            'deal',
-                            `💰 Achievement: Deal ${sanitizedData.stage}!`,
-                            `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
-                            `/deals/${req.params.id}`,
-                            { dealId: req.params.id, type: 'milestone' }
-                        ).catch(() => {});
+                    if (Object.keys(atomicUpdate).length > 0) {
+                        await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate }, { session });
+                    }
+                    if (historyUpdate.$push) {
+                        await Deal.findByIdAndUpdate(req.params.id, { $push: historyUpdate.$push }, { session });
                     }
                 }
             }
-            if (requiresHistoryUpdate) {
-                const atomicUpdate = { ...historyUpdate };
-                delete atomicUpdate.$push;
-                
-                // 1. Update exiting stage details ($set) to avoid path collision
-                if (Object.keys(atomicUpdate).length > 0) {
-                    await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate });
-                }
-                
-                // 2. Push new stage history record ($push)
-                if (historyUpdate.$push) {
-                    await Deal.findByIdAndUpdate(req.params.id, { $push: historyUpdate.$push });
+
+            // [ENTERPRISE HARDENING]: coordinate-based duplicate check
+            if (sanitizedData.inventoryId || sanitizedData.unitNo) {
+                const current = await Deal.findById(req.params.id).lean().session(session);
+                const projectName = sanitizedData.projectName || current.projectName;
+                const block = sanitizedData.block || current.block;
+                const unitNo = sanitizedData.unitNo || current.unitNo;
+
+                const coordQuery = {
+                    _id: { $ne: req.params.id },
+                    projectName,
+                    block,
+                    unitNo,
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                };
+
+                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                if (duplicateDeal) {
+                    throw new Error(`DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`);
                 }
             }
-        }
 
-        // [ENTERPRISE HARDENING]: coordinate-based duplicate check (Update Phase)
-        if (sanitizedData.inventoryId || sanitizedData.unitNo) {
-            const current = await Deal.findById(req.params.id).lean();
-            const projectName = sanitizedData.projectName || current.projectName;
-            const block = sanitizedData.block || current.block;
-            const unitNo = sanitizedData.unitNo || current.unitNo;
-
-            const coordQuery = {
-                _id: { $ne: req.params.id },
-                projectName,
-                block,
-                unitNo,
-                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-            };
-
-            const duplicateDeal = await Deal.findOne(coordQuery);
-            if (duplicateDeal) {
-                return res.status(400).json({
-                    success: false,
-                    error: `DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`
-                });
-            }
-        }
-
-        // [ENTERPRISE HARDENING]: Update-time Snapshotting
-        if (sanitizedData.inventoryId) {
-            const existingDeal = await Deal.findById(req.params.id);
-            // If inventory is changing OR if deal currently has missing owner data
-            if (existingDeal && (String(existingDeal.inventoryId) !== String(sanitizedData.inventoryId) || !existingDeal.owner)) {
-                const inventory = await Inventory.findById(sanitizedData.inventoryId)
-                    .populate({ path: 'owners', model: 'Contact' })
-                    .populate({ path: 'associates.contact', model: 'Contact' });
-                
-                if (inventory) {
-                    if (!sanitizedData.owner && inventory.owners?.[0]) {
-                        sanitizedData.owner = inventory.owners[0]._id;
-                    }
-                    if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
-                        sanitizedData.associatedContact = inventory.associates[0].contact._id;
-                    }
+            // [ENTERPRISE HARDENING]: Update-time Snapshotting
+            if (sanitizedData.inventoryId) {
+                const existingDeal = await Deal.findById(req.params.id).session(session);
+                if (existingDeal && (String(existingDeal.inventoryId) !== String(sanitizedData.inventoryId) || !existingDeal.owner)) {
+                    const inventory = await mongoose.model('Inventory').findById(sanitizedData.inventoryId)
+                        .populate({ path: 'owners', model: 'Contact' })
+                        .populate({ path: 'associates.contact', model: 'Contact' })
+                        .session(session);
                     
-                    // Snapshot metadata labels
-                    if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
-                    if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
-                    if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
-                    if (!sanitizedData.category) sanitizedData.category = inventory.category;
-                    if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
-                    if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
+                    if (inventory) {
+                        if (!sanitizedData.owner && inventory.owners?.[0]) sanitizedData.owner = inventory.owners[0]._id;
+                        if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) sanitizedData.associatedContact = inventory.associates[0].contact._id;
+                        
+                        if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
+                        if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
+                        if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
+                        if (!sanitizedData.category) sanitizedData.category = inventory.category;
+                        if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
+                        if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
+                    }
                 }
             }
-        }
 
-        const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
-        
-        // Trigger Sync if documents were updated
-        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
-            const metadata = {
-                projectName: deal.projectName,
-                block: deal.block,
-                unitNumber: deal.unitNo
-            };
-            await syncDocumentsToContact(sanitizedData.documents, metadata);
-        }
+            // 🌐 WEBSITE PUBLISHING: Handle updates to publishing status inside transaction
+            if (sanitizedData.publishOn?.website) {
+                const projNameForSlug = sanitizedData.projectName || existing?.projectName || 'property';
+                const unitNoForSlug = sanitizedData.unitNo || req.params.id.toString().slice(-6);
+                const slugBase = `${projNameForSlug}-${unitNoForSlug}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                sanitizedData.isPublished = true;
+                sanitizedData.publishedAt = new Date();
+                sanitizedData['websiteMetadata.slug'] = slugBase;
+                sanitizedData['websiteMetadata.title'] = projNameForSlug || 'Updated Listing';
+                sanitizedData['websiteMetadata.description'] = sanitizedData.description || sanitizedData.remarks || 'Check out this updated property listing at Bharat Properties.';
+            } else if (sanitizedData.publishOn && sanitizedData.publishOn.website === false) {
+                sanitizedData.isPublished = false;
+            }
 
-        await syncInventoryStatus(deal);
+            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, session });
+            if (!deal) {
+                throw new Error('Deal not found');
+            }
+            
+            await syncInventoryStatus(deal, { session });
 
-        // 🚀 ENTERPRISE RULE: If Deal is Closed Lost, log its journey to the Inventory Activity Timeline
-        if (sanitizedData.stage === 'Closed Lost' && deal.inventoryId) {
-            try {
+            // 🚀 ENTERPRISE RULE: Log Closed Lost to Inventory Activity Timeline
+            if (sanitizedData.stage === 'Closed Lost' && deal.inventoryId) {
                 const enteredAt = new Date(deal.createdAt);
                 const lostAt = new Date();
                 const daysActive = Math.max(1, Math.floor((lostAt - enteredAt) / 86400000));
@@ -2354,7 +2471,7 @@ export const updateDeal = async (req, res) => {
                     }
                 }
 
-                await Activity.create({
+                await mongoose.model('Activity').create([{
                     entityId: deal.inventoryId,
                     entityType: 'Inventory',
                     type: 'system_note',
@@ -2365,77 +2482,68 @@ export const updateDeal = async (req, res) => {
                     priority: 'medium',
                     status: 'completed',
                     completedAt: lostAt
-                });
-            } catch (err) {
-                console.error("Error logging Closed Lost to Inventory:", err);
+                }], { session });
             }
-        }
+        });
 
-        // 🌐 WEBSITE PUBLISHING: Handle updates to publishing status
-        if (sanitizedData.publishOn?.website && !deal.isPublished) {
-            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-            await Deal.findByIdAndUpdate(deal._id, {
-                isPublished: true,
-                publishedAt: new Date(),
-                'websiteMetadata.slug': slugBase,
-                'websiteMetadata.title': deal.projectName || 'Updated Listing',
-                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this updated property listing at Bharat Properties.'
-            });
-        } else if (sanitizedData.publishOn && sanitizedData.publishOn.website === false && deal.isPublished) {
-            await Deal.findByIdAndUpdate(deal._id, { isPublished: false });
-        }
-
-        // BUG D4 FIX: Correctly extract phone from phones array for stage updates
-        if (sanitizedData.stage) {
-            try {
-                const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
-                
-                const extractPhone = (contact) => {
-                    if (!contact) return null;
-                    if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
-                        return contact.phones[0].number;
-                    }
-                    return contact.phone || contact.mobile || null;
-                };
-
-                const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
-                
-                if (phone) {
-                    smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
-                        dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
-                        stage: dealPop.stage
-                    }).catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
-                }
-            } catch (smsError) {
-                console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
-            }
-        }
-        // Trigger Workflow Engine for Stage Change
-        try {
-            if (sanitizedData.stage && existing && sanitizedData.stage !== existing.stage) {
-                await WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId);
-            }
-        } catch (weErr) {
-            console.error('[WorkflowEngine] deal_stage_changed trigger failed:', weErr.message);
-        }
-
-        res.json({ success: true, data: deal, deal: deal });
-        
-        // 🚀 AUTO-MARKETING: Fire campaign engine if publishing flags or stage changed
-        // This is non-blocking (fire-and-forget)
-        setTimeout(() => {
-            CampaignEngine.launch(deal._id).catch(err =>
-                console.error('[CampaignEngine] Auto-launch error for updated deal:', err.message)
-            );
-        }, 100);
     } catch (error) {
+        const msg = error.message || 'Transaction failed';
+        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('DUPLICATE PROTECTION') || msg.includes('Deal not found')) {
+            return res.status(400).json({ success: false, error: msg, message: msg });
+        }
         console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
-        res.status(500).json({ 
+        return res.status(500).json({ 
             success: false, 
             error: error.message, 
             message: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
+    } finally {
+        await session.endSession();
+    }
+
+    if (deal) {
+        // --- POST-COMMIT SIDE EFFECTS ---
+        res.json({ success: true, data: deal, deal: deal });
+
+        for (const notif of notificationsToDispatch) {
+            createNotification(notif.userId, notif.type, notif.title, notif.message, notif.link, notif.meta).catch(() => {});
+        }
+
+        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
+            const metadata = { projectName: deal.projectName, block: deal.block, unitNumber: deal.unitNo };
+            syncDocumentsToContact(sanitizedData.documents, metadata).catch(() => {});
+        }
+
+        if (sanitizedData.stage) {
+            try {
+                const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
+                const extractPhone = (contact) => {
+                    if (!contact) return null;
+                    if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) return contact.phones[0].number;
+                    return contact.phone || contact.mobile || null;
+                };
+                const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
+                if (phone) {
+                    smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
+                        dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                        stage: dealPop.stage
+                    }).catch(() => {});
+                }
+            } catch (smsError) {
+                console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
+            }
+        }
+
+        try {
+            if (sanitizedData.stage && existing && sanitizedData.stage !== existing.stage) {
+                WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId).catch(() => {});
+            }
+        } catch (weErr) {}
+
+        setTimeout(() => {
+            CampaignEngine.launch(deal._id).catch(() => {});
+        }, 100);
     }
 };
 

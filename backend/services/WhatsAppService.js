@@ -1,3 +1,5 @@
+import IntegrationGuard from "../src/utils/IntegrationGuard.js";
+
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import mongoose from 'mongoose';
@@ -50,6 +52,11 @@ class WhatsAppService {
      * Send a standard text message
      */
     async sendMessage(mobile, message) {
+        if (!IntegrationGuard.canSendWhatsapp()) {
+            IntegrationGuard.logBlock("WhatsApp sendMessage", mobile);
+            return { messages: [{ id: "staging-blocked" }] };
+        }
+
         const config = await this._getMetaConfig();
         if (config) {
             return this._sendViaMeta(mobile, message, config, { type: 'text' });
@@ -194,6 +201,11 @@ class WhatsAppService {
     }
 
     async sendTemplate(mobile, templateName, languageCode = 'en_US', components = []) {
+        if (!IntegrationGuard.canSendWhatsapp()) {
+            IntegrationGuard.logBlock("WhatsApp sendTemplate", mobile);
+            return { messages: [{ id: "staging-blocked" }] };
+        }
+
         const metaConfig = await this._getMetaConfig();
         if (!metaConfig) {
             console.log(`[WhatsApp/Meta] MOCK template to ${mobile}: ${templateName}`);
@@ -245,6 +257,11 @@ class WhatsAppService {
     }
 
     async sendMedia(mobile, type, mediaUrl, caption = '', filename = '', extraOptions = {}) {
+        if (!IntegrationGuard.canSendWhatsapp()) {
+            IntegrationGuard.logBlock("WhatsApp sendMedia", mobile);
+            return { messages: [{ id: "staging-blocked" }] };
+        }
+
         const metaConfig = await this._getMetaConfig();
         if (metaConfig) {
             let mediaId = null;

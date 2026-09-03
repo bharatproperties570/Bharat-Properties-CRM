@@ -1,3 +1,5 @@
+import IntegrationGuard from "../src/utils/IntegrationGuard.js";
+
 import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { google } from 'googleapis';
@@ -90,6 +92,11 @@ class EmailService {
     }
 
     async sendEmail(to, subject, text, html, recipients = null) {
+        if (!IntegrationGuard.canSendEmail()) {
+            IntegrationGuard.logBlock("Email", to);
+            return { messageId: "staging-blocked-id" };
+        }
+
         const config = await this.getEmailConfig();
 
         // Setup transporter based on config

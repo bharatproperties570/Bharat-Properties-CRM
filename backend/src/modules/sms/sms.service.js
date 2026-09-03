@@ -1,3 +1,5 @@
+import IntegrationGuard from "../../utils/IntegrationGuard.js";
+
 import SmsProvider from './smsProvider.model.js';
 import SmsLog from './smsLog.model.js';
 import SmsTemplate from './smsTemplate.model.js';
@@ -12,6 +14,11 @@ class SmsService {
      * @param {object} context - { entityType, entityId }
      */
     async sendSMS(to, message, context = {}, configOverride = null) {
+        if (!IntegrationGuard.canSendSms()) {
+            IntegrationGuard.logBlock("SMS", to);
+            return { success: true, messageId: "staging-blocked-sms" };
+        }
+
         const activeProvider = await SmsProvider.findOne({ isActive: true });
 
         if (!activeProvider && !configOverride) {

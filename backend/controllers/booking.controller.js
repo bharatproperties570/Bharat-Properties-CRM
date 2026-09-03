@@ -41,76 +41,156 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        const booking = new Booking(bookingData);
-        await booking.save();
-
-        // 🚀 Deal Lifecycle Synchronization
-        const Deal = mongoose.model('Deal');
-        let dealToUpdate = null;
-
-        if (bookingData.dealId) {
-            dealToUpdate = await Deal.findById(bookingData.dealId);
-        } else if (bookingData.property && (bookingData.lead || bookingData.customer)) {
-            // Contextual Fallback: Find open deal for same entity
-            dealToUpdate = await Deal.findOne({
-                inventoryId: bookingData.property,
-                associatedContact: bookingData.lead || bookingData.customer,
-                stage: { $ne: 'Closed' }
-            });
-        }
-
-        if (dealToUpdate) {
-            console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
-            dealToUpdate.stage = 'Booked';
-            dealToUpdate.status = 'Won';
-            dealToUpdate.bookingId = booking._id;
-            
-            // Add to deal negotiation history
-            if (dealToUpdate.negotiationRounds) {
-                dealToUpdate.negotiationRounds.push({
-                    round: (dealToUpdate.negotiationRounds.length + 1),
-                    offerPrice: booking.totalDealAmount,
-                    status: 'Accepted',
-                    date: new Date(),
-                    note: `Booking confirmed with Token: ₹${booking.tokenAmount}`
-                });
-            }
-            
-            await dealToUpdate.save();
-
-            // Circular link
-            if (!booking.dealId) {
-                booking.dealId = dealToUpdate._id;
-                await booking.save();
-            }
-        }
-
-        // 🏠 Inventory State management
-        if (booking.property) {
-            console.log(`[BOOKING_ENGINE] Marking Inventory ${booking.property} as BOOKED.`);
-            const Inventory = mongoose.model('Inventory');
-            await Inventory.findByIdAndUpdate(booking.property, { 
-                status: 'Booked',
-                lastStatusUpdate: new Date()
-            });
-        }
-
-        // 📝 Record Activity
+        let bookingId;
+        const session = await mongoose.startSession();
+        
         try {
-            await Activity.create({
-                type: 'Booking',
-                title: `Property Booked: ${booking.applicationNo || 'New Booking'}`,
-                description: `Booking confirmed for deal amount ₹${booking.totalDealAmount} with token ₹${booking.tokenAmount}.`,
-                leadId: booking.lead,
-                dealId: booking.dealId,
-                createdBy: req.user?._id,
-                timestamp: new Date()
-            });
-        } catch (actErr) {
-            console.warn(`[BOOKING_ENGINE] Activity logging skipped: ${actErr.message}`);
-        }
+            let isIdempotentReturn = false;
+            await session.withTransaction(async () => {
+                const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
+                let idK = null;
+                const AutomationLog = mongoose.model('AutomationLog');
 
-        const populated = await Booking.findById(booking._id)
+                if (idempotencyKey) {
+                    idK = `booking_${idempotencyKey}`;
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
+                    if (existingLog && existingLog.entityId) {
+                        bookingId = existingLog.entityId;
+                        isIdempotentReturn = true;
+                        return; 
+                    }
+                    try {
+                        await AutomationLog.collection.insertOne({ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }, { session });
+                    } catch (err) {
+                        if (err.code === 11000) {
+                            throw new Error('IDEMPOTENT_CONFLICT: Booking creation in progress.');
+                        }
+                        throw err;
+                    }
+                }
+
+                const booking = new Booking(bookingData);
+                const savedBookings = await Booking.create([bookingData], { session });
+                const savedBooking = savedBookings[0];
+                bookingId = savedBooking._id;
+                if (idK) {
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: bookingId } }, { session });
+                }
+
+                // 🚀 Deal Lifecycle Synchronization
+                const Deal = mongoose.model('Deal');
+                let dealToUpdate = null;
+
+                if (bookingData.dealId) {
+                    dealToUpdate = await Deal.findById(bookingData.dealId).session(session);
+                } else if (bookingData.property && (bookingData.lead || bookingData.customer)) {
+                    dealToUpdate = await Deal.findOne({
+                        inventoryId: bookingData.property,
+                        associatedContact: bookingData.lead || bookingData.customer,
+                        stage: { $ne: 'Closed' }
+                    }).session(session);
+                }
+
+                if (dealToUpdate) {
+                    console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
+                    
+                    const updateOps = {
+                        $set: {
+                            stage: 'Booked',
+                            status: 'Won',
+                            bookingId: savedBooking._id
+                        }
+                    };
+
+                    if (dealToUpdate.negotiationRounds) {
+                        updateOps.$push = {
+                            negotiationRounds: {
+                                round: (dealToUpdate.negotiationRounds.length + 1),
+                                offerPrice: savedBooking.totalDealAmount,
+                                status: 'Accepted',
+                                date: new Date(),
+                                note: `Booking confirmed with Token: ₹${savedBooking.tokenAmount}`
+                            }
+                        };
+                    }
+                    
+                    await Deal.findByIdAndUpdate(dealToUpdate._id, updateOps, { session });
+
+                    if (!savedBooking.dealId) {
+                        await Booking.findByIdAndUpdate(savedBooking._id, { $set: { dealId: dealToUpdate._id } }, { session });
+                    }
+                }
+
+                // 🏠 Inventory State management
+                if (bookingData.property) {
+                    console.log(`[BOOKING_ENGINE] Marking Inventory ${bookingData.property} as BOOKED.`);
+                    const Inventory = mongoose.model('Inventory');
+                    const Lookup = mongoose.model('Lookup');
+                    
+                    // 1. Resolve 'Available' and 'Active' ObjectIds
+                    const sourceLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Available', 'Active'] } }).select('_id').lean().session(session);
+                    const sourceIds = sourceLookups.map(l => l._id);
+                    
+                    // 2. Resolve 'Booked' ObjectId
+                    const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: 'Booked' }).select('_id').lean().session(session);
+                    const targetStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Booked';
+
+                    const invQuery = { 
+                        _id: bookingData.property,
+                        $or: [
+                            { status: null },
+                            { status: { $exists: false } }
+                        ]
+                    };
+                    if (sourceIds.length > 0) {
+                        invQuery.$or.push({ status: { $in: sourceIds } });
+                    }
+                    
+                    const updatedInv = await Inventory.findOneAndUpdate(
+                        invQuery,
+                        { 
+                            $set: { 
+                                status: targetStatusId,
+                                lastStatusUpdate: new Date()
+                            }
+                        },
+                        { new: true, session }
+                    );
+
+                    if (!updatedInv) {
+                        throw new Error(`INVENTORY_UNAVAILABLE: Unit ${bookingData.property} cannot be booked. It may already be reserved.`);
+                    }
+                }
+
+                // 📝 Record Activity
+                const Activity = mongoose.model('Activity');
+                await Activity.create([{
+                    type: 'Task',
+                    subject: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
+                    entityType: savedBooking.dealId ? 'Deal' : 'Lead',
+                    entityId: savedBooking.dealId || savedBooking.lead,
+                    dueDate: new Date(),
+                    status: 'Completed',
+                    description: `Booking confirmed for deal amount ₹${savedBooking.totalDealAmount} with token ₹${savedBooking.tokenAmount}.`,
+                    relatedTo: [{
+                        id: savedBooking.lead,
+                        model: 'Lead'
+                    }],
+                    createdBy: req.user?._id
+                }], { session });
+            });
+        } catch (err) {
+            session.endSession();
+            // Map the transaction error to a 400 Bad Request if it's our inventory business rule
+            if (err.message && err.message.includes('INVENTORY_UNAVAILABLE')) {
+                return res.status(400).json({ success: false, message: err.message });
+            }
+            throw err;
+        }
+        
+        session.endSession();
+
+        const populated = await Booking.findById(bookingId)
             .populate('property')
             .populate('lead')
             .populate('salesAgent', 'fullName name');
@@ -321,15 +401,77 @@ export const getBooking = async (req, res) => {
 };
 
 export const updateBooking = async (req, res) => {
+    const session = await mongoose.startSession();
+    let updatedBooking = null;
+
     try {
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const booking = await Booking.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true, runValidators: true });
-        if (!booking) return res.status(404).json({ success: false, message: "Booking record unavailable or access denied." });
-        
+        await session.withTransaction(async () => {
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const booking = await Booking.findOne({ _id: req.params.id, ...visibilityFilter }).session(session);
+            
+            if (!booking) throw new Error("Booking record unavailable or access denied.");
+
+            // 1. Reject Property Reassignment
+            if (req.body.property && req.body.property.toString() !== (booking.property ? booking.property.toString() : '')) {
+                throw new Error("Property reassignment is not supported via updateBooking. Please cancel and recreate the booking.");
+            }
+
+            // 2. Reject 'Registry' direct status update
+            if (req.body.status === 'Registry' && booking.status !== 'Registry') {
+                throw new Error("Registry closure must go through the dedicated closeBooking API.");
+            }
+
+            // 3. Handle Cancellation
+            if (req.body.status === 'Cancelled' && booking.status !== 'Cancelled') {
+                booking.status = 'Cancelled';
+                
+                // Release Inventory to 'Available'
+                if (booking.property) {
+                    const Inventory = mongoose.model('Inventory');
+                    const Lookup = mongoose.model('Lookup');
+                    const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: 'Available' }).select('_id').lean().session(session);
+                    const availableStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Available';
+
+                    await Inventory.findByIdAndUpdate(booking.property, { 
+                        status: availableStatusId
+                    }, { session });
+                }
+
+                // Deal Synchronization Note:
+                // Because there is no existing cancellationReason to differentiate customer
+                // cancellation from administrative correction, we are deliberately NOT forcing
+                // the Deal to 'Closed Lost' to preserve the pipeline state.
+            } else if (req.body.status && ['Pending', 'Booked', 'Agreement'].includes(req.body.status)) {
+                booking.status = req.body.status;
+            }
+
+            // 4. Apply Safe Fields
+            const ALLOWED_FIELDS = [
+                'type', 'bookingDate', 'applicationNo', 'totalDealAmount', 'tokenAmount', 
+                'agreementAmount', 'agreementDate', 'partPaymentAmount', 'partPaymentDate', 
+                'finalPaymentDate', 'registryDate', 'sellerBrokeragePercent', 
+                'sellerBrokerageAmount', 'buyerBrokeragePercent', 'buyerBrokerageAmount',
+                'channelPartnerBrokeragePercent', 'channelPartnerBrokerageAmount',
+                'executiveIncentivePercent', 'executiveIncentiveAmount',
+                'remarks', 'paymentSchedule'
+            ];
+
+            for (const field of ALLOWED_FIELDS) {
+                if (req.body[field] !== undefined) {
+                    booking[field] = req.body[field];
+                }
+            }
+
+            await booking.save({ session });
+            updatedBooking = booking;
+        });
+
         console.log(`[BOOKING_ENGINE] Updated Booking ${req.params.id}`);
-        res.status(200).json({ success: true, data: booking });
+        res.status(200).json({ success: true, data: updatedBooking });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
+    } finally {
+        await session.endSession();
     }
 };
 
@@ -345,52 +487,101 @@ export const deleteBooking = async (req, res) => {
 };
 
 export const closeBooking = async (req, res) => {
+    const session = await mongoose.startSession();
+    let updatedBooking = null;
+
     try {
         const { id } = req.params;
         const { checklist, closingDate, remarks, newOwnerId } = req.body;
 
-        const booking = await Booking.findById(id).populate('property lead seller');
-        if (!booking) return res.status(404).json({ success: false, message: "Booking reference missing." });
-
-        booking.status = 'Registry'; 
-        booking.closingDetails = {
-            isClosed: true,
-            closingDate: closingDate || new Date(),
-            checklist: checklist,
-            remarks: remarks,
-            feedbackStatus: { buyerContacted: false, sellerContacted: false }
-        };
-        await booking.save();
-
-        if (booking.property) {
-            const Inventory = mongoose.model('Inventory');
-            const updateFields = { status: 'Sold Out' };
-
-            if (newOwnerId) {
-                updateFields.owners = [newOwnerId];
-            } else if (booking.lead) {
-                updateFields.owners = [booking.lead._id || booking.lead];
+        await session.withTransaction(async () => {
+            // [SECURITY] Validate Visibility and Team Isolation
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const booking = await Booking.findOne({ _id: id, ...visibilityFilter }).populate('property lead seller').session(session);
+            if (!booking) throw new Error("Booking reference missing or access denied.");
+            
+            if (booking.status === 'Registry' || booking.status === 'Cancelled') {
+                throw new Error(`Booking cannot be closed from current status: ${booking.status}`);
             }
 
-            await Inventory.findByIdAndUpdate(booking.property._id || booking.property, updateFields);
-        }
+            // 1. Update Booking Status
+            booking.status = 'Registry'; 
+            booking.closingDetails = {
+                isClosed: true,
+                closingDate: closingDate || new Date(),
+                checklist: checklist,
+                remarks: remarks,
+                feedbackStatus: { buyerContacted: false, sellerContacted: false }
+            };
+            await booking.save({ session });
+            updatedBooking = booking;
 
-        if (booking.dealId) {
-            const Deal = mongoose.model('Deal');
-            await Deal.findByIdAndUpdate(booking.dealId, { 
-                stage: 'Closed',
-                status: 'Won',
-                closingDetails: {
-                    isClosed: true,
-                    closingDate: booking.updatedAt,
-                    remarks: `Post-Sale Registry confirmed.`
+            // 2. ATOMIC INVENTORY TRANSITION
+            if (booking.property) {
+                const Inventory = mongoose.model('Inventory');
+                const Lookup = mongoose.model('Lookup');
+                
+                const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).select('_id').lean().session(session);
+                const targetStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Sold Out';
+
+                const sourceLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Available', 'Active', 'Blocked', 'Booked', 'Token Received'] } }).select('_id').lean().session(session);
+                const sourceIds = sourceLookups.map(l => l._id);
+
+                // Atomic query (prevent Invalid state transition)
+                const invQuery = { 
+                    _id: booking.property._id || booking.property,
+                    $or: [
+                        { status: null },
+                        { status: { $exists: false } },
+                        { status: { $in: ['Available', 'Active', 'Blocked', 'Booked', 'Token Received'] } }
+                    ]
+                };
+                if (sourceIds.length > 0) {
+                    invQuery.$or.push({ status: { $in: sourceIds } });
                 }
-            });
-        }
 
-        res.status(200).json({ success: true, message: "Transaction finalized and ownership transferred.", data: booking });
+                const updateFields = { status: targetStatusId };
+                if (newOwnerId) {
+                    updateFields.owners = [newOwnerId];
+                } else if (booking.lead) {
+                    updateFields.owners = [booking.lead._id || booking.lead];
+                }
+
+                const invUpdate = await Inventory.findOneAndUpdate(invQuery, updateFields, { new: true, session });
+                if (!invUpdate) {
+                    throw new Error("INVENTORY_UNAVAILABLE: The associated property cannot transition to Sold Out. It may be reserved or in an invalid state.");
+                }
+            }
+
+            // 3. ATOMIC DEAL UPDATE
+            if (booking.dealId) {
+                const Deal = mongoose.model('Deal');
+                await Deal.findOneAndUpdate(
+                    { _id: booking.dealId },
+                    { 
+                        stage: 'Closed',
+                        status: 'Won',
+                        closingDetails: {
+                            isClosed: true,
+                            closingDate: booking.updatedAt || new Date(),
+                            remarks: 'Post-Sale Registry confirmed.'
+                        }
+                    },
+                    { new: true, session }
+                );
+            }
+        });
+
+        // External side effects
+        res.status(200).json({ success: true, message: "Transaction finalized and ownership transferred.", data: updatedBooking });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        const msg = error.message;
+        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('access denied') || msg.includes('Booking cannot be closed')) {
+            return res.status(400).json({ success: false, message: msg });
+        }
+        res.status(500).json({ success: false, message: msg });
+    } finally {
+        await session.endSession();
     }
 };
 

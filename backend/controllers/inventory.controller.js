@@ -178,7 +178,7 @@ export const getInventory = async (req, res) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = { ...visibilityFilter };
+        let query = {};
 
         if (ownerPhone) {
             // [SECURITY FIX] Use $and to MERGE with visibility filter, not overwrite it
@@ -482,6 +482,10 @@ export const getInventory = async (req, res) => {
 
         // Only populate fields that are reliably ObjectIds (Contact references)
         // category, status, etc. in Inventory seem to be stored as objects or strings already
+        if (Object.keys(visibilityFilter).length > 0) {
+            query = { $and: [visibilityFilter, Object.keys(query).length > 0 ? query : {}] };
+        }
+
         console.log(`[INVENTORY_QUERY] projectId:`, finalProject, `Query:`, JSON.stringify(query, null, 2));
         const populateFields = [
             { path: "owners", select: "name phones emails title personalAddress correspondenceAddress" },
@@ -1461,7 +1465,13 @@ export const updateInventory = async (req, res) => {
             delete mongoUpdate.$set;
         }
 
-        const inventory = await Inventory.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, mongoUpdate, {
+        // 🛡️ CONCURRENCY HARDENING: Prevent last-writer-wins on status
+        const filter = { _id: req.params.id, ...visibilityFilter };
+        if (currentInv.status) {
+            filter.status = currentInv.status;
+        }
+
+        const inventory = await Inventory.findOneAndUpdate(filter, mongoUpdate, {
             new: true,
             runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
         }).populate([
@@ -1473,7 +1483,7 @@ export const updateInventory = async (req, res) => {
         ]);
 
         if (!inventory) {
-            return res.status(404).json({ success: false, error: "Inventory item not found" });
+            return res.status(409).json({ success: false, error: "Inventory update failed. The status was modified by a concurrent transaction (e.g. a new booking). Please refresh and try again." });
         }
 
         // Trigger Sync if documents were updated
@@ -1515,7 +1525,7 @@ export const updateInventory = async (req, res) => {
 export const deleteInventory = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const inventory = await Inventory.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        const inventory = await Inventory.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
 
         if (!inventory) {
             return res.status(404).json({ success: false, error: "Inventory item not found" });
@@ -1533,7 +1543,7 @@ export const bulkDeleteInventory = async (req, res) => {
         if (!ids || !Array.isArray(ids)) {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
-        await Inventory.deleteMany({ _id: { $in: ids } });
+        await Inventory.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
         res.status(200).json({ success: true, message: `${ids.length} items deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

@@ -5,41 +5,37 @@ import mongoose from "mongoose";
 /**
  * Syncs documents with linkedContactMobile to the corresponding Contact record.
  */
-export const syncDocumentsToContact = async (documents, metadata = {}) => {
+export const syncDocumentsToContact = async (documents, metadata = {}, opts = {}) => {
     if (!documents || !Array.isArray(documents)) return;
 
     for (const doc of documents) {
         if (doc.linkedContactMobile && doc.url) {
-            try {
-                // Find contact by mobile
-                const contact = await Contact.findOne({ "phones.number": doc.linkedContactMobile });
+            // Find contact by mobile
+            const contact = await Contact.findOne({ "phones.number": doc.linkedContactMobile }).session(opts.session || null);
+            
+            if (contact) {
+                // Check if duplicate
+                const isDuplicate = contact.documents.some(d => d.documentNo === doc.documentNo && d.documentPicture === doc.url);
                 
-                if (contact) {
-                    // Check if duplicate
-                    const isDuplicate = contact.documents.some(d => d.documentNo === doc.documentNo && d.documentPicture === doc.url);
-                    
-                    if (!isDuplicate) {
-                        const docCategory = doc.documentCategory || doc.documentName; 
-                        const docType = doc.documentType;
-                        const docNo = doc.documentNo || doc.documentNumber;
+                if (!isDuplicate) {
+                    const docCategory = doc.documentCategory || doc.documentName; 
+                    const docType = doc.documentType;
+                    const docNo = doc.documentNo || doc.documentNumber;
 
-                        contact.documents.push({
-                            documentCategory: mongoose.Types.ObjectId.isValid(docCategory) ? docCategory : undefined,
-                            documentType: mongoose.Types.ObjectId.isValid(docType) ? docType : undefined,
-                            documentName: mongoose.Types.ObjectId.isValid(docType) ? docType : undefined,
-                            documentNo: docNo,
-                            projectName: metadata.projectName || doc.projectName,
-                            block: metadata.block || doc.block,
-                            unitNumber: metadata.unitNumber || doc.unitNumber,
-                            documentPicture: doc.url
-                        });
-                        
-                        await contact.save();
-                        console.log(`[SYNC -> CONTACT] Document synced: ${contact.name} (${doc.linkedContactMobile})`);
-                    }
+                    contact.documents.push({
+                        documentCategory: mongoose.Types.ObjectId.isValid(docCategory) ? docCategory : undefined,
+                        documentType: mongoose.Types.ObjectId.isValid(docType) ? docType : undefined,
+                        documentName: mongoose.Types.ObjectId.isValid(docType) ? docType : undefined,
+                        documentNo: docNo,
+                        projectName: metadata.projectName || doc.projectName,
+                        block: metadata.block || doc.block,
+                        unitNumber: metadata.unitNumber || doc.unitNumber,
+                        documentPicture: doc.url
+                    });
+                    
+                    await contact.save(opts);
+                    console.log(`[SYNC -> CONTACT] Document synced: ${contact.name} (${doc.linkedContactMobile})`);
                 }
-            } catch (error) {
-                console.error(`[SYNC ERROR -> CONTACT] ${error.message}`);
             }
         }
     }
