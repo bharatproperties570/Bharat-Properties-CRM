@@ -57,7 +57,12 @@ test('8, 9, 10: reserveInboundMessage handles missing message.id, existing dupes
     assert.equal(resMissing.duplicate, false);
     assert.equal(resMissing.conversation, null);
 
-    mock.method(Conversation, 'exists', async (query) => query['messages.metadata.waId'] === 'wamid.exists');
+    mock.method(Conversation, 'exists', async (query) => {
+        if (query['$or']) {
+            return query['$or'][0]['messages.metadata.waId'] === 'wamid.exists';
+        }
+        return query['messages.metadata.waId'] === 'wamid.exists';
+    });
 
     // Mock 8: duplicate wamid across db
     const resDupe = await reserveInboundMessage({ mobile: '123', message: { id: 'wamid.exists' }, text: 'hi' });
@@ -67,7 +72,7 @@ test('8, 9, 10: reserveInboundMessage handles missing message.id, existing dupes
     // Mock 10: concurrent race condition where waId already pushed by another thread in findOneAndUpdate
     mock.method(Conversation, 'findOneAndUpdate', async (query, update, opts) => {
         if (query.phoneNumber === '123') return { _id: 'conv1' }; // Step 1: find active
-        if (query._id === 'conv1' && query['messages.metadata.waId']) return null; // Step 2: fails to push because waId exists
+        if (query._id === 'conv1' && (query['messages.metadata.waId'] || query['$and'] || query['$or'])) return null; // Step 2: fails to push because waId exists
     });
 
     const resRace = await reserveInboundMessage({ mobile: '123', message: { id: 'wamid.race' }, text: 'hi' });
