@@ -162,6 +162,12 @@ export const marketingAPI = {
     deleteScheduled: (id, type) => api.delete(`/marketing/scheduled/${id}`, { params: { type } }).then(res => res.data),
 };
 
+export const whatsappOnboardingAPI = {
+    start: (data) => api.post("/whatsapp-onboarding/start", data).then(res => res.data),
+    exchange: (data) => api.post("/whatsapp-onboarding/exchange", data).then(res => res.data),
+    getStatus: (sessionId) => api.get(`/whatsapp-onboarding/status/${sessionId}`).then(res => res.data)
+};
+
 export const socialAPI = {
     getStatus: () => api.get('/social/status').then(res => res.data),
     saveConfig: (platform, config) => api.post('/social/config/enterprise', { platform, config }).then(res => res.data),
@@ -737,6 +743,7 @@ export default {
     aiSettings: aiSettingsAPI,
     conversations: conversationAPI,
     social: socialAPI,
+    whatsappOnboarding: whatsappOnboardingAPI,
     stageEngine: stageEngineAPI,
     analytics: analyticsAPI
 };

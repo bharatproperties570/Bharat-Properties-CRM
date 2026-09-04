@@ -3,6 +3,8 @@ import { AlertCircle } from 'lucide-react';
 import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI, BASE_BACKEND_URL } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
+import WhatsAppCoexistenceConnect from "../../../components/whatsapp/WhatsAppCoexistenceConnect";
+
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
 
@@ -911,6 +913,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                         {type === 'whatsapp' && (
                             <>
+                                <WhatsAppCoexistenceConnect onComplete={(data) => { loadAiConfig(); }} />
+
+                                <div style={{ margin: "30px 0", borderTop: "1px dashed var(--border-color)", position: "relative" }}>
+                                    <span style={{ position: "absolute", top: "-10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "0 10px", fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold" }}>OR MANUAL SETUP (ADVANCED)</span>
+                                </div>
                                 <div className="card-input-group">
                                     <label>Permanent Access Token</label>
                                     <input type="password" placeholder="EAA..." value={config.token || ''} onChange={e => setConfig({ ...config, token: e.target.value })} />
