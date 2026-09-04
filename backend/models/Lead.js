@@ -13,8 +13,8 @@ const LeadSchema = new mongoose.Schema({
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
-    mobile: { type: String, required: true, unique: true },
-    email: { type: String, unique: true, sparse: true },
+    mobile: { type: String, required: true, index: true },
+    email: { type: String, index: true },
     requirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     subRequirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
@@ -269,21 +269,9 @@ const sanitizeLeadData = async (data) => {
 LeadSchema.pre('save', async function (next) {
     await sanitizeLeadData(this);
 
-    if (this.isNew) {
-        const queries = [{ mobile: this.mobile }];
-        if (this.email) queries.push({ email: this.email });
-
-        const existingLead = await mongoose.model('Lead').findOne({ $or: queries });
-        if (existingLead) {
-            // ... (Duplicate merge logic remains stable)
-            existingLead.intent_index = Math.max(existingLead.intent_index || 0, this.intent_index || 0);
-            if (this.description) existingLead.description = (existingLead.description ? existingLead.description + '\n---\n' : '') + this.description;
-            await existingLead.save();
-            const err = new Error('DuplicateLeadExists');
-            err.isDuplicateMerge = true;
-            err.mergedLead = existingLead;
-            return next(err);
-        }
+    // Sanitize empty string email to null to prevent pseudo-duplicate empty values
+    if (this.email === "" || (typeof this.email === 'string' && this.email.trim() === "")) {
+        this.email = null;
     }
 
     // Resolve Lookups (Batch parallel resolution for speed)

@@ -1,4 +1,5 @@
 import Lead from "../models/Lead.js";
+import { resolveContactIdentity } from '../services/contactIdentity.service.js';
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
@@ -890,6 +891,33 @@ export const addLead = async (req, res, next) => {
 
         let createdLeadId;
         await withMongoTransaction(async (session) => {
+            // Enterprise Identity Resolution: Link existing Contact or Create a new one
+            const contactRes = await resolveContactIdentity({
+                mobile: data.mobile,
+                email: data.email,
+                session,
+                createIfMissing: true,
+                contactData: {
+                    name: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Unknown',
+                    title: data.salutation,
+                    tags: [...(data.tags || []), 'Lead Contact'],
+                    source: data.source,
+                    subSource: data.subSource,
+                    campaign: data.campaign,
+                    assignedTo: data.assignment?.assignedTo || data.owner,
+                    owner: data.owner,
+                    teams: data.teams || [],
+                    department: data.department,
+                    requirement: data.requirement,
+                    budget: data.budget,
+                    location: data.location,
+                    personalAddress: data.personalAddress
+                }
+            });
+            if (contactRes.success && contactRes.contact && !contactRes.conflict) {
+                data.contactDetails = contactRes.contact._id;
+            }
+
             const leadDoc = new Lead(data);
             await leadDoc.save({ session });
             createdLeadId = leadDoc._id;
@@ -2590,70 +2618,50 @@ export const convertLeadToContact = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Lead is already converted' });
         }
 
-                let newContact;
+        let newContact;
         const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' }).lean();
 
         await withMongoTransaction(async (session) => {
-            // 1. Create or Resolve Contact (Phase 4.6 Identity Deduplication)
-            if (lead.mobile) {
-                newContact = await Contact.findOne({
-                    "phones.number": lead.mobile,
-                    isDeleted: false,
-                    isMerged: false
-                }).session(session);
-            }
-
-            if (!newContact) {
-                newContact = new Contact({
-                name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
-                title: lead.salutation,
-                phones: [{ number: lead.mobile, type: 'Personal' }],
-                emails: lead.email ? [{ address: lead.email, type: 'Personal' }] : [],
-                tags: [...(lead.tags || []), 'Converted Lead'],
-                description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
-                source: lead.source,
-                subSource: lead.subSource,
-                campaign: lead.campaign,
-                assignedTo: lead.assignment?.assignedTo || lead.owner,
-                owner: lead.owner,
-                teams: lead.teams || [],
-                department: lead.department,
-                requirement: lead.requirement,
-                budget: lead.budget,
-                location: lead.location,
-                personalAddress: {
-                    location: lead.searchLocation || lead.locArea,
-                    city: lead.locCity,
-                    state: lead.locState,
-                    country: lead.locCountry,
-                    area: lead.locArea
+            // 1. Resolve Contact Identity Safely
+            const contactRes = await resolveContactIdentity({
+                mobile: lead.mobile,
+                email: lead.email,
+                createIfMissing: true,
+                session,
+                contactData: {
+                    name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
+                    title: lead.salutation,
+                    tags: [...(lead.tags || []), 'Converted Lead'],
+                    description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
+                    source: lead.source,
+                    subSource: lead.subSource,
+                    campaign: lead.campaign,
+                    assignedTo: lead.assignment?.assignedTo || lead.owner,
+                    owner: lead.owner,
+                    teams: lead.teams || [],
+                    department: lead.department,
+                    requirement: lead.requirement,
+                    budget: lead.budget,
+                    location: lead.location,
+                    personalAddress: {
+                        location: lead.searchLocation || lead.locArea,
+                        city: lead.locCity,
+                        state: lead.locState,
+                        country: lead.locCountry,
+                        area: lead.locArea
+                    }
                 }
             });
-
-                await newContact.save({ session });
+            
+            if (!contactRes.success || !contactRes.contact) {
+                throw new Error(contactRes.error || 'Failed to resolve or create Contact Identity');
             }
+            newContact = contactRes.contact;
 
-            // 2. Transfer Activities
-            await Activity.updateMany(
-                { entityId: lead._id, entityType: 'Lead' },
-                { $set: { entityId: newContact._id, entityType: 'Contact' } },
-                { session }
-            );
+            // Phase 4.6H: DO NOT destructively transfer Activity records.
+            // Leave Activities on the Lead to preserve historical Lead context.
 
-            // Also update relatedTo arrays if they contain the Lead
-            await Activity.updateMany(
-                { "relatedTo.id": lead._id.toString() },
-                { 
-                    $set: { 
-                        "relatedTo.$[elem].id": newContact._id.toString(),
-                        "relatedTo.$[elem].model": "Contact",
-                        "relatedTo.$[elem].type": "Contact"
-                    } 
-                },
-                { arrayFilters: [{ "elem.id": lead._id.toString() }], session }
-            );
-
-            // 3. Mark Lead as Converted with Atomic Predicate
+            // 2. Mark Lead as Converted with Atomic Predicate
             const updatedLead = await Lead.findOneAndUpdate(
                 {
                     _id: id,
@@ -2663,6 +2671,7 @@ export const convertLeadToContact = async (req, res, next) => {
                 },
                 {
                     $set: {
+                        isConverted: true,
                         contactDetails: newContact._id,
                         stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
                         stageChangedAt: new Date(),

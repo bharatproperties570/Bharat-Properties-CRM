@@ -1967,8 +1967,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             ) : (
                                 <button
                                     onClick={handleSave}
-                                    style={isBlocked ? { ...buttonStyle.success, opacity: 0.5, cursor: 'not-allowed', background: '#94a3b8' } : buttonStyle.success}
-                                    disabled={isBlocked || isSaving}
+                                    style={(isBlocked && entityType !== 'lead') ? { ...buttonStyle.success, opacity: 0.5, cursor: 'not-allowed', background: '#94a3b8' } : buttonStyle.success}
+                                    disabled={(isBlocked && entityType !== 'lead') || isSaving}
                                 >
                                     {saveLabel}
                                 </button>
