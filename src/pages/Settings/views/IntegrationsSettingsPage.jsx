@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI } from '../../../utils/api';
+import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI, BASE_BACKEND_URL } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
 import smsService from '../../../services/smsService';
@@ -451,7 +451,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <div style={{ flex: 1, fontSize: '0.75rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'var(--bg-light)', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>
-                                    {window.location.origin.includes('localhost') ? (config.url || 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com') : window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}
+                                    {window.location.origin.includes('localhost') ? (config.url || 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com') : BASE_BACKEND_URL}{guide.webhookConfig?.path || '/api/social/webhook'}
                                 </div>
                                 <button 
                                     onClick={() => { 
