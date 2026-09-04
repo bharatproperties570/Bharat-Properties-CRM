@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
 import { renderValue } from '../../utils/renderUtils';
 import { getInitials } from '../../utils/helpers';
-import LeadConversionService from '../../services/LeadConversionService';
 // import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
@@ -917,8 +916,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         <button
                             onClick={() => {
                                 if (recordType === 'lead') {
-                                    const res = LeadConversionService.evaluateAutoConversion(contact, 'create_deal_clicked');
-                                    if (res.success) showNotification(res.message);
+                                    showNotification("Cannot create deal for a Lead. Please convert it to a Contact first.", "warning");
                                 } else {
                                     setIsAddDealModalOpen(true);
                                 }

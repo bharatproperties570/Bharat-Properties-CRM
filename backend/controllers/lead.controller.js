@@ -896,23 +896,7 @@ export const addLead = async (req, res, next) => {
                 mobile: data.mobile,
                 email: data.email,
                 session,
-                createIfMissing: true,
-                contactData: {
-                    name: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Unknown',
-                    title: data.salutation,
-                    tags: [...(data.tags || []), 'Lead Contact'],
-                    source: data.source,
-                    subSource: data.subSource,
-                    campaign: data.campaign,
-                    assignedTo: data.assignment?.assignedTo || data.owner,
-                    owner: data.owner,
-                    teams: data.teams || [],
-                    department: data.department,
-                    requirement: data.requirement,
-                    budget: data.budget,
-                    location: data.location,
-                    personalAddress: data.personalAddress
-                }
+                createIfMissing: false
             });
             if (contactRes.success && contactRes.contact && !contactRes.conflict) {
                 data.contactDetails = contactRes.contact._id;
@@ -2608,21 +2592,42 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
 export const convertLeadToContact = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const lead = await Lead.findById(id).lean();
+        
+        // 1. Validate ObjectId
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid Lead ID' });
+        }
 
+        // 2. Apply getVisibilityFilter
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const lead = await Lead.findOne({ _id: id, ...visibilityFilter });
+
+        // 3. Load Lead only if user is authorized
         if (!lead) {
-            return res.status(404).json({ success: false, message: 'Lead not found' });
+            return res.status(404).json({ success: false, message: 'Lead not found or access denied' });
         }
 
-        if (lead.isConverted || lead.contactDetails) {
-            return res.status(400).json({ success: false, message: 'Lead is already converted' });
+        // 4. Validate Lead is not deleted/archived
+        if (lead.isArchived || lead.isDeleted) {
+            return res.status(400).json({ success: false, message: 'Archived/deleted leads cannot be converted' });
         }
 
-        let newContact;
+        // 5. Check whether contactDetails already exists
+        if (lead.contactDetails) {
+            const existingContact = lead.contactDetails ? await Contact.findById(lead.contactDetails) : null;
+            return res.status(200).json({
+                success: true,
+                alreadyConverted: true,
+                message: 'Lead is already converted/linked to a contact.',
+                contact: existingContact
+            });
+        }
+
+        let resultingContactId = null;
+        let resultingContact = null;
         const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' }).lean();
 
         await withMongoTransaction(async (session) => {
-            // 1. Resolve Contact Identity Safely
             const contactRes = await resolveContactIdentity({
                 mobile: lead.mobile,
                 email: lead.email,
@@ -2632,7 +2637,7 @@ export const convertLeadToContact = async (req, res, next) => {
                     name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
                     title: lead.salutation,
                     tags: [...(lead.tags || []), 'Converted Lead'],
-                    description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
+                    description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore || 0}`,
                     source: lead.source,
                     subSource: lead.subSource,
                     campaign: lead.campaign,
@@ -2652,27 +2657,33 @@ export const convertLeadToContact = async (req, res, next) => {
                     }
                 }
             });
-            
+
+            if (contactRes.conflict) {
+                // Identity conflict: Mobile and Email belong to different existing Contacts
+                const conflictError = new Error('IDENTITY_CONFLICT');
+                conflictError.statusCode = 409;
+                throw conflictError;
+            }
+
             if (!contactRes.success || !contactRes.contact) {
                 throw new Error(contactRes.error || 'Failed to resolve or create Contact Identity');
             }
-            newContact = contactRes.contact;
 
-            // Phase 4.6H: DO NOT destructively transfer Activity records.
-            // Leave Activities on the Lead to preserve historical Lead context.
+            resultingContact = contactRes.contact;
+            resultingContactId = resultingContact._id;
 
             // 2. Mark Lead as Converted with Atomic Predicate
             const updatedLead = await Lead.findOneAndUpdate(
                 {
                     _id: id,
-                    isConverted: { $ne: true },
+                    
                     contactDetails: null,
                     "customFields.convertedAt": { $exists: false }
                 },
                 {
                     $set: {
-                        isConverted: true,
-                        contactDetails: newContact._id,
+                        
+                        contactDetails: resultingContactId,
                         stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
                         stageChangedAt: new Date(),
                         "customFields.convertedAt": new Date()
@@ -2682,15 +2693,15 @@ export const convertLeadToContact = async (req, res, next) => {
             );
 
             if (!updatedLead) {
-                const conflictError = new Error('CONCURRENCY_CONFLICT: Lead was already converted by another transaction.');
-                conflictError.statusCode = 409;
-                throw conflictError;
+                const concurrencyError = new Error('CONCURRENCY_CONFLICT: Lead was already converted by another transaction.');
+                concurrencyError.statusCode = 409;
+                throw concurrencyError;
             }
         });
 
         res.status(200).json({
             success: true,
-            contact: newContact,
+            contact: resultingContact,
             message: 'Lead successfully converted to Contact!'
         });
     } catch (error) {

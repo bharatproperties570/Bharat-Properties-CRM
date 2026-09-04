@@ -42,7 +42,7 @@ export const resolveContactIdentity = async ({
             }).session(session);
         }
 
-        if (normEmail && !contactByPhone) { // only query if phone didn't find one, or we want to detect conflicts
+        if (normEmail) {
             contactByEmail = await Contact.findOne({
                 "emails.address": normEmail,
                 isDeleted: { $ne: true },
@@ -57,7 +57,7 @@ export const resolveContactIdentity = async ({
                 success: true,
                 conflict: true,
                 conflictDetails: { contactA: contactByPhone, contactB: contactByEmail },
-                contact: contactByPhone // canonical fallback to phone
+                contact: null
             };
         }
 

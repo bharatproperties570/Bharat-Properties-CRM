@@ -121,7 +121,7 @@ async function runTests() {
                 await c.save({ session });
                 abortContactId = c._id;
                 
-                await Lead.findByIdAndUpdate(lead._id, { $set: { isConverted: true } }, { session });
+                await Lead.findByIdAndUpdate(lead._id, { $set: { contactDetails: new mongoose.Types.ObjectId() } }, { session });
                 
                 throw new Error("TEST_TRANSACTION_ABORT");
             });

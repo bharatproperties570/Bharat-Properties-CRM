@@ -13,7 +13,6 @@ import { getBadgeColor } from '../../utils/colorUtils';
 // CallModal removed - using global context
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddLeadModal from '../../components/AddLeadModal';
-import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
 import AIExpertService from '../../services/AIExpertService';
 import { STAGE_PIPELINE } from '../../utils/stageEngine';
@@ -812,26 +811,38 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         <button
                                             className="action-btn"
                                             style={{ background: '#f0f9ff', color: '#0369a1', borderColor: '#bae6fd' }}
-                                            title="Convert to Contact"
+                                            title="Convert to Contact (Single Lead Only)"
                                             onClick={async () => {
                                                 const selectedLeads = getSelectedLeads();
-                                                let successCount = 0;
-                                                for (const lead of selectedLeads) {
-                                                    try {
-                                                        const res = await leadsAPI.convertLead(lead._id);
-                                                        if (res.success) {
-                                                            successCount++;
-                                                            await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
+                                                if (selectedLeads.length !== 1) {
+                                                    showToast('Please select exactly one Lead to convert.', 'warning');
+                                                    return;
+                                                }
+                                                const lead = selectedLeads[0];
+
+                                                const confirmMsg = "Convert this Lead to Contact?\n\n- Existing Contact will be reused if found.\n- New Contact will be created only if no Contact exists.";
+                                                if (!window.confirm(confirmMsg)) return;
+
+                                                try {
+                                                    const res = await leadsAPI.convertLead(lead._id);
+                                                    if (res.success) {
+                                                        if (res.alreadyConverted) {
+                                                            showToast('Lead is already converted (linked to Contact).');
+                                                        } else {
+                                                            showToast(`Converted successfully! Linked to Contact ID: ${res.contact?._id || 'Unknown'}`);
                                                         }
-                                                    } catch (err) {
-                                                        showToast(err.message || 'Failed to convert lead', 'error');
+                                                        await fireEvent('lead_converted', res.contact || lead, { entityType: 'leads' });
+                                                        setSelectedIds([]);
+                                                        setRefreshTrigger(prev => prev + 1);
+                                                    }
+                                                } catch (err) {
+                                                    const errMsg = err.response?.data?.message || err.message || 'Failed to convert lead';
+                                                    if (err.response?.status === 409 || errMsg.includes('Conflict')) {
+                                                        showToast('Identity Conflict: ' + errMsg + '. Please resolve manually.', 'error');
+                                                    } else {
+                                                        showToast(errMsg, 'error');
                                                     }
                                                 }
-                                                if (successCount > 0) {
-                                                    showToast(`Converted ${successCount} Lead(s) to Contacts successfully!`);
-                                                }
-                                                setSelectedIds([]);
-                                                setRefreshTrigger(prev => prev + 1);
                                             }}
                                         >
                                             <i className="fas fa-user-check"></i> Convert
@@ -1090,8 +1101,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     getTeamName={getTeamName}
                                     getInitials={getInitials}
                                     AIExpertService={AIExpertService}
-                                    LeadConversionService={LeadConversionService}
-                                    enrichmentAPI={enrichmentAPI}
+                                                                        enrichmentAPI={enrichmentAPI}
                                     setRefreshTrigger={setRefreshTrigger}
                                     showToast={showToast}
                                 />
@@ -1444,7 +1454,6 @@ const LeadItem = React.memo(function LeadItem({
     getTeamName,
     getInitials,
     AIExpertService,
-    LeadConversionService,
     enrichmentAPI,
     setRefreshTrigger,
     showToast
@@ -1574,7 +1583,7 @@ const LeadItem = React.memo(function LeadItem({
                                     <i className="fas fa-clock"></i> {lead.expiryBadge.label.toUpperCase()}
                                 </span>
                             ) : (
-                                LeadConversionService.isConverted(lead.mobile) || lead.isConverted ? (
+                                lead.contactDetails || lead.isConverted ? (
                                     <span
                                         onClick={() => onNavigate('contact-detail', lead._id)}
                                         style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
