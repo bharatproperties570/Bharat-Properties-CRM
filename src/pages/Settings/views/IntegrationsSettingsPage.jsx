@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI } from '../../../utils/api';
+import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI, BASE_BACKEND_URL } from '../../../utils/api';
 import toast from 'react-hot-toast';
+
+import WhatsAppCoexistenceConnect from "../../../components/whatsapp/WhatsAppCoexistenceConnect";
 
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
@@ -451,11 +453,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <div style={{ flex: 1, fontSize: '0.75rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'var(--bg-light)', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>
-                                    {window.location.origin.includes('localhost') ? (config.url || 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com') : window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}
+                                    {window.location.origin.includes('localhost') ? (config.url || 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com') : BASE_BACKEND_URL}{guide.webhookConfig?.path || '/api/social/webhook'}
                                 </div>
                                 <button 
                                     onClick={() => { 
-                                        const url = `${window.location.origin.includes('localhost') ? 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com' : window.location.origin}${guide.webhookConfig?.path || '/api/social/webhook'}`;
+                                        const url = `${window.location.origin.includes('localhost') ? 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com' : BASE_BACKEND_URL}${guide.webhookConfig?.path || '/api/social/webhook'}`;
                                         navigator.clipboard.writeText(url); 
                                         toast.success('Webhook URL Copied!'); 
                                     }} 
@@ -911,6 +913,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                         {type === 'whatsapp' && (
                             <>
+                                <WhatsAppCoexistenceConnect onComplete={(data) => { loadAiConfig(); }} />
+
+                                <div style={{ margin: "30px 0", borderTop: "1px dashed var(--border-color)", position: "relative" }}>
+                                    <span style={{ position: "absolute", top: "-10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "0 10px", fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold" }}>OR MANUAL SETUP (ADVANCED)</span>
+                                </div>
                                 <div className="card-input-group">
                                     <label>Permanent Access Token</label>
                                     <input type="password" placeholder="EAA..." value={config.token || ''} onChange={e => setConfig({ ...config, token: e.target.value })} />

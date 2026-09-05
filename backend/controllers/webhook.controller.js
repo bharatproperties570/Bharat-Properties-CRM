@@ -1,3 +1,4 @@
+import whatsAppCoexistenceService from '../services/WhatsAppCoexistenceService.js';
 /**
  * webhook.controller.js
  * ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import fs from 'fs';
 import DealVerificationService from '../services/DealVerificationService.js';
-import { extractWhatsAppChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
+import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
 import { autoTriggerStageChange } from './activity.controller.js';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
@@ -461,11 +462,26 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
     // 2. Process asynchronously
     setImmediate(async () => {
         try {
+            // 1. Standard Inbound (Messages & Statuses)
             for (const value of extractWhatsAppChanges(req.body)) {
                 for (const status of value.statuses || []) {
                     await Conversation.updateOne({ $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
                 }
                 for (const message of value.messages || []) await processInboundMessage(message, value);
+            }
+            
+            // 2. Coexistence Sync (History, State, Echoes)
+            for (const change of extractCoexistenceChanges(req.body)) {
+                const waba_id = req.body.entry?.[0]?.id;
+                const phone_number_id = change.value?.metadata?.phone_number_id; // standard Meta metadata structure
+
+                if (change.field === 'smb_message_echoes' && change.value.message_echoes) {
+                    await whatsAppCoexistenceService.processMessageEchoes(change.value.message_echoes, phone_number_id, waba_id);
+                } else if (change.field === 'smb_app_state_sync' && change.value.state_sync) {
+                    await whatsAppCoexistenceService.processAppStateSync(change.value.state_sync);
+                } else if (change.field === 'history' && change.value.history) {
+                    await whatsAppCoexistenceService.processHistory(change.value.history, phone_number_id, waba_id);
+                }
             }
         } catch (error) {
             console.error('[WebhookController] Async processing error:', error.message);
