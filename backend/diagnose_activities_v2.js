@@ -5,7 +5,11 @@ import dotenv from 'dotenv';
 // Load env from current directory
 dotenv.config();
 
-const MONGODB_URI = "mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1";
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+    console.error('ERROR: MONGODB_URI is missing');
+    process.exit(1);
+}
 
 async function diagnose() {
     try {

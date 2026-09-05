@@ -2,7 +2,11 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const uri = process.env.MONGODB_URI || "mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1";
+const uri = process.env.MONGODB_URI;
+if (!uri) {
+    console.error('ERROR: MONGODB_URI is missing');
+    process.exit(1);
+}
 
 async function repair() {
     try {
