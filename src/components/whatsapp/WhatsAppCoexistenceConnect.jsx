@@ -23,7 +23,7 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
 
         window.fbAsyncInit = function() {
             window.FB.init({
-                appId: import.meta.env.VITE_META_APP_ID || '1473077001025314',
+                appId: import.meta.env.VITE_META_APP_ID,
                 cookie: true,
                 xfbml: true,
                 version: 'v20.0'
@@ -68,7 +68,7 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                 const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
                 
                 if (data?.type === 'WA_EMBEDDED_SIGNUP') {
-                    if (data.event === 'FINISH') {
+                    if (data.event === 'FINISH' || data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
                         console.log('[WhatsApp Onboarding] Captured Meta setup_widget_event');
                         widgetDataRef.current = { 
                             waba_id: data.data?.waba_id, 
@@ -135,7 +135,7 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
             sessionRef.current = startRes.sessionId;
             setStatus('META_POPUP');
             
-            const configId = import.meta.env.VITE_META_EMBEDDED_SIGNUP_CONFIG_ID;
+            const configId = import.meta.env.VITE_META_CONFIG_ID;
             if (!configId) {
                 throw new Error('Missing Embedded Signup Config ID in environment variables');
             }
@@ -162,7 +162,8 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                 response_type: 'code',
                 override_default_response_type: true,
                 extras: {
-                    feature: 'whatsapp_embedded_signup',
+                    featureType: 'whatsapp_business_app_onboarding',
+                    sessionInfoVersion: '3',
                     setup: {}
                 }
             });

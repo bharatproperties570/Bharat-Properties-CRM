@@ -59,7 +59,7 @@ class WhatsAppOnboardingService {
             // 2. Exchange Code
             const clientId = process.env.FB_GRAPH_APP_ID;
             const clientSecret = process.env.FB_APP_SECRET;
-            const redirectUri = process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || `${process.env.BASE_URL || 'http://localhost:4000'}/api/whatsapp-onboarding/callback`;
+            const redirectUri = process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
             
             // NOTE: In standard embedded signup flow via JS SDK callback, the code is swapped for a token.
             const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, redirectUri, code);
@@ -86,7 +86,9 @@ class WhatsAppOnboardingService {
 
             // 5. Register Phone (Cloud API Initialization)
             // Coexistence / Standard API requires phone registration
-            await metaApiClient.registerPhoneNumber(phone_number_id, pin || '123456', accessToken);
+            if (integration.connectionType !== 'COEXISTENCE') {
+                await metaApiClient.registerPhoneNumber(phone_number_id, pin || '123456', accessToken);
+            }
             await this._updateState(integration, 'PHONE_REGISTERED');
 
             // 6. Subscribe App to WABA

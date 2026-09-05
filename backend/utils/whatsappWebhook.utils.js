@@ -40,3 +40,11 @@ export const normalizeTextMessage = (message = {}) => {
         return { text: buildFlowSummary(flowResponse), flowResponse };
     } catch { return { text: '[Meta Flow Form Submitted]', flowResponse: null }; }
 };
+
+export const extractCoexistenceChanges = (body) => (body?.entry || []).flatMap(entry =>
+    (entry?.changes || []).filter(change => 
+        change?.field === 'smb_message_echoes' || 
+        change?.field === 'smb_app_state_sync' || 
+        change?.field === 'history'
+    ).map(change => ({ field: change.field, value: change.value || {} }))
+);
