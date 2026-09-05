@@ -808,6 +808,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-moon"></i> Dormant
                                         </button>
+                                        <PermissionGate module="leads" action="edit">
                                         <button
                                             className="action-btn"
                                             style={{ background: '#f0f9ff', color: '#0369a1', borderColor: '#bae6fd' }}
@@ -847,6 +848,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-user-check"></i> Convert
                                         </button>
+                                        </PermissionGate>
 
                                     </>
                                 )}
@@ -1583,7 +1585,7 @@ const LeadItem = React.memo(function LeadItem({
                                     <i className="fas fa-clock"></i> {lead.expiryBadge.label.toUpperCase()}
                                 </span>
                             ) : (
-                                lead.contactDetails || lead.isConverted ? (
+                                lead.contactDetails ? (
                                     <span
                                         onClick={() => onNavigate('contact-detail', lead._id)}
                                         style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}

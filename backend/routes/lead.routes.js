@@ -1,6 +1,7 @@
 import express from "express";
 import { getLeads, addLead, updateLead, deleteLead, bulkDeleteLeads, getLeadById, importLeads, checkDuplicatesImport, matchLeads, toggleLeadInterest, snoozeLeadMatch, togglePinMatch, convertLeadToContact } from "../controllers/lead.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
+import { requirePermission } from "../middlewares/permission.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
 const router = express.Router();
@@ -15,7 +16,7 @@ router.get("/:id", getLeadById);
 router.post("/import", importLeads);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", validateBusinessRules('leads'), addLead);
-router.post("/:id/convert", convertLeadToContact);
+router.post("/:id/convert", requirePermission.editLead, convertLeadToContact);
 router.put("/:id", validateBusinessRules('leads'), updateLead);
 router.patch("/:id", validateBusinessRules('leads'), updateLead);
 router.post("/bulk-delete", bulkDeleteLeads);
