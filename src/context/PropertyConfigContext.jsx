@@ -56,7 +56,7 @@ export const PropertyConfigProvider = ({ children }) => {
 
         // Fetch on mount handled centrally in fetchAll to prevent waterfall
         
-        const setConfigValue = (newValue, skipSync = false) => {
+        const setConfigValue = useCallback((newValue, skipSync = false) => {
             setValue(newValue);
             if (!skipSync) {
                 if (docId) {
@@ -68,7 +68,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         .catch(err => console.error(`[ScoringRule] Create failed for ${key}:`, err));
                 }
             }
-        };
+        }, [key, docId]);
 
         return [value, setConfigValue, setDocId];
     };
