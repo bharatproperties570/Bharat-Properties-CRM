@@ -27,8 +27,10 @@ export const getVisibilityFilter = async (user) => {
         userEmail === 'bharatproperties570@gmail.com' || 
         userEmail === 'shreykeshwar@gmail.com';
 
-    if (isSystemOwner || dataScope === 'all') {
-        console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${userEmail}`);
+    const isSuperAdmin = roleName === 'super admin' || roleName === 'admin';
+
+    if (isSystemOwner || dataScope === 'all' || isSuperAdmin) {
+        console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${userEmail} (Role: ${roleName})`);
         return {};
     }
 
