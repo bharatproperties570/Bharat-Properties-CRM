@@ -194,6 +194,18 @@ export const createUser = async (req, res) => {
                 message: `Role ${roleDoc.name} does not belong to ${department} department`
             });
         }
+        
+        // Privilege escalation check: Only Super Admins can assign the Super Admin role
+        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+        const targetRoleName = roleDoc.name.toLowerCase();
+        
+        if (targetRoleName === 'super admin' && currentUserRole !== 'super admin') {
+            await session.abortTransaction();
+            return res.status(403).json({
+                success: false,
+                message: 'Only Super Admins can assign the Super Admin role'
+            });
+        }
 
         // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -347,6 +359,23 @@ export const updateUser = async (req, res) => {
                 });
             }
         }
+        
+        // Privilege escalation check
+        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+        let targetExistingRole = '';
+        if (user.role) {
+            const existingRoleDoc = await Role.findById(user.role);
+            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+        }
+        const targetNewRole = updates.role ? (await Role.findById(updates.role))?.name?.toLowerCase() || '' : targetExistingRole;
+        
+        if ((targetExistingRole === 'super admin' || targetNewRole === 'super admin') && currentUserRole !== 'super admin') {
+            await session.abortTransaction();
+            return res.status(403).json({
+                success: false,
+                message: 'Only Super Admins can modify a Super Admin or assign the Super Admin role'
+            });
+        }
 
         // Update user
         Object.assign(user, updates);
@@ -409,15 +438,29 @@ export const updateUser = async (req, res) => {
  */
 export const deleteUser = async (req, res) => {
     try {
-        const user = await User.findByIdAndUpdate(
-            req.params.id,
-            { isActive: false, status: 'inactive' },
-            { new: true }
-        ).select('-password');
-
+        const user = await User.findById(req.params.id);
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
+        
+        // Privilege escalation check
+        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+        let targetExistingRole = '';
+        if (user.role) {
+            const existingRoleDoc = await Role.findById(user.role);
+            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+        }
+        
+        if (targetExistingRole === 'super admin' && currentUserRole !== 'super admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only Super Admins can delete a Super Admin'
+            });
+        }
+        
+        user.isActive = false;
+        user.status = 'inactive';
+        await user.save();
 
         res.status(200).json({ success: true, data: user });
     } catch (error) {
@@ -436,6 +479,21 @@ export const toggleUserStatus = async (req, res) => {
         const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        
+        // Privilege escalation check
+        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+        let targetExistingRole = '';
+        if (user.role) {
+            const existingRoleDoc = await Role.findById(user.role);
+            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+        }
+        
+        if (targetExistingRole === 'super admin' && currentUserRole !== 'super admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only Super Admins can modify a Super Admin status'
+            });
         }
 
         // Check permissions (Only Admin or Senior Role)
@@ -566,6 +624,22 @@ export const deactivateUser = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
+            });
+        }
+        
+        // Privilege escalation check
+        const currentUserRole = req.user?.role?.name?.toLowerCase() || '';
+        let targetExistingRole = '';
+        if (user.role) {
+            const existingRoleDoc = await Role.findById(user.role);
+            if (existingRoleDoc) targetExistingRole = existingRoleDoc.name.toLowerCase();
+        }
+        
+        if (targetExistingRole === 'super admin' && currentUserRole !== 'super admin') {
+            await session.abortTransaction();
+            return res.status(403).json({
+                success: false,
+                message: 'Only Super Admins can deactivate a Super Admin'
             });
         }
 
