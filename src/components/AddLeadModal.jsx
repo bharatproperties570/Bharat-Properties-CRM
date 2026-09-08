@@ -1006,55 +1006,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             // Ensure we setIsSaving(false) in catch or end
             let finalContactId = selectedContact?._id || formData.contactDetails || null;
 
-            // If no existing contact selected, create new one first
-            if (!finalContactId) {
-                // Prepare contact payload
-                // Filter out empty phones/emails and trim data
-                const contactPayload = {
-                    title: getLookupId('Title', formData.title) || "",
-                    name: (formData.name || "").trim(),
-                    surname: (formData.surname || "").trim(),
-                    phones: (formData.phones || []).filter(p => p.number && p.number.trim()),
-                    emails: (formData.emails || []).filter(e => e.address && e.address.trim()),
-                    source: getLookupId('Source', formData.source) || "",
-                    countryCode: getLookupId('CountryCode', formData.countryCode) || "",
-                    campaign: getLookupId('Campaign', formData.campaign) || "",
-                    subSource: getLookupId('SubSource', formData.subSource) || "",
-                    team: formData.team || "",
-                    owner: formData.owner || "",
-                    visibleTo: formData.visibleTo === "Public" ? "Everyone" : (formData.visibleTo || "Everyone"),
-                };
-
-                // Basic validation before sending to API
-                if (!contactPayload.name) {
-                    alert("First Name is required for contact creation.");
-                    setIsSaving(false);
-                    return;
-                }
-                if (contactPayload.phones.length === 0) {
-                    alert("At least one mobile number is required.");
-                    setIsSaving(false);
-                    return;
-                }
-
-                const cleanContactPayload = normalizeRefs(contactPayload);
-
-                // Call Add Contact API
-                try {
-                    response = await api.post("contacts", cleanContactPayload);
-                    if (response.data && response.data.success) {
-                        finalContactId = response.data.data._id;
-                        window.dispatchEvent(new CustomEvent('contact-updated'));
-                    } else {
-                        throw new Error(response.data?.message || "Failed to create contact");
-                    }
-                } catch (contactError) {
-                    console.error("Error creating contact:", contactError);
-                    alert("Failed to save contact details: " + (contactError.response?.data?.message || contactError.message));
-                    setIsSaving(false);
-                    return;
-                }
-            }
+            // [PHASE 4.6-R1] Frontend Contact creation bypass removed.
+            // Leads are submitted directly to the backend. The backend resolves identity
+            // and sets contactDetails to null (Lead remains Lead) if no Contact exists.
 
             // Now call onAdd with the lead data including the contactDetails (ID)
             const leadPayload = {
