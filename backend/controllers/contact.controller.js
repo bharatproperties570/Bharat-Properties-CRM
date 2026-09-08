@@ -168,35 +168,69 @@ export const getContacts = async (req, res, next) => {
         const results = await paginate(Contact, query, Number(page), Number(limit), sortOption, populateFields);
         console.log(`[Contacts Backend Debug] Records Found: ${results.records?.length}`);
 
-        // Attach Interaction Data (Activity Counts & Recent Activities)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🚀 [ENTERPRISE] CRM Linkage + Interaction Data — Parallel Aggregation
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if (results.records && results.records.length > 0) {
             const contactIds = results.records.map(r => r._id);
             const contactIdsStr = contactIds.map(id => id.toString());
+            // 🛡️ [SENIOR FIX] Mixed-type matching: Activity.entityId stores both ObjectId and String
+            const mixedEntityIds = [...contactIds, ...contactIdsStr];
 
-            // 1. Efficient Aggregation for Activity Counts and Latest Activity
-            const activityStats = await Activity.aggregate([
-                { $match: { entityId: { $in: contactIdsStr }, status: 'Completed' } },
-                { $sort: { createdAt: -1 } },
-                {
-                    $group: {
-                        _id: "$entityId",
-                        latestActivity: { $first: "$subject" },
-                        latestDate: { $first: "$createdAt" },
-                        call: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /call/i } }, 1, 0] } },
-                        meeting: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /meeting/i } }, 1, 0] } },
-                        siteVisit: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /site visit/i } }, 1, 0] } },
-                        email: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /email/i } }, 1, 0] } },
-                        whatsapp: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /(whatsapp|messaging)/i } }, 1, 0] } }
+            // Run ALL aggregations in parallel for maximum performance
+            const [activityStats, smsStats, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
+                // 1. Activity Counts + Latest Activity (FIXED: mixedEntityIds + $toLower instead of $regexMatch)
+                Activity.aggregate([
+                    { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
+                    { $sort: { createdAt: -1 } },
+                    {
+                        $group: {
+                            _id: { $toString: "$entityId" },
+                            latestActivity: { $first: "$subject" },
+                            latestDate: { $first: "$createdAt" },
+                            call: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["call", "outbound call", "inbound call"]] }, 1, 0] } },
+                            meeting: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["meeting"]] }, 1, 0] } },
+                            siteVisit: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["site visit"]] }, 1, 0] } },
+                            email: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["email"]] }, 1, 0] } },
+                            whatsapp: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["whatsapp", "messaging"]] }, 1, 0] } }
+                        }
                     }
-                }
+                ]),
+
+                // 2. SMS Counts (FIXED: mixedEntityIds)
+                SmsLog.aggregate([
+                    { $match: { entityId: { $in: mixedEntityIds }, status: { $in: ['Sent', 'Delivered'] } } },
+                    { $group: { _id: { $toString: "$entityId" }, sms: { $sum: 1 } } }
+                ]),
+
+                // 3. CRM Linkage: Leads Count
+                Lead.aggregate([
+                    { $match: { contactDetails: { $in: contactIds }, isArchived: { $ne: true } } },
+                    { $group: { _id: "$contactDetails", count: { $sum: 1 } } }
+                ]),
+
+                // 4. CRM Linkage: Deals Count (owner = Contact who owns property being dealt)
+                Deal.aggregate([
+                    { $match: { $or: [{ owner: { $in: mixedEntityIds } }, { buyer: { $in: mixedEntityIds } }] } },
+                    { $group: { _id: null, pairs: { $push: { owner: "$owner", buyer: "$buyer" } } } }
+                ]),
+
+                // 5. CRM Linkage: Inventory/Property Count
+                Inventory.aggregate([
+                    { $match: { $or: [{ owners: { $in: contactIds } }, { "associates.contact": { $in: contactIds } }] } },
+                    { $unwind: { path: "$owners", preserveNullAndEmptyArrays: true } },
+                    { $group: { _id: "$owners", count: { $sum: 1 } } }
+                ]),
+
+                // 6. CRM Linkage: Booking Count
+                Booking.aggregate([
+                    { $match: { $or: [{ lead: { $in: contactIds } }, { seller: { $in: contactIds } }, { channelPartner: { $in: contactIds } }] } },
+                    { $group: { _id: null, pairs: { $push: { lead: "$lead", seller: "$seller", channelPartner: "$channelPartner" } } } }
+                ])
             ]);
 
-            // 2. Efficient Aggregation for SMS Counts
-            const smsStats = await SmsLog.aggregate([
-                { $match: { entityId: { $in: contactIdsStr }, status: { $in: ['Sent', 'Delivered'] } } },
-                { $group: { _id: "$entityId", sms: { $sum: 1 } } }
-            ]);
-
+            // ━━ Build Lookup Maps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // Activity + SMS stats map
             const statsMap = new Map();
             activityStats.forEach(stat => statsMap.set(stat._id, stat));
             smsStats.forEach(stat => {
@@ -207,10 +241,70 @@ export const getContacts = async (req, res, next) => {
                 }
             });
 
+            // Lead linkage map
+            const leadMap = new Map();
+            leadStats.forEach(stat => leadMap.set(stat._id?.toString(), stat.count));
+
+            // Deal linkage map (need to count per-contact from owner/buyer fields)
+            const dealMap = new Map();
+            if (dealStats.length > 0 && dealStats[0]?.pairs) {
+                dealStats[0].pairs.forEach(pair => {
+                    const ownerId = pair.owner?.toString();
+                    const buyerId = pair.buyer?.toString();
+                    if (ownerId && contactIdsStr.includes(ownerId)) dealMap.set(ownerId, (dealMap.get(ownerId) || 0) + 1);
+                    if (buyerId && contactIdsStr.includes(buyerId)) dealMap.set(buyerId, (dealMap.get(buyerId) || 0) + 1);
+                });
+            }
+
+            // Inventory linkage map
+            const inventoryMap = new Map();
+            inventoryStats.forEach(stat => {
+                if (stat._id) inventoryMap.set(stat._id.toString(), stat.count);
+            });
+
+            // Booking linkage map
+            const bookingMap = new Map();
+            if (bookingStats.length > 0 && bookingStats[0]?.pairs) {
+                bookingStats[0].pairs.forEach(pair => {
+                    [pair.lead, pair.seller, pair.channelPartner].forEach(id => {
+                        const idStr = id?.toString();
+                        if (idStr && contactIdsStr.includes(idStr)) bookingMap.set(idStr, (bookingMap.get(idStr) || 0) + 1);
+                    });
+                });
+            }
+
+            // ━━ Merge All Data Into Contact Records ━━━━━━━━━━━━━━━━━━━━━━━━━
             results.records = results.records.map(contact => {
                 const contactId = contact._id.toString();
                 const stats = statsMap.get(contactId) || {};
                 const c = contact.toObject ? contact.toObject() : contact;
+
+                // Human-readable last activity text
+                let lastActText = null;
+                if (stats.latestDate) {
+                    const now = new Date();
+                    const actDate = new Date(stats.latestDate);
+                    const diffMs = now - actDate;
+                    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+                    if (diffDays === 0) {
+                        lastActText = `${stats.latestActivity || 'Activity'} today`;
+                    } else if (diffDays === 1) {
+                        lastActText = `${stats.latestActivity || 'Activity'} yesterday`;
+                    } else if (diffDays <= 7) {
+                        lastActText = `${stats.latestActivity || 'Activity'} ${diffDays} days ago`;
+                    } else {
+                        lastActText = `${stats.latestActivity || 'Activity'} on ${actDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+                    }
+                }
+
+                // Build CRM Links object
+                const leadsCount = leadMap.get(contactId) || 0;
+                const dealsCount = dealMap.get(contactId) || 0;
+                const propertyCount = inventoryMap.get(contactId) || 0;
+                const bookingCount = bookingMap.get(contactId) || 0;
+                const totalInteractions = (stats.call || 0) + (stats.meeting || 0) + (stats.siteVisit || 0) + (stats.email || 0) + (stats.whatsapp || 0) + (stats.sms || 0);
 
                 return {
                     ...c,
@@ -222,8 +316,15 @@ export const getContacts = async (req, res, next) => {
                         sms: stats.sms || 0, 
                         whatsapp: stats.whatsapp || 0 
                     },
-                    activity: stats.latestActivity || "None",
-                    lastAct: stats.latestDate ? new Date(stats.latestDate).toLocaleDateString() : "Today"
+                    activity: stats.latestActivity || null,
+                    lastAct: lastActText,
+                    crmLinks: {
+                        leads: leadsCount,
+                        deals: dealsCount,
+                        property: propertyCount,
+                        booking: bookingCount,
+                        activities: totalInteractions
+                    }
                 };
             });
         }

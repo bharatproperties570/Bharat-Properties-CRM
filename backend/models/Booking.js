@@ -255,4 +255,10 @@ function computeNextAction(booking) {
     return { label: 'Follow Up with Buyer', urgency: 'Low', dueDate: null };
 }
 
+
+// 🚀 [ENTERPRISE] CRM Linkage aggregation indexes
+BookingSchema.index({ lead: 1 }, { background: true });
+BookingSchema.index({ seller: 1 }, { background: true });
+BookingSchema.index({ channelPartner: 1 }, { background: true });
+
 export default mongoose.model("Booking", BookingSchema);

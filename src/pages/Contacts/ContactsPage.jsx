@@ -197,18 +197,31 @@ const ContactRow = memo(function ContactRow({
         )}
         
         {/* CRM Linkages */}
-        {item?.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {item?.crmLinks?.leads && (
-              <span title={`Leads (${item.crmLinks.leads})`} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <i className="fas fa-user-plus" style={{ fontSize: "0.85rem" }}></i>
-                {item.crmLinks.leads}
+        {item?.crmLinks && (item.crmLinks.leads || item.crmLinks.deals || item.crmLinks.activities || item.crmLinks.property || item.crmLinks.booking) ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {item.crmLinks.leads > 0 && (
+              <span title={`Leads (${item.crmLinks.leads})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#dbeafe", color: "#1d4ed8", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <i className="fas fa-user-plus" style={{ fontSize: "0.6rem" }}></i> Leads ({item.crmLinks.leads})
               </span>
             )}
-            {item?.crmLinks?.deals && (
-              <span title={`Deals (${item.crmLinks.deals})`} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--stat-property-bg)", color: "var(--stat-property-color)", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <i className="fas fa-handshake" style={{ fontSize: "0.85rem" }}></i>
-                {item.crmLinks.deals}
+            {item.crmLinks.deals > 0 && (
+              <span title={`Deals (${item.crmLinks.deals})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#fef3c7", color: "#92400e", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <i className="fas fa-handshake" style={{ fontSize: "0.6rem" }}></i> Deals ({item.crmLinks.deals})
+              </span>
+            )}
+            {item.crmLinks.property > 0 && (
+              <span title={`Property (${item.crmLinks.property})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#d1fae5", color: "#065f46", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <i className="fas fa-building" style={{ fontSize: "0.6rem" }}></i> Property ({item.crmLinks.property})
+              </span>
+            )}
+            {item.crmLinks.booking > 0 && (
+              <span title={`Booking (${item.crmLinks.booking})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#ede9fe", color: "#5b21b6", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <i className="fas fa-file-signature" style={{ fontSize: "0.6rem" }}></i> Booking ({item.crmLinks.booking})
+              </span>
+            )}
+            {item.crmLinks.activities > 0 && (
+              <span title={`Activities (${item.crmLinks.activities})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#fce7f3", color: "#9d174d", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <i className="fas fa-tasks" style={{ fontSize: "0.6rem" }}></i> Activities ({item.crmLinks.activities})
               </span>
             )}
           </div>
@@ -217,8 +230,15 @@ const ContactRow = memo(function ContactRow({
         )}
       </div>
 
+
       <div className="col-interaction">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+        {/* Last Activity Text */}
+        {item.lastAct && (
+          <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px', lineHeight: 1.3 }}>
+            {item.lastAct}
+          </div>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
           {(() => {
             const counts = item.interactionCounts || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 };
             const items = [
@@ -230,10 +250,10 @@ const ContactRow = memo(function ContactRow({
               { key: 'sms', icon: 'fa-sms', color: isDark ? 'var(--text-muted)' : '#64748b', label: 'SMS' }
             ];
             const activeItems = items.filter(i => (counts[i.key] || 0) > 0);
-            if (activeItems.length === 0) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
+            if (activeItems.length === 0 && !item.lastAct) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
             return activeItems.map(i => (
-              <div key={i.key} title={`${counts[i.key]} ${i.label}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: `${i.color}10`, border: `1px solid ${i.color}30`, padding: '2px 6px', borderRadius: '4px', color: i.color, fontSize: '0.7rem', fontWeight: 700 }}>
-                <i className={`${i.brand ? 'fab' : 'fas'} ${i.icon}`} style={{ fontSize: '0.65rem' }}></i>
+              <div key={i.key} title={`${counts[i.key]} ${i.label}`} style={{ display: 'flex', alignItems: 'center', gap: '3px', background: `${i.color}10`, border: `1px solid ${i.color}30`, padding: '1px 5px', borderRadius: '4px', color: i.color, fontSize: '0.65rem', fontWeight: 700 }}>
+                <i className={`${i.brand ? 'fab' : 'fas'} ${i.icon}`} style={{ fontSize: '0.6rem' }}></i>
                 <span>{counts[i.key]}</span>
               </div>
             ));
@@ -872,8 +892,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div>LOCATION</div>
                 <div>PROFESSIONAL</div>
                 <div>SOURCE & TAGS</div>
-                <div>CRM LINKS</div>
-                <div>INTERACTION</div>
+                <div>CRM LINKAGE</div>
+                <div>LAST INTERACTION</div>
                 <div style={{ paddingLeft: "10px" }}>ASSIGNMENT</div>
               </div>
 
