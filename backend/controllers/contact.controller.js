@@ -1,3 +1,4 @@
+import { previewMerge, executeMerge } from '../services/contactMerge.service.js';
 import mongoose from "mongoose";
 import Contact from "../models/Contact.js";
 import Lead from "../models/Lead.js";
@@ -1415,34 +1416,35 @@ export const getContactStats = async (req, res, next) => {
 
 
 export const mergeContacts = async (req, res, next) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { masterContactId, duplicateContactIds, resolvedData } = req.body;
 
         if (!masterContactId || !duplicateContactIds || !Array.isArray(duplicateContactIds) || duplicateContactIds.length === 0) {
             return res.status(400).json({ success: false, message: 'Invalid payload' });
         }
+        if (duplicateContactIds.includes(masterContactId)) {
+            return res.status(400).json({ success: false, message: 'Master cannot be a duplicate' });
+        }
 
-        // 1. Verify all contacts exist
-        const masterContact = await Contact.findById(masterContactId).session(session);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Verify master contact exists and is accessible
+        const masterContact = await Contact.findOne({ _id: masterContactId, ...visibilityFilter }).lean();
         if (!masterContact) {
-            throw new Error('Master contact not found');
+            return res.status(404).json({ success: false, message: 'Master contact not found or access denied' });
         }
 
-        const duplicates = await Contact.find({ _id: { $in: duplicateContactIds } }).session(session);
+        // 2. Verify all duplicates exist and are accessible
+        const duplicates = await Contact.find({ _id: { $in: duplicateContactIds }, ...visibilityFilter }).lean();
         if (duplicates.length !== duplicateContactIds.length) {
-            throw new Error('One or more duplicate contacts not found');
+            return res.status(404).json({ success: false, message: 'One or more duplicate contacts not found or access denied' });
         }
 
-        // 2. Aggregate Arrays dynamically across all contacts (Master + Duplicates)
+        // We apply the UI's manual resolvedData to the FIRST duplicate's preview
         const allContacts = [masterContact, ...duplicates];
-        
         const aggregateArray = (arrPath, keyField = null) => {
             const combined = [];
             const seen = new Set();
-            
             allContacts.forEach(contact => {
                 const arr = contact[arrPath];
                 if (arr && Array.isArray(arr)) {
@@ -1466,104 +1468,70 @@ export const mergeContacts = async (req, res, next) => {
             socialMedia: aggregateArray('socialMedia', 'platform'),
         };
 
-        // Ensure we don't accidentally overwrite arrays that were correctly resolved from UI
-        if (!resolvedData.documents) resolvedData.documents = aggregatedArrays.documents;
-        if (!resolvedData.educations) resolvedData.educations = aggregatedArrays.educations;
-        if (!resolvedData.loans) resolvedData.loans = aggregatedArrays.loans;
-        if (!resolvedData.incomes) resolvedData.incomes = aggregatedArrays.incomes;
-        if (!resolvedData.socialMedia) resolvedData.socialMedia = aggregatedArrays.socialMedia;
+        const resolved = resolvedData || {};
+        if (!resolved.documents) resolved.documents = aggregatedArrays.documents;
+        if (!resolved.educations) resolved.educations = aggregatedArrays.educations;
+        if (!resolved.loans) resolved.loans = aggregatedArrays.loans;
+        if (!resolved.incomes) resolved.incomes = aggregatedArrays.incomes;
+        if (!resolved.socialMedia) resolved.socialMedia = aggregatedArrays.socialMedia;
 
-        // Clean up any populated lookup objects before saving to prevent CastError
         const cleanPopulated = (obj, isArrayElement = false) => {
             if (!obj || typeof obj !== 'object') return obj;
             if (Array.isArray(obj)) return obj.map(item => cleanPopulated(item, true));
-            
-            // If it's a populated lookup or user, extract its _id
-            // Do not blindly convert array elements (like emails/phones) to string IDs
             if (obj._id && mongoose.Types.ObjectId.isValid(obj._id)) {
-                if (!isArrayElement || obj.lookup_value !== undefined || obj.name !== undefined) {
-                    return obj._id;
-                }
+                if (!isArrayElement || obj.lookup_value !== undefined || obj.name !== undefined) return obj._id;
             }
-            
             const cleaned = {};
-            for (const key in obj) {
-                cleaned[key] = cleanPopulated(obj[key], false);
-            }
+            for (const key in obj) cleaned[key] = cleanPopulated(obj[key], false);
             return cleaned;
         };
 
-        const sanitizedResolvedData = cleanPopulated(resolvedData);
+        const sanitizedResolvedData = cleanPopulated(resolved);
 
-        // 3. Update Master Contact with resolvedData and consolidated arrays
-        const masterDoc = await Contact.findById(masterContactId).session(session);
-        for (const [key, value] of Object.entries(sanitizedResolvedData)) {
-            masterDoc.set(key, value);
+        // Process each duplicate sequentially through the Enterprise Engine
+        const mergedAudits = [];
+        let currentMaster = masterContact;
+
+        for (let i = 0; i < duplicates.length; i++) {
+            const dup = duplicates[i];
+            
+            // 1. Get exact rewires and baseline field changes for this duplicate from Enterprise service
+            const p = await previewMerge(currentMaster, dup);
+
+            // 2. If this is the FIRST duplicate, overlay the UI's manual resolvedData
+            if (i === 0 && Object.keys(sanitizedResolvedData).length > 0) {
+                p.consolidatedFields = p.consolidatedFields || { $set: {} };
+                p.consolidatedFields.$set = p.consolidatedFields.$set || {};
+                
+                for (const [key, newValue] of Object.entries(sanitizedResolvedData)) {
+                    // Only apply if it actually differs from current master state
+                    const oldValue = currentMaster[key];
+                    if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+                        p.consolidatedFields.$set[key] = newValue;
+                        
+                        // Overwrite any baseline fieldChange for this key with the manual UI change
+                        const existingChangeIdx = p.fieldChanges.findIndex(fc => fc.field === key);
+                        if (existingChangeIdx >= 0) {
+                            p.fieldChanges[existingChangeIdx].newValue = newValue;
+                        } else {
+                            p.fieldChanges.push({ field: key, oldValue, newValue });
+                        }
+                    }
+                }
+            } else {
+                // For 2nd, 3rd duplicates, we DO NOT apply `consolidatedFields` (to avoid overriding the UI choices)
+                // We only do reference rewiring and marking duplicate as deleted
+                p.consolidatedFields = { $set: {}, $addToSet: {} };
+                p.fieldChanges = []; // Keep it clean to avoid conflicting with the first merge's manual data
+            }
+
+            // Execute the merge mutation cleanly inside its own transaction via the Enterprise Engine
+            const audit = await executeMerge(currentMaster._id, dup._id, p, { userId: req.user?._id });
+            mergedAudits.push(audit);
+            
+            // Refresh currentMaster state for the next duplicate loop
+            currentMaster = await Contact.findById(currentMaster._id).lean();
         }
-        const updatedMaster = await masterDoc.save({ session });
-
-        // 4. Complete Reference Graph Migration (Phase 4.6 Architecture)
-
-        // SINGULAR REFERENCES ($set)
-        await Lead.updateMany({ contactDetails: { $in: duplicateContactIds } }, { $set: { contactDetails: masterContactId } }, { session });
-        await Booking.updateMany({ lead: { $in: duplicateContactIds } }, { $set: { lead: masterContactId } }, { session });
-        await Booking.updateMany({ seller: { $in: duplicateContactIds } }, { $set: { seller: masterContactId } }, { session });
-        await Booking.updateMany({ channelPartner: { $in: duplicateContactIds } }, { $set: { channelPartner: masterContactId } }, { session });
-        await Conversation.updateMany({ contact: { $in: duplicateContactIds } }, { $set: { contact: masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.owner": { $in: duplicateContactIds } }, { $set: { "partyStructure.owner": masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.buyer": { $in: duplicateContactIds } }, { $set: { "partyStructure.buyer": masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.channelPartner": { $in: duplicateContactIds } }, { $set: { "partyStructure.channelPartner": masterContactId } }, { session });
-        await Deal.updateMany({ owner: { $in: duplicateContactIds } }, { $set: { owner: masterContactId } }, { session });
-        await Deal.updateMany({ associatedContact: { $in: duplicateContactIds } }, { $set: { associatedContact: masterContactId } }, { session });
-
-        // LINEAGE ($set)
-        await Contact.updateMany({ mergedInto: { $in: duplicateContactIds } }, { $set: { mergedInto: masterContactId } }, { session });
-
-        // POLYMORPHIC REFERENCES ($set and arrayFilters)
-        await Activity.updateMany(
-            { entityType: 'Contact', entityId: { $in: duplicateContactIds } },
-            { $set: { entityId: masterContactId } },
-            { session }
-        );
-        await Activity.updateMany(
-            { "relatedTo.model": "Contact", "relatedTo.id": { $in: duplicateContactIds } },
-            { $set: { "relatedTo.$[elem].id": masterContactId } },
-            { arrayFilters: [{ "elem.model": "Contact", "elem.id": { $in: duplicateContactIds } }], session }
-        );
-
-        // NESTED ARRAY REFERENCES (arrayFilters)
-        await Inventory.updateMany(
-            { "associates.contact": { $in: duplicateContactIds } },
-            { $set: { "associates.$[elem].contact": masterContactId } },
-            { arrayFilters: [{ "elem.contact": { $in: duplicateContactIds } }], session }
-        );
-        await Inventory.updateMany(
-            { "ownerHistory.contactId": { $in: duplicateContactIds } },
-            { $set: { "ownerHistory.$[elem].contactId": masterContactId } },
-            { arrayFilters: [{ "elem.contactId": { $in: duplicateContactIds } }], session }
-        );
-
-        // ARRAY REFERENCES ($addToSet followed by $pullAll)
-        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $addToSet: { owners: masterContactId } }, { session });
-        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $pullAll: { owners: duplicateContactIds } }, { session });
-        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $addToSet: { employees: masterContactId } }, { session });
-        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $pullAll: { employees: duplicateContactIds } }, { session });
-
-        // 5. Duplicate State Transition
-        await Contact.updateMany(
-            { _id: { $in: duplicateContactIds } },
-            { $set: { isMerged: true, mergedInto: masterContactId, status: 'Merged' } },
-            { session }
-        );
-
-        // 6. MergeAudit Creation (One record per duplicate)
-        const auditRecords = duplicateContactIds.map(dupId => ({
-            mergeOperationId: `merge_${Date.now()}_${dupId}`,
-            masterContactId: masterContactId,
-            duplicateContactId: dupId,
-            status: 'COMPLETED'
-        }));
-        await MergeAudit.insertMany(auditRecords, { session });
 
         // Audit Log on Master Contact
         await Activity.create([{
@@ -1573,23 +1541,20 @@ export const mergeContacts = async (req, res, next) => {
             entityId: masterContactId,
             dueDate: new Date(),
             status: 'Completed',
-            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record.`,
-            performedBy: req.user?.fullName || req.user?.name || req.user?.email || 'System'
-        }], { session });
+            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record via Enterprise Engine.`,
+            createdBy: req.user?._id,
+            owner: masterContact.owner || req.user?._id
+        }]);
 
-        await session.commitTransaction();
-        session.endSession();
-
-        res.status(200).json({
-            success: true,
-            message: 'Contacts merged successfully',
-            data: updatedMaster
+        res.status(200).json({ 
+            success: true, 
+            message: `Successfully merged ${duplicateContactIds.length} duplicate(s) into Master.`,
+            masterId: currentMaster._id,
+            audits: mergedAudits.map(a => a.mergeOperationId)
         });
 
     } catch (error) {
-        await session.abortTransaction();
-        session.endSession();
-        console.error('[ERROR] mergeContacts failed:', error);
+        console.error('[MergeContacts] Error:', error);
         next(error);
     }
 };
