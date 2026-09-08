@@ -178,6 +178,25 @@ export const getContacts = async (req, res, next) => {
             // 🛡️ [SENIOR FIX] Mixed-type matching: Activity.entityId stores both ObjectId and String
             const mixedEntityIds = [...contactIds, ...contactIdsStr];
 
+            // 🚀 [ENTERPRISE CRM LINKAGE] Phone-to-Contact mapping
+            // Many leads are linked by customer phone number before formal conversion
+            const phoneToContactIdMap = new Map();
+            const contactPhonesList = [];
+
+            results.records.forEach(contact => {
+                const cIdStr = contact._id.toString();
+                if (Array.isArray(contact.phones)) {
+                    contact.phones.forEach(p => {
+                        const raw = String(p?.number || p || "").replace(/\D/g, "");
+                        if (raw.length >= 10) {
+                            const last10 = raw.slice(-10);
+                            phoneToContactIdMap.set(last10, cIdStr);
+                            contactPhonesList.push(last10);
+                        }
+                    });
+                }
+            });
+
             // Run ALL aggregations in parallel for maximum performance
             const [activityStats, smsStats, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
                 // 1. Activity Counts + Latest Activity (FIXED: mixedEntityIds + $toLower instead of $regexMatch)
@@ -204,10 +223,23 @@ export const getContacts = async (req, res, next) => {
                     { $group: { _id: { $toString: "$entityId" }, sms: { $sum: 1 } } }
                 ]),
 
-                // 3. CRM Linkage: Leads Count
+                // 3. CRM Linkage: Leads Count (Enterprise Hybrid: Match via direct contactDetails OR Phone Number)
                 Lead.aggregate([
-                    { $match: { contactDetails: { $in: contactIds }, isArchived: { $ne: true } } },
-                    { $group: { _id: "$contactDetails", count: { $sum: 1 } } }
+                    {
+                        $match: {
+                            isArchived: { $ne: true },
+                            $or: [
+                                { contactDetails: { $in: contactIds } },
+                                ...(contactPhonesList.length > 0 ? [{ mobile: { $in: contactPhonesList } }] : [])
+                            ]
+                        }
+                    },
+                    {
+                        $project: {
+                            contactDetails: 1,
+                            mobile: 1
+                        }
+                    }
                 ]),
 
                 // 4. CRM Linkage: Deals Count (owner = Contact who owns property being dealt)
@@ -223,10 +255,25 @@ export const getContacts = async (req, res, next) => {
                     { $group: { _id: "$owners", count: { $sum: 1 } } }
                 ]),
 
-                // 6. CRM Linkage: Booking Count
+                // 6. CRM Linkage: Booking Count (Enterprise: direct contact link OR via linked lead)
                 Booking.aggregate([
-                    { $match: { $or: [{ lead: { $in: contactIds } }, { seller: { $in: contactIds } }, { channelPartner: { $in: contactIds } }] } },
-                    { $group: { _id: null, pairs: { $push: { lead: "$lead", seller: "$seller", channelPartner: "$channelPartner" } } } }
+                    {
+                        $lookup: {
+                            from: "leads",
+                            localField: "lead",
+                            foreignField: "_id",
+                            as: "leadDoc"
+                        }
+                    },
+                    {
+                        $project: {
+                            lead: 1,
+                            seller: 1,
+                            channelPartner: 1,
+                            leadMobile: { $arrayElemAt: ["$leadDoc.mobile", 0] },
+                            leadContactDetails: { $arrayElemAt: ["$leadDoc.contactDetails", 0] }
+                        }
+                    }
                 ])
             ]);
 
@@ -242,9 +289,28 @@ export const getContacts = async (req, res, next) => {
                 }
             });
 
-            // Lead linkage map
+            // Lead linkage map (Enterprise Resolution: direct contactDetails + Phone fallback)
             const leadMap = new Map();
-            leadStats.forEach(stat => leadMap.set(stat._id?.toString(), stat.count));
+            const countedLeadIds = new Set();
+
+            leadStats.forEach(l => {
+                const leadIdStr = l._id.toString();
+                if (countedLeadIds.has(leadIdStr)) return;
+                countedLeadIds.add(leadIdStr);
+
+                // Priority 1: Explicit contactDetails link
+                let targetContactId = l.contactDetails ? l.contactDetails.toString() : null;
+
+                // Priority 2: Match by phone number
+                if (!targetContactId && l.mobile) {
+                    const cleanMobile = String(l.mobile).replace(/\D/g, "").slice(-10);
+                    targetContactId = phoneToContactIdMap.get(cleanMobile) || null;
+                }
+
+                if (targetContactId) {
+                    leadMap.set(targetContactId, (leadMap.get(targetContactId) || 0) + 1);
+                }
+            });
 
             // Deal linkage map (need to count per-contact from owner/buyer fields)
             const dealMap = new Map();
@@ -263,13 +329,39 @@ export const getContacts = async (req, res, next) => {
                 if (stat._id) inventoryMap.set(stat._id.toString(), stat.count);
             });
 
-            // Booking linkage map
+            // Booking linkage map (Enterprise Resolution: Direct contact + Lead contactDetails + Phone fallback)
             const bookingMap = new Map();
-            if (bookingStats.length > 0 && bookingStats[0]?.pairs) {
-                bookingStats[0].pairs.forEach(pair => {
-                    [pair.lead, pair.seller, pair.channelPartner].forEach(id => {
+            if (Array.isArray(bookingStats) && bookingStats.length > 0) {
+                bookingStats.forEach(b => {
+                    const matchedContactsForThisBooking = new Set();
+
+                    // Direct contact fields on Booking
+                    [b.lead, b.seller, b.channelPartner].forEach(id => {
                         const idStr = id?.toString();
-                        if (idStr && contactIdsStr.includes(idStr)) bookingMap.set(idStr, (bookingMap.get(idStr) || 0) + 1);
+                        if (idStr && contactIdsStr.includes(idStr)) {
+                            matchedContactsForThisBooking.add(idStr);
+                        }
+                    });
+
+                    // Indirect link via Lead doc's contactDetails
+                    if (b.leadContactDetails) {
+                        const lcdStr = b.leadContactDetails.toString();
+                        if (contactIdsStr.includes(lcdStr)) {
+                            matchedContactsForThisBooking.add(lcdStr);
+                        }
+                    }
+
+                    // Indirect link via Lead doc's mobile phone number
+                    if (b.leadMobile) {
+                        const cleanMobile = String(b.leadMobile).replace(/\D/g, "").slice(-10);
+                        const phoneMatchedContactId = phoneToContactIdMap.get(cleanMobile);
+                        if (phoneMatchedContactId) {
+                            matchedContactsForThisBooking.add(phoneMatchedContactId);
+                        }
+                    }
+
+                    matchedContactsForThisBooking.forEach(cId => {
+                        bookingMap.set(cId, (bookingMap.get(cId) || 0) + 1);
                     });
                 });
             }

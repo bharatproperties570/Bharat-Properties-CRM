@@ -200,7 +200,19 @@ const ContactRow = memo(function ContactRow({
         {item?.crmLinks && (item.crmLinks.leads || item.crmLinks.deals || item.crmLinks.activities || item.crmLinks.property || item.crmLinks.booking) ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
             {item.crmLinks.leads > 0 && (
-              <span title={`Leads (${item.crmLinks.leads})`} style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#dbeafe", color: "#1d4ed8", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <span 
+                title={`Click to view Leads for ${item.name || 'this contact'} (${item.crmLinks.leads})`} 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const phone = item.phones?.[0]?.number || item.name || '';
+                  if (onNavigate) {
+                    onNavigate('leads', phone);
+                  }
+                }}
+                style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#dbeafe", color: "#1d4ed8", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px', cursor: 'pointer', transition: 'transform 0.15s' }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              >
                 <i className="fas fa-user-plus" style={{ fontSize: "0.6rem" }}></i> Leads ({item.crmLinks.leads})
               </span>
             )}

@@ -476,6 +476,7 @@ LeadSchema.index({ owner: 1, stage: 1 }, { background: true });
 LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 LeadSchema.index({ contactDetails: 1 }, { background: true }); // 🚀 [ENTERPRISE] CRM Linkage aggregation
+LeadSchema.index({ mobile: 1 }, { background: true }); // 🚀 [ENTERPRISE] Fast phone-based CRM Linkage
 
 // Automation Hooks
 LeadSchema.pre('save', function(next) {
