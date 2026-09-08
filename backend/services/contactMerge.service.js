@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import Contact from '../models/Contact.js';
+import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
 import Booking from '../models/Booking.js';
 import Inventory from '../models/Inventory.js';
@@ -104,6 +105,12 @@ export const previewMerge = async (canonical, duplicate) => {
         referenceRewires.push({ collectionName: col, documentId: docId, field, oldValue: oldV, newValue: newV });
     };
 
+    // Leads
+    const leads = await Lead.find({ contactDetails: dupId }).lean();
+    for (const l of leads) {
+        appendRewire('Lead', l._id, 'contactDetails', dupId, masId);
+    }
+    
     // Deals
     const deals = await Deal.find({ $or: [{owner: dupId}, {buyer: dupId}, {channelPartner: dupId}, {associatedContact: dupId}] }).lean();
     for (const d of deals) {
@@ -122,10 +129,11 @@ export const previewMerge = async (canonical, duplicate) => {
     }
     
     // Inventory
-    const invs = await Inventory.find({ $or: [{owners: dupId}, {'associates.contact': dupId}] }).lean();
+    const invs = await Inventory.find({ $or: [{owners: dupId}, {'associates.contact': dupId}, {'ownerHistory.contactId': dupId}] }).lean();
     for (const inv of invs) {
         if (inv.owners?.some(o => o.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'owners', dupId, masId);
         if (inv.associates?.some(a => a.contact?.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'associates.contact', dupId, masId);
+        if (inv.ownerHistory?.some(oh => oh.contactId?.toString() === dupId.toString())) appendRewire('Inventory', inv._id, 'ownerHistory.contactId', dupId, masId);
     }
     
     // Activity
@@ -200,6 +208,22 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
                 }
                 
                 await Model.updateOne({ _id: rw.documentId }, { $set: { [rw.field]: newArray } }, { session });
+                
+            } else if (rw.field === 'ownerHistory.contactId') {
+                const originalArray = doc.ownerHistory || [];
+                rw.oldValue = originalArray;
+                rw.newValue = masId;
+
+                const newArray = [];
+                for (const h of originalArray) {
+                    const newItem = { ...h };
+                    if (newItem.contactId?.toString() === dupId.toString()) {
+                        newItem.contactId = new mongoose.Types.ObjectId(masId.toString());
+                    }
+                    newArray.push(newItem);
+                }
+                
+                await Model.updateOne({ _id: rw.documentId }, { $set: { ownerHistory: newArray } }, { session });
                 
             } else if (rw.field === 'associates.contact') {
                 const originalArray = doc.associates || [];
@@ -315,6 +339,12 @@ export const rollbackMerge = async (mergeOperationId) => {
                     // Legacy fallback
                     await Model.updateOne({ _id: rw.documentId }, { $pull: { [rw.field]: rw.newValue } }, { session });
                     await Model.updateOne({ _id: rw.documentId }, { $addToSet: { [rw.field]: rw.oldValue } }, { session });
+                }
+            } else if (rw.field === 'ownerHistory.contactId') {
+                if (Array.isArray(rw.oldValue)) {
+                    await Model.updateOne({ _id: rw.documentId }, { $set: { ownerHistory: rw.oldValue } }, { session });
+                } else {
+                    await Model.updateOne({ _id: rw.documentId, 'ownerHistory.contactId': rw.newValue }, { $set: { 'ownerHistory.$.contactId': rw.oldValue } }, { session });
                 }
             } else if (rw.field === 'associates.contact') {
                 if (Array.isArray(rw.oldValue)) {
