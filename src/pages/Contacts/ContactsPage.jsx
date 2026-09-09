@@ -67,7 +67,7 @@ const ContactRow = memo(function ContactRow({
     <div
       className={`list-item contact-list-grid ${isSelected ? 'selected' : ''}`}
       style={{
-        padding: "12px 1.5rem",
+        padding: "12px 1rem",
         transition: "all 0.2s",
       }}
     >

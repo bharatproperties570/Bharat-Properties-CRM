@@ -1583,10 +1583,10 @@ body {
 .contact-list-grid {
     display: grid;
     /* Optimized Grid: Check | Personal | Location | Professional | Source | CRM Linkage | Last Interaction | Assignment */
-    grid-template-columns: 36px minmax(180px, 1fr) minmax(140px, 0.8fr) minmax(110px, 0.7fr) minmax(120px, 0.7fr) minmax(100px, 0.7fr) minmax(200px, 1.5fr) 140px;
+    grid-template-columns: 28px minmax(200px, 1.1fr) minmax(170px, 1fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) minmax(100px, 0.7fr) minmax(160px, 1.1fr) 140px;
     gap: 8px;
     align-items: center;
-    padding: 12px 1.5rem;
+    padding: 12px 1rem;
     transition: background 0.2s ease;
     white-space: nowrap;
 }
