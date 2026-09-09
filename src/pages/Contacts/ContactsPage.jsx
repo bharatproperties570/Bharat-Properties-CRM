@@ -162,14 +162,14 @@ const ContactRow = memo(function ContactRow({
         </div>
       </div>
 
-      <div className="col-source-tags">
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span className="source-badge" style={{ fontSize: "0.65rem", padding: "3px 8px", fontWeight: 700, borderRadius: "4px", background: "var(--source-badge-bg)", color: "var(--source-badge-color)", display: "inline-block", width: "fit-content" }}>
+      <div className="col-source-tags" style={{ overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", overflow: 'hidden' }}>
+          <span className="source-badge" style={{ fontSize: "0.65rem", padding: "3px 8px", fontWeight: 700, borderRadius: "4px", background: "var(--source-badge-bg)", color: "var(--source-badge-color)", display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             <i className="fas fa-tag" style={{ marginRight: "3px", fontSize: "0.6rem" }}></i>
             {renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "") ? `${renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "")} • ` : ""}{renderValue(getLookupValue("Source", item.source), null) || (typeof item?.source === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.source) ? item.source : "N/A")}
           </span>
           {item?.tags && item?.tags?.length > 0 && (
-            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {Array.isArray(item.tags)
                 ? item.tags.map(t => renderValue(getLookupValue("Tag", t), (typeof t === 'string' && !/^[0-9a-fA-F]{24}$/.test(t) ? t : ""))).filter(v => v).join(", ")
                 : renderValue(getLookupValue("Tag", item.tags), (typeof item.tags === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.tags) ? item.tags : ""))}
