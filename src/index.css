@@ -1582,11 +1582,11 @@ body {
 /* Hardened Action Bar & Grid Optimization */
 .contact-list-grid {
     display: grid;
-    /* Optimized Grid: Check | Personal | Location | Professional | Source | CRM | Interaction | Assignment */
-    grid-template-columns: 48px minmax(220px, 1.2fr) minmax(180px, 1.1fr) minmax(150px, 1fr) minmax(130px, 0.9fr) 120px 120px 160px;
-    gap: 12px;
+    /* Optimized Grid: Check | Personal | Location | Professional | Source | CRM Linkage | Last Interaction | Assignment */
+    grid-template-columns: 36px minmax(180px, 1fr) minmax(140px, 0.8fr) minmax(110px, 0.7fr) minmax(120px, 0.7fr) minmax(100px, 0.7fr) minmax(200px, 1.5fr) 140px;
+    gap: 8px;
     align-items: center;
-    padding: 12px 2rem;
+    padding: 12px 1.5rem;
     transition: background 0.2s ease;
     white-space: nowrap;
 }

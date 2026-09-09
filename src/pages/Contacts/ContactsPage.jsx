@@ -67,7 +67,7 @@ const ContactRow = memo(function ContactRow({
     <div
       className={`list-item contact-list-grid ${isSelected ? 'selected' : ''}`}
       style={{
-        padding: "15px 2rem",
+        padding: "12px 1.5rem",
         transition: "all 0.2s",
       }}
     >
@@ -78,10 +78,10 @@ const ContactRow = memo(function ContactRow({
         onChange={() => toggleSelect(item?._id)}
       />
       <div className="col-identity">
-        <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <div
             className={`avatar-circle avatar-${(item._id.charCodeAt(0) % 5) + 1}`}
-            style={{ width: "38px", height: "38px", fontSize: "0.85rem" }}
+            style={{ width: "32px", height: "32px", fontSize: "0.75rem", flexShrink: 0 }}
           >
             {getInitials(
               (item.firstName && item.surname) ? `${item.firstName} ${item.surname}` :
@@ -89,9 +89,9 @@ const ContactRow = memo(function ContactRow({
                   (item.name || item.firstName || "Unknown")
             )}
           </div>
-          <div>
+          <div style={{ overflow: 'hidden' }}>
             <div
-              style={{ fontWeight: 800, color: "var(--contact-name-color)", fontSize: "0.95rem", cursor: "pointer" }}
+              style={{ fontWeight: 800, color: "var(--contact-name-color)", fontSize: "0.85rem", cursor: "pointer", overflow: 'hidden', textOverflow: 'ellipsis' }}
               onClick={() => onNavigate("contact-detail", item._id)}
             >
               {renderValue(getLookupValue("Title", item.title), null) || ""} {
@@ -100,12 +100,12 @@ const ContactRow = memo(function ContactRow({
                     (item.name || item.firstName || "Unknown Name")
               }
             </div>
-            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", marginTop: "3px" }}>
+            <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)", marginTop: "2px" }}>
               {item?.phones?.[0]?.number || item?.mobile || "No Mobile"}
             </div>
             {item?.emails?.[0]?.address && (
-              <div style={{ fontSize: "0.7rem", color: "#8e44ad", fontWeight: 600, marginTop: "2px" }}>
-                <i className="fas fa-envelope" style={{ marginRight: "4px", fontSize: "0.65rem" }}></i>
+              <div style={{ fontSize: "0.65rem", color: "#8e44ad", fontWeight: 600, marginTop: "1px", overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <i className="fas fa-envelope" style={{ marginRight: "3px", fontSize: "0.6rem" }}></i>
                 {item.emails[0].address}
               </div>
             )}
@@ -243,10 +243,10 @@ const ContactRow = memo(function ContactRow({
       </div>
 
 
-      <div className="col-interaction">
+      <div className="col-interaction" style={{ whiteSpace: 'normal' }}>
         {/* Last Activity Text */}
         {item.lastAct && (
-          <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px', lineHeight: 1.3 }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px', lineHeight: 1.4 }}>
             {item.lastAct}
           </div>
         )}
