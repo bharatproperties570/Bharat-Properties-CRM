@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import mongoosePaginate from 'mongoose-paginate-v2';
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const AddressSchema = new mongoose.Schema({
     branchName: String,
@@ -166,6 +167,7 @@ CompanySchema.pre("findOneAndUpdate", function (next) {
 });
 
 CompanySchema.plugin(mongoosePaginate);
+CompanySchema.plugin(softDeletePlugin);
 
 // 🚀 SENIOR OPTIMIZATION: Critical indexes for list-view sort & filter performance
 // Without these, MongoDB performs full collection scans on every API call.

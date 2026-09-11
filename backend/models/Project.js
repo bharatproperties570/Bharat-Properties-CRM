@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const ProjectSchema = new mongoose.Schema({
     // Basic Info
@@ -272,5 +273,7 @@ ProjectSchema.pre('insertMany', function(next, docs) {
     }
     next();
 });
+
+ProjectSchema.plugin(softDeletePlugin);
 
 export default mongoose.model("Project", ProjectSchema);

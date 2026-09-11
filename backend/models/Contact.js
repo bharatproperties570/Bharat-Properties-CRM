@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { normalizePhone } from "../utils/normalization.js";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const ContactSchema = new mongoose.Schema({
     title: { type: mongoose.Schema.Types.Mixed },
@@ -153,6 +154,13 @@ ContactSchema.index({ 'emails.address': 1 });
 ContactSchema.index({ assignedTo: 1, updatedAt: -1 });
 ContactSchema.index({ teams: 1, updatedAt: -1 });
 ContactSchema.index({ createdAt: -1 });
+
+// 🚀 [ENTERPRISE] Compound indexes for default query pattern: isMerged != true + sort
+ContactSchema.index({ isMerged: 1, updatedAt: -1 });
+ContactSchema.index({ isMerged: 1, createdAt: -1 });
+
+// 🚀 [ENTERPRISE] Soft Delete Support
+ContactSchema.plugin(softDeletePlugin);
 
 // Middleware to recursively convert empty strings to null
 const sanitizeData = (obj) => {
