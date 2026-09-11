@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const PaymentEntrySchema = new mongoose.Schema({
     label: { type: String }, // "Token", "Part Payment 1", "Agreement", "Registry"
@@ -260,5 +261,7 @@ function computeNextAction(booking) {
 BookingSchema.index({ lead: 1 }, { background: true });
 BookingSchema.index({ seller: 1 }, { background: true });
 BookingSchema.index({ channelPartner: 1 }, { background: true });
+
+BookingSchema.plugin(softDeletePlugin);
 
 export default mongoose.model("Booking", BookingSchema);

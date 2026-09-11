@@ -1,5 +1,6 @@
 import mongoose from "mongoose"; // Optimized for Communication Hub
 import { invalidateDashboardCache } from "../src/config/redis.js";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const ActivitySchema = new mongoose.Schema({
     type: { type: String, required: true }, // Call, Meeting, Site Visit, Task, Email
@@ -70,5 +71,7 @@ ActivitySchema.index({ status: 1, dueDate: 1 });
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);
 ActivitySchema.post('findOneAndDelete', invalidateDashboardCache);
+
+ActivitySchema.plugin(softDeletePlugin);
 
 export default mongoose.model("Activity", ActivitySchema);

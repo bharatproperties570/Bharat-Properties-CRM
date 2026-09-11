@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import { normalizePhone } from "../utils/normalization.js";
 import eventBus from "../services/EventBus.js";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -13,7 +14,7 @@ const LeadSchema = new mongoose.Schema({
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
-    mobile: { type: String, required: true, index: true },
+    mobile: { type: String, required: true },
     email: { type: String, index: true },
     requirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     subRequirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
@@ -477,6 +478,9 @@ LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 LeadSchema.index({ contactDetails: 1 }, { background: true }); // 🚀 [ENTERPRISE] CRM Linkage aggregation
 LeadSchema.index({ mobile: 1 }, { background: true }); // 🚀 [ENTERPRISE] Fast phone-based CRM Linkage
+
+// 🚀 [ENTERPRISE] Soft Delete Support
+LeadSchema.plugin(softDeletePlugin);
 
 // Automation Hooks
 LeadSchema.pre('save', function(next) {
