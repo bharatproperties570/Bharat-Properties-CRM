@@ -27,6 +27,10 @@ import Lead, { resolveLeadLookup } from '../../models/Lead.js';
 import Inventory       from '../../models/Inventory.js';
 import Deal            from '../../models/Deal.js';
 import Contact         from '../../models/Contact.js';
+import { LeadCreationEngine, IdentityConflictError } from '../modules/lead/LeadCreationEngine.js';
+import { DealCreationEngine } from '../modules/deal/DealCreationEngine.js';
+import { determineAssignment } from './assignmentHelper.js';
+
 import Activity        from '../../models/Activity.js';
 import { normalizePhone } from '../../utils/normalization.js';
 import DealVerificationService from '../../services/DealVerificationService.js';
@@ -254,95 +258,139 @@ export const parseAttachment = async (attachment) => {
 };
 
 // ─── SELLER Scenario Handler ─────────────────────────────────────────────────
-const handleSellerIntent = async (session, traceId, entities, normalizedMobile, name, source) => {
+// ─── SELLER Scenario Handler ─────────────────────────────────────────────────
+const handleSellerIntent = async (traceId, entities, normalizedMobile, name, email, message, source, idempotencyKey) => {
     const { project, unitNumber, price, rawPrice } = entities;
 
-    // Atomic upsert — prevents duplicate inventory on concurrent requests
-    const inventory = await Inventory.findOneAndUpdate(
-        {
-            projectId: project._id,
-            $or: [{ unitNumber }, { unitNo: unitNumber }],
-        },
-        {
-            $setOnInsert: {
-                projectId:   project._id,
-                projectName: project.name,
-                unitNumber,
-                unitNo:      unitNumber,
-                status:      'Available',
-                intent:      ['For Sale'],
-            },
-        },
-        { upsert: true, new: true, session }
-    );
+    // Resolve contact (PRE-TRANSACTION)
+    // Atomic upsert with E11000 fallback to guarantee Concurrency Safety
+    let contact;
+    try {
+        const lead = await Lead.findOne({ mobile: normalizedMobile }).lean();
 
-    // Resolve contact
-    let contact = await Contact.findOne({ 'phones.number': normalizedMobile }).session(session);
+        const insertPayload = lead ? {
+            name:    lead.firstName,
+            surname: lead.lastName,
+            phones:  [{ number: normalizedMobile, type: 'Mobile', primary: true }],
+            emails:  lead.email ? [{ address: lead.email, type: 'Personal', primary: true }] : (email ? [{ address: email, type: 'Personal', primary: true }] : []),
+            source:  'Auto-Promoted from Lead',
+        } : {
+            name:    (name || 'Website Visitor').split(' ')[0] || 'Website',
+            surname: (name || 'Website Visitor').split(' ').slice(1).join(' ') || 'Visitor',
+            phones:  [{ number: normalizedMobile, type: 'Mobile', primary: true }],
+            emails:  email ? [{ address: email, type: 'Personal', primary: true }] : [],
+            source:  'Auto-Created via Seller Intake',
+        };
 
-    if (!contact) {
-        const lead = await Lead.findOne({ mobile: normalizedMobile }).session(session);
-        if (lead) {
-            contact = await Contact.create([{
-                name:    lead.firstName,
-                surname: lead.lastName,
-                phones:  [{ number: normalizedMobile, type: 'Mobile', primary: true }],
-                emails:  lead.email ? [{ address: lead.email, type: 'Personal', primary: true }] : [],
-                source:  'Auto-Promoted from Lead',
-            }], { session });
-            contact = Array.isArray(contact) ? contact[0] : contact;
-            log.info(traceId, 'Lead promoted to Contact', { contactId: contact._id });
+        contact = await Contact.findOneAndUpdate(
+            { 'phones.number': normalizedMobile, isDeleted: false, isMerged: false },
+            { $setOnInsert: insertPayload },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        log.info(traceId, 'Contact resolved safely before Deal Engine', { contactId: contact._id });
+    } catch (err) {
+        if (err.code === 11000) {
+            // Concurrency race hit: another thread inserted the contact just now.
+            contact = await Contact.findOne({ 'phones.number': normalizedMobile, isDeleted: false, isMerged: false });
+            if (!contact) throw new Error('Contact concurrency failure: Duplicate hit but document not found.');
+            log.info(traceId, 'Contact resolved via E11000 fallback', { contactId: contact._id });
+        } else {
+            throw err;
         }
     }
 
-    // Add owner without duplicates
-    if (contact && !inventory.owners.some(id => id.equals(contact._id))) {
-        inventory.owners.push(contact._id);
+    const src = await cachedResolveLeadLookup('Source', source);
+
+    const dealData = {
+        projectName: project.name,
+        block: null, // Intake doesn't extract block currently
+        unitNo: unitNumber,
+        owner: contact._id,
+        intent: 'Sell',
+        price: price > 0 ? price : undefined,
+        description: `Auto-created via Enterprise Intake Engine v2. ${price > 0 ? 'Price: ' + rawPrice : ''}\n\nOriginal Request: ${message}`,
+        source: src
+    };
+
+    // Determine Assignment (PRE-TRANSACTION)
+    let assignedUser = null;
+    try {
+        const assignmentResult = await determineAssignment('deals', 'onDealCapture', dealData);
+        if (assignmentResult) {
+            assignedUser = assignmentResult;
+            dealData.assignedTo = assignedUser;
+        }
+    } catch (err) {
+        log.warn(traceId, 'Assignment engine failed during Seller Intake', { err: err.message });
     }
 
-    // Update price if provided
-    if (price > 0) {
-        inventory.price = { value: price, currency: 'INR' };
-    }
-    await inventory.save({ session });
+    const context = {
+        user: null,
+        idempotencyKey: idempotencyKey || null
+    };
 
-    // Create Deal only when price is known
-    if (price > 0) {
-        const [stage, src] = await Promise.all([
-            cachedResolveLeadLookup('DealStage', 'New'),
-            cachedResolveLeadLookup('Source', source),
-        ]);
+    const transactionalHook = async ({ dealDoc, session: txnSession }) => {
+        // Atomic upsert inside Engine lock
+        // Canonical Coordinate Parity: Must strictly include block
+        const inventory = await Inventory.findOneAndUpdate(
+            {
+                projectId: project._id,
+                block: null,
+                unitNo: unitNumber,
+            },
+            {
+                $setOnInsert: {
+                    projectId:   project._id,
+                    projectName: project.name,
+                    block:       null,
+                    unitNumber,
+                    unitNo:      unitNumber,
+                    status:      'Available',
+                    intent:      ['For Sale'],
+                },
+            },
+            { upsert: true, new: true, session: txnSession }
+        );
 
-        const deal = await Deal.create([{
-            name:        `Resale: ${project.name} - ${unitNumber}`,
-            inventory:   inventory._id,
-            price,
-            projectName: project.name,
-            stage,
-            source:      src,
-            contact:     contact?._id ?? null,
-            remarks:     `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`,
-        }], { session });
+        // Add owner without duplicates
+        if (!inventory.owners.some(id => id.equals(contact._id))) {
+            inventory.owners.push(contact._id);
+        }
 
-        const dealDoc = Array.isArray(deal) ? deal[0] : deal;
+        // Update price if provided
+        if (price > 0) {
+            inventory.price = { value: price, currency: 'INR' };
+        }
+        await inventory.save({ session: txnSession });
 
-        // Verification runs outside transaction (non-critical path)
-        setImmediate(() => {
+        // Map Inventory to Deal correctly
+        dealDoc.inventoryId = inventory._id;
+    };
+
+    // Execute DealCreationEngine
+    let dealDoc;
+    try {
+        const result = await DealCreationEngine.createDeal(dealData, { transactionalHook, context });
+        dealDoc = result.deal;
+
+        // Verification runs outside transaction (POST-COMMIT)
+        if (!result.isIdempotentReturn) {
             DealVerificationService.triggerVerification(dealDoc, {
                 mobile: normalizedMobile,
-                name:   name || (contact ? `${contact.name} ${contact.surname}` : 'Client'),
-            }).catch(err => log.error(null, 'DealVerification failed', { dealId: dealDoc._id, err: err.message }));
-        });
+                name:   name || `${contact.name} ${contact.surname}`,
+            }).catch(err => log.error(null, 'DealVerification failed post-commit', { dealId: dealDoc._id, err: err.message }));
+        }
 
-        log.info(traceId, 'Deal created', { dealId: dealDoc._id, inventory: inventory._id });
-        return { type: 'DEAL', data: dealDoc, inventory };
+        log.info(traceId, 'Deal created via Engine', { dealId: dealDoc._id, inventoryId: dealDoc.inventoryId, isIdempotentReturn: result.isIdempotentReturn });
+        return { type: 'DEAL', data: dealDoc };
+    } catch (e) {
+        // If DealCreationEngine rejects it as Duplicate Deal, we just safely surface the error
+        throw e;
     }
-
-    log.info(traceId, 'Inventory updated (no price)', { inventoryId: inventory._id });
-    return { type: 'INVENTORY', data: inventory };
 };
 
 // ─── BUYER / NEW LEAD Scenario Handler ───────────────────────────────────────
-const handleNewLead = async (session, traceId, normalizedMobile, name, email, message, source, intent) => {
+const handleNewLead = async (traceId, normalizedMobile, name, email, message, source, intent, idempotencyKey) => {
     const nameParts = (name || 'Website Visitor').split(' ');
     const firstName = nameParts[0] || 'Website';
     const lastName  = nameParts.slice(1).join(' ') || 'Visitor';
@@ -352,31 +400,41 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
         cachedResolveLeadLookup('Status', 'New'),
     ]);
 
-    const lead = await Lead.create([{
+    const payload = {
         firstName,
         lastName,
-        mobile:       normalizedMobile,
-        email:        email || undefined,
-        source:       resolvedSource,
-        status:       resolvedStatus,
-        description:  message,
+        mobile: normalizedMobile,
+        email: email || undefined,
+        source: resolvedSource,
+        status: resolvedStatus,
+        description: message,
         intent_index: intent === 'BUYER' ? 70 : (intent === 'UNKNOWN' ? 30 : 40),
-    }], { session });
+    };
 
-    const leadDoc = Array.isArray(lead) ? lead[0] : lead;
+    const context = {
+        user: null,
+        idempotencyKey: idempotencyKey || null
+    };
 
-    // Distribution runs outside transaction
-    setImmediate(async () => {
+    const result = await LeadCreationEngine.createLead(payload, context);
+    const leadDoc = result.lead;
+
+    if (!result.isIdempotentRetry) {
+        // Distribution runs outside transaction (post-commit)
         try {
-            const distributeEntity = await getDistributeEntity();
-            const cleanSource = source.replace(/[^a-zA-Z0-9]/g, '');
-            await distributeEntity(leadDoc, `on${cleanSource}Capture`);
+            const { distributionQueue } = await import("../queues/queueManager.js");
+            await distributionQueue.add('process_pending_distribution', {
+                idempotencyKey: `PendingDistribution:${leadDoc._id}`
+            }, {
+                jobId: `PendingDistribution:${leadDoc._id}`,
+                removeOnComplete: true
+            });
         } catch (distErr) {
-            log.error(null, 'Distribution failed', { leadId: leadDoc._id, err: distErr.message });
+            log.error(null, 'Distribution enqueue failed', { leadId: leadDoc._id, err: distErr.message });
         }
-    });
+    }
 
-    log.info(traceId, 'New lead created', { leadId: leadDoc._id, intent });
+    log.info(traceId, 'New lead created via Engine', { leadId: leadDoc._id, intent, isIdempotentRetry: result.isIdempotentRetry });
     return { type: 'LEAD', data: leadDoc };
 };
 
@@ -433,40 +491,17 @@ export const processIntake = async (payload) => {
         price:      entities.price,
     });
 
-    // 6. Open Mongoose session for transaction safety
-    const session = await mongoose.startSession();
-
+    // 6. Execute handlers (Transactions are securely managed by respective Engines)
     try {
         let result;
 
-        await session.withTransaction(async () => {
-            // ── Scenario A: Seller with enough data to act ──
-            if (intent === 'SELLER' && entities.project && entities.unitNumber) {
-                result = await handleSellerIntent(session, traceId, entities, normalizedMobile, name, source);
-                return;
-            }
-
-            // ── Resolve existing identity ──
-            const [existingLead, existingContact] = await Promise.all([
-                Lead.findOne({ mobile: normalizedMobile }).session(session).lean(),
-                Contact.findOne({ 'phones.number': normalizedMobile }).session(session).lean(),
-            ]);
-
-            // ── Scenario B: Known identity — return existing record ──
-            if (existingLead || existingContact) {
-                log.info(traceId, 'Returning existing identity', {
-                    type: existingLead ? 'LEAD' : 'CONTACT',
-                    id:   (existingLead || existingContact)._id,
-                });
-                result = existingLead
-                    ? { type: 'LEAD',    data: existingLead }
-                    : { type: 'CONTACT', data: existingContact };
-                return;
-            }
-
-            // ── Scenario C: New identity — create lead (BUYER, UNKNOWN, partial SELLER) ──
-            result = await handleNewLead(session, traceId, normalizedMobile, name, email, combinedText, source, intent);
-        });
+        // ── Scenario A: Seller with enough data to act ──
+        if (intent === 'SELLER' && entities.project && entities.unitNumber) {
+            result = await handleSellerIntent(traceId, entities, normalizedMobile, name, email, combinedText, source, payload.idempotencyKey);
+        } else {
+            // ── Scenario B & C: Lead Creation (BUYER, UNKNOWN, partial SELLER) ──
+            result = await handleNewLead(traceId, normalizedMobile, name, email, combinedText, source, intent, payload.idempotencyKey);
+        }
 
         log.info(traceId, 'Intake completed', { type: result?.type });
         return result ?? { type: 'PASSIVE', message: 'No action required' };
@@ -475,14 +510,17 @@ export const processIntake = async (payload) => {
         log.error(traceId, 'Intake failed', { err: err.message, stack: err.stack });
 
         // Re-throw with enriched context so caller can decide retry vs dead-letter
+        if (err instanceof IdentityConflictError) {
+            err.traceId = traceId;
+            throw err;
+        }
+
         const enriched = new Error(`[IntakeEngine] ${err.message}`);
         enriched.code      = err.code || 'INTAKE_ERROR';
         enriched.traceId   = traceId;
         enriched.retryable = !['INTAKE_VALIDATION_ERROR', 'DUPLICATE'].includes(err.code);
         throw enriched;
 
-    } finally {
-        await session.endSession();
     }
 };
 

@@ -11,12 +11,12 @@ const escapeRegExp = (string) => {
 
 const resolveLookup = async (type, value) => {
     if (!value) return null;
-    
+
     // Handle objects (populated or passed as objects)
     const val = (value && typeof value === 'object' && value._id) ? value._id : value;
-    
+
     if (mongoose.Types.ObjectId.isValid(val)) return val;
-    
+
     const escapedValue = escapeRegExp(val);
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
@@ -25,13 +25,19 @@ const resolveLookup = async (type, value) => {
     return lookup._id;
 };
 
+const TERMINAL_STAGES = ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'];
+function computeIsActiveDeal(stage) {
+    if (stage === undefined || stage === null) return true;
+    return !TERMINAL_STAGES.includes(stage);
+}
+
 const DealSchema = new mongoose.Schema({
     leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true }, // Source Lead linkage
     leads: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true }], // Enterprise: All linked leads (multi-lead syncing)
-    projectName: String,
+    projectName: { type: String, set: v => (typeof v === "string" && v.trim() === "") ? null : (typeof v === "string" ? v.trim() : v) },
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
-    block: String,
-    unitNo: String,
+    block: { type: String, set: v => (typeof v === "string" && v.trim() === "") ? null : (typeof v === "string" ? v.trim() : v) },
+    unitNo: { type: String, set: v => (typeof v === "string" && v.trim() === "") ? null : (typeof v === "string" ? v.trim() : v) },
     unitType: String,
     propertyType: String,
     category: { type: mongoose.Schema.Types.Mixed },
@@ -82,6 +88,10 @@ const DealSchema = new mongoose.Schema({
         type: String,
         enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'], // Kept old ones for backward compatibility
         default: 'Open'
+    },
+    isActiveDeal: {
+        type: Boolean,
+        default: true
     },
     status: { type: mongoose.Schema.Types.Mixed }, // Sub-stage, e.g. Won, Lost, On Hold, Cancelled
     isQualified: { type: Boolean, default: null }, // Tag for Intake Engine
@@ -202,7 +212,7 @@ const DealSchema = new mongoose.Schema({
         }]
     },
     visibleTo: { type: String, default: "Team" },
-    
+
     // Website Integration
     isPublished: { type: Boolean, default: false, index: true },
     publishedAt: { type: Date },
@@ -284,6 +294,10 @@ const DealSchema = new mongoose.Schema({
 }, { timestamps: true, strict: false });
 
 DealSchema.pre("save", async function (next) {
+    if (this.isModified('stage') || this.isNew) {
+        this.isActiveDeal = computeIsActiveDeal(this.stage);
+    }
+
     // --- Auto-Sync Coordinates from Inventory ---
     if (this.inventoryId && (!this.latitude || !this.longitude)) {
         try {
@@ -370,7 +384,7 @@ DealSchema.pre("save", async function (next) {
                         const subDoc = await Lookup.findById(this.subCategory).select('lookup_value');
                         if (subDoc) subCatStr = subDoc.lookup_value;
                     }
-                    
+
                     if (this.sizeConfig) {
                         const sizeDoc = await Lookup.findById(this.sizeConfig).select('metadata');
                         if (sizeDoc && sizeDoc.metadata && sizeDoc.metadata.totalArea) {
@@ -380,7 +394,7 @@ DealSchema.pre("save", async function (next) {
                     }
 
                     if (this.corner) facingStr = this.corner; // Assuming corner holds the facing value
-                    
+
                     const priceToUse = this.stage === 'Closed' || this.stage === 'Closed Won' ? (this.closedPrice || this.price) : this.price;
 
                     const rateResult = calcRatePerUnit(priceToUse, areaValue, areaUnit, subCatStr);
@@ -409,9 +423,20 @@ DealSchema.pre("save", async function (next) {
     resolveHooks().then(() => next()).catch(next);
 });
 
-DealSchema.pre('findOneAndUpdate', async function (next) {
+function applyIsActiveDealToUpdate(update) {
+    if (!update) return;
+    if (update.stage !== undefined) {
+        update.isActiveDeal = computeIsActiveDeal(update.stage);
+    } else if (update.$set && update.$set.stage !== undefined) {
+        update.$set.isActiveDeal = computeIsActiveDeal(update.$set.stage);
+    }
+}
+
+DealSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
+
+    applyIsActiveDealToUpdate(update);
 
     // Sync assignment fields in updates
     const primaryRM = update.assignedTo || (update.assignment && update.assignment.assignedTo) || (update['assignment.assignedTo']);
@@ -453,7 +478,7 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
         if (setUpdate.sizeConfig) setUpdate.sizeConfig = await resolveLookup('Size', setUpdate.sizeConfig);
 
         // We skip complex pricing calculation in findOneAndUpdate to avoid performance hits on bulk updates.
-        // The frontend and aggregate cron job will self-heal or use live calculation. 
+        // The frontend and aggregate cron job will self-heal or use live calculation.
         // For accurate pricing intel, it's recommended to use save().
     };
 
@@ -467,18 +492,11 @@ DealSchema.pre('save', function(next) {
 
 DealSchema.post('save', function(doc) {
     invalidateDashboardCache(doc);
-    const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
-    if (isNew) {
-        eventBus.emit('DEAL_CREATED', doc);
-    } else {
-        eventBus.emit('DEAL_UPDATED', doc);
-    }
 });
 
 DealSchema.post('findOneAndUpdate', function(doc) {
     if (doc) {
         invalidateDashboardCache(doc);
-        eventBus.emit('DEAL_UPDATED', doc);
     }
 });
 DealSchema.post('findOneAndDelete', invalidateDashboardCache);
@@ -494,9 +512,22 @@ DealSchema.index({ owner: 1 }); // Owner lookup
 DealSchema.index({ dealId: 1 }); // Quick search
 DealSchema.index({ geoPoint: "2dsphere" });
 
+// 🚀 [ENTERPRISE] Active Deal Canonical Uniqueness Rules
+DealSchema.index(
+    { inventoryId: 1 },
+    { unique: true, partialFilterExpression: { isActiveDeal: true, inventoryId: { $type: "objectId" } } }
+);
+
+DealSchema.index(
+    { projectName: 1, block: 1, unitNo: 1 },
+    { unique: true, partialFilterExpression: { isActiveDeal: true, projectName: { $type: "string", $gt: "" }, unitNo: { $type: "string", $gt: "" } } }
+);
+
 DealSchema.pre('insertMany', function(next, docs) {
     if (Array.isArray(docs)) {
         docs.forEach(doc => {
+            doc.isActiveDeal = computeIsActiveDeal(doc.stage);
+
             if (doc.latitude && doc.longitude) {
                 const lat = parseFloat(doc.latitude);
                 const lng = parseFloat(doc.longitude);
@@ -506,5 +537,47 @@ DealSchema.pre('insertMany', function(next, docs) {
     }
     next();
 });
+
+
+
+const isDealDuplicateKeyError = (error) => {
+    if (error.code !== 11000) return false;
+
+    if (error.keyPattern) {
+        const keys = Object.keys(error.keyPattern).sort().join(',');
+        if (keys === 'inventoryId') return 'inventory';
+        if (keys === 'block,projectName,unitNo') return 'coordinates';
+    }
+
+    if (error.message) {
+        if (error.message.includes('deal_active_inventory_unique')) return 'inventory';
+        if (error.message.includes('deal_active_coordinates_unique')) return 'coordinates';
+    }
+
+    return false;
+};
+
+// Document & Query error middleware
+const handleE11000 = function(error, docOrRes, next) {
+    if (error.name === 'MongoServerError' && error.code === 11000) {
+        const conflictType = isDealDuplicateKeyError(error);
+        if (conflictType) {
+            const msg = conflictType === 'inventory'
+                ? 'DUPLICATE DEAL DETECTED: An active deal already exists for this Inventory Unit.'
+                : 'DUPLICATE DEAL DETECTED: An active deal already exists for this Project/Block/Unit configuration. Duplicate deals are restricted to maintain professional pipeline integrity.';
+
+            const err = new Error(msg);
+            err.name = 'DuplicateDealError';
+            err.statusCode = 400;
+            return next(err);
+        }
+    }
+    next(error);
+};
+
+DealSchema.post('save', handleE11000);
+DealSchema.post('findOneAndUpdate', handleE11000);
+DealSchema.post('updateOne', handleE11000);
+DealSchema.post('updateMany', handleE11000);
 
 export default mongoose.model("Deal", DealSchema);
