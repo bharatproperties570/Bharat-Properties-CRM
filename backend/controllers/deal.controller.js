@@ -1432,13 +1432,16 @@ export const getDeals = async (req, res) => {
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
             price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
             dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
-            owner: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1
+            owner: 1, associatedContact: 1, partyStructure: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1
         };
 
         const dealListPopulateFields = [
             { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng builtUpArea builtupType ageOfConstruction constructionAge' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
             { path: 'owner', select: 'name phones', model: 'Contact' },
+            { path: 'associatedContact', select: 'name phones', model: 'Contact' },
+            { path: 'partyStructure.owner', select: 'name phones', model: 'Contact' },
+            { path: 'partyStructure.buyer', select: 'name phones', model: 'Contact' },
             { path: 'assignedTo', select: 'fullName name email' },
             { path: 'assignment.assignedTo', select: 'fullName name email' },
             { path: 'assignment.team', select: 'name' },

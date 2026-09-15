@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 
 const AutomationLogSchema = new mongoose.Schema({
-    ruleType: { type: String, enum: ['Trigger', 'Sequence', 'AutomatedAction', 'ScoringRule'], required: true },
-    ruleId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    ruleType: { type: String, enum: ['Trigger', 'Sequence', 'AutomatedAction', 'ScoringRule', 'DomainEvent', 'LeadCreationRequest'], required: true },
+    ruleId: { type: mongoose.Schema.Types.ObjectId, required: false },
     targetEntityId: { type: mongoose.Schema.Types.ObjectId, required: true }, // e.g. Lead ID, Deal ID
     targetModule: { type: String, required: true },
     status: { type: String, enum: ['success', 'failed', 'pending'], default: 'success' },
