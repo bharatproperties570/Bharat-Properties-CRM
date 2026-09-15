@@ -65,12 +65,11 @@ const AutomatedActionsSettingsPage = () => {
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                         <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{action.name}</h4>
-                                        <span style={{ fontSize: '0.65rem', background: 'var(--bg-light)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 700 }}>{action._id || action.id}</span>
                                     </div>
                                     <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
-                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace('_', ' ')}</b></span>
-                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTrigger}</b></span>
+                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace(/_/g, ' ')}</b></span>
+                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTriggerName || (action.invokedByTrigger ? 'Unknown Trigger' : '—')}</b></span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Trigger from '../models/Trigger.js';
 import Sequence from '../models/Sequence.js';
 import AutomatedAction from '../models/AutomatedAction.js';
@@ -97,8 +98,31 @@ export const deleteSequence = async (req, res) => {
 // --- AUTOMATED ACTIONS ---
 export const getAutomatedActions = async (req, res) => {
     try {
-        const actions = await AutomatedAction.find({ companyId: req.user?.companyId });
-        res.status(200).json(actions);
+        const query = {};
+        if (req.user?.companyId) query.companyId = req.user.companyId;
+
+        const actions = await AutomatedAction.find(query).lean();
+
+        // Resolve invokedByTrigger IDs → Trigger names
+        const Trigger = mongoose.models.Trigger || mongoose.model('Trigger');
+        const triggerIds = actions
+            .map(a => a.invokedByTrigger)
+            .filter(id => id && mongoose.Types.ObjectId.isValid(String(id)));
+
+        let triggerMap = {};
+        if (triggerIds.length > 0) {
+            const triggers = await Trigger.find({ _id: { $in: triggerIds } }).select('_id name').lean();
+            triggers.forEach(t => { triggerMap[t._id.toString()] = t.name; });
+        }
+
+        const enriched = actions.map(a => ({
+            ...a,
+            invokedByTriggerName: a.invokedByTrigger
+                ? (triggerMap[String(a.invokedByTrigger)] || null)
+                : null
+        }));
+
+        res.status(200).json(enriched);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
