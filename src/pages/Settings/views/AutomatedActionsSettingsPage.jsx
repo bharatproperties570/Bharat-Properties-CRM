@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAutomatedActions } from '../../../context/AutomatedActionsContext';
 import CreateAutomatedActionModal from '../../../components/CreateAutomatedActionModal';
 
 const AutomatedActionsSettingsPage = () => {
-    const { actions, auditLogs, toggleAction, deleteAction } = useAutomatedActions();
+    const { actions, auditLogs, fetchAuditLogs, toggleAction, deleteAction } = useAutomatedActions();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAction, setEditingAction] = useState(null);
     const [activeTab, setActiveTab] = useState('list'); // 'list' or 'audit'
+
+    // Refresh audit logs from DB when switching to audit tab
+    useEffect(() => {
+        if (activeTab === 'audit' && fetchAuditLogs) {
+            fetchAuditLogs();
+        }
+    }, [activeTab, fetchAuditLogs]);
 
     const handleEdit = (action) => {
         setEditingAction(action);
@@ -108,35 +115,37 @@ const AutomatedActionsSettingsPage = () => {
                                 <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Time</th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Action</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Entity</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Module</th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Execution</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>Type</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {auditLogs.map((log, i) => (
-                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
-                                        <td style={{ padding: '12px', fontWeight: 700 }}>{log.actionName}</td>
-                                        <td style={{ padding: '12px' }}>{log.entityId}</td>
+                                {auditLogs.map((log) => (
+                                    <tr key={log._id || log.entityId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                            {log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                        </td>
+                                        <td style={{ padding: '12px', fontWeight: 700 }}>{log.actionName || '—'}</td>
+                                        <td style={{ padding: '12px', textTransform: 'capitalize' }}>{log.targetModule || '—'}</td>
                                         <td style={{ padding: '12px' }}>
                                             <span style={{
                                                 padding: '2px 8px',
                                                 borderRadius: '4px',
                                                 fontSize: '0.7rem',
-                                                background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                color: log.success ? '#166534' : '#991b1b',
+                                                background: log.status === 'success' ? 'rgba(34, 197, 94, 0.15)' : log.status === 'pending' ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                                color: log.status === 'success' ? '#166534' : log.status === 'pending' ? '#854d0e' : '#991b1b',
                                                 fontWeight: 800
                                             }}>
-                                                {log.success ? 'SUCCESS' : 'FAILED'}
+                                                {(log.status || 'unknown').toUpperCase()}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.executionTime}ms</td>
+                                        <td style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{log.ruleType || '—'}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No logs yet</div>}
+                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No audit logs yet. Logs will appear here when triggers and automated actions execute.</div>}
                     </div>
                 )}
             </div>

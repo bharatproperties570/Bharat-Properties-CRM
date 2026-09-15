@@ -191,6 +191,8 @@ export const automationAPI = {
     createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),
     updateAutomatedAction: (id, data) => api.put(`/automations/actions/${id}`, data).then(res => res.data),
     deleteAutomatedAction: (id) => api.delete(`/automations/actions/${id}`).then(res => res.data),
+
+    getAuditLogs: (page = 1, limit = 100) => api.get('/automations/audit-logs', { params: { page, limit } }).then(res => res.data),
 };
 
 
@@ -327,6 +329,8 @@ const apiRequest = async (endpoint, options = {}) => {
             if (isFormData) {
                 // For FormData, we must ensure Content-Type is undefined so Axios/Browser sets it with boundary
                 console.log(`[API Trace] FormData detected for ${url}`);
+                delete axiosConfig.headers['Content-Type'];
+                delete axiosConfig.headers['content-type'];
                 axiosConfig.headers['Content-Type'] = undefined;
                 axiosConfig.data = options.body;
             } else if (options.body) {
@@ -525,6 +529,7 @@ export const conversationAPI = {
 export const usersAPI = {
     getAll: () => apiRequest('/users'),
     getById: (id) => apiRequest(`/users/${id}`),
+    getAdminDetail: (id) => apiRequest(`/users/${id}/admin`),
     create: (data) => apiRequest('/users', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/users/${id}`, { method: 'DELETE' }),

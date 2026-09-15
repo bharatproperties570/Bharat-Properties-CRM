@@ -23,8 +23,21 @@ export const AutomatedActionsProvider = ({ children }) => {
         fetchActions();
     }, []);
 
-    // Audit logs for all executions
+    // Audit logs — fetched from DB (persistent, not in-memory)
     const [auditLogs, setAuditLogs] = useState([]);
+
+    const fetchAuditLogs = useCallback(async () => {
+        try {
+            const data = await automationAPI.getAuditLogs();
+            setAuditLogs(data.logs || []);
+        } catch (error) {
+            console.error("Failed to fetch audit logs:", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchAuditLogs();
+    }, [fetchAuditLogs]);
 
     /**
      * Invoke an automated action (Typically called by Triggers)
@@ -175,6 +188,7 @@ export const AutomatedActionsProvider = ({ children }) => {
     const value = {
         actions,
         auditLogs,
+        fetchAuditLogs,
         invokeAction,
         addAction,
         toggleAction,
