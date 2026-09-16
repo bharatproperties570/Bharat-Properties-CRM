@@ -51,13 +51,18 @@ class MetaApiClient {
      * Exchange short-lived OAuth code for an access token
      */
     async exchangeCodeForToken(clientId, clientSecret, redirectUri, code) {
+        const params = {
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: code
+        };
+
+        if (redirectUri && redirectUri.trim()) {
+            params.redirect_uri = redirectUri.trim();
+        }
+
         const response = await this.client.get('/oauth/access_token', {
-            params: {
-                client_id: clientId,
-                client_secret: clientSecret,
-                redirect_uri: redirectUri,
-                code: code
-            }
+            params: params
         });
         return response.data;
     }
