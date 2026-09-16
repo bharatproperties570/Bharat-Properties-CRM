@@ -34,8 +34,8 @@ router.post('/exchange', authenticate, async (req, res) => {
     try {
         const { sessionId, code, waba_id, phone_number_id, pin } = req.body;
         
-        if (!sessionId || !code || !waba_id || !phone_number_id) {
-            return res.status(400).json({ success: false, error: 'Missing required onboarding parameters' });
+        if (!sessionId || !code) {
+            return res.status(400).json({ success: false, error: 'Missing required onboarding parameters: sessionId and code are mandatory' });
         }
 
         const integration = await whatsAppOnboardingService.completeOnboarding(sessionId, { code, waba_id, phone_number_id, pin });
