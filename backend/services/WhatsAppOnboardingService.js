@@ -39,13 +39,71 @@ class WhatsAppOnboardingService {
             throw new Error('Invalid or expired onboarding session');
         }
 
-        const { code, waba_id, phone_number_id, pin } = payload;
+        let { code, waba_id, phone_number_id, pin } = payload;
         
         try {
             // 1. Update state: Meta Auth Started
-            await this._updateState(integration, 'META_AUTH_STARTED', { wabaId: waba_id, phoneNumberId: phone_number_id });
+            const updatePayload = {};
+            if (waba_id) updatePayload.wabaId = waba_id;
+            if (phone_number_id) updatePayload.phoneNumberId = phone_number_id;
+            await this._updateState(integration, 'META_AUTH_STARTED', updatePayload);
 
-            // Ensure idempotency for the phone number before proceeding with Meta
+            // 2. Exchange Code
+            const clientId = process.env.FB_GRAPH_APP_ID;
+            const clientSecret = process.env.FB_APP_SECRET;
+            const redirectUri = process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
+            
+            const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, redirectUri, code);
+            const accessToken = tokenResponse.access_token;
+
+            await this._updateState(integration, 'TOKEN_EXCHANGED');
+
+            // 3. Server-Side Discovery of WABA ID (if not provided by frontend)
+            if (!waba_id) {
+                const debugInfo = await metaApiClient.getDebugTokenInfo(accessToken, clientId, clientSecret);
+                const granularScopes = debugInfo.data?.granular_scopes || [];
+                const waScope = granularScopes.find(s => s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging');
+                
+                if (!waScope || !waScope.target_ids || waScope.target_ids.length === 0) {
+                    throw new Error('No WhatsApp Business Accounts found attached to this authentication.');
+                }
+                if (waScope.target_ids.length > 1) {
+                    throw new Error('Multiple WhatsApp Business Accounts discovered. Ambiguous selection.');
+                }
+                waba_id = waScope.target_ids[0];
+            }
+
+            // 4. Verify WABA ownership and details
+            const wabaData = await metaApiClient.getWabaDetails(waba_id, accessToken);
+            if (!wabaData || wabaData.id !== waba_id) {
+                throw new Error('Failed to verify WABA ownership');
+            }
+            
+            // Save discovered WABA ID
+            await this._updateState(integration, 'WABA_DISCOVERED', { wabaId: waba_id });
+
+            // 5. Server-Side Discovery of Phone Number (if not provided)
+            const phoneDataResponse = await metaApiClient.getPhoneNumbers(waba_id, accessToken);
+            const phoneList = phoneDataResponse.data || [];
+            
+            if (!phone_number_id) {
+                if (phoneList.length === 0) {
+                    throw new Error('No phone numbers found in this WhatsApp Business Account.');
+                }
+                if (phoneList.length > 1) {
+                    throw new Error('Multiple phone numbers discovered. Ambiguous selection.');
+                }
+                phone_number_id = phoneList[0].id;
+            }
+
+            const phoneInfo = phoneList.find(p => p.id === phone_number_id);
+            if (!phoneInfo) {
+                throw new Error('Phone number not found in this WABA');
+            }
+            
+            const displayPhoneNumber = phoneInfo.display_phone_number;
+            
+            // Ensure idempotency for the phone number before proceeding with Registration/Subscription
             const existing = await WhatsAppIntegration.findOne({
                 wabaId: waba_id,
                 phoneNumberId: phone_number_id,
@@ -56,33 +114,10 @@ class WhatsAppOnboardingService {
                 throw new Error('This WhatsApp number is already connected to an active integration.');
             }
 
-            // 2. Exchange Code
-            const clientId = process.env.FB_GRAPH_APP_ID;
-            const clientSecret = process.env.FB_APP_SECRET;
-            const redirectUri = process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
-            
-            // NOTE: In standard embedded signup flow via JS SDK callback, the code is swapped for a token.
-            const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, redirectUri, code);
-            const accessToken = tokenResponse.access_token;
-
-            await this._updateState(integration, 'TOKEN_EXCHANGED');
-
-            // 3. Verify WABA ownership
-            const wabaData = await metaApiClient.getWabaDetails(waba_id, accessToken);
-            if (!wabaData || wabaData.id !== waba_id) {
-                throw new Error('Failed to verify WABA ownership');
-            }
-            await this._updateState(integration, 'WABA_DISCOVERED');
-
-            // 4. Verify Phone ownership
-            const phoneDataResponse = await metaApiClient.getPhoneNumbers(waba_id, accessToken);
-            const phoneInfo = phoneDataResponse.data?.find(p => p.id === phone_number_id);
-            if (!phoneInfo) {
-                throw new Error('Phone number not found in this WABA');
-            }
-            
-            const displayPhoneNumber = phoneInfo.display_phone_number;
-            await this._updateState(integration, 'PHONE_DISCOVERED', { displayPhoneNumber });
+            await this._updateState(integration, 'PHONE_DISCOVERED', { 
+                phoneNumberId: phone_number_id,
+                displayPhoneNumber 
+            });
 
             // 5. Register Phone (Cloud API Initialization)
             // Coexistence / Standard API requires phone registration

@@ -32,13 +32,15 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
     }, []);
 
     const attemptExchange = () => {
-        if (authCodeRef.current && widgetDataRef.current && sessionRef.current) {
+        if (authCodeRef.current && sessionRef.current) {
             setStatus('EXCHANGING');
             whatsappOnboardingAPI.exchange({
                 sessionId: sessionRef.current,
                 code: authCodeRef.current,
-                waba_id: widgetDataRef.current.waba_id,
-                phone_number_id: widgetDataRef.current.phone_number_id
+                ...(widgetDataRef.current ? { 
+                    waba_id: widgetDataRef.current.waba_id,
+                    phone_number_id: widgetDataRef.current.phone_number_id
+                } : {})
             }).then((exchangeRes) => {
                 if (exchangeRes.success) {
                     setStatus('POLLING');
@@ -141,11 +143,11 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                     authCodeRef.current = response.authResponse.code;
                     attemptExchange();
                     
-                    // Fallback timeout in case postMessage never arrives or session fails
+                    // Fallback timeout in case session creation fails
                     setTimeout(() => {
-                        if (authCodeRef.current && (!widgetDataRef.current || !sessionRef.current)) {
+                        if (authCodeRef.current && !sessionRef.current) {
                             setStatus('ERROR');
-                            setErrorMsg('Timeout: Did not receive WABA details or secure session failed. Ensure you completed the flow.');
+                            setErrorMsg('Timeout: Secure session initialization failed.');
                         }
                     }, 10000); // 10s wait
                 } else {

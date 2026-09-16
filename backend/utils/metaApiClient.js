@@ -63,6 +63,20 @@ class MetaApiClient {
     }
 
     /**
+     * Inspect token to discover granted scopes and target WABA IDs
+     */
+    async getDebugTokenInfo(inputToken, appId, appSecret) {
+        const appToken = `${appId}|${appSecret}`;
+        const response = await this.client.get('/debug_token', {
+            params: {
+                input_token: inputToken,
+                access_token: appToken
+            }
+        });
+        return response.data;
+    }
+
+    /**
      * Verify WABA ownership / details
      */
     async getWabaDetails(wabaId, accessToken) {
