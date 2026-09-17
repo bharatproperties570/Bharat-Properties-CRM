@@ -1,6 +1,8 @@
 import Lead from "../models/Lead.js";
 import { resolveContactIdentity } from '../services/contactIdentity.service.js';
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
+import { LeadCreationEngine, IdentityConflictError, DuplicateRequestError, ValidationError } from '../src/modules/lead/LeadCreationEngine.js';
+
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
@@ -33,7 +35,7 @@ const _lookupResolveCache = new Map();
 const LOOKUP_CACHE_MAX = 500;
 
 // Helper to resolve lookup (Find or Create)
-const resolveLookup = async (type, value, createIfMissing = true) => {
+export const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value) && /^[0-9a-fA-F]{24}$/.test(String(value))) return new mongoose.Types.ObjectId(value.toString());
 
@@ -86,7 +88,7 @@ const resolveUser = async (identifier) => {
 };
 
 // Resolve All Reference Fields for Lead
-const resolveAllReferenceFields = async (doc) => {
+export const resolveAllReferenceFields = async (doc) => {
     // If field is an empty string, set it to null so Mongoose doesn't try to cast it as ObjectId
     const fieldsToResolve = ['salutation', 'requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'countryCode', 'campaign', 'subSource', 'locPincode'];
     for (const field of fieldsToResolve) {
@@ -867,47 +869,20 @@ export const getLeads = async (req, res, next) => {
 export const addLead = async (req, res, next) => {
     try {
         console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
-        const data = { ...req.body };
 
-        // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
-        await resolveAllReferenceFields(data);
-        
-        // 🛡️ [SENIOR ROBUSTNESS] Default stage to 'Incoming' and status to 'New' if missing
-        if (!data.stage) data.stage = await resolveLookup('Stage', 'Incoming');
-        if (!data.status) data.status = await resolveLookup('Status', 'New');
-        
-        console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
+        const context = {
+            user: req.user,
+            idempotencyKey: req.headers['idempotency-key'] || req.body.leadgen_id || req.body.linkedin_lead_id || null
+        };
 
-        // 2. 🔒 Enterprise Isolation: Auto-tag with creator's department and teams ONLY IF MISSING
-        // We do this AFTER resolution so that manual selections are respected.
-        if (req.user) {
-            if (req.user.department && !data.department) data.department = req.user.department;
-            
-            // Critical Fix: Only auto-assign creator's teams if the resolved data.teams is still empty
-            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
-                data.teams = req.user.teams.map(t => t._id || t);
-            }
+        const result = await LeadCreationEngine.createLead(req.body, context);
+        let lead = result.lead;
+
+        if (result.isIdempotentRetry) {
+            return res.status(200).json({ success: true, data: lead, message: 'Idempotent request successful' });
         }
 
-        let createdLeadId;
-        await withMongoTransaction(async (session) => {
-            // Enterprise Identity Resolution: Link existing Contact or Create a new one
-            const contactRes = await resolveContactIdentity({
-                mobile: data.mobile,
-                email: data.email,
-                session,
-                createIfMissing: false
-            });
-            if (contactRes.success && contactRes.contact && !contactRes.conflict) {
-                data.contactDetails = contactRes.contact._id;
-            }
-
-            const leadDoc = new Lead(data);
-            await leadDoc.save({ session });
-            createdLeadId = leadDoc._id;
-        });
-        const lead = await Lead.findById(createdLeadId);
-        console.log("[DEBUG] Lead created successfully:", lead._id);
+        console.log("[DEBUG] Lead created successfully via Engine:", lead._id);
 
         // Auto-run Enrichment & Scoring (wrapped in try-catch to prevent crash)
         try {
@@ -936,40 +911,29 @@ export const addLead = async (req, res, next) => {
             }
         }
 
-        // ─── Auto-Assign via Enterprise Distribution Engine ────────────────────────
+        // ─── Auto-Assign via Enterprise Distribution Engine (Asynchronous Handoff) ────────────────────────
         let assignedAgent = null;
         try {
-            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-            const assignment = await distributeEntity(lead, 'onCreate');
-            
-            if (assignment && assignment.assignedTo) {
-                assignedAgent = {
-                    userId: assignment.assignedTo,
-                    ruleName: assignment.ruleName
-                };
-                console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${assignment.ruleName}"`);
-                
-                // Create Notification for auto-assignment
-                await createNotification(
-                    assignment.assignedTo,
-                    'assignments',
-                    'New Lead Assigned',
-                    `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
-                    `/leads/${lead._id}`,
-                    { leadId: lead._id }
-                );
-            }
+            const { distributionQueue } = await import("../src/queues/queueManager.js");
+            await distributionQueue.add('process_pending_distribution', {
+                idempotencyKey: `PendingDistribution:${lead._id}`
+            }, {
+                jobId: `PendingDistribution:${lead._id}`,
+                removeOnComplete: true
+            });
+            console.log(`[DISTRIBUTION] Queued PendingDistribution:${lead._id}`);
         } catch (distErr) {
-            console.warn('[DISTRIBUTION] distributeEntity failed (non-critical):', distErr.message);
+            console.warn('[DISTRIBUTION] Queue enqueue failed (non-critical, recovered by cron):', distErr.message);
         }
 
-        await lead.populate(leadPopulateFields); console.log("Lead Status after populate:", lead.status);
+        await lead.populate(leadPopulateFields);
+        console.log("Lead Status after populate:", lead.status);
 
         // SMS Trigger: Welcome Message via registered DLT template
         if (lead.mobile) {
             smsService.sendSMSWithTemplate(
                 lead.mobile,
-                'Get Response',  // Name of the registered DLT template
+                'Get Response',
                 { Name: lead.firstName || 'Customer' },
                 { entityType: 'Lead', entityId: lead._id }
             ).catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
@@ -978,13 +942,20 @@ export const addLead = async (req, res, next) => {
         // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
+            console.log("Lead Status before fireEvent:", lead.status);
+            await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
         } catch (weError) {
             console.error('[WorkflowEngine] Error firing lead_created:', weError.message);
         }
 
         res.status(201).json({ success: true, data: lead, assignedAgent });
     } catch (error) {
+        if (error instanceof IdentityConflictError) {
+            return res.status(409).json({ success: false, message: error.message });
+        }
+        if (error instanceof ValidationError) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
         console.error("[ERROR] addLead failed:", error);
         next(error);
     }

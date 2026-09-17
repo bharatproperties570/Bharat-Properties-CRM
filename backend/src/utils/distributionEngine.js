@@ -2,6 +2,7 @@
  * Distribution Engine - Backend Implementation
  * Handles automated assignment of Leads, Deals, and Activities based on Business Rules.
  */
+import mongoose from "mongoose";
 import User from "../../models/User.js";
 import Team from "../../models/Team.js";
 import Lead from "../../models/Lead.js";
@@ -92,14 +93,28 @@ const evaluateConditions = (conditions, data) => {
  * @param {Boolean} isRetry - Whether this is a retry from the queue
  * @returns {Promise<Object|null>} - Returns the assignment details { assignedTo, ruleName }
  */
-export const distributeEntity = async (entity, triggerEvent, isRetry = false) => {
+import { withMongoTransaction } from "../../utils/withMongoTransaction.js";
+import AutomationLog from "../../models/AutomationLog.js";
+
+export const distributeEntity = async (entity, triggerEvent, isRetry = false, pendingLogId = null) => {
     try {
         const moduleName = entity.constructor.modelName ? entity.constructor.modelName.toLowerCase() + 's' : 'leads';
         console.log(`[Distribution] 🤖 Orchestrating ${moduleName} for event: ${triggerEvent}`);
 
         const entityData = entity.toObject ? entity.toObject() : entity;
 
-        // 1. Fetch active rules for this module and trigger
+        // Idempotency / Duplicate assignment protection
+        let EntityModel = entity.constructor;
+        if (!EntityModel.modelName) {
+            EntityModel = Lead;
+        }
+        const existingEntity = await EntityModel.findById(entity._id).select('owner').lean();
+        if (existingEntity && existingEntity.owner) {
+            console.log(`[Distribution] ⚠️ Entity ${entity._id} already has an owner. Bypassing distribution.`);
+            return null;
+        }
+
+        // 1. Fetch active rules outside transaction to save lock time
         const rules = await DistributionRule.find({ 
             enabled: true, 
             module: moduleName, 
@@ -111,194 +126,193 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
             return null;
         }
 
-        for (const rule of rules) {
-            // 2. Check conditions
-            if (!evaluateConditions(rule.conditions, entityData)) continue;
+        let assignedTo = null;
+        let matchedRule = null;
 
-            console.log(`[Distribution] ✅ Matching Rule: "${rule.name}"`);
-
-            // 3. Resolve eligible agents
-            let agentIds = [];
-            if (rule.assignmentTarget.type === 'team') {
-                const teamIds = rule.assignmentTarget.ids;
-                const usersInTeams = await User.find({ teams: { $in: teamIds } }).select('_id').lean();
-                agentIds = usersInTeams.map(u => u._id.toString());
-            } else {
-                agentIds = rule.assignmentTarget.ids.map(id => id.toString());
+        const result = await withMongoTransaction(async (session) => {
+            // Re-verify it hasn't been assigned
+            const recheck = await EntityModel.findById(entity._id).select('owner').session(session).lean();
+            if (recheck && recheck.owner) {
+                 return null;
             }
 
-            if (!agentIds || agentIds.length === 0) continue;
+            for (const rule of rules) {
+                if (!evaluateConditions(rule.conditions, entityData)) continue;
 
-            let eligibleUsers = await User.find({ 
-                _id: { $in: agentIds }, 
-                status: 'Active', 
-                availability: 'Available' 
-            }).lean();
+                console.log(`[Distribution] ✅ Matching Rule: "${rule.name}"`);
 
-            eligibleUsers = eligibleUsers.filter(isUserAvailableAndOnShift);
-
-            if (eligibleUsers.length === 0) {
-                console.warn(`[Distribution] ⚠️ All targeted agents for "${rule.name}" are Offline/Unavailable, OOO, or Off-shift.`);
-                if (rule.fallbackTarget?.id) {
-                    const fallbackId = rule.fallbackTarget.id;
-                    const fallbackUser = await User.findById(fallbackId).lean();
-                    if (fallbackUser && fallbackUser.availability === 'Available' && isUserAvailableAndOnShift(fallbackUser)) {
-                        await performAssignment(entity, fallbackId, rule.name + " (Fallback)");
-                        return { assignedTo: fallbackId, ruleName: rule.name + " (Fallback)" };
-                    }
-                }
-                continue;
-            }
-
-            // 4. Distribution Logic
-            let assignedTo = null;
-
-            switch (rule.distributionType) {
-                case 'roundRobin': {
-                    const updatedRule = await DistributionRule.findByIdAndUpdate(
-                        rule._id,
-                        { $inc: { lastAssignedIndex: 1 } },
-                        { new: true }
-                    );
-                    const nextIdx = updatedRule.lastAssignedIndex % eligibleUsers.length;
-                    assignedTo = eligibleUsers[nextIdx]._id;
-                    break;
+                let agentIds = [];
+                if (rule.assignmentTarget.type === 'team') {
+                    const teamIds = rule.assignmentTarget.ids;
+                    const usersInTeams = await User.find({ teams: { $in: teamIds } }).select('_id').session(session).lean();
+                    agentIds = usersInTeams.map(u => u._id.toString());
+                } else {
+                    agentIds = rule.assignmentTarget.ids.map(id => id.toString());
                 }
 
-                case 'loadBased': {
-                    const userIds = eligibleUsers.map(u => u._id);
-                    const counts = await Lead.aggregate([
-                        { 
-                            $match: { 
-                                $or: [
-                                    { owner: { $in: userIds } },
-                                    { 'assignment.assignedTo': { $in: userIds } }
-                                ],
-                                stage: { $nin: ['Closed', 'Lost', 'Converted'] } 
-                            } 
-                        },
-                        { $group: { _id: '$owner', count: { $sum: 1 } } }
-                    ]);
-                    
-                    const workloadMap = {};
-                    userIds.forEach(id => workloadMap[id.toString()] = 0);
-                    counts.forEach(c => { if(c._id) workloadMap[c._id.toString()] = c.count; });
-                    
-                    let lowestLoad = Infinity;
-                    for (const user of eligibleUsers) {
-                        const load = workloadMap[user._id.toString()];
-                        const capacityLimit = user.preferences?.capacityLimit || 100;
-                        const loadRatio = load / capacityLimit;
-                        
-                        if (loadRatio < lowestLoad) {
-                            lowestLoad = loadRatio;
-                            assignedTo = user._id;
+                if (!agentIds || agentIds.length === 0) continue;
+
+                let eligibleUsers = await User.find({ 
+                    _id: { $in: agentIds }, 
+                    status: 'Active', 
+                    availability: 'Available' 
+                }).session(session).lean();
+
+                eligibleUsers = eligibleUsers.filter(isUserAvailableAndOnShift);
+
+                if (eligibleUsers.length === 0) {
+                    if (rule.fallbackTarget?.id) {
+                        const fallbackId = rule.fallbackTarget.id;
+                        const fallbackUser = await User.findById(fallbackId).session(session).lean();
+                        if (fallbackUser && fallbackUser.availability === 'Available' && isUserAvailableAndOnShift(fallbackUser)) {
+                            assignedTo = fallbackId;
+                            rule.name = rule.name + " (Fallback)";
+                            matchedRule = rule;
+                            break;
                         }
                     }
-                    break;
+                    continue; // try next rule
                 }
 
-                case 'locationBased': {
-                    const location = entityData.locCity || entityData.locArea || entityData.location;
-                    if (!location) {
-                        assignedTo = eligibleUsers[0]._id;
+                switch (rule.distributionType) {
+                    case 'roundRobin':
+                    case 'locationBased':
+                    case 'scoreBased':
+                    case 'sourceBased': {
+                        // The index needs to be incremented only if an agent is selected.
+                        let bandAgents = eligibleUsers;
+                        
+                        if (rule.distributionType === 'locationBased') {
+                            const location = entityData.locCity || entityData.locArea || entityData.location;
+                            if (location) bandAgents = eligibleUsers.filter(u => u.territories && u.territories.includes(location));
+                        } else if (rule.distributionType === 'scoreBased') {
+                            const score = entityData.leadScore || 0;
+                            let band = 'cold';
+                            if (score >= 81) band = 'superHot'; else if (score >= 61) band = 'hot'; else if (score >= 31) band = 'warm';
+                            const bandAgentIds = rule.assignmentTarget.weights?.get(band);
+                            if (bandAgentIds && Array.isArray(bandAgentIds)) bandAgents = eligibleUsers.filter(u => bandAgentIds.includes(u._id.toString()));
+                        } else if (rule.distributionType === 'sourceBased') {
+                            const source = entityData.source;
+                            const sourceAgentIds = rule.assignmentTarget.weights?.get(source);
+                            if (sourceAgentIds && Array.isArray(sourceAgentIds)) bandAgents = eligibleUsers.filter(u => sourceAgentIds.includes(u._id.toString()));
+                        }
+
+                        if (bandAgents.length > 0) {
+                            const updatedRule = await DistributionRule.findByIdAndUpdate(
+                                rule._id,
+                                { $inc: { lastAssignedIndex: 1 } },
+                                { new: true, session }
+                            );
+                            assignedTo = bandAgents[updatedRule.lastAssignedIndex % bandAgents.length]._id;
+                        } else {
+                            assignedTo = eligibleUsers[0]._id;
+                        }
                         break;
                     }
-                    const locationAgents = eligibleUsers.filter(u => u.territories && u.territories.includes(location));
-                    if (locationAgents.length > 0) {
-                        const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
-                        assignedTo = locationAgents[updatedRule.lastAssignedIndex % locationAgents.length]._id;
-                    } else {
-                        assignedTo = eligibleUsers[0]._id;
-                    }
-                    break;
-                }
 
-                case 'scoreBased': {
-                    const score = entityData.leadScore || 0;
-                    let band = 'cold';
-                    if (score >= 81) band = 'superHot';
-                    else if (score >= 61) band = 'hot';
-                    else if (score >= 31) band = 'warm';
-
-                    const bandAgentIds = rule.assignmentTarget.weights?.get(band);
-                    let bandAgents = eligibleUsers;
-                    if (bandAgentIds && Array.isArray(bandAgentIds)) {
-                        bandAgents = eligibleUsers.filter(u => bandAgentIds.includes(u._id.toString()));
-                    }
-
-                    if (bandAgents.length > 0) {
-                        const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
-                        assignedTo = bandAgents[updatedRule.lastAssignedIndex % bandAgents.length]._id;
-                    } else {
-                        assignedTo = eligibleUsers[0]._id;
-                    }
-                    break;
-                }
-
-                case 'sourceBased': {
-                    const source = entityData.source;
-                    const sourceAgentIds = rule.assignmentTarget.weights?.get(source);
-                    let sourceAgents = eligibleUsers;
-                    if (sourceAgentIds && Array.isArray(sourceAgentIds)) {
-                        sourceAgents = eligibleUsers.filter(u => sourceAgentIds.includes(u._id.toString()));
-                    }
-                    
-                    if (sourceAgents.length > 0) {
-                        const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
-                        assignedTo = sourceAgents[updatedRule.lastAssignedIndex % sourceAgents.length]._id;
-                    } else {
-                        assignedTo = eligibleUsers[0]._id;
-                    }
-                    break;
-                }
-
-                case 'skillBased': {
-                    let bestScore = -1;
-                    let selectedAgent = null;
-
-                    for (const user of eligibleUsers) {
-                        let score = 0;
-                        const skills = user.skills || {};
+                    case 'loadBased': {
+                        const userIds = eligibleUsers.map(u => u._id);
+                        const counts = await Lead.aggregate([
+                            { $match: { $or: [{ owner: { $in: userIds } }, { 'assignment.assignedTo': { $in: userIds } }], stage: { $nin: ['Closed', 'Lost', 'Converted'] } } },
+                            { $group: { _id: '$owner', count: { $sum: 1 } } }
+                        ]).session(session);
                         
-                        if (entityData.budget && skills.budgetRange) {
-                            const budget = parseFloat(entityData.budget);
-                            if (budget >= (skills.budgetRange.min || 0) && budget <= (skills.budgetRange.max || Infinity)) {
-                                score += 3;
+                        const workloadMap = {};
+                        userIds.forEach(id => workloadMap[id.toString()] = 0);
+                        counts.forEach(c => { if(c._id) workloadMap[c._id.toString()] = c.count; });
+                        
+                        let lowestLoad = Infinity;
+                        for (const user of eligibleUsers) {
+                            const load = workloadMap[user._id.toString()];
+                            const capacityLimit = user.preferences?.capacityLimit || 100;
+                            const loadRatio = load / capacityLimit;
+                            if (loadRatio < lowestLoad) { lowestLoad = loadRatio; assignedTo = user._id; }
+                        }
+                        break;
+                    }
+
+                    case 'skillBased': {
+                        let bestScore = -1;
+                        for (const user of eligibleUsers) {
+                            let score = 0;
+                            const skills = user.skills || {};
+                            if (entityData.budget && skills.budgetRange) {
+                                const budget = parseFloat(entityData.budget);
+                                if (budget >= (skills.budgetRange.min || 0) && budget <= (skills.budgetRange.max || Infinity)) score += 3;
+                            }
+                            if (entityData.propertyType && skills.propertyTypes) {
+                                if (skills.propertyTypes.includes(entityData.propertyType)) score += 2;
+                            }
+                            if (score > bestScore) { bestScore = score; assignedTo = user._id; }
+                        }
+                        if (!assignedTo) assignedTo = eligibleUsers[0]._id;
+                        break;
+                    }
+                    default:
+                        assignedTo = eligibleUsers[0]._id;
+                }
+
+                if (assignedTo) {
+                    matchedRule = rule;
+                    break; // Break the rules loop, we found an assignee!
+                }
+            } // end rules loop
+
+            if (assignedTo && matchedRule) {
+                // 1. Assign owner
+                const assignRes = await performAssignment(entity, assignedTo, matchedRule.name, session);
+                if (!assignRes) {
+                    // It was concurrently assigned (owner not null anymore)
+                    return null;
+                }
+                
+                // 2. Create durable event
+                const idempotencyKey = `LeadDistribution:${entity._id}`;
+                await AutomationLog.findOneAndUpdate(
+                    { idempotencyKey },
+                    {
+                        $setOnInsert: {
+                            ruleType: 'AutomatedAction',
+                            ruleId: matchedRule._id,
+                            targetEntityId: entity._id,
+                            targetModule: 'LeadDistribution',
+                            status: 'pending',
+                            executedAt: new Date(),
+                            idempotencyKey,
+                            details: {
+                                eventName: assignRes.eventName,
+                                assignedTo,
+                                ruleName: matchedRule.name
                             }
                         }
-                        
-                        if (entityData.propertyType && skills.propertyTypes) {
-                            if (skills.propertyTypes.includes(entityData.propertyType)) {
-                                score += 2;
-                            }
-                        }
+                    },
+                    { upsert: true, new: true, session }
+                );
 
-                        if (score > bestScore) {
-                            bestScore = score;
-                            selectedAgent = user._id;
-                        }
-                    }
-                    assignedTo = selectedAgent || eligibleUsers[0]._id;
-                    break;
+                if (pendingLogId) {
+                    await AutomationLog.findByIdAndUpdate(pendingLogId, { status: 'success' }, { session });
                 }
-
-                default:
-                    assignedTo = eligibleUsers[0]._id;
+                return { assignedTo, ruleName: matchedRule.name, eventName: assignRes.eventName, idempotencyKey };
             }
+            
+            return null; // Exhausted rules
+        }); // End withMongoTransaction
 
-            if (assignedTo) {
-                console.log(`[Distribution] 🎯 Assigned to UserID: ${assignedTo} via "${rule.name}"`);
-                await performAssignment(entity, assignedTo, rule.name);
-                return { assignedTo, ruleName: rule.name };
-            }
-        }
-
-        // Exhausted all rules, no one available
-        if (!isRetry) {
+        if (result && result.idempotencyKey) {
+            console.log(`[Distribution] 🎯 Assigned to UserID: ${result.assignedTo} via "${result.ruleName}". Queueing durable event...`);
+            await distributionQueue.add('process_durable_event', { 
+                idempotencyKey: result.idempotencyKey 
+            }, { 
+                jobId: result.idempotencyKey,
+                removeOnComplete: true 
+            });
+            return { assignedTo: result.assignedTo, ruleName: result.ruleName };
+        } else if (!isRetry) {
+            // No rules matched or all fell through
             console.log(`[Distribution] ⏳ No eligible agents found across rules. Queuing entity ${entity._id}`);
             await distributionQueue.add('distribute', { entity, triggerEvent });
         }
+        
         return null;
     } catch (error) {
         console.error(`[Distribution Error]:`, error);
@@ -306,10 +320,7 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
     }
 };
 
-/**
- * Helper to update the entity with the assignment and emit events
- */
-const performAssignment = async (entity, assignedTo, ruleName) => {
+const performAssignment = async (entity, assignedTo, ruleName, session) => {
     const updatePayload = {
         owner: assignedTo,
         'assignment.assignedTo': assignedTo,
@@ -318,29 +329,25 @@ const performAssignment = async (entity, assignedTo, ruleName) => {
     };
 
     let updatedDoc;
+    let EntityModel = entity.constructor;
     let modelName;
 
-    if (entity.constructor.modelName) {
-        modelName = entity.constructor.modelName;
-        updatedDoc = await entity.constructor.findByIdAndUpdate(
-            entity._id, 
-            { $set: updatePayload }, 
-            { new: true } // Need to get the updated document to emit
-        );
-    } else if (entity._id) {
-        modelName = 'Lead'; // Assuming Lead by default for raw objects
-        const Lead = (await import('../../models/Lead.js')).default;
-        updatedDoc = await Lead.findByIdAndUpdate(
-            entity._id, 
-            { $set: updatePayload }, 
-            { new: true }
-        );
+    if (!EntityModel.modelName) {
+        modelName = 'Lead';
+        EntityModel = (await import('../../models/Lead.js')).default;
+    } else {
+        modelName = EntityModel.modelName;
     }
 
-    // Emit event so the AutomationEngine can react (e.g. sequence triggers, webhook firing)
+    updatedDoc = await EntityModel.findOneAndUpdate(
+        { _id: entity._id, owner: { $in: [null, undefined] } }, 
+        { $set: updatePayload }, 
+        { new: true, session }
+    );
+
     if (updatedDoc) {
         const eventName = `${modelName.toUpperCase()}_UPDATED`;
-        eventBus.emit(eventName, updatedDoc);
-        console.log(`[Distribution] 📢 Emitted ${eventName} after assigning to ${assignedTo}`);
+        return { updatedDoc, eventName };
     }
+    return null;
 };

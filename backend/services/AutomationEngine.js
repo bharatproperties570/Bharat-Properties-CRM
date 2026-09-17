@@ -43,7 +43,7 @@ class AutomationEngine {
         eventBus.on('INVENTORY_UPDATED', (inv) => this.processEvent('INVENTORY_UPDATED', inv, 'Inventory'));
     }
 
-    async processEvent(eventName, entity, entityType) {
+    async processEvent(eventName, entity, entityType, throwOnError = false) {
         try {
             if (this.checkRecursionGuard(entity._id, eventName)) return;
 
@@ -52,11 +52,11 @@ class AutomationEngine {
             // Offload Sequence Evaluation to BullMQ background worker (non-blocking)
             if (['Lead', 'Deal'].includes(entityType)) {
                 if (marketingQueue) {
-                    marketingQueue.add('process-automation-event', {
+                    await marketingQueue.add('process-automation-event', {
                         eventName,
                         entityId: entity._id,
                         entityType
-                    }).catch(err => console.error('[AutomationEngine] Failed to enqueue event job:', err.message));
+                    }, (entity._eventContext?.idempotencyKey ? { jobId: entity._eventContext.idempotencyKey + '_automation' } : {}));
                 } else {
                     // Fallback to async setImmediate if Redis is offline
                     setImmediate(async () => {
@@ -123,6 +123,7 @@ class AutomationEngine {
 
         } catch (error) {
             console.error(`[AutomationEngine] Error processing ${eventName}:`, error);
+            if (throwOnError) throw error;
         }
     }
 
