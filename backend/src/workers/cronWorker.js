@@ -1,5 +1,6 @@
 import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
+import AutomationLog from '../../models/AutomationLog.js';
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 import Activity from '../../models/Activity.js';
@@ -12,6 +13,74 @@ import SystemSetting from '../modules/systemSettings/system.model.js';
 const workerOptions = { connection: redisConnection };
 
 export const cronWorker = new Worker('cronQueue', async (job) => {
+    if (job.name === 'sweepPendingDistributionEvents') {
+        console.log('[Cron Worker] Sweeping pending distribution events...');
+        const AutomationLog = (await import('../../models/AutomationLog.js')).default;
+        const { distributionQueue } = await import('../queues/queueManager.js');
+
+        // Find events that are pending for more than 5 minutes
+        const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+        
+        // Recover stalled 'processing' LeadDistribution events back to 'pending'
+        await AutomationLog.updateMany({
+            targetModule: 'LeadDistribution',
+            status: 'processing',
+            executedAt: { $lt: cutoff }
+        }, { $set: { status: 'pending' } });
+
+        // Recover stalled 'processing' DomainEvent & LeadCreationRequest events back to 'pending'
+        await AutomationLog.updateMany({
+            ruleType: { $in: ['DomainEvent', 'LeadCreationRequest'] },
+            status: 'processing',
+            executedAt: { $lt: cutoff }
+        }, { $set: { status: 'pending' } });
+
+        // 1. Sweep stalled distributions
+        const pendingEvents = await AutomationLog.find({
+            targetModule: 'LeadDistribution',
+            status: 'pending',
+            executedAt: { $lt: cutoff }
+        }).lean();
+
+        let sweptCount = 0;
+        for (const event of pendingEvents) {
+            console.log(`[Cron Worker] Sweeping stalled distribution event ${event.idempotencyKey}`);
+            
+            const jobName = event.idempotencyKey.startsWith('PendingDistribution:') 
+                ? 'process_pending_distribution' 
+                : 'process_durable_event';
+                
+            await distributionQueue.add(jobName, { 
+                idempotencyKey: event.idempotencyKey 
+            }, { 
+                jobId: event.idempotencyKey,
+                removeOnComplete: true 
+            });
+            sweptCount++;
+        }
+
+        // 2. Sweep stalled DomainEvents
+        const pendingDomainEvents = await AutomationLog.find({
+            ruleType: 'DomainEvent',
+            status: 'pending',
+            executedAt: { $lt: cutoff }
+        }).lean();
+
+        for (const event of pendingDomainEvents) {
+            console.log(`[Cron Worker] Sweeping stalled DomainEvent ${event.idempotencyKey}`);
+            
+            await distributionQueue.add('process_domain_event', { 
+                idempotencyKey: event.idempotencyKey 
+            }, { 
+                jobId: event.idempotencyKey,
+                removeOnComplete: true 
+            });
+            sweptCount++;
+        }
+        
+        return { sweptCount };
+    }
+
     console.log(`[Cron Worker] Executing scheduled job: ${job.name}`);
 
     if (job.name === 'dailyInactivityCheck') {

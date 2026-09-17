@@ -41,7 +41,7 @@ export const captureLeadWebhook = async (req, res) => {
             name,
             mobile,
             email,
-            source_meta = {},   // { utm_source, utm_medium, utm_campaign, deal_id }
+            source_meta = {},
             message,
         } = req.body;
 
@@ -52,24 +52,15 @@ export const captureLeadWebhook = async (req, res) => {
         const [firstName, ...rest] = (name || 'Unknown').split(' ');
         const lastName = rest.join(' ');
 
-        // Determine intent_index from UTM source
         const intentBySource = {
-            'whatsapp': 60,
-            'instagram': 50,
-            'facebook': 50,
-            'google': 55,
-            'sms': 40,
-            'email': 45,
-            'direct': 70,
+            'whatsapp': 60, 'instagram': 50, 'facebook': 50, 'google': 55, 'sms': 40, 'email': 45, 'direct': 70,
         };
         const utmSource = (source_meta.utm_source || '').toLowerCase();
         const intentIndex = intentBySource[utmSource] || 35;
 
-        // Resolve 'source' to Lookup ObjectId (Lead schema requires ObjectId ref)
         const sourceId = await resolveLeadLookup('Source', source_meta.utm_source || 'Marketing Automation');
 
-        // Create the lead
-        const lead = await Lead.create({
+        const payload = {
             firstName,
             lastName,
             mobile,
@@ -78,48 +69,54 @@ export const captureLeadWebhook = async (req, res) => {
             source_meta,
             intent_index: intentIndex,
             description: message || `Lead from ${source_meta.utm_medium || 'campaign'} campaign`,
-            tags: ['Marketing Automation'],
-        });
+            tags: ['Marketing Automation']
+        };
 
-        console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);
+        const context = {
+            user: null,
+            idempotencyKey: req.headers['idempotency-key'] || null
+        };
 
-        // Find the associated deal for context
-        let deal = null;
-        if (source_meta.deal_id && mongoose.Types.ObjectId.isValid(source_meta.deal_id)) {
-            deal = await Deal.findById(source_meta.deal_id).lean();
+        const result = await LeadCreationEngine.createLead(payload, context);
+        const lead = result.lead;
+
+        if (!result.isIdempotentRetry) {
+            console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);
+
+            let deal = null;
+            if (source_meta.deal_id && mongoose.Types.ObjectId.isValid(source_meta.deal_id)) {
+                deal = await Deal.findById(source_meta.deal_id).lean();
+            }
+
+            const adminUser = await mongoose.model('User').findOne({}).lean();
+            if (adminUser) {
+                await createNotification(
+                    adminUser._id,
+                    'lead',
+                    '🎯 New Campaign Lead',
+                    `New lead ${firstName} (${mobile}) from ${source_meta.utm_source || 'marketing campaign'}`,
+                    `/leads/${lead._id}`,
+                    { leadId: lead._id, source: source_meta }
+                ).catch(err => console.error('[WebhookController] Notification error:', err.message));
+            }
+
+            NurtureBot.initiate(lead, deal).catch(err =>
+                console.error('[WebhookController] NurtureBot initiate error:', err.message)
+            );
         }
-
-        // Notify any available user (role is an ObjectId, not plain string in this CRM)
-        const adminUser = await mongoose.model('User').findOne({}).lean();
-        if (adminUser) {
-            await createNotification(
-                adminUser._id,
-                'lead',
-                '🎯 New Campaign Lead',
-                `New lead ${firstName} (${mobile}) from ${source_meta.utm_source || 'marketing campaign'}`,
-                `/leads/${lead._id}`,
-                { leadId: lead._id, source: source_meta }
-            ).catch(err => console.error('[WebhookController] Notification error:', err.message));
-        }
-
-        // Initiate NurtureBot (fire-and-forget)
-        NurtureBot.initiate(lead, deal).catch(err =>
-            console.error('[WebhookController] NurtureBot initiate error:', err.message)
-        );
 
         return res.status(201).json({
             success: true,
-            message: 'Lead captured and nurture flow initiated.',
+            message: result.isIdempotentRetry ? 'Lead already captured.' : 'Lead captured and nurture flow initiated.',
             leadId: lead._id,
         });
 
     } catch (error) {
-        // Handle duplicate mobile gracefully
+        if (error instanceof IdentityConflictError) {
+            return res.status(409).json({ success: false, message: error.message });
+        }
         if (error.code === 11000) {
-            return res.status(200).json({
-                success: true,
-                message: 'Lead already exists in CRM. Updated intent score.',
-            });
+            return res.status(409).json({ success: false, message: 'Lead with this mobile already exists.' });
         }
         console.error('[WebhookController] captureLeadWebhook error:', error);
         return res.status(500).json({ success: false, message: 'Internal server error.' });
@@ -400,7 +397,7 @@ const processInboundMessage = async (message, value) => {
         let lead = await Lead.findOne({ mobile: { $in: phones } });
         let contact = await Contact.findOne({ 'phones.number': { $in: phones } });
         const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
-        const intakeResult = await intakeEngine.processIntake({ mobile: fromNumber, message: text, source: 'whatsapp_live_bot', metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name } });
+        const intakeResult = await intakeEngine.processIntake({ mobile: fromNumber, message: text, source: 'whatsapp_live_bot', metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name }, idempotencyKey: `WhatsAppLiveBot:${message.id}` });
         if (!lead && intakeResult.type === 'LEAD') lead = intakeResult.data;
         if (!contact && intakeResult.type === 'CONTACT') contact = intakeResult.data;
         if (lead) await reviveTerminalLeadOnInboundWhatsApp(await Lead.findById(lead._id).populate('stage'), text);
@@ -514,7 +511,8 @@ export const websiteLiveBotWebhook = async (req, res) => {
                 name: name || 'Website Visitor',
                 email: email,
                 message: message,
-                source: 'Website Chatbot'
+                source: 'Website Chatbot',
+                idempotencyKey: null
             });
 
             if (intakeResult.type === 'LEAD') {
@@ -772,15 +770,25 @@ export const facebookLeadWebhook = async (req, res) => {
             const email = body.email || '';
 
             if (mobile) {
-                const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
-                const result = await intakeEngine.processIntake({
-                    mobile: mobile,
-                    name: name,
-                    email: email,
-                    message: body.message || 'Lead generated from Facebook Lead Ads',
-                    source: 'Facebook Ads'
-                });
-                return res.status(200).json({ success: true, message: 'Test lead processed', data: result });
+                const [firstName, ...rest] = name.split(' ');
+                const payload = {
+                    firstName,
+                    lastName: rest.join(' '),
+                    mobile,
+                    email,
+                    source: await resolveLeadLookup('Source', 'Facebook Ads'),
+                    description: body.message || 'Lead generated from Facebook Lead Ads Test'
+                };
+                // Provide a random/mock idempotency key for direct test payloads
+                const context = { user: null, idempotencyKey: `FacebookTest:${Date.now()}` };
+                
+                try {
+                    const result = await LeadCreationEngine.createLead(payload, context);
+                    return res.status(200).json({ success: true, message: 'Test lead processed', data: { leadId: result.lead._id } });
+                } catch(e) {
+                    if (e instanceof IdentityConflictError) return res.status(200).json({ success: true, anomaly: e.message });
+                    throw e;
+                }
             }
         }
 
@@ -789,6 +797,7 @@ export const facebookLeadWebhook = async (req, res) => {
             const valueObj = body.entry[0].changes[0].value;
             const leadgenId = valueObj.leadgen_id;
             const formId = valueObj.form_id;
+            const pageId = valueObj.page_id;
 
             if (leadgenId) {
                 console.log(`[Facebook Lead Webhook] Processing Leadgen ID: ${leadgenId}`);
@@ -819,30 +828,88 @@ export const facebookLeadWebhook = async (req, res) => {
                     }
                 }
 
-                // If Graph API credentials are not set, fallback/mock simulate lead creation
+                // Graph API data is REQUIRED. If mobile is missing, it means Graph API failed or credentials are unset.
                 if (!mobile) {
-                    console.log(`[Facebook Lead Webhook] Simulating lead for Leadgen ID: ${leadgenId}`);
-                    mobile = `+9199999${Math.floor(10000 + Math.random() * 90000)}`;
-                    name = `FB Lead ${leadgenId.slice(-4)}`;
+                    console.error(`[Facebook Lead Webhook] Graph API failed or returned no mobile for Leadgen ID: ${leadgenId}. Cannot create valid Lead.`);
+                    return res.status(500).json({ success: false, message: 'Graph API failure. Retry permitted.' });
                 }
 
-                const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
-                const result = await intakeEngine.processIntake({
-                    mobile: mobile,
-                    name: name,
-                    email: email,
-                    message: `Facebook Lead from Form ${formId || 'unknown'}`,
-                    source: 'Facebook Ads',
-                    metadata: { leadgen_id: leadgenId, form_id: formId }
-                });
+                const [firstName, ...rest] = name.split(' ');
+                const payload = {
+                    firstName,
+                    lastName: rest.join(' '),
+                    mobile,
+                    email,
+                    source: await resolveLeadLookup('Source', 'Facebook Ads'),
+                    description: `Facebook Lead from Form ${formId || 'unknown'}`,
+                    source_meta: { leadgen_id: leadgenId, form_id: formId, page_id: pageId }
+                };
 
-                return res.status(200).json({ success: true, message: 'Lead captured', leadgenId });
+                const context = {
+                    user: null,
+                    idempotencyKey: `FacebookLead:${leadgenId}`
+                };
+
+                try {
+                    const result = await LeadCreationEngine.createLead(payload, context);
+                    
+                    if (!result.isIdempotentRetry) {
+                        // Post-commit distribution handoff
+                        try {
+                            const { distributionQueue } = await import("../src/queues/queueManager.js");
+                            await distributionQueue.add('process_pending_distribution', {
+                                idempotencyKey: `PendingDistribution:${result.lead._id}`
+                            }, {
+                                jobId: `PendingDistribution:${result.lead._id}`,
+                                removeOnComplete: true
+                            });
+                        } catch (distErr) {
+                            console.error("[DISTRIBUTION ERROR] Facebook Lead Submit:", distErr);
+                        }
+                    }
+
+                    return res.status(200).json({ success: true, message: 'Lead captured', leadgenId });
+                } catch (engineError) {
+                    if (engineError instanceof IdentityConflictError) {
+                        console.warn(`[Facebook Lead Webhook] Identity Conflict Anomaly for ${leadgenId}: ${engineError.message}`);
+                        
+                        try {
+                            const AutomationLog = (await import('../models/AutomationLog.js')).default;
+                            await AutomationLog.findOneAndUpdate(
+                                { idempotencyKey: `FacebookIdentityConflict:${leadgenId}` },
+                                {
+                                    $setOnInsert: {
+                                        ruleType: 'IdentityConflict',
+                                        targetModule: 'Lead',
+                                        status: 'failed',
+                                        executedAt: new Date(),
+                                        details: {
+                                            provider: 'facebook',
+                                            leadgenId: leadgenId,
+                                            errorType: 'IdentityConflictError',
+                                            message: engineError.message
+                                        }
+                                    }
+                                },
+                                { upsert: true, new: true }
+                            );
+                        } catch (logErr) {
+                            console.error('[Facebook Lead Webhook] Failed to persist IdentityConflict anomaly:', logErr.message);
+                            throw logErr; // Elevate transient persistence failure to 5xx to allow Meta retry
+                        }
+
+                        return res.status(200).json({ success: true, anomaly: 'IdentityConflict', message: engineError.message });
+                    }
+                    // For temporary infrastructure errors, throw to reach the 500 handler so FB retries
+                    throw engineError;
+                }
             }
         }
 
         res.sendStatus(200);
     } catch (error) {
         console.error('[Facebook Lead Webhook] Error:', error);
+        // Explicitly return 500 for unhandled transient infrastructure failures so Facebook retries
         res.sendStatus(500);
     }
 };
