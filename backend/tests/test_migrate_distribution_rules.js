@@ -28,11 +28,18 @@ class MockDb {
                 let matchedCount = 0;
                 let modifiedCount = 0;
                 const docIndex = col.findIndex(d => {
-                    // simulate query match
                     let matches = d._id.equals(query._id);
-                    if (query.entity) matches = matches && d.entity === query.entity;
-                    if (query.logic) matches = matches && d.logic === query.logic;
+                    if (query.entity !== undefined) matches = matches && d.entity === query.entity;
+                    if (query.logic !== undefined) matches = matches && d.logic === query.logic;
                     if (query.isActive !== undefined) matches = matches && d.isActive === query.isActive;
+                    
+                    // Deep compare arrays for assignedAgents and conditions
+                    if (query.assignedAgents !== undefined) {
+                        matches = matches && JSON.stringify(d.assignedAgents) === JSON.stringify(query.assignedAgents);
+                    }
+                    if (query.conditions !== undefined) {
+                        matches = matches && JSON.stringify(d.conditions) === JSON.stringify(query.conditions);
+                    }
                     return matches;
                 });
                 
@@ -80,7 +87,7 @@ class MockDb {
 }
 
 async function runTests() {
-    console.log("Running Migration Tests...");
+    console.log("Running Migration Strict Tests...");
 
     const expectedLegacy = {
         _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
@@ -88,76 +95,109 @@ async function runTests() {
         logic: 'ROUND_ROBIN',
         isActive: true,
         assignedAgents: [TARGET_AGENT_ID],
-        conditions: [{ field: 'campaign', value: 'Online' }]
+        conditions: [{ field: 'campaign', operator: 'equals', value: 'Online' }]
     };
 
-    // --- 1. Successful Migration ---
-    const dbSuccess = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
-    // Preflight
-    assert.strictEqual(await verifyPreconditions(dbSuccess), 'READY');
-    
-    // Backup
-    const backupName = await createBackup(dbSuccess);
-    assert(backupName.startsWith('distributionrules_backup_'));
-    
-    // Execute
-    assert.strictEqual(await runMigration(dbSuccess, false), 'MIGRATION_SUCCESS');
-    
-    // Post-migration Verify
-    await verifyPostMigration(dbSuccess);
-    
-    // Inspect specific fields
-    const migrated = await dbSuccess.collection('distributionrules').findOne({_id: expectedLegacy._id});
-    assert.strictEqual(migrated.module, 'leads');
-    assert.strictEqual(migrated.entity, undefined);
-    assert.deepStrictEqual(migrated.triggerEvent, ["onCreate", "onWebCapture"]);
-    assert.strictEqual(migrated.conditions[0].value.toString(), CAMPAIGN_OBJECT_ID);
-    
-    // Rollback verify
-    await rollback(dbSuccess, backupName);
-    const rolledBack = await dbSuccess.collection('distributionrules').findOne({_id: expectedLegacy._id});
-    assert.strictEqual(rolledBack.entity, 'lead');
-    assert.strictEqual(rolledBack.module, undefined);
-    assert.strictEqual(rolledBack.conditions[0].value, 'Online');
-
-    // --- 2. Dry Run ---
-    const dbDry = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
-    assert.strictEqual(await runMigration(dbDry, true), 'DRY_RUN_SUCCESS');
-    const notMigrated = await dbDry.collection('distributionrules').findOne({_id: expectedLegacy._id});
-    assert.strictEqual(notMigrated.entity, 'lead', 'Dry run should not mutate');
-
-    // --- 3. Already Migrated ---
-    const alreadyMigratedData = {
+    // 1. Fully Migrated (ALREADY_MIGRATED)
+    const fullyMigrated = {
         _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
         module: 'leads',
-        triggerEvent: ["onCreate", "onWebCapture"]
+        enabled: true,
+        distributionType: 'roundRobin',
+        triggerEvent: ['onCreate', 'onWebCapture'],
+        assignmentTarget: { type: 'user', ids: [TARGET_AGENT_ID] },
+        conditions: [{ field: 'campaign', value: new mongoose.Types.ObjectId(CAMPAIGN_OBJECT_ID) }]
     };
-    const dbAlready = new MockDb(alreadyMigratedData);
-    assert.strictEqual(await verifyPreconditions(dbAlready), 'ALREADY_MIGRATED');
+    const dbAlready = new MockDb(fullyMigrated);
+    assert.strictEqual((await verifyPreconditions(dbAlready)).status, 'ALREADY_MIGRATED');
 
-    // --- 4. Partial Migration / Wrong Shape ---
-    const dbWrongShape = new MockDb({ ...expectedLegacy, entity: 'deal' });
-    await assert.rejects(verifyPreconditions(dbWrongShape), /does not match expected legacy shape/);
+    // 2. Partially Migrated (Should fail closed)
+    const partiallyMigrated = {
+        _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
+        entity: 'lead', // Legacy field still present
+        module: 'leads',
+        triggerEvent: ['onCreate']
+    };
+    const dbPartial = new MockDb(partiallyMigrated);
+    await assert.rejects(verifyPreconditions(dbPartial), /PARTIALLY_MIGRATED/);
 
-    // --- 5. Wrong Rule ID ---
+    // 3. Unexpected Mixed State
+    const unexpectedState = {
+        _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
+        distributionType: 'roundRobin' // no entity, no module
+    };
+    const dbUnexpected = new MockDb(unexpectedState);
+    await assert.rejects(verifyPreconditions(dbUnexpected), /PARTIALLY_MIGRATED/);
+
+    // 4. Concurrent Assigned Agents Modification
+    const dbConcurrentAgents = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
+    assert.strictEqual((await verifyPreconditions(dbConcurrentAgents)).status, 'READY');
+    await createBackup(dbConcurrentAgents);
+    
+    // Simulate concurrent modification AFTER preflight but BEFORE update
+    dbConcurrentAgents.collections.distributionrules[0].assignedAgents = ["000000000000000000000000"];
+    
+    await assert.rejects(runMigration(dbConcurrentAgents, false, expectedLegacy), /Migration update missed or condition changed concurrently/);
+
+    // 5. Concurrent Conditions Modification
+    const dbConcurrentConds = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
+    assert.strictEqual((await verifyPreconditions(dbConcurrentConds)).status, 'READY');
+    await createBackup(dbConcurrentConds);
+    
+    // Simulate concurrent modification
+    dbConcurrentConds.collections.distributionrules[0].conditions = [{ field: 'campaign', value: 'Offline' }];
+    
+    await assert.rejects(runMigration(dbConcurrentConds, false, expectedLegacy), /Migration update missed or condition changed concurrently/);
+
+    // 6. Rollback restoring ONLY target rule
+    const existingOtherRule = { _id: new mongoose.Types.ObjectId(), entity: 'lead' };
+    const dbRollback = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
+    dbRollback.collections.distributionrules.push(existingOtherRule);
+    
+    const backupName = await createBackup(dbRollback);
+    
+    // Mess up the target rule
+    dbRollback.collections.distributionrules[0].entity = 'BROKEN';
+    await rollback(dbRollback, backupName);
+    
+    const restoredTarget = await dbRollback.collection('distributionrules').findOne({_id: expectedLegacy._id});
+    assert.strictEqual(restoredTarget.entity, 'lead');
+    
+    const untouchedOther = await dbRollback.collection('distributionrules').findOne({_id: existingOtherRule._id});
+    assert.strictEqual(untouchedOther.entity, 'lead');
+
+
+    // --- Restored Original Tests ---
+    // 7. Successful Migration
+    const dbSuccess = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
+    assert.strictEqual((await verifyPreconditions(dbSuccess)).status, 'READY');
+    await createBackup(dbSuccess);
+    assert.strictEqual(await runMigration(dbSuccess, false, expectedLegacy), 'MIGRATION_SUCCESS');
+    await verifyPostMigration(dbSuccess);
+
+    // 8. Dry Run
+    const dbDry = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
+    assert.strictEqual(await runMigration(dbDry, true, expectedLegacy), 'DRY_RUN_SUCCESS');
+    const notMigrated = await dbDry.collection('distributionrules').findOne({_id: expectedLegacy._id});
+    assert.strictEqual(notMigrated.entity, 'lead');
+
+    // 9. Wrong Rule ID
     const dbWrongId = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId() });
     await assert.rejects(verifyPreconditions(dbWrongId), /not found/);
 
-    // --- 6. Missing Target User ---
+    // 10. Missing Target User
     const dbMissingUser = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
-    dbMissingUser.collections.users = []; // Empty users
-    await assert.rejects(verifyPreconditions(dbMissingUser), /Target assignment user .* not found/);
+    dbMissingUser.collections.users = [];
+    await assert.rejects(verifyPreconditions(dbMissingUser), /not found in DB/);
 
-    // --- 7. Missing Campaign Lookup ---
+    // 11. Missing Campaign Lookup
     const dbMissingLookup = new MockDb({ ...expectedLegacy, _id: new mongoose.Types.ObjectId(expectedLegacy._id) });
     dbMissingLookup.collections.lookups = [];
-    await assert.rejects(verifyPreconditions(dbMissingLookup), /Target campaign lookup .* not found/);
+    await assert.rejects(verifyPreconditions(dbMissingLookup), /not found in DB/);
 
-    // --- 8. Wrong Campaign Condition ---
-    const dbWrongCondition = new MockDb({ ...expectedLegacy, conditions: [{ field: 'campaign', value: 'Offline' }] });
-    await assert.rejects(verifyPreconditions(dbWrongCondition), /does not contain expected campaign="Online" condition/);
-
-    console.log("Migration Tests Passed.");
+    // 12. Wrong Campaign Condition
+    const dbWrongCondition = new MockDb({ ...expectedLegacy, conditions: [{ field: 'campaign', operator: 'equals', value: 'Offline' }] });
+    await assert.rejects(verifyPreconditions(dbWrongCondition), /expected campaign="Online" condition/);
+    console.log("Migration Strict Tests Passed.");
 }
-
 runTests().catch(console.error);

@@ -12,15 +12,35 @@ export async function verifyPreconditions(db) {
     const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
     if (!rule) throw new Error(`Target rule ${TARGET_RULE_ID} not found.`);
 
-    // Idempotency check
-    if (rule.module === 'leads' && rule.triggerEvent && rule.triggerEvent.includes('onCreate')) {
-        return 'ALREADY_MIGRATED';
-    }
 
-    if (rule.entity !== 'lead' || rule.logic !== 'ROUND_ROBIN' || !rule.isActive || !rule.assignedAgents || !rule.conditions) {
-        throw new Error(`Rule ${TARGET_RULE_ID} does not match expected legacy shape.`);
+    const isLegacy = rule.entity === 'lead' && rule.logic === 'ROUND_ROBIN' && rule.isActive !== undefined && Array.isArray(rule.assignedAgents) && Array.isArray(rule.conditions);
+    const hasR20Fields = rule.module !== undefined || rule.triggerEvent !== undefined || rule.distributionType !== undefined;
+    
+    if (isLegacy && !hasR20Fields) {
+        // LEGACY_READY (we will double check exact condition below)
+    } else if (!isLegacy && hasR20Fields) {
+        // FULLY_MIGRATED?
+        const isFullyMigrated = rule.module === 'leads' && 
+                                rule.enabled === true &&
+                                rule.distributionType === 'roundRobin' && 
+                                Array.isArray(rule.triggerEvent) && 
+                                rule.triggerEvent.includes('onCreate') && 
+                                rule.triggerEvent.includes('onWebCapture') &&
+                                rule.assignmentTarget && rule.assignmentTarget.type === 'user' && 
+                                rule.assignmentTarget.ids && rule.assignmentTarget.ids.some(id => String(id) === String(TARGET_AGENT_ID)) &&
+                                rule.conditions && rule.conditions.some(c => c.field === 'campaign' && String(c.value) === String(CAMPAIGN_OBJECT_ID)) &&
+                                rule.entity === undefined && 
+                                rule.logic === undefined && 
+                                rule.isActive === undefined && 
+                                rule.assignedAgents === undefined;
+        if (isFullyMigrated) {
+            return { status: 'ALREADY_MIGRATED' };
+        } else {
+            throw new Error('PARTIALLY_MIGRATED: Rule contains an unexpected mix of legacy and R20 fields.');
+        }
+    } else {
+        throw new Error('UNEXPECTED_STATE: Rule is neither perfectly legacy nor perfectly migrated.');
     }
-
     const campaignCondition = rule.conditions.find(c => c.field === 'campaign' && c.value === 'Online');
     if (!campaignCondition) {
         throw new Error(`Rule ${TARGET_RULE_ID} does not contain expected campaign="Online" condition.`);
@@ -32,7 +52,7 @@ export async function verifyPreconditions(db) {
     const user = await db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(TARGET_AGENT_ID) });
     if (!user) throw new Error(`Target assignment user ${TARGET_AGENT_ID} not found in DB.`);
 
-    return 'READY';
+    return { status: 'READY', rule };
 }
 
 export async function createBackup(db) {
@@ -65,7 +85,7 @@ export async function createBackup(db) {
     return backupCollectionName;
 }
 
-export async function runMigration(db, isDryRun) {
+export async function runMigration(db, isDryRun, preflightRule) {
     console.log(`[3/4] Running Migration ${isDryRun ? '(DRY RUN)' : '(EXECUTE)'}...`);
     
     const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
@@ -101,11 +121,14 @@ export async function runMigration(db, isDryRun) {
         return 'DRY_RUN_SUCCESS';
     } else {
         // Strict filter to ensure document hasn't changed since preflight
+                // Snapshot-based optimistic concurrency control filter
         const filter = {
             _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
-            entity: 'lead',
-            logic: 'ROUND_ROBIN',
-            isActive: rule.isActive
+            entity: preflightRule.entity,
+            logic: preflightRule.logic,
+            isActive: preflightRule.isActive,
+            assignedAgents: preflightRule.assignedAgents,
+            conditions: preflightRule.conditions
         };
 
         const result = await db.collection('distributionrules').updateOne(filter, updateDoc);
@@ -167,7 +190,8 @@ async function main() {
         await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
         const db = mongoose.connection.db;
 
-        const status = await verifyPreconditions(db);
+        const preflightResult = await verifyPreconditions(db);
+        const status = preflightResult.status || preflightResult;
         if (status === 'ALREADY_MIGRATED') {
             console.log("ALREADY_MIGRATED. Exiting.");
             process.exit(0);
@@ -179,12 +203,20 @@ async function main() {
         }
 
         try {
-            await runMigration(db, isDryRun);
+            await runMigration(db, isDryRun, preflightResult.rule);
             if (!isDryRun) await verifyPostMigration(db);
         } catch (migErr) {
             console.error("Migration failed:", migErr.message);
             if (!isDryRun && backupName) {
-                await rollback(db, backupName);
+                try {
+                    await rollback(db, backupName);
+                    console.error("Rollback success after migration failure.");
+                } catch (rollErr) {
+                    console.error("MIGRATION_FAILED_ROLLBACK_FAILED", {
+                        migrationError: migErr.message,
+                        rollbackError: rollErr.message
+                    });
+                }
             }
             throw migErr;
         }
