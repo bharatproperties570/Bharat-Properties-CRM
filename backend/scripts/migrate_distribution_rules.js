@@ -1,84 +1,74 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import DistributionRule from '../models/DistributionRule.js';
 
 dotenv.config();
 
-const TARGET_RULE_ID = '69b8c7ba81e723b58a586959';
-const CAMPAIGN_OBJECT_ID = '698b3312861a01e0b08168ad';
-const TARGET_AGENT_ID = '698de200eebee6c7a313dd32';
+export const TARGET_RULE_ID = '69b8c7ba81e723b58a586959';
+export const CAMPAIGN_OBJECT_ID = '698b3312861a01e0b08168ad';
+export const TARGET_AGENT_ID = '698de200eebee6c7a313dd32';
 
-async function verifyPreconditions(db) {
+export async function verifyPreconditions(db) {
     console.log('[1/4] Verifying Preconditions...');
-
-    // 1. Verify specific target rule exists
     const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
-    if (!rule) {
-        throw new Error(`Target rule ${TARGET_RULE_ID} not found.`);
-    }
+    if (!rule) throw new Error(`Target rule ${TARGET_RULE_ID} not found.`);
 
-    // Check if already migrated
+    // Idempotency check
     if (rule.module === 'leads' && rule.triggerEvent && rule.triggerEvent.includes('onCreate')) {
-        console.log('Rule already appears migrated (ALREADY_MIGRATED).');
-        process.exit(0);
+        return 'ALREADY_MIGRATED';
     }
 
-    // 2. Verify expected legacy shape
     if (rule.entity !== 'lead' || rule.logic !== 'ROUND_ROBIN' || !rule.isActive || !rule.assignedAgents || !rule.conditions) {
-        throw new Error(`Rule ${TARGET_RULE_ID} does not match expected legacy shape. Aborting.`);
+        throw new Error(`Rule ${TARGET_RULE_ID} does not match expected legacy shape.`);
     }
 
-    // 3. Verify exact condition shape
     const campaignCondition = rule.conditions.find(c => c.field === 'campaign' && c.value === 'Online');
     if (!campaignCondition) {
-        throw new Error(`Rule ${TARGET_RULE_ID} does not contain expected campaign="Online" condition. Aborting.`);
+        throw new Error(`Rule ${TARGET_RULE_ID} does not contain expected campaign="Online" condition.`);
     }
 
-    // 4. Verify Lookup exists
     const lookup = await db.collection('lookups').findOne({ _id: new mongoose.Types.ObjectId(CAMPAIGN_OBJECT_ID) });
-    if (!lookup) {
-        throw new Error(`Target campaign lookup ${CAMPAIGN_OBJECT_ID} not found in DB.`);
-    }
+    if (!lookup) throw new Error(`Target campaign lookup ${CAMPAIGN_OBJECT_ID} not found in DB.`);
 
-    // 5. Verify User exists
     const user = await db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(TARGET_AGENT_ID) });
-    if (!user) {
-        throw new Error(`Target assignment user ${TARGET_AGENT_ID} not found in DB.`);
-    }
+    if (!user) throw new Error(`Target assignment user ${TARGET_AGENT_ID} not found in DB.`);
 
-    console.log('Preconditions passed.');
+    return 'READY';
 }
 
-async function createBackup(db) {
+export async function createBackup(db) {
     console.log('[2/4] Creating Backup...');
     const timestamp = Date.now();
     const backupCollectionName = `distributionrules_backup_${timestamp}`;
     
-    // Copy all documents to a fresh timestamped backup collection using aggregate $merge
+    // Fail-closed: ensure collection doesn't exist
+    const collections = await db.listCollections({ name: backupCollectionName }).toArray();
+    if (collections.length > 0) {
+        throw new Error(`Backup collection ${backupCollectionName} already exists. Aborting.`);
+    }
+
+    // $merge is used sequentially (not in multi-doc transaction) because MongoDB restricts collection creation in transactions.
     await db.collection('distributionrules').aggregate([
         { $match: {} },
         { $merge: { into: backupCollectionName } }
     ]).toArray();
 
-    // Verify backup count
-    const originalCount = await db.collection('distributionrules').countDocuments();
-    const backupCount = await db.collection(backupCollectionName).countDocuments();
+    // Verification
+    const originalRule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
+    const backupRule = await db.collection(backupCollectionName).findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
 
-    if (originalCount !== backupCount) {
-        throw new Error(`Backup verification failed. Original count: ${originalCount}, Backup count: ${backupCount}`);
+    if (!backupRule) throw new Error("Target rule missing from backup.");
+    if (JSON.stringify(originalRule) !== JSON.stringify(backupRule)) {
+        throw new Error("Backup rule document mismatch.");
     }
 
-    console.log(`Backup created successfully: ${backupCollectionName}`);
+    console.log(`Backup created and verified: ${backupCollectionName}`);
     return backupCollectionName;
 }
 
-async function runMigration(db, isDryRun) {
+export async function runMigration(db, isDryRun) {
     console.log(`[3/4] Running Migration ${isDryRun ? '(DRY RUN)' : '(EXECUTE)'}...`);
-
-    // Fetch rule
-    const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
     
-    // Modify condition value
+    const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
     const updatedConditions = rule.conditions.map(c => {
         if (c.field === 'campaign' && c.value === 'Online') {
             return { ...c, value: new mongoose.Types.ObjectId(CAMPAIGN_OBJECT_ID) };
@@ -108,20 +98,27 @@ async function runMigration(db, isDryRun) {
 
     if (isDryRun) {
         console.log('DRY RUN Expected Update:', JSON.stringify(updateDoc, null, 2));
+        return 'DRY_RUN_SUCCESS';
     } else {
-        const result = await db.collection('distributionrules').updateOne(
-            { _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) },
-            updateDoc
-        );
+        // Strict filter to ensure document hasn't changed since preflight
+        const filter = {
+            _id: new mongoose.Types.ObjectId(TARGET_RULE_ID),
+            entity: 'lead',
+            logic: 'ROUND_ROBIN',
+            isActive: rule.isActive
+        };
 
-        if (result.modifiedCount !== 1) {
-            throw new Error(`Failed to update rule ${TARGET_RULE_ID}. Modified count: ${result.modifiedCount}`);
+        const result = await db.collection('distributionrules').updateOne(filter, updateDoc);
+
+        if (result.matchedCount !== 1) {
+            throw new Error(`Migration update missed or condition changed concurrently for ${TARGET_RULE_ID}.`);
         }
         console.log(`Rule ${TARGET_RULE_ID} successfully migrated.`);
+        return 'MIGRATION_SUCCESS';
     }
 }
 
-async function verifyPostMigration(db) {
+export async function verifyPostMigration(db) {
     console.log('[4/4] Verifying Post-Migration State...');
     const rule = await db.collection('distributionrules').findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
     
@@ -141,38 +138,67 @@ async function verifyPostMigration(db) {
     if (!campaignCond.value.equals(new mongoose.Types.ObjectId(CAMPAIGN_OBJECT_ID))) {
         throw new Error("Condition value was not migrated to ObjectId successfully.");
     }
-
-    console.log('Post-migration verification passed.');
+    return true;
 }
 
-async function run() {
-    const isDryRun = !process.argv.includes('--execute');
+export async function rollback(db, backupCollectionName) {
+    console.log(`Rolling back from ${backupCollectionName}...`);
     
+    const collections = await db.listCollections({ name: backupCollectionName }).toArray();
+    if (collections.length === 0) throw new Error("Backup collection not found.");
+
+    const backupRule = await db.collection(backupCollectionName).findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
+    if (!backupRule) throw new Error("Target rule missing from backup. Cannot rollback.");
+
+    const result = await db.collection('distributionrules').replaceOne(
+        { _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) },
+        backupRule
+    );
+
+    if (result.matchedCount !== 1) throw new Error("Failed to restore target document.");
+    console.log(`Rollback completed successfully for ${TARGET_RULE_ID}`);
+}
+
+async function main() {
+    const isDryRun = !process.argv.includes('--execute');
     console.log(`=== R20 DistributionRule Migration ${isDryRun ? '[DRY RUN]' : ''} ===`);
 
     try {
         await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
         const db = mongoose.connection.db;
 
-        await verifyPreconditions(db);
-        
-        if (!isDryRun) {
-            await createBackup(db);
+        const status = await verifyPreconditions(db);
+        if (status === 'ALREADY_MIGRATED') {
+            console.log("ALREADY_MIGRATED. Exiting.");
+            process.exit(0);
         }
-        
-        await runMigration(db, isDryRun);
 
+        let backupName = null;
         if (!isDryRun) {
-            await verifyPostMigration(db);
+            backupName = await createBackup(db);
+        }
+
+        try {
+            await runMigration(db, isDryRun);
+            if (!isDryRun) await verifyPostMigration(db);
+        } catch (migErr) {
+            console.error("Migration failed:", migErr.message);
+            if (!isDryRun && backupName) {
+                await rollback(db, backupName);
+            }
+            throw migErr;
         }
 
         console.log('=== Migration Complete ===');
+        process.exit(0);
     } catch (e) {
-        console.error('Migration failed:', e.message);
+        console.error('Fatal error:', e.message);
         process.exit(1);
-    } finally {
-        await mongoose.disconnect();
     }
 }
 
-run();
+// Only execute main if run directly, not imported
+import { fileURLToPath } from 'url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    main();
+}

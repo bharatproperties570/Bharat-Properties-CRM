@@ -45,7 +45,7 @@ const isUserAvailableAndOnShift = (user) => {
 /**
  * Evaluates conditions against entity data.
  */
-const evaluateConditions = (conditions, data) => {
+export const evaluateConditions = (conditions, data) => {
     if (!conditions || conditions.length === 0) return true;
 
     const getNestedValue = (obj, path) => {

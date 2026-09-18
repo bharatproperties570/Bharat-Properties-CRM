@@ -11,7 +11,7 @@ export const getDistributionRules = async (req, res) => {
     }
 };
 
-const normalizeDistributionRulePayload = (payload, existingRule = null) => {
+export const normalizeDistributionRulePayload = (payload, existingRule = null) => {
     const normalized = { ...payload };
 
     // Map legacy 'entity' to 'module'
