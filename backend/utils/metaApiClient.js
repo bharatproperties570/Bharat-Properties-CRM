@@ -51,12 +51,31 @@ class MetaApiClient {
      * Exchange short-lived OAuth code for an access token
      */
     async exchangeCodeForToken(clientId, clientSecret, redirectUri, code) {
+        const params = {
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: code
+        };
+
+        if (redirectUri && redirectUri.trim()) {
+            params.redirect_uri = redirectUri.trim();
+        }
+
         const response = await this.client.get('/oauth/access_token', {
+            params: params
+        });
+        return response.data;
+    }
+
+    /**
+     * Inspect token to discover granted scopes and target WABA IDs
+     */
+    async getDebugTokenInfo(inputToken, appId, appSecret) {
+        const appToken = `${appId}|${appSecret}`;
+        const response = await this.client.get('/debug_token', {
             params: {
-                client_id: clientId,
-                client_secret: clientSecret,
-                redirect_uri: redirectUri,
-                code: code
+                input_token: inputToken,
+                access_token: appToken
             }
         });
         return response.data;

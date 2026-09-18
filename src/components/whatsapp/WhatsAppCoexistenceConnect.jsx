@@ -32,13 +32,15 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
     }, []);
 
     const attemptExchange = () => {
-        if (authCodeRef.current && widgetDataRef.current && sessionRef.current) {
+        if (authCodeRef.current && sessionRef.current) {
             setStatus('EXCHANGING');
             whatsappOnboardingAPI.exchange({
                 sessionId: sessionRef.current,
                 code: authCodeRef.current,
-                waba_id: widgetDataRef.current.waba_id,
-                phone_number_id: widgetDataRef.current.phone_number_id
+                ...(widgetDataRef.current ? { 
+                    waba_id: widgetDataRef.current.waba_id,
+                    phone_number_id: widgetDataRef.current.phone_number_id
+                } : {})
             }).then((exchangeRes) => {
                 if (exchangeRes.success) {
                     setStatus('POLLING');
@@ -118,41 +120,36 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
         }, 3000);
     };
 
-    const handleConnectClick = async () => {
+    const handleConnectClick = () => {
         try {
-            setStatus('STARTING');
+            setStatus('META_POPUP');
             setErrorMsg('');
             authCodeRef.current = null;
             widgetDataRef.current = null;
+            sessionRef.current = null;
             
             if (!window.FB) {
                 throw new Error('Meta SDK is still loading. Please try again in a few seconds.');
             }
 
-            const startRes = await whatsappOnboardingAPI.start({ connectionType: 'COEXISTENCE' });
-            if (!startRes.success) throw new Error('Failed to initiate secure session');
-            
-            sessionRef.current = startRes.sessionId;
-            setStatus('META_POPUP');
-            
             const configId = import.meta.env.VITE_META_CONFIG_ID;
             if (!configId) {
                 throw new Error('Missing Embedded Signup Config ID in environment variables');
             }
 
+            // 1. Fire synchronous FB.login to preserve popup and window.opener context
             window.FB.login((response) => {
                 if (response.authResponse) {
                     authCodeRef.current = response.authResponse.code;
                     attemptExchange();
                     
-                    // Fallback timeout in case postMessage never arrives
+                    // Fallback timeout in case session creation fails
                     setTimeout(() => {
-                        // We check a state variable indirectly or just check if authCodeRef is still populated
-                        if (authCodeRef.current && !widgetDataRef.current) {
+                        if (authCodeRef.current && !sessionRef.current) {
                             setStatus('ERROR');
-                            setErrorMsg('Did not receive WABA details from Meta popup. Ensure you completed the flow.');
+                            setErrorMsg('Timeout: Secure session initialization failed.');
                         }
-                    }, 10000); // 10s wait for postMessage
+                    }, 10000); // 10s wait
                 } else {
                     setStatus('ERROR');
                     setErrorMsg('Meta authorization was cancelled or failed.');
@@ -167,6 +164,21 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                     setup: {}
                 }
             });
+
+            // 2. Fire backend session creation asynchronously *after* FB.login invocation
+            whatsappOnboardingAPI.start({ connectionType: 'COEXISTENCE' })
+                .then(startRes => {
+                    if (startRes && startRes.success) {
+                        sessionRef.current = startRes.sessionId;
+                        attemptExchange(); // trigger check in case popup finished first
+                    } else {
+                        throw new Error('Failed to initiate secure session');
+                    }
+                })
+                .catch(err => {
+                    setStatus('ERROR');
+                    setErrorMsg(err.message || 'Secure session initiation failed.');
+                });
 
         } catch (error) {
             setStatus('ERROR');
