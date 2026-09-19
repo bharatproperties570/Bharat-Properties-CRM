@@ -149,19 +149,18 @@ async function runTests() {
         }
     });
 
-    await test("J. Invalid fallback user rejected", async () => {
+    await test("I2. Duplicate team IDs rejected", async () => {
         try {
             await validateDistributionTargets({
-                assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
-                fallbackTarget: { type: 'user', id: "invalid_id" }
+                assignmentTarget: { type: 'team', ids: ["69c4be0fd8c5cd0d6c90e333", "69c4be0fd8c5cd0d6c90e333"] }
             });
             assert.fail("Should have thrown");
         } catch (e) {
-            assert.strictEqual(e.code, 'DISTRIBUTION_TARGET_ID_INVALID');
+            assert.strictEqual(e.code, 'DISTRIBUTION_TARGET_DUPLICATE');
         }
     });
 
-    await test("K. Invalid fallback team rejected", async () => {
+    await test("J. Fallback team missing rejected", async () => {
         try {
             await validateDistributionTargets({
                 assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
@@ -171,6 +170,25 @@ async function runTests() {
         } catch (e) {
             assert.strictEqual(e.code, 'DISTRIBUTION_TARGET_NOT_FOUND');
         }
+    });
+
+    await test("K. Fallback team inactive rejected", async () => {
+        try {
+            await validateDistributionTargets({
+                assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
+                fallbackTarget: { type: 'team', id: "69c4be0fd8c5cd0d6c90e555" }
+            });
+            assert.fail("Should have thrown");
+        } catch (e) {
+            assert.strictEqual(e.code, 'DISTRIBUTION_TARGET_INACTIVE');
+        }
+    });
+
+    await test("L. Fallback team valid accepted", async () => {
+        await validateDistributionTargets({
+            assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
+            fallbackTarget: { type: 'team', id: "69c4be0fd8c5cd0d6c90e333" }
+        });
     });
 
     await test("L. Legacy assignedAgents normalized and validated", async () => {

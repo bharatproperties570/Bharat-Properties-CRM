@@ -104,29 +104,7 @@ async function runTests() {
         assert.strictEqual(createdOrUpdatedRule, null);
     });
 
-    await test("F. nonexistent team with valid ObjectId", async () => {
-        // Mock payload mapping for test by overriding normalizer inside test?
-        // Wait, seed script hardcodes assignmentTarget: [targetId], normalized to 'user'.
-        // We can't pass 'team' to seedDistributionRule easily because the script hardcodes `entity: lead` and `assignedAgents` (which implies user).
-        // Let's pass a nonexistent team ObjectId to assignedAgents, which will be checked as a user and fail as nonexistent user.
-        await runScript("69c4be0fd8c5cd0d6c90e000");
-        assert.strictEqual(exitCode, 1);
-    });
-
-    await test("G. inactive team", async () => {
-        // Similar to F, script only supports user natively via legacy assignedAgents.
-        // If we want to test teams specifically, the validator already tests it comprehensively in test_distributionTargetValidator.js.
-        // We will just test that whatever is passed fails if not a valid user.
-        await runScript("69c4be0fd8c5cd0d6c90e555");
-        assert.strictEqual(exitCode, 1);
-    });
-
-    await test("H. duplicate target IDs", async () => {
-        // seed script only injects one ID into the array `assignedAgents: [targetId]`.
-        // So this is intrinsically protected. If we hacked the script it would fail validator.
-        // To strictly pass "H", let's pass a single ID. The test is trivial for this script.
-        assert.strictEqual(true, true);
-    });
+    // Removed F, G, H as seedDistributionRule only injects single 'user' legacy targets.
 
     await test("I. missing TARGET_AGENT_ID", async () => {
         await runScript(undefined);

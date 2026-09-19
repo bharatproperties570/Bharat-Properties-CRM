@@ -95,6 +95,22 @@ async function runControllerTests() {
     await createDistributionRule(req, res); // will return 400
     assert.deepStrictEqual(originalBody, { entity: "lead" }, "req.body MUST NOT be mutated");
 
+    // 7. PUT with duplicate target IDs => HTTP 400 and no write
+    req = mockReq({ assignmentTarget: { type: 'user', ids: [DUMMY_AGENT, DUMMY_AGENT] } }, { id: "test_id" });
+    res = mockRes();
+    findByIdAndUpdateCalledWith = null;
+    await updateDistributionRule(req, res);
+    assert.strictEqual(res.statusCode, 400, "MUST reject duplicate target IDs with HTTP 400");
+    assert.strictEqual(findByIdAndUpdateCalledWith, null, "MUST NOT call DistributionRule.findByIdAndUpdate on validation failure");
+
+    // 8. POST with invalid fallback target => HTTP 400 and no write
+    req = mockReq({ module: "leads", enabled: true, triggerEvent: ["onCreate"], assignmentTarget: { type: 'user', ids: [DUMMY_AGENT] }, fallbackTarget: { type: 'user', id: "invalid_id_format" } });
+    res = mockRes();
+    createCalledWith = null;
+    await createDistributionRule(req, res);
+    assert.strictEqual(res.statusCode, 400, "MUST reject invalid fallback target with HTTP 400");
+    assert.strictEqual(createCalledWith, null, "MUST NOT call DistributionRule.create on validation failure");
+
     console.log("Controller HTTP Normalizer Tests Passed.");
 }
 
