@@ -45,6 +45,8 @@ const SendMessageModal = ({
 
     // WhatsApp Templates State
     const [whatsappTemplates, setWhatsappTemplates] = useState([]);
+    const [whatsappAccounts, setWhatsappAccounts] = useState([]);
+    const [selectedWhatsAppAccount, setSelectedWhatsAppAccount] = useState('');
     const [templateLanguage, setTemplateLanguage] = useState('en_US');
     const [whatsappComponents, setWhatsappComponents] = useState([]);
     const [isLoadingWhatsApp, setIsLoadingWhatsApp] = useState(false);
@@ -174,6 +176,20 @@ const SendMessageModal = ({
                 }
             } else {
                 setWhatsappTemplates(whatsappTemplatesConst);
+            }
+
+            // Also load available WhatsApp accounts for multi-account selection
+            try {
+                const accRes = await whatsappService.getAccounts();
+                if (accRes && accRes.success && Array.isArray(accRes.data) && accRes.data.length > 0) {
+                    setWhatsappAccounts(accRes.data);
+                    const defaultAcc = accRes.data.find(a => a.isDefault) || accRes.data[0];
+                    if (defaultAcc && !selectedWhatsAppAccount) {
+                        setSelectedWhatsAppAccount(defaultAcc.id);
+                    }
+                }
+            } catch (accErr) {
+                console.warn('Failed to load accounts', accErr);
             }
         } catch (err) {
             console.error('Failed to load WhatsApp templates', err);
@@ -338,7 +354,8 @@ const SendMessageModal = ({
                             language: templateLanguage,
                             mediaUrl: attachment?.url,
                             filename: attachment?.name,
-                            type: attachment?.type || 'text'
+                            type: attachment?.type || 'text',
+                            integrationId: selectedWhatsAppAccount || undefined
                         });
                         if (individualRes && individualRes.success) {
                             successCount++;
@@ -517,7 +534,30 @@ const SendMessageModal = ({
                         </div>
                     </div>
 
-
+                    {/* 2.2 Multi-WhatsApp Account Selection */}
+                    {channel === 'WHATSAPP' && whatsappAccounts.length > 0 && (
+                        <div style={{ marginBottom: '24px', padding: '14px 18px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0, color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fab fa-whatsapp" style={{ color: '#16a34a' }}></i> Send From WhatsApp Number
+                                </label>
+                                <span style={{ fontSize: '0.72rem', color: '#15803d', fontWeight: 600 }}>
+                                    {whatsappAccounts.length} Connected {whatsappAccounts.length === 1 ? 'Number' : 'Numbers'}
+                                </span>
+                            </div>
+                            <select
+                                style={{ ...inputStyle, borderColor: '#86efac', backgroundColor: '#fff', color: '#14532d', fontWeight: 600 }}
+                                value={selectedWhatsAppAccount}
+                                onChange={(e) => setSelectedWhatsAppAccount(e.target.value)}
+                            >
+                                {whatsappAccounts.map(acc => (
+                                    <option key={acc.id} value={acc.id}>
+                                        {acc.accountLabel || acc.displayPhoneNumber} {acc.isDefault ? '★ (Default API)' : acc.connectionType === 'COEXISTENCE' ? '📱 (WhatsApp App)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     {/* 2.5 Reference / Attachment Selection */}
                     {channel !== 'SMS' && (

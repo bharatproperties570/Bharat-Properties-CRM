@@ -107,7 +107,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
     try {
         console.log('[SocialController] RAW PAYLOAD:', JSON.stringify(req.body, null, 2));
-        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language, headerImageUrl } = req.body;
+        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language, headerImageUrl, integrationId, fromPhoneNumberId } = req.body;
         
         if (!mobile || (!message && !mediaUrl && !templateId)) {
             return res.status(400).json({ success: false, error: 'Mobile and message/media/template are required' });
@@ -117,13 +117,14 @@ export const sendWhatsAppMessage = async (req, res, next) => {
         const Lead = mongoose.model('Lead');
         const Activity = mongoose.model('Activity');
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const targetAccount = integrationId || fromPhoneNumberId || null;
 
-        console.log(`[SocialController] Dispatching WhatsApp to: ${mobile} (Template: ${templateId || 'None'})`);
+        console.log(`[SocialController] Dispatching WhatsApp to: ${mobile} (Template: ${templateId || 'None'}, Account: ${targetAccount || 'Default'})`);
 
         // 1. Dispatch via Service
         let result;
         if (templateId) {
-            const templates = await WhatsAppService.getTemplates();
+            const templates = await WhatsAppService.getTemplates(targetAccount);
             const templateDef = templates.find(t => t.name === templateId);
             
             const components = [];
@@ -350,23 +351,23 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
             console.log(`[WhatsApp/Debug] ✅ Final Components for ${templateId}:`, JSON.stringify(components, null, 2));
             const templateLang = templateDef?.language || language || 'en';
-            console.log(`[WhatsApp/Debug] Sending template "${templateId}" lang="${templateLang}" to ${mobile}`);
-            result = await WhatsAppService.sendTemplate(mobile, templateId, templateLang, components);
+            console.log(`[WhatsApp/Debug] Sending template "${templateId}" lang="${templateLang}" to ${mobile} via ${targetAccount || 'default'}`);
+            result = await WhatsAppService.sendTemplate(mobile, templateId, templateLang, components, { integrationId: targetAccount });
             
             // ⚠️ ENTERPRISE: If template send failed, log the EXACT error before falling back
             if (!result.success) {
                 console.error(`[SocialController] ❌ Template send FAILED for "${templateId}":`, JSON.stringify(result, null, 2));
                 if (message) {
                     console.log(`[SocialController] Falling back to plain text for ${mobile}`);
-                    result = await WhatsAppService.sendMessage(mobile, message);
+                    result = await WhatsAppService.sendMessage(mobile, message, { integrationId: targetAccount });
                     // Mark that this was a fallback so the frontend knows buttons won't appear
                     result.templateFallback = true;
                 }
             }
         } else if (type === 'text') {
-            result = await WhatsAppService.sendMessage(mobile, message);
+            result = await WhatsAppService.sendMessage(mobile, message, { integrationId: targetAccount });
         } else {
-            result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, caption || message, filename);
+            result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, caption || message, filename, { integrationId: targetAccount });
         }
 
         if (result && result.success) {
@@ -391,7 +392,8 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                     mediaUrl: mediaUrl,
                     type: type,
                     templateId: templateId,
-                    messageId: result.messageId
+                    messageId: result.messageId,
+                    integrationId: targetAccount || null
                 },
                 dueDate: new Date()
             });
@@ -1102,3 +1104,69 @@ export const previewMessage = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+/**
+ * GET /api/whatsapp-actions/accounts
+ * Fetch all available active WhatsApp accounts with credentials strictly REDACTED.
+ */
+export const getWhatsAppAccounts = async (req, res) => {
+    try {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        const SystemSetting = mongoose.model('SystemSetting');
+
+        // Fetch all active integrations
+        const integrations = await WhatsAppIntegration.find({ status: 'ACTIVE' })
+            .sort({ isDefault: -1, createdAt: 1 })
+            .lean();
+
+        // Check if legacy meta_wa_config exists
+        const legacySetting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+        const legacyConfig = legacySetting?.value;
+
+        const accounts = [];
+
+        // Add registered integrations
+        integrations.forEach(i => {
+            accounts.push({
+                id: i._id.toString(),
+                phoneNumberId: i.phoneNumberId,
+                wabaId: i.wabaId,
+                displayPhoneNumber: i.displayPhoneNumber || 'WhatsApp Business',
+                accountLabel: i.accountLabel || (i.connectionType === 'COEXISTENCE' ? `WhatsApp Business App (${i.displayPhoneNumber || ''})` : `WhatsApp Cloud API (${i.displayPhoneNumber || ''})`),
+                connectionType: i.connectionType,
+                isDefault: !!i.isDefault,
+                status: i.status
+            });
+        });
+
+        // Ensure legacy meta_wa_config is represented if not already in list
+        const legacyPhoneId = legacyConfig?.phoneId;
+        const alreadyInList = accounts.some(a => a.phoneNumberId === legacyPhoneId);
+
+        if (!alreadyInList && legacyPhoneId && legacyConfig?.token) {
+            accounts.unshift({
+                id: 'legacy_default',
+                phoneNumberId: legacyPhoneId,
+                wabaId: legacyConfig?.businessId || '',
+                displayPhoneNumber: legacyConfig?.displayPhoneNumber || '+91 99960 00570',
+                accountLabel: 'Main Official WhatsApp API (+91 99960 00570)',
+                connectionType: 'NEW_API',
+                isDefault: true,
+                status: 'ACTIVE'
+            });
+        } else if (legacyPhoneId && alreadyInList) {
+            // Ensure the legacy Cloud API number has isDefault: true unless another is explicitly set
+            const hasDefault = accounts.some(a => a.isDefault);
+            if (!hasDefault) {
+                const legacyMatch = accounts.find(a => a.phoneNumberId === legacyPhoneId);
+                if (legacyMatch) legacyMatch.isDefault = true;
+            }
+        }
+
+        res.json({ success: true, data: accounts });
+    } catch (err) {
+        console.error('[SocialController] getWhatsAppAccounts error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+

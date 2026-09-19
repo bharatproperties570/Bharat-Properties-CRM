@@ -24,6 +24,25 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
         displayPhoneNumber: {
             type: String
         },
+        accountLabel: {
+            type: String,
+            default: 'WhatsApp Account'
+        },
+        isDefault: {
+            type: Boolean,
+            default: false,
+            index: true
+        },
+        allowedRoles: [{
+            type: String
+        }],
+        allowedDepartments: [{
+            type: String
+        }],
+        allowedUsers: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }],
         connectionType: {
             type: String,
             enum: ['COEXISTENCE', 'NEW_API', 'MANUAL'],

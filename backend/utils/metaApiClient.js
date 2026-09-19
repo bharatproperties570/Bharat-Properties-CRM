@@ -29,7 +29,7 @@ class MetaApiClient {
                 if (error.response && error.response.data && error.response.data.error) {
                     metaError = error.response.data.error;
                     const redactedUrl = error.config?.url?.replace(/access_token=[^&]+/g, 'access_token=REDACTED');
-                    console.error(`[MetaApiClient] Error calling ${redactedUrl} | Status: ${error.response.status} | Msg: ${metaError.message}`);
+                    console.error(`[MetaApiClient] Error calling ${redactedUrl} | Status: ${error.response.status} | Details:`, JSON.stringify(metaError));
                 } else {
                     console.error(`[MetaApiClient] Network/Unknown Error: ${error.message}`);
                 }
@@ -61,6 +61,7 @@ class MetaApiClient {
             params.redirect_uri = redirectUri.trim();
         }
 
+        console.log(`[MetaApiClient] exchangeCodeForToken redirect_uri: "${params.redirect_uri || "(none)"}"`);
         const response = await this.client.get('/oauth/access_token', {
             params: params
         });

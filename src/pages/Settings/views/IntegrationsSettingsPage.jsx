@@ -7,9 +7,11 @@ import WhatsAppCoexistenceConnect from "../../../components/whatsapp/WhatsAppCoe
 
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
+import whatsappService from '../../../services/whatsappService';
 
 const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     const [smsProvider, setSmsProvider] = useState('Twilio');
+    const [waAccounts, setWaAccounts] = useState([]);
     const [config, setConfig] = useState({
         sid: '',
         token: '',
@@ -39,6 +41,16 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [lastKnownStatus, setLastKnownStatus] = useState('Not Connected');
 
+    const loadWaAccounts = async () => {
+        try {
+            const res = await whatsappService.getAccounts();
+            if (res?.success && Array.isArray(res.data)) {
+                setWaAccounts(res.data);
+            }
+        } catch (e) {
+            console.warn('Failed to load WA accounts', e);
+        }
+    };
 
     // Load existing config if available
     useEffect(() => {
@@ -46,6 +58,9 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
             loadConfig();
         } else if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'whatsapp'].includes(type)) {
             loadAiConfig();
+            if (type === 'whatsapp') {
+                loadWaAccounts();
+            }
         }
     }, [type]);
 
@@ -913,7 +928,43 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                         {type === 'whatsapp' && (
                             <>
-                                <WhatsAppCoexistenceConnect onComplete={(data) => { /* Coexistence registered separately */ }} />
+                                {waAccounts.length > 0 && (
+                                    <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--bg-subtle, #f8fafc)', borderRadius: '12px', border: '1px solid var(--border-color, #e2e8f0)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main, #1e293b)' }}>
+                                                <i className="fab fa-whatsapp" style={{ color: '#25D366', marginRight: '6px' }}></i>
+                                                Connected WhatsApp Numbers ({waAccounts.length})
+                                            </span>
+                                            <span style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#059669', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                                                ● Active Multi-Account
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {waAccounts.map((acc, idx) => (
+                                                <div key={acc.id || idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface-color, #ffffff)', borderRadius: '8px', border: '1px solid var(--border-color, #e2e8f0)' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: acc.connectionType === 'COEXISTENCE' ? '#e0f2fe' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: acc.connectionType === 'COEXISTENCE' ? '#0284c7' : '#16a34a', fontSize: '0.9rem' }}>
+                                                            <i className={`fas ${acc.connectionType === 'COEXISTENCE' ? 'fa-mobile-alt' : 'fa-cloud'}`}></i>
+                                                        </div>
+                                                        <div>
+                                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main, #0f172a)' }}>
+                                                                {acc.displayPhoneNumber} {acc.isDefault && <span style={{ fontSize: '0.68rem', background: '#e0e7ff', color: '#4338ca', padding: '1px 6px', borderRadius: '6px', marginLeft: '6px' }}>DEFAULT</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #64748b)' }}>
+                                                                {acc.accountLabel || (acc.connectionType === 'COEXISTENCE' ? 'WhatsApp Business App (Coexistence)' : 'Official Cloud API')} &bull; ID: {acc.phoneNumberId}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', background: '#dcfce7', padding: '2px 8px', borderRadius: '12px' }}>
+                                                        ✓ ACTIVE
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <WhatsAppCoexistenceConnect onComplete={(data) => { loadWaAccounts(); }} />
 
                                 <div style={{ margin: "30px 0", borderTop: "1px dashed var(--border-color)", position: "relative" }}>
                                     <span style={{ position: "absolute", top: "-10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "0 10px", fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold" }}>OR MANUAL SETUP (ADVANCED)</span>

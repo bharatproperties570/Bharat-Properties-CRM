@@ -206,7 +206,7 @@ export const normalizeInboundMessage = async (message) => {
     return { text, attachment, flowResponse };
 };
 
-export const reserveInboundMessage = async ({ mobile, message, text, attachment }) => {
+export const reserveInboundMessage = async ({ mobile, message, text, attachment, businessPhoneNumberId, integrationId, businessPhoneNumber }) => {
     if (!message.id) return { duplicate: false, conversation: null };
 
     // Quick check across all conversations for idempotency
@@ -214,22 +214,52 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment 
     if (existing) return { duplicate: true, conversation: null };
 
     // Step 1: Find or create the active conversation for this user safely
-    // We avoid checking waId here to prevent `upsert: true` from creating a duplicate
-    // active conversation if a concurrent thread just pushed this waId.
+    // Scoped by businessPhoneNumberId when provided to maintain account separation
+    const query = { phoneNumber: mobile, status: 'active' };
+    if (businessPhoneNumberId) {
+        query.businessPhoneNumberId = businessPhoneNumberId;
+    }
+
+    const setOnInsert = { 
+        phoneNumber: mobile, 
+        channel: 'whatsapp', 
+        status: 'active' 
+    };
+    if (businessPhoneNumberId) setOnInsert.businessPhoneNumberId = businessPhoneNumberId;
+    if (integrationId) setOnInsert.whatsappIntegrationId = integrationId;
+    if (businessPhoneNumber) setOnInsert.businessPhoneNumber = businessPhoneNumber;
+
     const conversation = await Conversation.findOneAndUpdate(
-        { phoneNumber: mobile, status: 'active' },
-        { $setOnInsert: { phoneNumber: mobile, channel: 'whatsapp', status: 'active' } },
+        query,
+        { $setOnInsert: setOnInsert },
         { new: true, upsert: true }
     );
 
     // Step 2: Push the new message into the conversation, provided it doesn't already have this waId
     const now = new Date();
+    const updateSet = { 'metadata.lastMessageAt': now };
+    if (businessPhoneNumberId) updateSet.businessPhoneNumberId = businessPhoneNumberId;
+    if (integrationId) updateSet.whatsappIntegrationId = integrationId;
+    if (businessPhoneNumber) updateSet.businessPhoneNumber = businessPhoneNumber;
+
     const updated = await Conversation.findOneAndUpdate(
         { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id }, 'messages.waId': { $ne: message.id } },
         {
-            $push: { messages: { role: 'user', content: text, timestamp: now, metadata: { waId: message.id, attachment: attachment || null } } },
+            $push: { 
+                messages: { 
+                    role: 'user', 
+                    content: text, 
+                    timestamp: now, 
+                    metadata: { 
+                        waId: message.id, 
+                        attachment: attachment || null,
+                        businessPhoneNumberId: businessPhoneNumberId || null,
+                        integrationId: integrationId || null
+                    } 
+                } 
+            },
             $inc: { 'metadata.unreadCount': 1 },
-            $set: { 'metadata.lastMessageAt': now }
+            $set: updateSet
         },
         { new: true }
     );
@@ -378,10 +408,30 @@ const processInboundMessage = async (message, value) => {
     const fromNumber = message?.from;
     const mobile = normalizePhone(fromNumber);
     if (!mobile) return;
+
+    const businessPhoneNumberId = value?.metadata?.phone_number_id || null;
+    const businessPhoneNumber = value?.metadata?.display_phone_number || null;
+
+    let integration = null;
+    if (businessPhoneNumberId) {
+        try {
+            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+            integration = await WhatsAppIntegration.findOne({ phoneNumberId: businessPhoneNumberId, status: 'ACTIVE' }).lean();
+        } catch (_) {}
+    }
+
     const { text, attachment, flowResponse } = await normalizeInboundMessage(message);
     if (!text && !attachment) return;
 
-    const reservation = await reserveInboundMessage({ mobile, message, text, attachment });
+    const reservation = await reserveInboundMessage({ 
+        mobile, 
+        message, 
+        text, 
+        attachment,
+        businessPhoneNumberId,
+        integrationId: integration?._id || null,
+        businessPhoneNumber
+    });
     if (reservation.duplicate) return;
 
     const conversation = reservation.conversation;
@@ -411,6 +461,9 @@ const processInboundMessage = async (message, value) => {
         conversation.lead = lead?._id || conversation.lead;
         conversation.contact = contact?._id || conversation.contact;
         conversation.metadata = { ...(conversation.metadata || {}), entityType, entityId };
+        if (integration?._id) conversation.whatsappIntegrationId = integration._id;
+        if (businessPhoneNumberId) conversation.businessPhoneNumberId = businessPhoneNumberId;
+        if (businessPhoneNumber) conversation.businessPhoneNumber = businessPhoneNumber;
         await conversation.save();
 
         try {
@@ -425,7 +478,18 @@ const processInboundMessage = async (message, value) => {
         await Activity.create({
             type: 'WhatsApp', subject: 'Incoming WhatsApp Message', description: text, status: 'Completed', performedBy: targetUserId || 'System', assignedTo: targetUserId, dueDate: new Date(),
             entityType, entityId, participants: [{ name: lead?.fullName || lead?.name || contact?.name || 'Unknown', mobile }],
-            details: { direction: 'inbound', phoneNumber: mobile, platform: 'whatsapp', attachment: attachment || null, isMatched: !!(lead || contact), waId: message.id, from: fromNumber, department: lead?.department || contact?.department || null }
+            details: { 
+                direction: 'inbound', 
+                phoneNumber: mobile, 
+                platform: 'whatsapp', 
+                attachment: attachment || null, 
+                isMatched: !!(lead || contact), 
+                waId: message.id, 
+                from: fromNumber, 
+                department: lead?.department || contact?.department || null,
+                businessPhoneNumberId: businessPhoneNumberId || null,
+                integrationId: integration?._id || null
+            }
         });
 
         const aiResult = await generateBotResponse(text, {
@@ -434,9 +498,18 @@ const processInboundMessage = async (message, value) => {
             entityType, intakeResult
         }, { useCase: conversation.currentUseCase || 'whatsapp_live' });
         if (aiResult.success && aiResult.reply) {
-            const result = await WhatsAppService.sendMessage(fromNumber, aiResult.reply);
+            const result = await WhatsAppService.sendMessage(fromNumber, aiResult.reply, { integrationId: integration?._id || businessPhoneNumberId });
             if (result.success) {
-                conversation.messages.push({ role: 'assistant', content: aiResult.reply, metadata: { waId: result.messageId || null, inReplyToWaId: message.id } });
+                conversation.messages.push({ 
+                    role: 'assistant', 
+                    content: aiResult.reply, 
+                    metadata: { 
+                        waId: result.messageId || null, 
+                        inReplyToWaId: message.id,
+                        businessPhoneNumberId: businessPhoneNumberId || null,
+                        integrationId: integration?._id || null
+                    } 
+                });
                 await conversation.save();
                 if (lead) { lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2); await lead.save(); }
             }

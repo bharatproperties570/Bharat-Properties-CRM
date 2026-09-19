@@ -252,6 +252,7 @@ app.use("/api/settings/ai-agents", aiAgentRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/social",        socialRoutes);
 app.use("/api/whatsapp-config", whatsappActionRoutes);
+app.use("/api/whatsapp-actions", whatsappActionRoutes);
 app.use("/api/whatsapp-onboarding", whatsappOnboardingRoutes);
 app.use("/api/dynamic-forms", dynamicFormRoutes);
 app.use("/api/company-groups", companyGroupRoutes);

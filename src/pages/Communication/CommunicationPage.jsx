@@ -250,6 +250,9 @@ export default function CommunicationPage() {
                         isHandedOff: conv.status==='handed_off',
                         unreadCount: conv.metadata?.unreadCount || 0,
                         lead,
+                        whatsappIntegrationId: conv.whatsappIntegrationId || null,
+                        businessPhoneNumberId: conv.businessPhoneNumberId || null,
+                        businessPhoneNumber: conv.businessPhoneNumber || null,
                         messages: (conv.messages||[]).map(m => ({
                             sender: m.role==='user'?'customer':(m.role==='assistant'?'ai':'agent'),
                             text: m.content, time: m.timestamp,
@@ -874,7 +877,8 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
                 message: text, 
                 channel: ch.toLowerCase(),
                 entityId: item.entityId,
-                entityType: item.entityType
+                entityType: item.entityType,
+                integrationId: item.whatsappIntegrationId || item.businessPhoneNumberId || undefined
             };
 
             if (pendingFile) {
@@ -919,13 +923,14 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
 
     const sendSpecial = (type) => {
         setShowAttach(false);
+        const targetIntId = item.whatsappIntegrationId || item.businessPhoneNumberId || undefined;
         if (type === 'location') {
             const loc = { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' };
-            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending location...', attachment: { type: 'location', location: loc } })
+            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending location...', attachment: { type: 'location', location: loc }, integrationId: targetIntId })
                 .then(r => r?.success && setHistory(prev => [...prev, { sender: 'agent', text: 'Sent location', time: new Date().toISOString(), metadata: { attachment: { type: 'location', location: loc } } }]));
         } else if (type === 'contact') {
             const card = [{ name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' }, phones: [{ phone: '919999999999', type: 'WORK' }] }];
-            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending contact card...', attachment: { type: 'contacts', contacts: card } })
+            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending contact card...', attachment: { type: 'contacts', contacts: card }, integrationId: targetIntId })
                 .then(r => r?.success && setHistory(prev => [...prev, { sender: 'agent', text: 'Sent contact card', time: new Date().toISOString(), metadata: { attachment: { type: 'contacts', contacts: card } } }]));
         }
     };
@@ -1164,7 +1169,8 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                 message: msgText, 
                 channel: 'whatsapp',
                 entityId: selected.lead?._id,
-                entityType: 'Lead'
+                entityType: 'Lead',
+                integrationId: selected.whatsappIntegrationId || selected.businessPhoneNumberId || undefined
             };
 
             // Handle Attachments (Upload if needed)

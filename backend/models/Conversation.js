@@ -38,6 +38,18 @@ const conversationSchema = new mongoose.Schema({
         enum: ['whatsapp', 'sms', 'web', 'voice', 'website_chat'],
         default: 'whatsapp'
     },
+    whatsappIntegrationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'WhatsAppIntegration',
+        index: true
+    },
+    businessPhoneNumberId: {
+        type: String,
+        index: true
+    },
+    businessPhoneNumber: {
+        type: String
+    },
     phoneNumber: {
         type: String,
         required: false, // Make optional for anonymous website visitors

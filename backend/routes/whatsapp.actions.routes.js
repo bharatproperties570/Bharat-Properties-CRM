@@ -1,11 +1,10 @@
 import express from 'express';
-import { saveWhatsAppConfig, getWhatsAppTemplates, syncMetaTemplates, submitMetaTemplate, previewMessage } from '../controllers/social.controller.js';
+import { saveWhatsAppConfig, getWhatsAppTemplates, syncMetaTemplates, submitMetaTemplate, previewMessage, getWhatsAppAccounts } from '../controllers/social.controller.js';
 import { authenticate } from '../src/middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-// Professional Isolation: Making this route public temporarily for 100% reliability
-// We will restore authenticate once the user confirms connection
+router.get('/accounts', authenticate, getWhatsAppAccounts);
 router.post('/save', saveWhatsAppConfig);
 router.get('/templates', getWhatsAppTemplates);
 router.get('/sync-meta', syncMetaTemplates);

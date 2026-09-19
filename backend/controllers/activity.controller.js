@@ -1372,7 +1372,7 @@ export const syncMobileCalls = async (req, res) => {
  */
 export const sendReply = async (req, res) => {
     try {
-        const { phoneNumber, message, channel = 'whatsapp', entityId, entityType, attachment } = req.body;
+        const { phoneNumber, message, channel = 'whatsapp', entityId, entityType, attachment, integrationId, fromPhoneNumberId } = req.body;
 
         if (!phoneNumber || (!message && !attachment)) {
             return res.status(400).json({ success: false, error: "Phone number and message/attachment are required" });
@@ -1383,6 +1383,7 @@ export const sendReply = async (req, res) => {
         const smsSvc = (await import('../services/SmsService.js')).default;
         
         const cleanPhone = normalizePhone(phoneNumber);
+        const targetAccount = integrationId || fromPhoneNumberId || null;
         let dispatchResult = { success: false, error: "Initialization error" };
 
         try {
@@ -1395,15 +1396,15 @@ export const sendReply = async (req, res) => {
                         attachment.url, 
                         attachment.caption || message,
                         attachment.filename,
-                        attachment // Pass whole object for location/contacts
+                        { ...attachment, integrationId: targetAccount } // Pass whole object for location/contacts + integrationId
                     );
                 } else {
-                    dispatchResult = await waService.sendMessage(cleanPhone, message);
+                    dispatchResult = await waService.sendMessage(cleanPhone, message, { integrationId: targetAccount });
                 }
             } else if (channel.toLowerCase() === 'sms') {
                 dispatchResult = await smsSvc.sendSms(cleanPhone, message, { entityId, entityType });
             } else {
-                dispatchResult = await waService.sendMessage(cleanPhone, message);
+                dispatchResult = await waService.sendMessage(cleanPhone, message, { integrationId: targetAccount });
             }
         } catch (dispatchError) {
             console.error(`[EnterpriseHub] Dispatch Engine CRASH:`, dispatchError);
@@ -1429,7 +1430,8 @@ export const sendReply = async (req, res) => {
                 messageId: dispatchResult.messageId || dispatchResult.sid,
                 isManualReply: true,
                 phoneNumber: cleanPhone,
-                attachment: attachment || null
+                attachment: attachment || null,
+                whatsappIntegrationId: targetAccount || null
             },
             performedBy: req.user?.fullName || "Agent",
             performedAt: new Date()
@@ -1438,8 +1440,25 @@ export const sendReply = async (req, res) => {
         // 3. Update Conversation History
         const displayMsg = message || `Sent ${attachment?.type || 'file'}`;
 
+        const convFilter = { phoneNumber: cleanPhone };
+        if (targetAccount) {
+            const existingConv = await Conversation.findOne({
+                phoneNumber: cleanPhone,
+                $or: [
+                    { whatsappIntegrationId: targetAccount },
+                    { businessPhoneNumberId: targetAccount },
+                    { whatsappIntegrationId: null },
+                    { whatsappIntegrationId: { $exists: false } }
+                ]
+            }).sort({ updatedAt: -1 });
+
+            if (existingConv) {
+                convFilter._id = existingConv._id;
+            }
+        }
+
         await Conversation.findOneAndUpdate(
-            { phoneNumber: cleanPhone },
+            convFilter,
             { 
                 $push: { 
                     messages: { 
@@ -1449,8 +1468,11 @@ export const sendReply = async (req, res) => {
                         metadata: attachment ? { attachment } : null 
                     } 
                 },
-                status: 'handed_off', 
-                updatedAt: new Date()
+                $set: {
+                    status: 'handed_off', 
+                    updatedAt: new Date(),
+                    ...(targetAccount ? { whatsappIntegrationId: targetAccount } : {})
+                }
             },
             { upsert: true }
         );
@@ -1596,6 +1618,8 @@ export const getMessagingActivities = async (req, res) => {
                     outcome: a.details?.status || a.outcome || a.status || 'Delivered',
                     timestamp: a.createdAt,
                     date: a.createdAt,
+                    whatsappIntegrationId: a.details?.whatsappIntegrationId || null,
+                    businessPhoneNumberId: a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId || null,
                     // 🚀 Ultra-Fast: Don't send thread in list view
                     thread: [] 
                 });
@@ -1641,6 +1665,9 @@ export const getMessagingActivities = async (req, res) => {
                     participant: existingActivity?.participant || getParticipantName(phone, c.lead || c.contact), 
                     phone, phoneNumber: phone,
                     isMatched: !!(c.lead || c.contact), outcome: c.status || 'Active', timestamp: c.updatedAt, date: c.updatedAt,
+                    whatsappIntegrationId: c.whatsappIntegrationId || null,
+                    businessPhoneNumberId: c.businessPhoneNumberId || null,
+                    businessPhoneNumber: c.businessPhoneNumber || null,
                     thread: []
                 });
             }

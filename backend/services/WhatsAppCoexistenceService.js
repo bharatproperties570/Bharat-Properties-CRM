@@ -30,10 +30,29 @@ const checkDuplicateMessage = async (waId) => {
     });
 };
 
-const getOrCreateConversation = async (contactPhone) => {
+const getOrCreateConversation = async (contactPhone, integration = null) => {
+    const filter = {
+        phoneNumber: contactPhone,
+        status: 'active'
+    };
+    if (integration?.phoneNumberId) {
+        filter.businessPhoneNumberId = integration.phoneNumberId;
+    }
+
+    const setOnInsert = {
+        phoneNumber: contactPhone,
+        channel: 'whatsapp',
+        status: 'active'
+    };
+    if (integration) {
+        setOnInsert.whatsappIntegrationId = integration._id;
+        setOnInsert.businessPhoneNumberId = integration.phoneNumberId;
+        setOnInsert.businessPhoneNumber = integration.displayPhoneNumber;
+    }
+
     return await Conversation.findOneAndUpdate(
-        { userId: contactPhone, status: 'active' },
-        { $setOnInsert: { userId: contactPhone, status: 'active', platform: 'whatsapp' } },
+        filter,
+        { $setOnInsert: setOnInsert },
         { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 };
@@ -62,7 +81,7 @@ export const processMessageEchoes = async (echoes, phone_number_id, waba_id) => 
         );
 
         // 2. Add message as assistant
-        const conversation = await getOrCreateConversation(customerMobile);
+        const conversation = await getOrCreateConversation(customerMobile, integration);
         const textContent = echo.text?.body || (echo.type ? `[${echo.type} message]` : 'Message sent from WhatsApp Business App');
 
         const msgObj = {
@@ -72,13 +91,23 @@ export const processMessageEchoes = async (echoes, phone_number_id, waba_id) => 
             metadata: {
                 waId: echo.id,
                 source: 'smb_message_echo',
-                status: 'sent'
+                status: 'sent',
+                businessPhoneNumberId: integration.phoneNumberId,
+                integrationId: integration._id
             }
         };
 
         await Conversation.updateOne(
             { _id: conversation._id },
-            { $push: { messages: msgObj } }
+            { 
+                $push: { messages: msgObj },
+                $set: { 
+                    'metadata.lastMessageAt': msgObj.timestamp,
+                    whatsappIntegrationId: integration._id,
+                    businessPhoneNumberId: integration.phoneNumberId,
+                    businessPhoneNumber: integration.displayPhoneNumber
+                }
+            }
         );
     }
 };
@@ -123,7 +152,7 @@ export const processHistory = async (historyBatches, phone_number_id, waba_id) =
                 { upsert: true, new: true, setDefaultsOnInsert: true }
             );
 
-            const conversation = await getOrCreateConversation(customerMobile);
+            const conversation = await getOrCreateConversation(customerMobile, integration);
             const textContent = msg.text?.body || (msg.type ? `[${msg.type} message]` : 'Historical Message');
 
             const msgObj = {
@@ -132,13 +161,22 @@ export const processHistory = async (historyBatches, phone_number_id, waba_id) =
                 timestamp: new Date(Number(msg.timestamp || 0) * 1000),
                 metadata: {
                     waId: msg.id,
-                    source: 'history_import'
+                    source: 'history_import',
+                    businessPhoneNumberId: integration.phoneNumberId,
+                    integrationId: integration._id
                 }
             };
 
             await Conversation.updateOne(
                 { _id: conversation._id },
-                { $push: { messages: msgObj } }
+                { 
+                    $push: { messages: msgObj },
+                    $set: {
+                        whatsappIntegrationId: integration._id,
+                        businessPhoneNumberId: integration.phoneNumberId,
+                        businessPhoneNumber: integration.displayPhoneNumber
+                    }
+                }
             );
         }
     }

@@ -2,6 +2,19 @@ import { api } from '../utils/api';
 
 const whatsappService = {
     /**
+     * Fetch connected WhatsApp accounts (Cloud API & Coexistence)
+     */
+    async getAccounts() {
+        try {
+            const response = await api.get('whatsapp-config/accounts');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching WhatsApp accounts:', error);
+            return { success: false, data: [] };
+        }
+    },
+
+    /**
      * Send a WhatsApp message (Standard or Media)
      */
     async sendMessage(payload) {

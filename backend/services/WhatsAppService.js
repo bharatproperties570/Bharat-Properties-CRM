@@ -19,29 +19,86 @@ const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 class WhatsAppService {
     /**
      * Resolve configuration from DB or Env
+     * Supports multi-account resolution via integrationId or phoneNumberId,
+     * while preserving 100% backward compatibility by falling back to meta_wa_config.
      */
-    async _getMetaConfig() {
-        const SystemSetting = mongoose.model('SystemSetting');
-        const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-        
+    async _getMetaConfig(integrationIdOrPhoneId = null) {
         const isPlaceholder = (val) => !val || val.includes('YOUR_') || val.includes('SYSTEM_USER');
 
-        if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
-            return {
-                token: setting.value.token,
-                phoneId: setting.value.phoneId,
-                businessId: setting.value.businessId,
-                appId: setting.value.appId || process.env.META_WA_APP_ID
-            };
+        // 1. If explicit account ID or Phone ID is requested, look in WhatsAppIntegration
+        if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
+            try {
+                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+                const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
+                    ? { _id: integrationIdOrPhoneId, status: 'ACTIVE' }
+                    : { phoneNumberId: String(integrationIdOrPhoneId), status: 'ACTIVE' };
+
+                const integration = await WhatsAppIntegration.findOne(query).lean();
+                if (integration && integration.credentials?.systemUserToken && !isPlaceholder(integration.credentials.systemUserToken)) {
+                    return {
+                        integrationId: integration._id,
+                        token: integration.credentials.systemUserToken,
+                        phoneId: integration.phoneNumberId,
+                        businessId: integration.wabaId,
+                        appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                        displayPhoneNumber: integration.displayPhoneNumber,
+                        accountLabel: integration.accountLabel || 'WhatsApp Account',
+                        connectionType: integration.connectionType
+                    };
+                }
+            } catch (e) {
+                console.warn('[WhatsAppService] Error resolving specific integration:', e.message);
+            }
         }
 
-        // Fallback to Env if DB is empty
+        // 2. Try default active WhatsAppIntegration (e.g. if configured as default)
+        try {
+            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+            const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
+            if (defaultIntegration && defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)) {
+                return {
+                    integrationId: defaultIntegration._id,
+                    token: defaultIntegration.credentials.systemUserToken,
+                    phoneId: defaultIntegration.phoneNumberId,
+                    businessId: defaultIntegration.wabaId,
+                    appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                    displayPhoneNumber: defaultIntegration.displayPhoneNumber,
+                    accountLabel: defaultIntegration.accountLabel || 'Main WhatsApp API',
+                    connectionType: defaultIntegration.connectionType
+                };
+            }
+        } catch (e) {
+            // ignore if model not compiled yet
+        }
+
+        // 3. Fallback: Legacy meta_wa_config in SystemSetting (100% Backward Compatible)
+        try {
+            const SystemSetting = mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default;
+            const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+
+            if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
+                return {
+                    token: setting.value.token,
+                    phoneId: setting.value.phoneId,
+                    businessId: setting.value.businessId,
+                    appId: setting.value.appId || process.env.META_WA_APP_ID,
+                    displayPhoneNumber: setting.value.displayPhoneNumber || '+91 99960 00570',
+                    accountLabel: 'Main Official WhatsApp API'
+                };
+            }
+        } catch (e) {
+            console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
+        }
+
+        // 4. Fallback to Env if DB is empty
         if (process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID && !isPlaceholder(process.env.META_WA_TOKEN)) {
             return {
                 token: process.env.META_WA_TOKEN,
                 phoneId: process.env.META_WA_PHONE_ID,
                 businessId: process.env.YOUR_WABA_ID,
-                appId: process.env.META_WA_APP_ID
+                appId: process.env.META_WA_APP_ID,
+                displayPhoneNumber: process.env.META_WA_DISPLAY_NUMBER || '+91 99960 00570',
+                accountLabel: 'Env WhatsApp API'
             };
         }
 
@@ -50,16 +107,20 @@ class WhatsAppService {
 
     /**
      * Send a standard text message
+     * @param {string} mobile - Recipient phone number
+     * @param {string} message - Text body
+     * @param {Object} [options] - Optional settings { integrationId, phoneId }
      */
-    async sendMessage(mobile, message) {
+    async sendMessage(mobile, message, options = {}) {
         if (!IntegrationGuard.canSendWhatsapp()) {
             IntegrationGuard.logBlock("WhatsApp sendMessage", mobile);
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        const config = await this._getMetaConfig();
+        const targetAccount = typeof options === 'string' ? options : (options?.integrationId || options?.phoneId || null);
+        const config = await this._getMetaConfig(targetAccount);
         if (config) {
-            return this._sendViaMeta(mobile, message, config, { type: 'text' });
+            return this._sendViaMeta(mobile, message, config, { type: 'text', ...(typeof options === 'object' ? options : {}) });
         }
         
         // Gupshup/Other Fallback logic simplified for Bharat Properties
@@ -200,13 +261,14 @@ class WhatsAppService {
         }
     }
 
-    async sendTemplate(mobile, templateName, languageCode = 'en_US', components = []) {
+    async sendTemplate(mobile, templateName, languageCode = 'en_US', components = [], options = {}) {
         if (!IntegrationGuard.canSendWhatsapp()) {
             IntegrationGuard.logBlock("WhatsApp sendTemplate", mobile);
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        const metaConfig = await this._getMetaConfig();
+        const targetAccount = options?.integrationId || options?.phoneId || null;
+        const metaConfig = await this._getMetaConfig(targetAccount);
         if (!metaConfig) {
             console.log(`[WhatsApp/Meta] MOCK template to ${mobile}: ${templateName}`);
             return { success: true, mock: true, provider: 'mock' };
@@ -226,7 +288,7 @@ class WhatsAppService {
                 templatePayload.components = components;
             }
 
-            console.log(`[WhatsApp/Meta] SENDING PAYLOAD TO META:`, JSON.stringify({
+            console.log(`[WhatsApp/Meta] SENDING PAYLOAD TO META (From: ${metaConfig.phoneId}):`, JSON.stringify({
                 messaging_product: 'whatsapp',
                 to:                toNumber,
                 type:              'template',
@@ -262,7 +324,8 @@ class WhatsAppService {
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        const metaConfig = await this._getMetaConfig();
+        const targetAccount = extraOptions?.integrationId || extraOptions?.phoneId || null;
+        const metaConfig = await this._getMetaConfig(targetAccount);
         if (metaConfig) {
             let mediaId = null;
 
@@ -283,7 +346,7 @@ class WhatsAppService {
 
                     if (localPath && fs.existsSync(localPath)) {
                         console.log(`[WhatsApp/Meta] Local file detected. Uploading to Meta storage...`);
-                        const uploadRes = await this.uploadToMeta(localPath, type);
+                        const uploadRes = await this.uploadToMeta(localPath, type, targetAccount);
                         if (uploadRes.success) {
                             mediaId = uploadRes.mediaId;
                         } else {
@@ -319,8 +382,8 @@ class WhatsAppService {
      * 🚀 Upload binary media to Meta's servers
      * Required for reliable delivery when the source is not a public URL
      */
-    async uploadToMeta(filePath, type) {
-        const config = await this._getMetaConfig();
+    async uploadToMeta(filePath, type, integrationId = null) {
+        const config = await this._getMetaConfig(integrationId);
         if (!config || !config.token) return { success: false, error: 'Meta config missing' };
 
         try {
@@ -350,8 +413,8 @@ class WhatsAppService {
         }
     }
 
-    async getTemplates() {
-        const config = await this._getMetaConfig();
+    async getTemplates(integrationId = null) {
+        const config = await this._getMetaConfig(integrationId);
         
         if (!config || !config.token || !config.businessId) {
             return [
