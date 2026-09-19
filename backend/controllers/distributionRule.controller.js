@@ -1,4 +1,5 @@
 import DistributionRule from "../models/DistributionRule.js";
+import { validateDistributionTargets, DistributionError } from "../src/validators/distributionTargetValidator.js";
 
 export const getDistributionRules = async (req, res) => {
     try {
@@ -37,6 +38,16 @@ export const normalizeDistributionRulePayload = (payload, existingRule = null) =
         };
     }
 
+    // On UPDATE, preserve existing target if omitted in payload
+    if (existingRule && !normalized.assignmentTarget && !normalized.assignedAgents) {
+        normalized.assignmentTarget = existingRule.assignmentTarget;
+    }
+
+    // On UPDATE, preserve existing fallbackTarget if omitted in payload
+    if (existingRule && !('fallbackTarget' in normalized)) {
+        normalized.fallbackTarget = existingRule.fallbackTarget;
+    }
+
     // On UPDATE, preserve existing triggerEvent if omitted in legacy payload
     if (existingRule && normalized.triggerEvent === undefined) {
         normalized.triggerEvent = existingRule.triggerEvent;
@@ -54,9 +65,20 @@ export const createDistributionRule = async (req, res) => {
             return res.status(400).json({ message: "triggerEvent is required and cannot be inferred for new rules." });
         }
 
+        // Validate targets for referential integrity
+        await validateDistributionTargets(normalizedData);
+
         const rule = await DistributionRule.create(normalizedData);
         res.status(201).json(rule);
     } catch (error) {
+        if (error instanceof DistributionError) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+                code: error.code,
+                details: error.details
+            });
+        }
         res.status(500).json({ message: error.message });
     }
 };
@@ -70,9 +92,20 @@ export const updateDistributionRule = async (req, res) => {
 
         const normalizedData = normalizeDistributionRulePayload(req.body, existingRule);
 
+        // Validate targets for referential integrity
+        await validateDistributionTargets(normalizedData);
+
         const rule = await DistributionRule.findByIdAndUpdate(id, normalizedData, { new: true, runValidators: true });
         res.json(rule);
     } catch (error) {
+        if (error instanceof DistributionError) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+                code: error.code,
+                details: error.details
+            });
+        }
         res.status(500).json({ message: error.message });
     }
 };
