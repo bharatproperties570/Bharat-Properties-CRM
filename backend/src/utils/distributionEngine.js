@@ -15,6 +15,7 @@ import { withMongoTransaction } from "../../utils/withMongoTransaction.js"; // Q
  * Checks if a user is currently on shift based on preferences.workingHours
  * and verifies they are not currently Out Of Office (OOO)
  */
+
 const isUserAvailableAndOnShift = (user) => {
     // 1. Check Out of Office
     if (user.outOfOffice?.active) {
@@ -42,6 +43,14 @@ const isUserAvailableAndOnShift = (user) => {
     return currentTime >= startTime && currentTime <= endTime;
 };
 
+const isUserEligible = (user) => {
+    if (!user) return false;
+    if (user.isDeleted === true) return false;
+    if (user.isActive !== true) return false;
+    if (user.status !== 'active') return false;
+    if (user.availability !== 'Available') return false;
+    return isUserAvailableAndOnShift(user);
+};
 /**
  * Evaluates conditions against entity data.
  */
@@ -202,20 +211,27 @@ export const executeDistributionCycle = async (pointerPayload) => {
 
         if (!agentIds || agentIds.length === 0) continue;
 
-        let eligibleUsers = await User.find({
-            _id: { $in: agentIds },
-            status: 'Active',
-            availability: 'Available'
-        }).lean();
-
-        eligibleUsers = eligibleUsers.filter(isUserAvailableAndOnShift);
+        let potentialUsers = await User.find({ _id: { $in: agentIds } }).lean();
+        let eligibleUsers = potentialUsers.filter(isUserEligible);
 
         if (eligibleUsers.length === 0) {
-            if (rule.fallbackTarget?.id) {
-                const fallbackId = rule.fallbackTarget.id;
-                const fallbackUser = await User.findById(fallbackId).lean();
-                if (fallbackUser && fallbackUser.availability === 'Available' && isUserAvailableAndOnShift(fallbackUser)) {
-                    return await performAssignment(freshEntity, Model, modelName, fallbackId, rule.name + " (Fallback)", originalAssignedTo, cycleId, triggerEvent, attempt);
+            if (rule.fallbackTarget && rule.fallbackTarget.id) {
+                let fallbackAgentIds = [];
+                if (rule.fallbackTarget.type === 'team') {
+                    const usersInTeams = await User.find({ teams: rule.fallbackTarget.id }).select('_id').lean();
+                    fallbackAgentIds = usersInTeams.map(u => u._id.toString());
+                } else {
+                    fallbackAgentIds = [rule.fallbackTarget.id.toString()];
+                }
+
+                if (fallbackAgentIds.length > 0) {
+                    let potentialFallbackUsers = await User.find({ _id: { $in: fallbackAgentIds } }).lean();
+                    let eligibleFallbackUsers = potentialFallbackUsers.filter(isUserEligible);
+
+                    if (eligibleFallbackUsers.length > 0) {
+                        const assignedTo = eligibleFallbackUsers[0]._id;
+                        return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name + " (Fallback)", originalAssignedTo, cycleId, triggerEvent, attempt);
+                    }
                 }
             }
             continue;
@@ -450,7 +466,7 @@ const performAssignment = async (entity, Model, modelName, assignedTo, ruleName,
                     await createNotification(
                         assignedTo,
                         'assignments',
-                        'New Lead Assigned',
+                        `New ${modelName} Assigned`,
                         `A new ${modelName.toLowerCase()} has been assigned to you.`,
                         `/${modelName.toLowerCase()}s/${entity._id}`,
                         { entityId: entity._id }
