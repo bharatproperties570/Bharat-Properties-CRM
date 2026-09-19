@@ -32,13 +32,13 @@ router.post('/start', authenticate, async (req, res) => {
  */
 router.post('/exchange', authenticate, async (req, res) => {
     try {
-        const { sessionId, code, waba_id, phone_number_id, pin } = req.body;
+        const { sessionId, code, waba_id, phone_number_id, pin, redirect_uri } = req.body;
         
         if (!sessionId || !code) {
             return res.status(400).json({ success: false, error: 'Missing required onboarding parameters: sessionId and code are mandatory' });
         }
 
-        const integration = await whatsAppOnboardingService.completeOnboarding(sessionId, { code, waba_id, phone_number_id, pin });
+        const integration = await whatsAppOnboardingService.completeOnboarding(sessionId, { code, waba_id, phone_number_id, pin, redirect_uri });
         
         // Exclude credentials before sending to frontend
         const safeIntegration = integration.toObject();

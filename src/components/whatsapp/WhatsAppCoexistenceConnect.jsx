@@ -37,11 +37,13 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
             whatsappOnboardingAPI.exchange({
                 sessionId: sessionRef.current,
                 code: authCodeRef.current,
+                redirect_uri: window.location.origin + '/settings',
                 ...(widgetDataRef.current ? { 
                     waba_id: widgetDataRef.current.waba_id,
                     phone_number_id: widgetDataRef.current.phone_number_id
                 } : {})
             }).then((exchangeRes) => {
+
                 if (exchangeRes.success) {
                     setStatus('POLLING');
                     startPolling(sessionRef.current);
@@ -158,6 +160,7 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                 config_id: configId,
                 response_type: 'code',
                 override_default_response_type: true,
+                redirect_uri: 'https://crm.bharatproperties.co/settings',
                 extras: {
                     featureType: 'whatsapp_business_app_onboarding',
                     sessionInfoVersion: '3',

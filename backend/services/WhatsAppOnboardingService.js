@@ -39,7 +39,7 @@ class WhatsAppOnboardingService {
             throw new Error('Invalid or expired onboarding session');
         }
 
-        let { code, waba_id, phone_number_id, pin } = payload;
+        let { code, waba_id, phone_number_id, pin, redirect_uri } = payload;
         
         try {
             // 1. Update state: Meta Auth Started
@@ -51,9 +51,10 @@ class WhatsAppOnboardingService {
             // 2. Exchange Code
             const clientId = process.env.FB_GRAPH_APP_ID;
             const clientSecret = process.env.FB_APP_SECRET;
-            const redirectUri = process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
+            // Use dynamic frontend URI if provided, else fallback to env
+            const finalRedirectUri = redirect_uri || process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
             
-            const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, redirectUri, code);
+            const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, finalRedirectUri, code);
             const accessToken = tokenResponse.access_token;
 
             await this._updateState(integration, 'TOKEN_EXCHANGED');
