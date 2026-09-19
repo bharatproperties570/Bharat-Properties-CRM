@@ -1,6 +1,9 @@
 import assert from 'assert';
 import { normalizeDistributionRulePayload, createDistributionRule, updateDistributionRule } from '../controllers/distributionRule.controller.js';
 import DistributionRule from '../models/DistributionRule.js';
+import User from '../models/User.js';
+import Team from '../models/Team.js';
+import mongoose from 'mongoose';
 
 async function runControllerTests() {
     console.log("Running Controller HTTP Normalizer Tests...");
@@ -24,13 +27,21 @@ async function runControllerTests() {
         return { _id: "created_id", ...data };
     };
 
+    User.find = (query) => ({
+        lean: async () => query._id.$in.map(id => ({ _id: id, status: 'active', isActive: true, isDeleted: false }))
+    });
+    Team.find = (query) => ({
+        lean: async () => query._id.$in.map(id => ({ _id: id, isActive: true, isDeleted: false }))
+    });
+
     DistributionRule.findById = (id) => {
         findByIdCalledWith = id;
         return {
             lean: async () => ({
                 _id: id,
                 module: "leads",
-                triggerEvent: ["onCreate", "onWebCapture"]
+                triggerEvent: ["onCreate", "onWebCapture"],
+                assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] }
             })
         };
     };
@@ -40,8 +51,10 @@ async function runControllerTests() {
         return { _id: id, ...data };
     };
 
+    const DUMMY_AGENT = "69c4be0fd8c5cd0d6c90e999";
+
     // 1. POST legacy payload WITHOUT triggerEvent (MUST reject HTTP 400)
-    let req = mockReq({ entity: "lead", isActive: true, logic: "ROUND_ROBIN", assignedAgents: ["agent1"] });
+    let req = mockReq({ entity: "lead", isActive: true, logic: "ROUND_ROBIN", assignedAgents: [DUMMY_AGENT] });
     let res = mockRes();
     createCalledWith = null;
     await createDistributionRule(req, res);
@@ -49,14 +62,14 @@ async function runControllerTests() {
     assert.strictEqual(createCalledWith, null, "MUST NOT call DistributionRule.create");
 
     // 2. POST Native R20 payload + triggerEvent => accepted
-    req = mockReq({ module: "leads", enabled: true, triggerEvent: ["onCreate"], distributionType: "roundRobin" });
+    req = mockReq({ module: "leads", enabled: true, triggerEvent: ["onCreate"], distributionType: "roundRobin", assignmentTarget: { type: 'user', ids: [DUMMY_AGENT] } });
     res = mockRes();
     await createDistributionRule(req, res);
     assert.strictEqual(res.statusCode, 201);
     assert.deepStrictEqual(createCalledWith.triggerEvent, ["onCreate"]);
 
     // 3. POST Legacy payload with explicit triggerEvent => accepted normalization
-    req = mockReq({ entity: "lead", triggerEvent: ["onWebCapture"] });
+    req = mockReq({ entity: "lead", triggerEvent: ["onWebCapture"], assignedAgents: [DUMMY_AGENT] });
     res = mockRes();
     await createDistributionRule(req, res);
     assert.strictEqual(res.statusCode, 201);
