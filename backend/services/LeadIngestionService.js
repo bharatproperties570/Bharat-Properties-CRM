@@ -45,7 +45,8 @@ export const ingestLead = async (parsedData) => {
         const firstName = nameParts[0] || 'Portal';
         const lastName = nameParts.slice(1).join(' ') || 'Lead';
 
-        const lead = await Lead.create({
+        const { createStandardizedLead } = await import('./LeadCreationEngine.js');
+        const leadResult = await createStandardizedLead({
             firstName,
             lastName,
             mobile: parsedData.mobile,
@@ -60,33 +61,10 @@ export const ingestLead = async (parsedData) => {
                 portal: parsedData.portal,
                 ingestedAt: new Date()
             }
-        });
+        }, { triggerEvent: 'onEmailCapture' });
 
-        console.log(`[Lead Ingestion] Successfully created lead: ${lead._id} from ${parsedData.portal}`);
-
-        // 4. Trigger Enrichment
-        try {
-            await runFullLeadEnrichment(lead._id);
-        } catch (enrichErr) {
-            console.error(`[Lead Ingestion] Enrichment failed for ${lead._id}:`, enrichErr.message);
-        }
-
-        // 5. Automatic Lead Distribution
-        try {
-            const { distributeEntity } = await import('../src/utils/distributionEngine.js');
-            const assignment = await distributeEntity(lead, 'onEmailCapture');
-            
-            if (assignment && assignment.assignedTo) {
-                const assignedTo = assignment.assignedTo;
-                // No need to update lead here as distributeEntity already does it, 
-                // but we should verify if we want to log the specific rule
-                console.log(`[Lead Ingestion] Lead ${lead._id} auto-assigned to ${assignedTo} via rule "${assignment.ruleName}"`);
-            }
-        } catch (distErr) {
-            console.error(`[Lead Ingestion] Auto-assignment failed for ${lead._id}:`, distErr.message);
-        }
-
-        return lead;
+        console.log(`[Lead Ingestion] Successfully created lead: ${leadResult.lead._id} from ${parsedData.portal}`);
+        return leadResult.lead;
     } catch (error) {
         console.error('[Lead Ingestion Error]:', error);
         throw error;

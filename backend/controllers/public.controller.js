@@ -1248,7 +1248,8 @@ export const submitLeadForm = async (req, res) => {
         let lead = await Lead.findOne({ mobile });
 
         if (!lead) {
-            lead = await Lead.create({
+            const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+            const leadResult = await createStandardizedLead({
                 firstName: name.split(' ')[0],
                 lastName: name.split(' ').slice(1).join(' '),
                 mobile,
@@ -1258,17 +1259,9 @@ export const submitLeadForm = async (req, res) => {
                 status: await resolveLookup('Status', 'Incoming'),
                 stage: await resolveLookup('Stage', 'Incoming'),
                 description: `Captured from website ${activityType || 'Contact'} form.`
-            });
-
-            // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Leads)
-            try {
-                const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-                await distributeEntity(lead, 'onWebCapture');
-                // Re-fetch lead to get assigned owner
-                lead = await Lead.findById(lead._id);
-            } catch (distErr) {
-                console.error("[DISTRIBUTION ERROR] Lead Submit:", distErr);
-            }
+            }, { triggerEvent: 'onWebCapture' });
+            
+            lead = leadResult.lead;
         }
 
         // 2. Prepare Activity Data
