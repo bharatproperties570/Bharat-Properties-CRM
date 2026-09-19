@@ -5,7 +5,7 @@ dotenv.config();
 
 export const TARGET_RULE_ID = '69b8c7ba81e723b58a586959';
 export const CAMPAIGN_OBJECT_ID = '698b3312861a01e0b08168ad';
-export const TARGET_AGENT_ID = '698de200eebee6c7a313dd32';
+export const TARGET_AGENT_ID = '69d8661c8e2ebcc74dbfb56c';
 
 export async function verifyPreconditions(db) {
     console.log('[1/4] Verifying Preconditions...');
@@ -103,7 +103,7 @@ export async function runMigration(db, isDryRun, preflightRule) {
             distributionType: "roundRobin",
             assignmentTarget: {
                 type: "user",
-                ids: rule.assignedAgents.map(id => new mongoose.Types.ObjectId(id))
+                ids: [new mongoose.Types.ObjectId(TARGET_AGENT_ID)]
             },
             triggerEvent: ["onCreate", "onWebCapture"],
             conditions: updatedConditions
