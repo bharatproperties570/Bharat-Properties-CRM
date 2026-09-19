@@ -913,7 +913,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                         {type === 'whatsapp' && (
                             <>
-                                <WhatsAppCoexistenceConnect onComplete={(data) => { loadAiConfig(); }} />
+                                <WhatsAppCoexistenceConnect onComplete={(data) => { /* Coexistence registered separately */ }} />
 
                                 <div style={{ margin: "30px 0", borderTop: "1px dashed var(--border-color)", position: "relative" }}>
                                     <span style={{ position: "absolute", top: "-10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "0 10px", fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold" }}>OR MANUAL SETUP (ADVANCED)</span>

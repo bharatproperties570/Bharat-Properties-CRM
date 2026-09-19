@@ -179,8 +179,11 @@ class WhatsAppOnboardingService {
                 credentials: { systemUserToken: accessToken }
             });
 
-            // COMPATIBILITY LAYER: Synchronize with existing meta_wa_config
-            await this._syncToLegacySystemSetting(waba_id, phone_number_id, accessToken);
+            // COMPATIBILITY LAYER: Synchronize with existing meta_wa_config ONLY for standard Cloud API
+            // Coexistence connection is stored separately in WhatsAppIntegration and must NOT overwrite the Cloud API automation number
+            if (integration.connectionType !== 'COEXISTENCE') {
+                await this._syncToLegacySystemSetting(waba_id, phone_number_id, accessToken);
+            }
 
             return integration;
 
