@@ -9,11 +9,17 @@ dotenv.config();
 async function seedRule() {
     try {
         const targetId = process.env.TARGET_AGENT_ID;
+        const targetCampaignId = process.env.TARGET_CAMPAIGN_ID;
 
-        if (!targetId) {
-            console.log('TARGET_AGENT_ID environment variable not provided.');
-            console.log('Skipping seed distribution rule. Please provide a valid active target ID to seed this rule.');
-            process.exit(0);
+        if (!targetId || !targetCampaignId) {
+            console.log('TARGET_AGENT_ID or TARGET_CAMPAIGN_ID environment variable not provided.');
+            console.log('Skipping seed distribution rule. Please provide both to safely seed this rule with R20 canonical data.');
+            return process.exit(0);
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(targetCampaignId)) {
+            console.log('TARGET_CAMPAIGN_ID must be a valid canonical ObjectId.');
+            return process.exit(1);
         }
 
         await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI);
@@ -28,7 +34,7 @@ async function seedRule() {
             conditions: [{
                 field: 'campaign',
                 operator: 'equals',
-                value: 'Online'
+                value: targetCampaignId
             }],
             assignedAgents: [targetId]
         };

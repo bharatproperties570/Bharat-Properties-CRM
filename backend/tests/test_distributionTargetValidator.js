@@ -153,7 +153,7 @@ async function runTests() {
         try {
             await validateDistributionTargets({
                 assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
-                fallbackTarget: { type: 'user', ids: ["invalid_id"] }
+                fallbackTarget: { type: 'user', id: "invalid_id" }
             });
             assert.fail("Should have thrown");
         } catch (e) {
@@ -165,7 +165,7 @@ async function runTests() {
         try {
             await validateDistributionTargets({
                 assignmentTarget: { type: 'user', ids: ["69c4be0fd8c5cd0d6c90e999"] },
-                fallbackTarget: { type: 'team', ids: ["69c4be0fd8c5cd0d6c90e444"] }
+                fallbackTarget: { type: 'team', id: "69c4be0fd8c5cd0d6c90e444" }
             });
             assert.fail("Should have thrown");
         } catch (e) {
