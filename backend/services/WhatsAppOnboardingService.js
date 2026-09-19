@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
+import SystemSetting from '../models/SystemSetting.js';
 import metaApiClient from '../utils/metaApiClient.js';
 
 class WhatsAppOnboardingService {
@@ -86,15 +87,45 @@ class WhatsAppOnboardingService {
             // 5. Server-Side Discovery of Phone Number (if not provided)
             const phoneDataResponse = await metaApiClient.getPhoneNumbers(waba_id, accessToken);
             const phoneList = phoneDataResponse.data || [];
+            console.log(`[WhatsAppOnboarding] Discovered ${phoneList.length} phone number(s) in WABA:`, JSON.stringify(phoneList.map(p => ({ id: p.id, number: p.display_phone_number, platform: p.platform_type }))));
             
             if (!phone_number_id) {
                 if (phoneList.length === 0) {
                     throw new Error('No phone numbers found in this WhatsApp Business Account.');
+                } else if (phoneList.length === 1) {
+                    phone_number_id = phoneList[0].id;
+                } else {
+                    // Multiple phone numbers discovered in WABA
+                    if (integration.connectionType === 'COEXISTENCE') {
+                        // For Coexistence flow, prefer the mobile WhatsApp Business App number (non-Cloud API)
+                        const coexistenceCandidate = phoneList.find(p => p.platform_type !== 'CLOUD_API');
+                        if (coexistenceCandidate) {
+                            phone_number_id = coexistenceCandidate.id;
+                            console.log(`[WhatsAppOnboarding] Auto-selected Coexistence candidate: ${coexistenceCandidate.display_phone_number} (${coexistenceCandidate.id})`);
+                        }
+                    }
+
+                    // If still unresolved, select the phone number not already bound to an active integration
+                    if (!phone_number_id) {
+                        const activeIntegrations = await WhatsAppIntegration.find({
+                            wabaId: waba_id,
+                            status: { $ne: 'REVOKED' },
+                            _id: { $ne: integrationId }
+                        });
+                        const usedPhoneIds = new Set(activeIntegrations.map(i => i.phoneNumberId));
+                        const availableCandidate = phoneList.find(p => !usedPhoneIds.has(p.id));
+                        if (availableCandidate) {
+                            phone_number_id = availableCandidate.id;
+                            console.log(`[WhatsAppOnboarding] Auto-selected available candidate: ${availableCandidate.display_phone_number} (${availableCandidate.id})`);
+                        }
+                    }
+
+                    // Final fallback: use the last phone number
+                    if (!phone_number_id) {
+                        phone_number_id = phoneList[phoneList.length - 1].id;
+                        console.log(`[WhatsAppOnboarding] Fallback selected phone number: ${phone_number_id}`);
+                    }
                 }
-                if (phoneList.length > 1) {
-                    throw new Error('Multiple phone numbers discovered. Ambiguous selection.');
-                }
-                phone_number_id = phoneList[0].id;
             }
 
             const phoneInfo = phoneList.find(p => p.id === phone_number_id);
@@ -112,7 +143,15 @@ class WhatsAppOnboardingService {
                 _id: { $ne: integrationId }
             });
             if (existing) {
-                throw new Error('This WhatsApp number is already connected to an active integration.');
+                if (existing.organizationId?.toString() === integration.organizationId?.toString()) {
+                    console.log(`[WhatsAppOnboarding] Revoking previous active integration ${existing._id} for reconnect`);
+                    existing.status = 'REVOKED';
+                    existing.onboardingStatus = 'REVOKED';
+                    existing.revokedAt = new Date();
+                    await existing.save();
+                } else {
+                    throw new Error('This WhatsApp number is already connected to another organization.');
+                }
             }
 
             await this._updateState(integration, 'PHONE_DISCOVERED', { 
@@ -177,8 +216,6 @@ class WhatsAppOnboardingService {
      * Safe operation - only overwrites token/IDs, preserving existing routing.
      */
     async _syncToLegacySystemSetting(wabaId, phoneNumberId, token) {
-        const SystemSetting = mongoose.model('SystemSetting');
-        
         // Find existing or create new
         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' });
         
