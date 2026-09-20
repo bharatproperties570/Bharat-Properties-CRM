@@ -290,7 +290,7 @@ DealSchema.pre("save", async function (next) {
             // Import dynamically to avoid circular dependencies if any
             const Inventory = mongoose.model('Inventory');
             if (Inventory) {
-                const inventory = await Inventory.findById(this.inventoryId).select('latitude longitude lat lng geoPoint');
+                const inventory = await Inventory.findById(this.inventoryId).select('latitude longitude lat lng geoPoint').session(this.$session() || null);
                 if (inventory) {
                     this.latitude = inventory.latitude || inventory.lat || this.latitude;
                     this.longitude = inventory.longitude || inventory.lng || this.longitude;

@@ -1200,20 +1200,28 @@ export const submitPropertyForm = async (req, res) => {
             source: 'Website - Professional Deal Capture'
         };
 
-        const deal = await Deal.create(dealData);
+        // Route Public Property Submission through DealCreationEngine
+        const { createStandardizedDeal } = await import("../services/DealCreationEngine.js");
 
-        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
-        try {
-            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-            const assignment = await distributeEntity(deal, 'onDealCapture');
-            
-            if (assignment && assignment.assignedTo) {
-                // assignedUser is used for notification later
-                dealData.assignedTo = assignment.assignedTo;
+        const input = {
+            source: 'Website - Public Submission',
+            correlationId: req.headers['x-correlation-id'] || 'public-' + Date.now(),
+            dealData,
+            linkage: {
+                inventoryId: inventoryId || null
+            },
+            ownerInfo: {
+                owner: contactRecord ? contactRecord._id : null
             }
-        } catch (distErr) {
-            console.error("[DISTRIBUTION ERROR] Deal Submit:", distErr);
-        }
+        };
+
+        const options = {
+            triggerDistribution: true,
+            triggerMarketing: false // Typically public leads go to verification first
+        };
+
+        const result = await createStandardizedDeal(input, options);
+        const deal = result.deal;
 
         res.status(201).json({
             success: true,
@@ -1222,7 +1230,7 @@ export const submitPropertyForm = async (req, res) => {
         });
 
         // 🌟 SENIOR ADDITION: Notify Assigned User (or Admin)
-        const notifyTarget = assignedUser || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
+        const notifyTarget = deal.assignedTo || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
         if (notifyTarget) {
             await createNotification(
                 notifyTarget,

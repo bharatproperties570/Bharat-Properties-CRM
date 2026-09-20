@@ -211,7 +211,7 @@ const detectIntent = (text, entities) => {
  * Parses an attachment payload into a text string for entity extraction.
  * Extend each handler to call your real parsers (pdf-parse, unzipper, axios, etc.)
  *
- * @param {{ type: 'file'|'url'|'zip', data: Buffer|string }} attachment
+ * @param {{ type: 'file'|'url'|'zip', data: Buffer|string }} attachmen
  * @returns {Promise<string>}
  */
 export const parseAttachment = async (attachment) => {
@@ -276,7 +276,7 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
         { upsert: true, new: true, session }
     );
 
-    // Resolve contact
+    // Resolve contac
     let contact = await Contact.findOne({ 'phones.number': normalizedMobile }).session(session);
 
     if (!contact) {
@@ -312,29 +312,49 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
             cachedResolveLeadLookup('Source', source),
         ]);
 
-        const deal = await Deal.create([{
-            name:        `Resale: ${project.name} - ${unitNumber}`,
-            inventory:   inventory._id,
-            price,
-            projectName: project.name,
-            stage,
-            source:      src,
-            contact:     contact?._id ?? null,
-            remarks:     `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`,
-        }], { session });
+        const { createStandardizedDeal } = await import('../../services/DealCreationEngine.js');
+        const input = {
+            source: 'IntakeEngine',
+            correlationId: traceId,
+            dealData: {
+                name: `Resale: ${project.name} - ${unitNumber}`,
+                price,
+                projectName: project.name,
+                stage: typeof stage === 'object' && stage ? stage._id : stage, // Map lookup ID
+                source: typeof src === 'object' && src ? src._id : src,
+                remarks: `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`
+            },
+            linkage: {
+                inventoryId: inventory._id
+            },
+            ownerInfo: {
+                owner: contact?._id ?? null
+            }
+        };
 
-        const dealDoc = Array.isArray(deal) ? deal[0] : deal;
+        const options = {
+            triggerDistribution: false,
+            triggerMarketing: false,
+            triggerDiscovery: false,
+            session
+        };
 
-        // Verification runs outside transaction (non-critical path)
-        setImmediate(() => {
-            DealVerificationService.triggerVerification(dealDoc, {
-                mobile: normalizedMobile,
-                name:   name || (contact ? `${contact.name} ${contact.surname}` : 'Client'),
-            }).catch(err => log.error(null, 'DealVerification failed', { dealId: dealDoc._id, err: err.message }));
+        const resObj = await createStandardizedDeal(input, options);
+        const dealDoc = resObj.deal;
+        const postCommitTasks = resObj.postCommitTasks || [];
+
+        postCommitTasks.push(async () => {
+            const DealVerificationServiceModule = await import('../../services/DealVerificationService.js');
+            const DealVerificationService = DealVerificationServiceModule.default || DealVerificationServiceModule.DealVerificationService;
+            if (DealVerificationService && DealVerificationService.triggerVerification) {
+                DealVerificationService.triggerVerification(dealDoc, {
+                    mobile: normalizedMobile,
+                    name: name || (contact ? `${contact.name} ${contact.surname}` : 'Client')
+                }).catch(err => log.error(null, 'DealVerification failed', { dealId: dealDoc._id, err: err.message }));
+            }
         });
 
-        log.info(traceId, 'Deal created', { dealId: dealDoc._id, inventory: inventory._id });
-        return { type: 'DEAL', data: dealDoc, inventory };
+        return { type: 'DEAL', data: dealDoc, inventory, postCommitTasks };
     }
 
     log.info(traceId, 'Inventory updated (no price)', { inventoryId: inventory._id });
@@ -382,7 +402,7 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
 
 // ─── MAIN INTAKE PROCESSOR ────────────────────────────────────────────────────
 /**
- * processIntake — Enterprise Grade Entry Point
+ * processIntake — Enterprise Grade Entry Poin
  *
  * @param {object} payload
  * @param {string}  payload.mobile     - Raw phone number (required)
@@ -422,7 +442,7 @@ export const processIntake = async (payload) => {
         }
     }
 
-    // 5. Extract entities & detect intent
+    // 5. Extract entities & detect inten
     const entities = await extractEntities(combinedText);
     const intent   = detectIntent(combinedText, entities);
 
@@ -467,6 +487,20 @@ export const processIntake = async (payload) => {
             // ── Scenario C: New identity — create lead (BUYER, UNKNOWN, partial SELLER) ──
             result = await handleNewLead(session, traceId, normalizedMobile, name, email, combinedText, source, intent);
         });
+
+        // Execute post-commit tasks safely if any
+        if (result && result.postCommitTasks && Array.isArray(result.postCommitTasks)) {
+            const { executePostCommitTasks } = await import('../../services/DealCreationEngine.js');
+            const standardTasks = result.postCommitTasks.filter(t => typeof t !== 'function');
+            const customTasks = result.postCommitTasks.filter(t => typeof t === 'function');
+
+            if (standardTasks.length > 0) {
+                await executePostCommitTasks(standardTasks).catch(e => log.error(traceId, 'Standard postCommitTasks failed', { err: e.message }));
+            }
+            for (const t of customTasks) {
+                try { await t(); } catch (e) { log.error(traceId, 'Custom postCommitTask failed', { err: e.message }); }
+            }
+        }
 
         log.info(traceId, 'Intake completed', { type: result?.type });
         return result ?? { type: 'PASSIVE', message: 'No action required' };
