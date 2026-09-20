@@ -79,8 +79,12 @@ async function startServer() {
         await import("./workers/cronWorker.js");
         await import("./workers/marketingWorker.js");
         await import("./workers/distributionWorker.js");
+        await import("./workers/domainEventWorker.js");
         await import("../services/intakeQueue/IntakeQueue.js");
         await import("../services/automationQueue/automationWorker.js");
+
+        const { outboxPublisher } = await import("../services/OutboxPublisher.js");
+        outboxPublisher.start();
 
         const { cronQueue, googleSyncQueue } = await import("./queues/queueManager.js");
         try {
