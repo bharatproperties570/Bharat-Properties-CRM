@@ -4,6 +4,8 @@ import { resolveContactIdentity } from './contactIdentity.service.js';
 import { runFullLeadEnrichment } from '../src/utils/enrichmentEngine.js';
 import LeadScoringService from '../src/services/LeadScoringService.js';
 import { distributeEntity } from '../src/utils/distributionEngine.js';
+import OutboxEvent from '../models/OutboxEvent.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export const createStandardizedLead = async (data, context = {}) => {
     let createdLeadId;
@@ -44,6 +46,15 @@ export const createStandardizedLead = async (data, context = {}) => {
         const leadDoc = new Lead(data);
         await leadDoc.save({ session });
         createdLeadId = leadDoc._id;
+
+        // R56 STAGE 1: Durable Outbox Integration
+        await OutboxEvent.create([{
+            eventId: uuidv4(),
+            eventType: 'LeadCreated',
+            aggregateType: 'Lead',
+            aggregateId: leadDoc._id,
+            payload: { triggerEvent: context.triggerEvent || 'onCreate' }
+        }], { session });
     };
 
     if (isExternalSession) {
@@ -60,32 +71,8 @@ export const createStandardizedLead = async (data, context = {}) => {
 
     const lead = await Lead.findById(createdLeadId);
 
-    if (lead) {
-        try {
-            await runFullLeadEnrichment(lead._id);
-        } catch (e) {
-            console.error(`[LeadCreationEngine] Enrichment failed for ${lead._id}:`, e.message);
-        }
-
-        try {
-            if (LeadScoringService && LeadScoringService.computeAndSave) {
-                await LeadScoringService.computeAndSave(lead._id);
-            }
-        } catch (e) {
-            console.error(`[LeadCreationEngine] Scoring failed for ${lead._id}:`, e.message);
-        }
-
-        try {
-            const enrichedLead = await Lead.findById(lead._id);
-            const triggerEvent = context.triggerEvent || 'onCreate';
-            const assignment = await distributeEntity(enrichedLead, triggerEvent);
-            return { success: true, lead, contact: newContact, assignment };
-        } catch (e) {
-            console.error(`[LeadCreationEngine] Distribution failed for ${lead._id}:`, e.message);
-        }
-    }
-
-    return { success: true, lead, contact: newContact };
+    // Return the exact same contract. Assignment is deferred to the domainEventWorker.
+    return { success: true, lead, contact: newContact, assignment: null };
 };
 
 export default { createStandardizedLead };

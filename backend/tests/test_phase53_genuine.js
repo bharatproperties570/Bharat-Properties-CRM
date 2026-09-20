@@ -23,7 +23,9 @@ async function run() {
     const Contact = (await import('../models/Contact.js')).default;
     const Lead = (await import('../models/Lead.js')).default;
     const Project = (await import('../models/Project.js')).default;
+    const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
 
+    await OutboxEvent.createCollection();
     await Deal.createCollection();
     await Inventory.createCollection();
         await AutomationLog.createCollection();
@@ -161,9 +163,21 @@ async function run() {
 
     assert.ok(res6.success);
     assert.ok(res6.deal._id);
-    assert.strictEqual(res6.postCommitTasks.length, 1, "Task returned instead of executed");
+
+    // R56 STAGE 2 MIGRATION: In-memory task array is now unconditionally empty
+    assert.strictEqual(res6.postCommitTasks.length, 0, "No in-memory tasks returned in R56");
+
     await externalSession.commitTransaction();
     externalSession.endSession();
+
+    // R56 STAGE 2 MIGRATION: Verify durable Outbox intent
+    const events = await OutboxEvent.find({ aggregateId: res6.deal._id });
+    assert.strictEqual(events.length, 1, "Expected exactly one DealCreated event");
+    const event = events[0];
+    assert.strictEqual(event.eventType, 'DealCreated');
+    assert.strictEqual(event.aggregateType, 'Deal');
+    assert.strictEqual(event.status, 'PENDING');
+    assert.strictEqual(event.payload.triggerDistribution, true);
 
     console.log("TEST 7: Blocker 1 - Deal.js Hook Session Isolation (Missing Coordinates)");
     const inv3 = await Inventory.create({

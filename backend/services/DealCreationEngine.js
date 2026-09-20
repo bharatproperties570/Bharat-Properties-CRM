@@ -4,6 +4,8 @@ import Deal from '../models/Deal.js';
 import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
 import SystemSetting from '../models/SystemSetting.js';
+import OutboxEvent from '../models/OutboxEvent.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
     if (!deal.inventoryId) return;
@@ -256,13 +258,22 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 }], { session });
             }
 
-            // Queue post-commit tasks
-            if (triggerDistribution) postCommitTasks.push({ type: 'distribution', deal });
-            if (triggerMarketing) postCommitTasks.push({ type: 'marketing', dealId: deal._id });
-            if (triggerSms) postCommitTasks.push({ type: 'sms', dealId: deal._id });
-            if (triggerAiMatch) postCommitTasks.push({ type: 'aimatch', dealId: deal._id });
-            if (triggerDocumentSync && dealData.documents?.length) postCommitTasks.push({ type: 'documents', documents: dealData.documents, metadata: { projectName: deal.projectName, block: deal.block, unitNumber: deal.unitNo } });
-            if (triggerDiscovery && linkage?.inventoryId) postCommitTasks.push({ type: 'discovery', inventoryId: linkage.inventoryId });
+            // R56 STAGE 2: Durable Outbox Integration
+            await OutboxEvent.create([{
+                eventId: uuidv4(),
+                eventType: 'DealCreated',
+                aggregateType: 'Deal',
+                aggregateId: deal._id,
+                payload: {
+                    triggerDistribution: triggerDistribution,
+                    triggerMarketing: triggerMarketing,
+                    triggerSms: triggerSms,
+                    triggerAiMatch: triggerAiMatch,
+                    triggerDiscovery: triggerDiscovery,
+                    inventoryId: linkage?.inventoryId || null,
+                    documents: (triggerDocumentSync && dealData.documents?.length) ? dealData.documents : []
+                }
+            }], { session });
         }
 
         if (!isExternalSession) {
@@ -282,16 +293,14 @@ export const createStandardizedDeal = async (input, options = {}) => {
         }
     }
 
-    if (!isExternalSession && !isIdempotentReplay) {
-        await executePostCommitTasks(postCommitTasks, warnings);
-    }
-
+    // R56 STAGE 2: Post-commit tasks are now durably queued in OutboxEvent.
+    // We return an empty postCommitTasks array to preserve controller contract.
     return {
         success: true,
         deal,
         isIdempotentReplay,
         warnings,
-        postCommitTasks: isExternalSession ? postCommitTasks : []
+        postCommitTasks: []
     };
 };
 
