@@ -52,8 +52,8 @@ class WhatsAppOnboardingService {
             // 2. Exchange Code
             const clientId = process.env.FB_GRAPH_APP_ID;
             const clientSecret = process.env.FB_APP_SECRET;
-            // Use dynamic frontend URI if provided, else fallback to env
-            const finalRedirectUri = redirect_uri || process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '';
+            // Use dynamic frontend URI if provided (preserving empty string for FB SDK), else fallback to env
+            const finalRedirectUri = (typeof redirect_uri === 'string') ? redirect_uri.trim() : (process.env.FB_EMBEDDED_SIGNUP_REDIRECT_URI || '');
             
             const tokenResponse = await metaApiClient.exchangeCodeForToken(clientId, clientSecret, finalRedirectUri, code);
             const accessToken = tokenResponse.access_token;
@@ -160,17 +160,58 @@ class WhatsAppOnboardingService {
             });
 
             // 5. Register Phone (Cloud API Initialization)
-            // Coexistence / Standard API requires phone registration
+            // Coexistence flows MUST NOT register the phone via Cloud API as that breaks WhatsApp Business App
             if (integration.connectionType !== 'COEXISTENCE') {
                 await metaApiClient.registerPhoneNumber(phone_number_id, pin || '123456', accessToken);
+                await this._updateState(integration, 'PHONE_REGISTERED');
             }
-            await this._updateState(integration, 'PHONE_REGISTERED');
 
-            // 6. Subscribe App to WABA
+            // 6. Subscribe App to WABA Webhooks
             await this._updateState(integration, 'SUBSCRIPTION_PENDING');
             await metaApiClient.subscribeWebhook(waba_id, accessToken);
 
-            // 7. Mark Connected and execute Compatibility Sync
+            // 7. Verify Phone State for Coexistence vs New API
+            if (integration.connectionType === 'COEXISTENCE') {
+                let isLinkedAndVerified = false;
+                try {
+                    const phoneDetails = await metaApiClient.getPhoneDetails(phone_number_id, accessToken);
+                    console.log(`[WhatsAppOnboarding] Coexistence phone verification check:`, {
+                        id: phoneDetails.id,
+                        status: phoneDetails.status,
+                        code_verification_status: phoneDetails.code_verification_status,
+                        can_send_message: phoneDetails.health_status?.can_send_message
+                    });
+
+                    const phoneStatus = (phoneDetails.status || '').toUpperCase();
+                    const codeVerificationStatus = (phoneDetails.code_verification_status || '').toUpperCase();
+                    const canSendMessage = phoneDetails.health_status?.can_send_message;
+
+                    if (
+                        phoneStatus === 'CONNECTED' &&
+                        codeVerificationStatus === 'VERIFIED' &&
+                        canSendMessage !== 'BLOCKED'
+                    ) {
+                        isLinkedAndVerified = true;
+                    }
+                } catch (checkErr) {
+                    console.warn(`[WhatsAppOnboarding] Coexistence phone verification check error: ${checkErr.message} (code: ${checkErr.code})`);
+                    // If Meta returns error 141000/141001 or 400, phone is not yet verified/linked
+                    isLinkedAndVerified = false;
+                }
+
+                if (!isLinkedAndVerified) {
+                    await this._updateState(integration, 'HANDSHAKE_PENDING', {
+                        status: 'PENDING',
+                        webhookStatus: 'SUBSCRIBED',
+                        subscriptionStatus: 'SUBSCRIBED',
+                        credentials: { systemUserToken: accessToken }
+                    });
+                    console.log(`[WhatsAppOnboarding] Coexistence integration ${integration._id} set to HANDSHAKE_PENDING (awaiting in-app confirmation)`);
+                    return integration;
+                }
+            }
+
+            // 8. Mark Connected and execute Compatibility Sync
             await this._updateState(integration, 'CONNECTED', {
                 status: 'ACTIVE',
                 webhookStatus: 'SUBSCRIBED',
@@ -241,6 +282,43 @@ class WhatsAppOnboardingService {
             { upsert: true, new: true }
         );
         console.log(`[WhatsAppOnboarding] Legacy SystemSetting sync completed safely for WABA: ${wabaId}`);
+    }
+
+    /**
+     * Check Meta phone health for a pending coexistence integration and promote if verified
+     */
+    async checkAndPromoteCoexistenceStatus(integration) {
+        if (!integration || integration.connectionType !== 'COEXISTENCE' || integration.onboardingStatus !== 'HANDSHAKE_PENDING') {
+            return integration;
+        }
+
+        const token = integration.credentials?.systemUserToken;
+        if (!token || !integration.phoneNumberId) {
+            return integration;
+        }
+
+        try {
+            const phoneDetails = await metaApiClient.getPhoneDetails(integration.phoneNumberId, token);
+            const phoneStatus = (phoneDetails.status || '').toUpperCase();
+            const codeVerificationStatus = (phoneDetails.code_verification_status || '').toUpperCase();
+            const canSendMessage = phoneDetails.health_status?.can_send_message;
+
+            if (
+                phoneStatus === 'CONNECTED' &&
+                codeVerificationStatus === 'VERIFIED' &&
+                canSendMessage !== 'BLOCKED'
+            ) {
+                integration.status = 'ACTIVE';
+                integration.onboardingStatus = 'CONNECTED';
+                integration.connectedAt = new Date();
+                await integration.save();
+                console.log(`[WhatsAppOnboarding] Coexistence integration ${integration._id} promoted to CONNECTED`);
+            }
+        } catch (err) {
+            console.warn(`[WhatsAppOnboarding] Check and promote coexistence status error for ${integration._id}:`, err.message);
+        }
+
+        return integration;
     }
 }
 

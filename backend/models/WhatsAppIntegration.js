@@ -58,6 +58,7 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
                 'PHONE_DISCOVERED',
                 'PHONE_REGISTERED',
                 'SUBSCRIPTION_PENDING',
+                'HANDSHAKE_PENDING',
                 'CONNECTED',
                 'FAILED_AUTH',
                 'FAILED_VALIDATION',
@@ -73,7 +74,7 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ['ACTIVE', 'INACTIVE', 'PENDING_ONBOARDING', 'REVOKED'],
+            enum: ['ACTIVE', 'INACTIVE', 'PENDING', 'PENDING_ONBOARDING', 'REVOKED'],
             default: 'PENDING_ONBOARDING'
         },
         webhookStatus: {

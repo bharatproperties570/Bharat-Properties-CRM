@@ -108,6 +108,19 @@ class MetaApiClient {
     }
 
     /**
+     * Get Phone Number details and verification/health status
+     */
+    async getPhoneDetails(phoneNumberId, accessToken) {
+        const response = await this.client.get(`/${phoneNumberId}`, {
+            params: {
+                fields: 'id,display_phone_number,status,platform_type,account_mode,code_verification_status,health_status',
+                access_token: accessToken
+            }
+        });
+        return response.data;
+    }
+
+    /**
      * Register phone number on Cloud API
      */
     async registerPhoneNumber(phoneNumberId, pin, accessToken) {

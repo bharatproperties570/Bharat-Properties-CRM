@@ -41,10 +41,18 @@ router.post('/exchange', authenticate, async (req, res) => {
         const integration = await whatsAppOnboardingService.completeOnboarding(sessionId, { code, waba_id, phone_number_id, pin, redirect_uri });
         
         // Exclude credentials before sending to frontend
-        const safeIntegration = integration.toObject();
+        const safeIntegration = integration.toObject ? integration.toObject() : { ...integration };
         delete safeIntegration.credentials;
 
-        res.json({ success: true, data: safeIntegration });
+        res.json({
+            success: true,
+            status: safeIntegration.status,
+            onboardingStatus: safeIntegration.onboardingStatus,
+            connectionType: safeIntegration.connectionType,
+            phoneNumberId: safeIntegration.phoneNumberId,
+            wabaId: safeIntegration.wabaId,
+            data: safeIntegration
+        });
     } catch (error) {
         console.error('[WhatsAppOnboarding Route] exchange error:', error.message);
         res.status(500).json({ success: false, error: error.message || 'Onboarding failed' });
@@ -57,13 +65,27 @@ router.post('/exchange', authenticate, async (req, res) => {
  */
 router.get('/status/:sessionId', authenticate, async (req, res) => {
     try {
-        const integration = await WhatsAppIntegration.findById(req.params.sessionId).lean();
+        let integration = await WhatsAppIntegration.findById(req.params.sessionId);
         if (!integration) return res.status(404).json({ success: false, error: 'Session not found' });
         
-        // Redact credentials
-        delete integration.credentials;
+        // If coexistence account is waiting for handshake, re-check Meta phone state to auto-promote
+        if (integration.connectionType === 'COEXISTENCE' && integration.onboardingStatus === 'HANDSHAKE_PENDING') {
+            integration = await whatsAppOnboardingService.checkAndPromoteCoexistenceStatus(integration);
+        }
 
-        res.json({ success: true, data: integration });
+        const safeIntegration = integration.toObject ? integration.toObject() : { ...integration };
+        // Redact credentials
+        delete safeIntegration.credentials;
+
+        res.json({
+            success: true,
+            status: safeIntegration.status,
+            onboardingStatus: safeIntegration.onboardingStatus,
+            connectionType: safeIntegration.connectionType,
+            phoneNumberId: safeIntegration.phoneNumberId,
+            wabaId: safeIntegration.wabaId,
+            data: safeIntegration
+        });
     } catch (error) {
         console.error('[WhatsAppOnboarding Route] status error:', error.message);
         res.status(500).json({ success: false, error: 'Failed to fetch status' });

@@ -5,61 +5,92 @@ import { whatsappOnboardingAPI } from '../../utils/api';
 const WhatsAppCoexistenceConnect = ({ onComplete }) => {
     const [status, setStatus] = useState('IDLE');
     const [errorMsg, setErrorMsg] = useState('');
+    const [displayPhone, setDisplayPhone] = useState('+91 99913 33570');
+    const [checkingStatus, setCheckingStatus] = useState(false);
+
     const pollIntervalRef = useRef(null);
     const sessionRef = useRef(null);
-    
-    // For handling race conditions between popup OAuth redirect and Meta postMessage
+
+    // Coordination refs between Meta FB.login callback and WA_EMBEDDED_SIGNUP postMessage
     const authCodeRef = useRef(null);
+    const finishEventRef = useRef(false);
     const widgetDataRef = useRef(null);
-    const popupRef = useRef(null);
-    const popupPollRef = useRef(null);
+    const exchangeInProgressRef = useRef(false);
 
-    // 1. Detect if THIS window is the OAuth callback popup window
+    // 1. Initialize Meta Facebook JavaScript SDK dynamically
     useEffect(() => {
-        if (window.opener && window.location.search) {
-            try {
-                const params = new URLSearchParams(window.location.search);
-                const code = params.get('code');
-                const error = params.get('error_description') || params.get('error');
+        const appId = import.meta.env.VITE_META_APP_ID || '1152326917972472';
 
-                if (code) {
-                    window.opener.postMessage({ type: 'WA_OAUTH_CODE', code }, window.location.origin);
-                    window.close();
-                } else if (error) {
-                    window.opener.postMessage({ type: 'WA_OAUTH_ERROR', error }, window.location.origin);
-                    window.close();
-                }
-            } catch (e) {
-                console.error('[WhatsApp Onboarding] Failed to notify opener:', e);
+        window.fbAsyncInit = function() {
+            if (window.FB) {
+                window.FB.init({
+                    appId: appId,
+                    cookie: true,
+                    xfbml: true,
+                    version: 'v20.0'
+                });
+                console.log('[WhatsApp Coexistence] Meta FB SDK initialized successfully');
             }
+        };
+
+        if (!document.getElementById('facebook-jssdk')) {
+            const js = document.createElement('script');
+            js.id = 'facebook-jssdk';
+            js.src = 'https://connect.facebook.net/en_US/sdk.js';
+            js.async = true;
+            js.defer = true;
+            js.crossOrigin = 'anonymous';
+            document.body.appendChild(js);
+        } else if (window.FB && window.FB.init) {
+            window.FB.init({
+                appId: appId,
+                cookie: true,
+                xfbml: true,
+                version: 'v20.0'
+            });
         }
     }, []);
 
-    // 2. Perform Code Exchange
+    // 2. Perform Code Exchange when both Auth Code and Finish Event are captured
     const attemptExchange = () => {
-        if (authCodeRef.current && sessionRef.current) {
+        if (
+            authCodeRef.current &&
+            sessionRef.current &&
+            finishEventRef.current &&
+            !exchangeInProgressRef.current
+        ) {
+            exchangeInProgressRef.current = true;
             setStatus('EXCHANGING');
             const codeToExchange = authCodeRef.current;
             const sessionToExchange = sessionRef.current;
-            const redirectUri = window.location.origin + '/settings';
-            const extraData = widgetDataRef.current ? { 
+            const extraData = widgetDataRef.current ? {
                 waba_id: widgetDataRef.current.waba_id,
                 phone_number_id: widgetDataRef.current.phone_number_id
             } : {};
 
-            // Clear refs so we don't fire duplicate exchange calls
-            authCodeRef.current = null;
-            widgetDataRef.current = null;
-
             whatsappOnboardingAPI.exchange({
                 sessionId: sessionToExchange,
                 code: codeToExchange,
-                redirect_uri: redirectUri,
+                redirect_uri: '', // Empty string prevents Meta OAuth 36008 error
                 ...extraData
             }).then((exchangeRes) => {
                 if (exchangeRes.success) {
-                    setStatus('POLLING');
-                    startPolling(sessionToExchange);
+                    const obStatus = exchangeRes.onboardingStatus;
+                    const intStatus = exchangeRes.status;
+                    const phone = exchangeRes.data?.displayPhoneNumber || exchangeRes.displayPhoneNumber;
+                    if (phone) setDisplayPhone(phone);
+
+                    if (obStatus === 'HANDSHAKE_PENDING' || intStatus === 'PENDING') {
+                        setStatus('HANDSHAKE_PENDING');
+                        startPolling(sessionToExchange);
+                    } else if (obStatus === 'CONNECTED' || intStatus === 'ACTIVE') {
+                        setStatus('SUCCESS');
+                        toast.success('WhatsApp Business API connected successfully!');
+                        if (onComplete) onComplete(exchangeRes.data || exchangeRes);
+                    } else {
+                        setStatus('POLLING');
+                        startPolling(sessionToExchange);
+                    }
                 } else {
                     setStatus('ERROR');
                     setErrorMsg(exchangeRes.error || 'Failed to process Meta authentication');
@@ -71,60 +102,41 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
         }
     };
 
-    // 3. Listen for postMessages from both our popup callback and Meta's embedded signup
+    // 3. Listen for postMessages from Meta's Embedded Signup wizard
     useEffect(() => {
         const handleMessage = (event) => {
-            // A. Callback message from our own popup
-            if (event.origin === window.location.origin) {
-                if (event.data?.type === 'WA_OAUTH_CODE' && event.data.code) {
-                    console.log('[WhatsApp Onboarding] Received OAuth code from popup postMessage');
-                    if (popupRef.current && !popupRef.current.closed) {
-                        try { popupRef.current.close(); } catch (_) {}
-                    }
-                    if (popupPollRef.current) {
-                        clearInterval(popupPollRef.current);
-                        popupPollRef.current = null;
-                    }
-                    authCodeRef.current = event.data.code;
-                    attemptExchange();
-                } else if (event.data?.type === 'WA_OAUTH_ERROR') {
-                    if (popupRef.current && !popupRef.current.closed) {
-                        try { popupRef.current.close(); } catch (_) {}
-                    }
-                    if (popupPollRef.current) {
-                        clearInterval(popupPollRef.current);
-                        popupPollRef.current = null;
-                    }
-                    setStatus('ERROR');
-                    setErrorMsg(event.data.error || 'Meta authorization failed.');
-                }
+            if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') {
                 return;
             }
 
-            // B. Meta WA_EMBEDDED_SIGNUP message
-            if (event.origin === 'https://www.facebook.com' || event.origin === 'https://web.facebook.com') {
-                try {
-                    const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-                    
-                    if (data?.type === 'WA_EMBEDDED_SIGNUP') {
-                        if (data.event === 'FINISH' || data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
-                            console.log('[WhatsApp Onboarding] Captured Meta setup_widget_event:', data.data);
-                            widgetDataRef.current = { 
-                                waba_id: data.data?.waba_id, 
-                                phone_number_id: data.data?.phone_number_id 
+            try {
+                const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                if (data?.type === 'WA_EMBEDDED_SIGNUP') {
+                    console.log(`[WhatsApp Coexistence] WA_EMBEDDED_SIGNUP event: ${data.event}`, data.data);
+
+                    if (data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING' || data.event === 'FINISH') {
+                        finishEventRef.current = true;
+                        if (data.data?.phone_number_id || data.data?.waba_id) {
+                            widgetDataRef.current = {
+                                waba_id: data.data.waba_id,
+                                phone_number_id: data.data.phone_number_id
                             };
-                            attemptExchange();
-                        } else if (data.event === 'CANCEL') {
+                        }
+                        attemptExchange();
+                    } else if (data.event === 'CANCEL') {
+                        if (!exchangeInProgressRef.current) {
                             setStatus('ERROR');
                             setErrorMsg('Onboarding cancelled by user in Meta window.');
-                        } else if (data.event === 'ERROR') {
+                        }
+                    } else if (data.event === 'ERROR') {
+                        if (!exchangeInProgressRef.current) {
                             setStatus('ERROR');
-                            setErrorMsg('An error occurred inside the Meta setup window.');
+                            setErrorMsg(data.data?.error_message || 'An error occurred inside Meta Embedded Signup.');
                         }
                     }
-                } catch (e) {
-                    // Ignore non-JSON messages
                 }
+            } catch (e) {
+                // Ignore non-JSON messages
             }
         };
 
@@ -132,23 +144,27 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
         return () => window.removeEventListener('message', handleMessage);
     }, []);
 
-    // 4. Poll backend onboarding status until complete
+    // 4. Poll backend onboarding status
     const startPolling = (sid) => {
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-        
+
         pollIntervalRef.current = setInterval(async () => {
             try {
                 const res = await whatsappOnboardingAPI.getStatus(sid);
                 if (res && res.data) {
-                    const currentStatus = res.data.onboardingStatus;
-                    
-                    if (currentStatus === 'CONNECTED') {
+                    const currentStatus = res.data.onboardingStatus || res.onboardingStatus;
+                    const phone = res.data.displayPhoneNumber;
+                    if (phone) setDisplayPhone(phone);
+
+                    if (currentStatus === 'CONNECTED' || res.data.status === 'ACTIVE') {
                         clearInterval(pollIntervalRef.current);
                         pollIntervalRef.current = null;
                         setStatus('SUCCESS');
-                        toast.success('WhatsApp Business API connected successfully!');
+                        toast.success('WhatsApp Business App connected and verified successfully!');
                         if (onComplete) onComplete(res.data);
-                    } else if (currentStatus.startsWith('FAILED') || currentStatus === 'CANCELLED' || currentStatus === 'REVOKED') {
+                    } else if (currentStatus === 'HANDSHAKE_PENDING' || res.data.status === 'PENDING') {
+                        setStatus('HANDSHAKE_PENDING');
+                    } else if (currentStatus?.startsWith('FAILED') || currentStatus === 'CANCELLED' || currentStatus === 'REVOKED') {
                         clearInterval(pollIntervalRef.current);
                         pollIntervalRef.current = null;
                         setStatus('ERROR');
@@ -156,99 +172,96 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
                     }
                 }
             } catch (err) {
-                console.error('[WhatsApp Onboarding] Polling error:', err);
+                console.error('[WhatsApp Coexistence] Polling error:', err);
             }
         }, 3000);
     };
 
-    // 5. Direct URL-based OAuth Popup Trigger
-    const handleConnectClick = () => {
+    // Manual status re-check
+    const checkStatusNow = async () => {
+        if (!sessionRef.current) return;
+        setCheckingStatus(true);
         try {
+            const res = await whatsappOnboardingAPI.getStatus(sessionRef.current);
+            if (res && res.data) {
+                const currentStatus = res.data.onboardingStatus || res.onboardingStatus;
+                const phone = res.data.displayPhoneNumber;
+                if (phone) setDisplayPhone(phone);
+
+                if (currentStatus === 'CONNECTED' || res.data.status === 'ACTIVE') {
+                    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                    pollIntervalRef.current = null;
+                    setStatus('SUCCESS');
+                    toast.success('WhatsApp Coexistence verified and connected!');
+                    if (onComplete) onComplete(res.data);
+                } else if (currentStatus === 'HANDSHAKE_PENDING' || res.data.status === 'PENDING') {
+                    toast('Still waiting for in-app confirmation on WhatsApp Business App...', { icon: '⏳' });
+                } else if (currentStatus?.startsWith('FAILED') || currentStatus === 'CANCELLED' || currentStatus === 'REVOKED') {
+                    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                    pollIntervalRef.current = null;
+                    setStatus('ERROR');
+                    setErrorMsg(`Integration failed: ${res.data.failureReason || currentStatus}`);
+                }
+            }
+        } catch (err) {
+            toast.error('Failed to check status: ' + err.message);
+        } finally {
+            setCheckingStatus(false);
+        }
+    };
+
+    // 5. Official Meta FB.login Embedded Signup Launch
+    const handleConnectClick = async () => {
+        try {
+            if (!window.FB) {
+                throw new Error('Meta Facebook SDK is still loading. Please try again in a few moments.');
+            }
+
             setStatus('STARTING');
             setErrorMsg('');
             authCodeRef.current = null;
+            finishEventRef.current = false;
             widgetDataRef.current = null;
+            exchangeInProgressRef.current = false;
             sessionRef.current = null;
 
-            const appId = import.meta.env.VITE_META_APP_ID || '1152326917972472';
             const configId = import.meta.env.VITE_META_CONFIG_ID || '2324217335015739';
-            const redirectUri = window.location.origin + '/settings';
 
-            const extras = JSON.stringify({
-                featureType: 'whatsapp_business_app_onboarding',
-                sessionInfoVersion: '3',
-                setup: {}
-            });
-
-            const oauthUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${appId}&config_id=${configId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&extras=${encodeURIComponent(extras)}`;
-
-            const width = 600;
-            const height = 750;
-            const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2);
-            const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2);
-
-            const popup = window.open(
-                oauthUrl,
-                'meta_whatsapp_coexistence',
-                `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,status=1`
-            );
-
-            if (!popup) {
-                throw new Error('Popup blocked! Please allow popups for this site in your browser settings and try again.');
+            // Initiate backend onboarding session
+            const startRes = await whatsappOnboardingAPI.start({ connectionType: 'COEXISTENCE' });
+            if (!startRes || !startRes.success || !startRes.sessionId) {
+                throw new Error('Failed to initiate secure onboarding session');
             }
 
-            popupRef.current = popup;
+            sessionRef.current = startRes.sessionId;
             setStatus('META_POPUP');
 
-            // Initiate backend session
-            whatsappOnboardingAPI.start({ connectionType: 'COEXISTENCE' })
-                .then(startRes => {
-                    if (startRes && startRes.success) {
-                        sessionRef.current = startRes.sessionId;
+            // Launch Meta WhatsApp Embedded Signup Wizard
+            window.FB.login(
+                (response) => {
+                    if (response.authResponse && response.authResponse.code) {
+                        console.log('[WhatsApp Coexistence] FB.login received authorization code');
+                        authCodeRef.current = response.authResponse.code;
                         attemptExchange();
                     } else {
-                        throw new Error('Failed to initiate secure session');
-                    }
-                })
-                .catch(err => {
-                    setStatus('ERROR');
-                    setErrorMsg(err.message || 'Secure session initiation failed.');
-                });
-
-            // Poll popup window location for same-origin redirect
-            if (popupPollRef.current) clearInterval(popupPollRef.current);
-            popupPollRef.current = setInterval(() => {
-                try {
-                    if (!popup || popup.closed) {
-                        clearInterval(popupPollRef.current);
-                        popupPollRef.current = null;
-                        return;
-                    }
-
-                    if (popup.location && popup.location.origin === window.location.origin) {
-                        const params = new URLSearchParams(popup.location.search);
-                        const code = params.get('code');
-                        const error = params.get('error_description') || params.get('error');
-
-                        if (code) {
-                            clearInterval(popupPollRef.current);
-                            popupPollRef.current = null;
-                            try { popup.close(); } catch (_) {}
-                            authCodeRef.current = code;
-                            attemptExchange();
-                        } else if (error) {
-                            clearInterval(popupPollRef.current);
-                            popupPollRef.current = null;
-                            try { popup.close(); } catch (_) {}
+                        console.warn('[WhatsApp Coexistence] FB.login completed without code:', response);
+                        if (!exchangeInProgressRef.current && !finishEventRef.current) {
                             setStatus('ERROR');
-                            setErrorMsg(`Meta error: ${error}`);
+                            setErrorMsg('Meta authorization was cancelled or failed.');
                         }
                     }
-                } catch (e) {
-                    // Cross-origin while on facebook.com — expected and safely ignored
+                },
+                {
+                    config_id: configId,
+                    response_type: 'code',
+                    override_default_response_type: true,
+                    extras: {
+                        featureType: 'whatsapp_business_app_onboarding',
+                        sessionInfoVersion: '3',
+                        setup: {}
+                    }
                 }
-            }, 350);
-
+            );
         } catch (error) {
             setStatus('ERROR');
             setErrorMsg(error.message || 'An unexpected error occurred');
@@ -259,18 +272,17 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
     useEffect(() => {
         return () => {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            if (popupPollRef.current) clearInterval(popupPollRef.current);
         };
     }, []);
 
     const getStatusUI = () => {
         switch (status) {
-            case 'STARTING': return <span style={{color:'var(--primary-color)'}}>Initiating secure connection...</span>;
-            case 'META_POPUP': return <span style={{color:'var(--primary-color)'}}>Waiting for Meta completion...</span>;
-            case 'EXCHANGING': return <span style={{color:'var(--primary-color)'}}>Verifying credentials securely...</span>;
-            case 'POLLING': return <span style={{color:'var(--primary-color)'}}>Finalizing WABA Subscription...</span>;
-            case 'SUCCESS': return <span style={{color:'green', fontWeight:'bold'}}>✓ Connected Successfully!</span>;
-            case 'ERROR': return <span style={{color:'red'}}>{errorMsg}</span>;
+            case 'STARTING': return <span style={{ color: 'var(--primary-color)' }}>Initiating secure connection...</span>;
+            case 'META_POPUP': return <span style={{ color: 'var(--primary-color)' }}>Complete setup in the Facebook window...</span>;
+            case 'EXCHANGING': return <span style={{ color: 'var(--primary-color)' }}>Verifying credentials with Meta...</span>;
+            case 'POLLING': return <span style={{ color: 'var(--primary-color)' }}>Finalizing WABA Subscription...</span>;
+            case 'SUCCESS': return <span style={{ color: 'green', fontWeight: 'bold' }}>✓ Connected Successfully!</span>;
+            case 'ERROR': return <span style={{ color: 'red' }}>{errorMsg}</span>;
             default: return null;
         }
     };
@@ -283,30 +295,78 @@ const WhatsAppCoexistenceConnect = ({ onComplete }) => {
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
                 Keep using your WhatsApp Business App on your phone while securely connecting it to Bharat Properties CRM via Meta's Coexistence flow.
             </p>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <button 
-                    onClick={handleConnectClick} 
-                    disabled={status !== 'IDLE' && status !== 'ERROR'}
+                <button
+                    onClick={handleConnectClick}
+                    disabled={status !== 'IDLE' && status !== 'ERROR' && status !== 'HANDSHAKE_PENDING'}
                     style={{
                         padding: '10px 20px',
                         background: '#1877F2',
                         color: 'white',
                         border: 'none',
                         borderRadius: '6px',
-                        cursor: (status !== 'IDLE' && status !== 'ERROR') ? 'not-allowed' : 'pointer',
+                        cursor: (status !== 'IDLE' && status !== 'ERROR' && status !== 'HANDSHAKE_PENDING') ? 'not-allowed' : 'pointer',
                         fontWeight: 'bold',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
-                        opacity: (status !== 'IDLE' && status !== 'ERROR') ? 0.6 : 1
+                        opacity: (status !== 'IDLE' && status !== 'ERROR' && status !== 'HANDSHAKE_PENDING') ? 0.6 : 1
                     }}
                 >
                     <i className="fab fa-facebook-f"></i> Connect with Facebook
                 </button>
-                
+
                 {getStatusUI()}
             </div>
+
+            {/* Handshake Pending Notification Banner */}
+            {status === 'HANDSHAKE_PENDING' && (
+                <div style={{
+                    marginTop: '16px',
+                    padding: '14px 18px',
+                    background: '#FFF8E1',
+                    border: '1px solid #FFE082',
+                    borderRadius: '6px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                        <i className="fas fa-mobile-alt" style={{ fontSize: '1.5rem', color: '#F57C00', marginTop: '2px' }}></i>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 'bold', color: '#E65100', fontSize: '0.95rem', marginBottom: '4px' }}>
+                                Handshake Pending: Action Required on WhatsApp Business App
+                            </div>
+                            <p style={{ margin: '0 0 10px 0', fontSize: '0.875rem', color: '#5D4037', lineHeight: '1.4' }}>
+                                Meta has initiated Coexistence linking. Please open the WhatsApp Business App on <strong>{displayPhone}</strong> and tap <strong>"Connect to the Business Platform"</strong> to approve the connection.
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <button
+                                    onClick={checkStatusNow}
+                                    disabled={checkingStatus}
+                                    style={{
+                                        padding: '6px 14px',
+                                        background: '#F57C00',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: checkingStatus ? 'not-allowed' : 'pointer',
+                                        fontSize: '0.85rem',
+                                        fontWeight: 'bold',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    {checkingStatus ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>}
+                                    Check Status Now
+                                </button>
+                                <span style={{ fontSize: '0.8rem', color: '#8D6E63', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fas fa-spinner fa-spin"></i> Auto-checking every 3 seconds...
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
