@@ -143,7 +143,8 @@ class SmsService {
                     headers: {
                         'Authorization': `Basic ${auth}`,
                         'Content-Type': 'application/x-www-form-urlencoded'
-                    }
+                    },
+                    timeout: 15000
                 }
             );
             return { success: true, provider: 'Twilio', data: response.data };
@@ -261,7 +262,8 @@ class SmsService {
             let options = {
                 method,
                 url,
-                headers: parsedHeaders
+                headers: parsedHeaders,
+                timeout: 15000
             };
 
             if (method.toUpperCase() === 'POST') {
