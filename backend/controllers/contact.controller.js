@@ -1,3 +1,4 @@
+import { previewMerge, executeMerge } from '../services/contactMerge.service.js';
 import mongoose from "mongoose";
 import Contact from "../models/Contact.js";
 import Lead from "../models/Lead.js";
@@ -168,35 +169,116 @@ export const getContacts = async (req, res, next) => {
         const results = await paginate(Contact, query, Number(page), Number(limit), sortOption, populateFields);
         console.log(`[Contacts Backend Debug] Records Found: ${results.records?.length}`);
 
-        // Attach Interaction Data (Activity Counts & Recent Activities)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🚀 [ENTERPRISE] CRM Linkage + Interaction Data — Parallel Aggregation
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if (results.records && results.records.length > 0) {
             const contactIds = results.records.map(r => r._id);
             const contactIdsStr = contactIds.map(id => id.toString());
+            // 🛡️ [SENIOR FIX] Mixed-type matching: Activity.entityId stores both ObjectId and String
+            const mixedEntityIds = [...contactIds, ...contactIdsStr];
 
-            // 1. Efficient Aggregation for Activity Counts and Latest Activity
-            const activityStats = await Activity.aggregate([
-                { $match: { entityId: { $in: contactIdsStr }, status: 'Completed' } },
-                { $sort: { createdAt: -1 } },
-                {
-                    $group: {
-                        _id: "$entityId",
-                        latestActivity: { $first: "$subject" },
-                        latestDate: { $first: "$createdAt" },
-                        call: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /call/i } }, 1, 0] } },
-                        meeting: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /meeting/i } }, 1, 0] } },
-                        siteVisit: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /site visit/i } }, 1, 0] } },
-                        email: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /email/i } }, 1, 0] } },
-                        whatsapp: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /(whatsapp|messaging)/i } }, 1, 0] } }
-                    }
+            // 🚀 [ENTERPRISE CRM LINKAGE] Phone-to-Contact mapping
+            // Many leads are linked by customer phone number before formal conversion
+            const phoneToContactIdMap = new Map();
+            const contactPhonesList = [];
+
+            results.records.forEach(contact => {
+                const cIdStr = contact._id.toString();
+                if (Array.isArray(contact.phones)) {
+                    contact.phones.forEach(p => {
+                        const raw = String(p?.number || p || "").replace(/\D/g, "");
+                        if (raw.length >= 10) {
+                            const last10 = raw.slice(-10);
+                            phoneToContactIdMap.set(last10, cIdStr);
+                            contactPhonesList.push(last10);
+                        }
+                    });
                 }
+            });
+
+            // Run ALL aggregations in parallel for maximum performance
+            const [activityStats, smsStats, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
+                // 1. Activity Counts + Latest Activity (FIXED: mixedEntityIds + $toLower instead of $regexMatch)
+                Activity.aggregate([
+                    { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
+                    { $sort: { createdAt: -1 } },
+                    {
+                        $group: {
+                            _id: { $toString: "$entityId" },
+                            latestActivity: { $first: "$subject" },
+                            latestDate: { $first: "$createdAt" },
+                            call: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["call", "outbound call", "inbound call"]] }, 1, 0] } },
+                            meeting: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["meeting"]] }, 1, 0] } },
+                            siteVisit: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["site visit"]] }, 1, 0] } },
+                            email: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["email"]] }, 1, 0] } },
+                            whatsapp: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["whatsapp", "messaging"]] }, 1, 0] } }
+                        }
+                    }
+                ]),
+
+                // 2. SMS Counts (FIXED: mixedEntityIds)
+                SmsLog.aggregate([
+                    { $match: { entityId: { $in: mixedEntityIds }, status: { $in: ['Sent', 'Delivered'] } } },
+                    { $group: { _id: { $toString: "$entityId" }, sms: { $sum: 1 } } }
+                ]),
+
+                // 3. CRM Linkage: Leads Count (Enterprise Hybrid: Match via direct contactDetails OR Phone Number)
+                Lead.aggregate([
+                    {
+                        $match: {
+                            isArchived: { $ne: true },
+                            $or: [
+                                { contactDetails: { $in: contactIds } },
+                                ...(contactPhonesList.length > 0 ? [{ mobile: { $in: contactPhonesList } }] : [])
+                            ]
+                        }
+                    },
+                    {
+                        $project: {
+                            contactDetails: 1,
+                            mobile: 1
+                        }
+                    }
+                ]),
+
+                // 4. CRM Linkage: Deals Count (owner = Contact who owns property being dealt)
+                Deal.aggregate([
+                    { $match: { $or: [{ owner: { $in: mixedEntityIds } }, { buyer: { $in: mixedEntityIds } }] } },
+                    { $group: { _id: null, pairs: { $push: { owner: "$owner", buyer: "$buyer" } } } }
+                ]),
+
+                // 5. CRM Linkage: Inventory/Property Count
+                Inventory.aggregate([
+                    { $match: { $or: [{ owners: { $in: contactIds } }, { "associates.contact": { $in: contactIds } }] } },
+                    { $unwind: { path: "$owners", preserveNullAndEmptyArrays: true } },
+                    { $group: { _id: "$owners", count: { $sum: 1 } } }
+                ]),
+
+                // 6. CRM Linkage: Booking Count (Enterprise: direct contact link OR via linked lead)
+                Booking.aggregate([
+                    {
+                        $lookup: {
+                            from: "leads",
+                            localField: "lead",
+                            foreignField: "_id",
+                            as: "leadDoc"
+                        }
+                    },
+                    {
+                        $project: {
+                            lead: 1,
+                            seller: 1,
+                            channelPartner: 1,
+                            leadMobile: { $arrayElemAt: ["$leadDoc.mobile", 0] },
+                            leadContactDetails: { $arrayElemAt: ["$leadDoc.contactDetails", 0] }
+                        }
+                    }
+                ])
             ]);
 
-            // 2. Efficient Aggregation for SMS Counts
-            const smsStats = await SmsLog.aggregate([
-                { $match: { entityId: { $in: contactIdsStr }, status: { $in: ['Sent', 'Delivered'] } } },
-                { $group: { _id: "$entityId", sms: { $sum: 1 } } }
-            ]);
-
+            // ━━ Build Lookup Maps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // Activity + SMS stats map
             const statsMap = new Map();
             activityStats.forEach(stat => statsMap.set(stat._id, stat));
             smsStats.forEach(stat => {
@@ -207,10 +289,115 @@ export const getContacts = async (req, res, next) => {
                 }
             });
 
+            // Lead linkage map (Enterprise Resolution: direct contactDetails + Phone fallback)
+            const leadMap = new Map();
+            const countedLeadIds = new Set();
+
+            leadStats.forEach(l => {
+                const leadIdStr = l._id.toString();
+                if (countedLeadIds.has(leadIdStr)) return;
+                countedLeadIds.add(leadIdStr);
+
+                // Priority 1: Explicit contactDetails link
+                let targetContactId = l.contactDetails ? l.contactDetails.toString() : null;
+
+                // Priority 2: Match by phone number
+                if (!targetContactId && l.mobile) {
+                    const cleanMobile = String(l.mobile).replace(/\D/g, "").slice(-10);
+                    targetContactId = phoneToContactIdMap.get(cleanMobile) || null;
+                }
+
+                if (targetContactId) {
+                    leadMap.set(targetContactId, (leadMap.get(targetContactId) || 0) + 1);
+                }
+            });
+
+            // Deal linkage map (need to count per-contact from owner/buyer fields)
+            const dealMap = new Map();
+            if (dealStats.length > 0 && dealStats[0]?.pairs) {
+                dealStats[0].pairs.forEach(pair => {
+                    const ownerId = pair.owner?.toString();
+                    const buyerId = pair.buyer?.toString();
+                    if (ownerId && contactIdsStr.includes(ownerId)) dealMap.set(ownerId, (dealMap.get(ownerId) || 0) + 1);
+                    if (buyerId && contactIdsStr.includes(buyerId)) dealMap.set(buyerId, (dealMap.get(buyerId) || 0) + 1);
+                });
+            }
+
+            // Inventory linkage map
+            const inventoryMap = new Map();
+            inventoryStats.forEach(stat => {
+                if (stat._id) inventoryMap.set(stat._id.toString(), stat.count);
+            });
+
+            // Booking linkage map (Enterprise Resolution: Direct contact + Lead contactDetails + Phone fallback)
+            const bookingMap = new Map();
+            if (Array.isArray(bookingStats) && bookingStats.length > 0) {
+                bookingStats.forEach(b => {
+                    const matchedContactsForThisBooking = new Set();
+
+                    // Direct contact fields on Booking
+                    [b.lead, b.seller, b.channelPartner].forEach(id => {
+                        const idStr = id?.toString();
+                        if (idStr && contactIdsStr.includes(idStr)) {
+                            matchedContactsForThisBooking.add(idStr);
+                        }
+                    });
+
+                    // Indirect link via Lead doc's contactDetails
+                    if (b.leadContactDetails) {
+                        const lcdStr = b.leadContactDetails.toString();
+                        if (contactIdsStr.includes(lcdStr)) {
+                            matchedContactsForThisBooking.add(lcdStr);
+                        }
+                    }
+
+                    // Indirect link via Lead doc's mobile phone number
+                    if (b.leadMobile) {
+                        const cleanMobile = String(b.leadMobile).replace(/\D/g, "").slice(-10);
+                        const phoneMatchedContactId = phoneToContactIdMap.get(cleanMobile);
+                        if (phoneMatchedContactId) {
+                            matchedContactsForThisBooking.add(phoneMatchedContactId);
+                        }
+                    }
+
+                    matchedContactsForThisBooking.forEach(cId => {
+                        bookingMap.set(cId, (bookingMap.get(cId) || 0) + 1);
+                    });
+                });
+            }
+
+            // ━━ Merge All Data Into Contact Records ━━━━━━━━━━━━━━━━━━━━━━━━━
             results.records = results.records.map(contact => {
                 const contactId = contact._id.toString();
                 const stats = statsMap.get(contactId) || {};
                 const c = contact.toObject ? contact.toObject() : contact;
+
+                // Human-readable last activity text
+                let lastActText = null;
+                if (stats.latestDate) {
+                    const now = new Date();
+                    const actDate = new Date(stats.latestDate);
+                    const diffMs = now - actDate;
+                    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+                    if (diffDays === 0) {
+                        lastActText = `${stats.latestActivity || 'Activity'} today`;
+                    } else if (diffDays === 1) {
+                        lastActText = `${stats.latestActivity || 'Activity'} yesterday`;
+                    } else if (diffDays <= 7) {
+                        lastActText = `${stats.latestActivity || 'Activity'} ${diffDays} days ago`;
+                    } else {
+                        lastActText = `${stats.latestActivity || 'Activity'} on ${actDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+                    }
+                }
+
+                // Build CRM Links object
+                const leadsCount = leadMap.get(contactId) || 0;
+                const dealsCount = dealMap.get(contactId) || 0;
+                const propertyCount = inventoryMap.get(contactId) || 0;
+                const bookingCount = bookingMap.get(contactId) || 0;
+                const totalInteractions = (stats.call || 0) + (stats.meeting || 0) + (stats.siteVisit || 0) + (stats.email || 0) + (stats.whatsapp || 0) + (stats.sms || 0);
 
                 return {
                     ...c,
@@ -222,8 +409,15 @@ export const getContacts = async (req, res, next) => {
                         sms: stats.sms || 0, 
                         whatsapp: stats.whatsapp || 0 
                     },
-                    activity: stats.latestActivity || "None",
-                    lastAct: stats.latestDate ? new Date(stats.latestDate).toLocaleDateString() : "Today"
+                    activity: stats.latestActivity || null,
+                    lastAct: lastActText,
+                    crmLinks: {
+                        leads: leadsCount,
+                        deals: dealsCount,
+                        property: propertyCount,
+                        booking: bookingCount,
+                        activities: totalInteractions
+                    }
                 };
             });
         }
@@ -1314,34 +1508,35 @@ export const getContactStats = async (req, res, next) => {
 
 
 export const mergeContacts = async (req, res, next) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { masterContactId, duplicateContactIds, resolvedData } = req.body;
 
         if (!masterContactId || !duplicateContactIds || !Array.isArray(duplicateContactIds) || duplicateContactIds.length === 0) {
             return res.status(400).json({ success: false, message: 'Invalid payload' });
         }
+        if (duplicateContactIds.includes(masterContactId)) {
+            return res.status(400).json({ success: false, message: 'Master cannot be a duplicate' });
+        }
 
-        // 1. Verify all contacts exist
-        const masterContact = await Contact.findById(masterContactId).session(session);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Verify master contact exists and is accessible
+        const masterContact = await Contact.findOne({ _id: masterContactId, ...visibilityFilter }).lean();
         if (!masterContact) {
-            throw new Error('Master contact not found');
+            return res.status(404).json({ success: false, message: 'Master contact not found or access denied' });
         }
 
-        const duplicates = await Contact.find({ _id: { $in: duplicateContactIds } }).session(session);
+        // 2. Verify all duplicates exist and are accessible
+        const duplicates = await Contact.find({ _id: { $in: duplicateContactIds }, ...visibilityFilter }).lean();
         if (duplicates.length !== duplicateContactIds.length) {
-            throw new Error('One or more duplicate contacts not found');
+            return res.status(404).json({ success: false, message: 'One or more duplicate contacts not found or access denied' });
         }
 
-        // 2. Aggregate Arrays dynamically across all contacts (Master + Duplicates)
+        // We apply the UI's manual resolvedData to the FIRST duplicate's preview
         const allContacts = [masterContact, ...duplicates];
-        
         const aggregateArray = (arrPath, keyField = null) => {
             const combined = [];
             const seen = new Set();
-            
             allContacts.forEach(contact => {
                 const arr = contact[arrPath];
                 if (arr && Array.isArray(arr)) {
@@ -1365,104 +1560,70 @@ export const mergeContacts = async (req, res, next) => {
             socialMedia: aggregateArray('socialMedia', 'platform'),
         };
 
-        // Ensure we don't accidentally overwrite arrays that were correctly resolved from UI
-        if (!resolvedData.documents) resolvedData.documents = aggregatedArrays.documents;
-        if (!resolvedData.educations) resolvedData.educations = aggregatedArrays.educations;
-        if (!resolvedData.loans) resolvedData.loans = aggregatedArrays.loans;
-        if (!resolvedData.incomes) resolvedData.incomes = aggregatedArrays.incomes;
-        if (!resolvedData.socialMedia) resolvedData.socialMedia = aggregatedArrays.socialMedia;
+        const resolved = resolvedData || {};
+        if (!resolved.documents) resolved.documents = aggregatedArrays.documents;
+        if (!resolved.educations) resolved.educations = aggregatedArrays.educations;
+        if (!resolved.loans) resolved.loans = aggregatedArrays.loans;
+        if (!resolved.incomes) resolved.incomes = aggregatedArrays.incomes;
+        if (!resolved.socialMedia) resolved.socialMedia = aggregatedArrays.socialMedia;
 
-        // Clean up any populated lookup objects before saving to prevent CastError
         const cleanPopulated = (obj, isArrayElement = false) => {
             if (!obj || typeof obj !== 'object') return obj;
             if (Array.isArray(obj)) return obj.map(item => cleanPopulated(item, true));
-            
-            // If it's a populated lookup or user, extract its _id
-            // Do not blindly convert array elements (like emails/phones) to string IDs
             if (obj._id && mongoose.Types.ObjectId.isValid(obj._id)) {
-                if (!isArrayElement || obj.lookup_value !== undefined || obj.name !== undefined) {
-                    return obj._id;
-                }
+                if (!isArrayElement || obj.lookup_value !== undefined || obj.name !== undefined) return obj._id;
             }
-            
             const cleaned = {};
-            for (const key in obj) {
-                cleaned[key] = cleanPopulated(obj[key], false);
-            }
+            for (const key in obj) cleaned[key] = cleanPopulated(obj[key], false);
             return cleaned;
         };
 
-        const sanitizedResolvedData = cleanPopulated(resolvedData);
+        const sanitizedResolvedData = cleanPopulated(resolved);
 
-        // 3. Update Master Contact with resolvedData and consolidated arrays
-        const masterDoc = await Contact.findById(masterContactId).session(session);
-        for (const [key, value] of Object.entries(sanitizedResolvedData)) {
-            masterDoc.set(key, value);
+        // Process each duplicate sequentially through the Enterprise Engine
+        const mergedAudits = [];
+        let currentMaster = masterContact;
+
+        for (let i = 0; i < duplicates.length; i++) {
+            const dup = duplicates[i];
+            
+            // 1. Get exact rewires and baseline field changes for this duplicate from Enterprise service
+            const p = await previewMerge(currentMaster, dup);
+
+            // 2. If this is the FIRST duplicate, overlay the UI's manual resolvedData
+            if (i === 0 && Object.keys(sanitizedResolvedData).length > 0) {
+                p.consolidatedFields = p.consolidatedFields || { $set: {} };
+                p.consolidatedFields.$set = p.consolidatedFields.$set || {};
+                
+                for (const [key, newValue] of Object.entries(sanitizedResolvedData)) {
+                    // Only apply if it actually differs from current master state
+                    const oldValue = currentMaster[key];
+                    if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+                        p.consolidatedFields.$set[key] = newValue;
+                        
+                        // Overwrite any baseline fieldChange for this key with the manual UI change
+                        const existingChangeIdx = p.fieldChanges.findIndex(fc => fc.field === key);
+                        if (existingChangeIdx >= 0) {
+                            p.fieldChanges[existingChangeIdx].newValue = newValue;
+                        } else {
+                            p.fieldChanges.push({ field: key, oldValue, newValue });
+                        }
+                    }
+                }
+            } else {
+                // For 2nd, 3rd duplicates, we DO NOT apply `consolidatedFields` (to avoid overriding the UI choices)
+                // We only do reference rewiring and marking duplicate as deleted
+                p.consolidatedFields = { $set: {}, $addToSet: {} };
+                p.fieldChanges = []; // Keep it clean to avoid conflicting with the first merge's manual data
+            }
+
+            // Execute the merge mutation cleanly inside its own transaction via the Enterprise Engine
+            const audit = await executeMerge(currentMaster._id, dup._id, p, { userId: req.user?._id });
+            mergedAudits.push(audit);
+            
+            // Refresh currentMaster state for the next duplicate loop
+            currentMaster = await Contact.findById(currentMaster._id).lean();
         }
-        const updatedMaster = await masterDoc.save({ session });
-
-        // 4. Complete Reference Graph Migration (Phase 4.6 Architecture)
-
-        // SINGULAR REFERENCES ($set)
-        await Lead.updateMany({ contactDetails: { $in: duplicateContactIds } }, { $set: { contactDetails: masterContactId } }, { session });
-        await Booking.updateMany({ lead: { $in: duplicateContactIds } }, { $set: { lead: masterContactId } }, { session });
-        await Booking.updateMany({ seller: { $in: duplicateContactIds } }, { $set: { seller: masterContactId } }, { session });
-        await Booking.updateMany({ channelPartner: { $in: duplicateContactIds } }, { $set: { channelPartner: masterContactId } }, { session });
-        await Conversation.updateMany({ contact: { $in: duplicateContactIds } }, { $set: { contact: masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.owner": { $in: duplicateContactIds } }, { $set: { "partyStructure.owner": masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.buyer": { $in: duplicateContactIds } }, { $set: { "partyStructure.buyer": masterContactId } }, { session });
-        await Deal.updateMany({ "partyStructure.channelPartner": { $in: duplicateContactIds } }, { $set: { "partyStructure.channelPartner": masterContactId } }, { session });
-        await Deal.updateMany({ owner: { $in: duplicateContactIds } }, { $set: { owner: masterContactId } }, { session });
-        await Deal.updateMany({ associatedContact: { $in: duplicateContactIds } }, { $set: { associatedContact: masterContactId } }, { session });
-
-        // LINEAGE ($set)
-        await Contact.updateMany({ mergedInto: { $in: duplicateContactIds } }, { $set: { mergedInto: masterContactId } }, { session });
-
-        // POLYMORPHIC REFERENCES ($set and arrayFilters)
-        await Activity.updateMany(
-            { entityType: 'Contact', entityId: { $in: duplicateContactIds } },
-            { $set: { entityId: masterContactId } },
-            { session }
-        );
-        await Activity.updateMany(
-            { "relatedTo.model": "Contact", "relatedTo.id": { $in: duplicateContactIds } },
-            { $set: { "relatedTo.$[elem].id": masterContactId } },
-            { arrayFilters: [{ "elem.model": "Contact", "elem.id": { $in: duplicateContactIds } }], session }
-        );
-
-        // NESTED ARRAY REFERENCES (arrayFilters)
-        await Inventory.updateMany(
-            { "associates.contact": { $in: duplicateContactIds } },
-            { $set: { "associates.$[elem].contact": masterContactId } },
-            { arrayFilters: [{ "elem.contact": { $in: duplicateContactIds } }], session }
-        );
-        await Inventory.updateMany(
-            { "ownerHistory.contactId": { $in: duplicateContactIds } },
-            { $set: { "ownerHistory.$[elem].contactId": masterContactId } },
-            { arrayFilters: [{ "elem.contactId": { $in: duplicateContactIds } }], session }
-        );
-
-        // ARRAY REFERENCES ($addToSet followed by $pullAll)
-        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $addToSet: { owners: masterContactId } }, { session });
-        await Inventory.updateMany({ owners: { $in: duplicateContactIds } }, { $pullAll: { owners: duplicateContactIds } }, { session });
-        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $addToSet: { employees: masterContactId } }, { session });
-        await Company.updateMany({ employees: { $in: duplicateContactIds } }, { $pullAll: { employees: duplicateContactIds } }, { session });
-
-        // 5. Duplicate State Transition
-        await Contact.updateMany(
-            { _id: { $in: duplicateContactIds } },
-            { $set: { isMerged: true, mergedInto: masterContactId, status: 'Merged' } },
-            { session }
-        );
-
-        // 6. MergeAudit Creation (One record per duplicate)
-        const auditRecords = duplicateContactIds.map(dupId => ({
-            mergeOperationId: `merge_${Date.now()}_${dupId}`,
-            masterContactId: masterContactId,
-            duplicateContactId: dupId,
-            status: 'COMPLETED'
-        }));
-        await MergeAudit.insertMany(auditRecords, { session });
 
         // Audit Log on Master Contact
         await Activity.create([{
@@ -1472,23 +1633,20 @@ export const mergeContacts = async (req, res, next) => {
             entityId: masterContactId,
             dueDate: new Date(),
             status: 'Completed',
-            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record.`,
-            performedBy: req.user?.fullName || req.user?.name || req.user?.email || 'System'
-        }], { session });
+            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record via Enterprise Engine.`,
+            createdBy: req.user?._id,
+            owner: masterContact.owner || req.user?._id
+        }]);
 
-        await session.commitTransaction();
-        session.endSession();
-
-        res.status(200).json({
-            success: true,
-            message: 'Contacts merged successfully',
-            data: updatedMaster
+        res.status(200).json({ 
+            success: true, 
+            message: `Successfully merged ${duplicateContactIds.length} duplicate(s) into Master.`,
+            masterId: currentMaster._id,
+            audits: mergedAudits.map(a => a.mergeOperationId)
         });
 
     } catch (error) {
-        await session.abortTransaction();
-        session.endSession();
-        console.error('[ERROR] mergeContacts failed:', error);
+        console.error('[MergeContacts] Error:', error);
         next(error);
     }
 };

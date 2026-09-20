@@ -198,18 +198,16 @@ export const submitDealForm = async (req, res) => {
             await inventory.save();
         }
 
-        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
-        const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-        const assignedUser = await distributeEntity('deals', 'onDealCapture', dealData);
-
-        if (assignedUser) {
-            dealData.assignedTo = assignedUser;
-        } else if (form.settings.autoAssignTo) {
+        if (form.settings.autoAssignTo) {
             dealData.assignedTo = form.settings.autoAssignTo;
         }
 
         // Create Deal
         const deal = await Deal.create(dealData);
+
+        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
+        const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+        await distributeEntity(deal, 'onDealCapture');
 
         // ⚡ [AUTO-PILOT]: Activate 360° Marketing Loop
         // We don't await this to keep the form response fast

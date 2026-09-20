@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import eventBus from "../services/EventBus.js";
+import softDeletePlugin from "../plugins/softDelete.plugin.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -596,5 +597,7 @@ InventorySchema.post('findOneAndUpdate', function(doc) {
         eventBus.emit('INVENTORY_UPDATED', doc);
     }
 });
+
+InventorySchema.plugin(softDeletePlugin);
 
 export default mongoose.model("Inventory", InventorySchema);

@@ -9,9 +9,21 @@ const DistributionRuleSchema = new mongoose.Schema({
         enum: ['leads', 'deals', 'activities', 'campaigns', 'inventory'] 
     },
     triggerEvent: { 
-        type: String, 
-        required: true, 
-        enum: ['onCreate', 'onImport', 'onCampaignIntake', 'onWebCapture', 'onDealCapture', 'onWhatsAppCapture', 'onEmailCapture'] 
+        type: [{
+            type: String, 
+            enum: ['onCreate', 'onImport', 'onCampaignIntake', 'onWebCapture', 'onDealCapture', 'onWhatsAppCapture', 'onEmailCapture'] 
+        }], 
+        required: true,
+        validate: [
+            {
+                validator: function(val) { return val && val.length > 0; },
+                message: 'triggerEvent must contain at least one trigger.'
+            },
+            {
+                validator: function(val) { return new Set(val).size === val.length; },
+                message: 'triggerEvent must not contain duplicate triggers.'
+            }
+        ]
     },
     distributionType: { 
         type: String, 

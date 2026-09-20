@@ -7,7 +7,9 @@ import Team from "../../models/Team.js";
 import Lead from "../../models/Lead.js";
 import DistributionRule from "../../models/DistributionRule.js";
 import eventBus from "../../services/EventBus.js"; // IMPORT EVENTBUS
-import { distributionQueue } from "../queues/queueManager.js"; // QUEUE SYSTEM
+import { distributionQueue } from "../queues/queueManager.js";
+import DistributionAudit from "../../models/DistributionAudit.js";
+import { withMongoTransaction } from "../../utils/withMongoTransaction.js"; // QUEUE SYSTEM
 
 /**
  * Checks if a user is currently on shift based on preferences.workingHours
@@ -25,25 +27,25 @@ const isUserAvailableAndOnShift = (user) => {
     if (!user.preferences?.workingHours) return true; // Default to available
     const { start, end } = user.preferences.workingHours;
     if (!start || !end) return true;
-    
+
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentTime = currentHour + currentMinute / 60;
-    
+
     const [startHour, startMinute] = start.split(':').map(Number);
     const startTime = startHour + (startMinute || 0) / 60;
-    
+
     const [endHour, endMinute] = end.split(':').map(Number);
     const endTime = endHour + (endMinute || 0) / 60;
-    
+
     return currentTime >= startTime && currentTime <= endTime;
 };
 
 /**
  * Evaluates conditions against entity data.
  */
-const evaluateConditions = (conditions, data) => {
+export const evaluateConditions = (conditions, data) => {
     if (!conditions || conditions.length === 0) return true;
 
     const getNestedValue = (obj, path) => {
@@ -92,68 +94,137 @@ const evaluateConditions = (conditions, data) => {
  * @param {Boolean} isRetry - Whether this is a retry from the queue
  * @returns {Promise<Object|null>} - Returns the assignment details { assignedTo, ruleName }
  */
+
 export const distributeEntity = async (entity, triggerEvent, isRetry = false) => {
-    try {
-        const moduleName = entity.constructor.modelName ? entity.constructor.modelName.toLowerCase() + 's' : 'leads';
-        console.log(`[Distribution] 🤖 Orchestrating ${moduleName} for event: ${triggerEvent}`);
+    // 9. PRODUCTION / LEGACY COMPATIBILITY
+    if (isRetry) {
+        console.log('[Distribution] Transitional legacy worker payload received.');
+        const entityId = entity && (entity._id || entity.id);
+        const modelName = (entity && entity.constructor && entity.constructor.modelName) ||
+                          ((entity && entity.stage !== undefined) ? 'Lead' : 'Deal');
+        return executeDistributionCycle({
+            entityId,
+            modelName,
+            triggerEvent,
+            cycleId: `cycle_legacy_${Date.now()}`,
+            attempt: 1
+        });
+    }
 
-        const entityData = entity.toObject ? entity.toObject() : entity;
+    // 1. PRODUCER ARCHITECTURE: Strictly enqueue pointer payload
+    const entityId = entity && (entity._id || entity.id);
+    const modelName = (entity && entity.constructor && entity.constructor.modelName) ||
+                      ((entity && entity.stage !== undefined) ? 'Lead' : 'Deal');
 
-        // 1. Fetch active rules for this module and trigger
-        const rules = await DistributionRule.find({ 
-            enabled: true, 
-            module: moduleName, 
-            triggerEvent 
-        }).sort({ priority: -1 });
+    if (typeof entity === 'string' || !entityId) {
+        console.warn(`[Distribution] ⚠️ Invalid string/null entity '${entity}' passed. Bypassing.`);
+        return null;
+    }
 
-        if (rules.length === 0) {
-            console.log(`[Distribution] ℹ️ No active rules for ${moduleName}/${triggerEvent}`);
-            return null;
+    // 2. EXACT CYCLE ID CREATION POINT
+    // Generated exactly once by the upstream distribution request boundary.
+    const cycleId = `cycle_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    console.log(`[Distribution] ⏳ Enqueuing pointer for ${modelName} ${entityId} | cycleId: ${cycleId}`);
+
+    // 6. BullMQ jobId lifecycle
+    // Deterministic jobId tied to cycleId prevents duplicate active jobs.
+    const jobId = `dist:${entityId}:${triggerEvent}:${cycleId}`;
+
+    // 4. EXACT QUEUE PAYLOAD: Pointer only
+    await distributionQueue.add('distribute', {
+        entityId,
+        modelName,
+        triggerEvent,
+        cycleId,
+        attempt: 1
+    }, { jobId });
+
+    // Producer must not perform assignment
+    return null;
+};
+
+// 1. WORKER ARCHITECTURE: Authoritative execution boundary
+export const executeDistributionCycle = async (pointerPayload) => {
+    const { entityId, modelName, triggerEvent, cycleId, attempt } = pointerPayload;
+
+    console.log(`[Distribution] 🤖 Hydrating ${modelName} ${entityId} | cycleId: ${cycleId}`);
+
+    let Model = null;
+    if (modelName === 'Deal') {
+        Model = (await import('../../models/Deal.js')).default;
+    } else {
+        Model = (await import('../../models/Lead.js')).default;
+    }
+
+    const freshEntity = await Model.findById(entityId);
+
+    if (!freshEntity) {
+        await logAudit({ entityId, modelName, cycleId, triggerEvent, status: 'SKIPPED', reason: 'Entity deleted', attempt });
+        return null;
+    }
+
+    const entityData = freshEntity.toObject();
+
+    // 3. OWNER CONCURRENCY SAFETY
+    let originalAssignedTo = null;
+    if (modelName === 'Deal') {
+        originalAssignedTo = freshEntity.assignedTo || null;
+    } else {
+        // Lead uses both owner and assignedTo, but owner is the primary user ID field
+        originalAssignedTo = freshEntity.owner || null;
+    }
+
+    if (originalAssignedTo) {
+        await logAudit({ entityId, modelName, cycleId, triggerEvent, status: 'SKIPPED', reason: 'Entity already assigned by another actor', attempt });
+        return null;
+    }
+
+    const ruleModule = modelName.toLowerCase().endsWith('s') ? modelName.toLowerCase() : modelName.toLowerCase() + 's';
+    const rules = await DistributionRule.find({ enabled: true, module: ruleModule, triggerEvent }).sort({ priority: -1 });
+
+    if (rules.length === 0) {
+        await logAudit({ entityId, modelName, cycleId, triggerEvent, status: 'SKIPPED', reason: 'No active rules', attempt });
+        return null;
+    }
+
+    for (const rule of rules) {
+        if (!evaluateConditions(rule.conditions, entityData)) continue;
+
+        let agentIds = [];
+        if (rule.assignmentTarget.type === 'team') {
+            const teamIds = rule.assignmentTarget.ids;
+            const usersInTeams = await User.find({ teams: { $in: teamIds } }).select('_id').lean();
+            agentIds = usersInTeams.map(u => u._id.toString());
+        } else {
+            agentIds = rule.assignmentTarget.ids.map(id => id.toString());
         }
 
-        for (const rule of rules) {
-            // 2. Check conditions
-            if (!evaluateConditions(rule.conditions, entityData)) continue;
+        if (!agentIds || agentIds.length === 0) continue;
 
-            console.log(`[Distribution] ✅ Matching Rule: "${rule.name}"`);
+        let eligibleUsers = await User.find({
+            _id: { $in: agentIds },
+            status: 'Active',
+            availability: 'Available'
+        }).lean();
 
-            // 3. Resolve eligible agents
-            let agentIds = [];
-            if (rule.assignmentTarget.type === 'team') {
-                const teamIds = rule.assignmentTarget.ids;
-                const usersInTeams = await User.find({ teams: { $in: teamIds } }).select('_id').lean();
-                agentIds = usersInTeams.map(u => u._id.toString());
-            } else {
-                agentIds = rule.assignmentTarget.ids.map(id => id.toString());
-            }
+        eligibleUsers = eligibleUsers.filter(isUserAvailableAndOnShift);
 
-            if (!agentIds || agentIds.length === 0) continue;
-
-            let eligibleUsers = await User.find({ 
-                _id: { $in: agentIds }, 
-                status: 'Active', 
-                availability: 'Available' 
-            }).lean();
-
-            eligibleUsers = eligibleUsers.filter(isUserAvailableAndOnShift);
-
-            if (eligibleUsers.length === 0) {
-                console.warn(`[Distribution] ⚠️ All targeted agents for "${rule.name}" are Offline/Unavailable, OOO, or Off-shift.`);
-                if (rule.fallbackTarget?.id) {
-                    const fallbackId = rule.fallbackTarget.id;
-                    const fallbackUser = await User.findById(fallbackId).lean();
-                    if (fallbackUser && fallbackUser.availability === 'Available' && isUserAvailableAndOnShift(fallbackUser)) {
-                        await performAssignment(entity, fallbackId, rule.name + " (Fallback)");
-                        return { assignedTo: fallbackId, ruleName: rule.name + " (Fallback)" };
-                    }
+        if (eligibleUsers.length === 0) {
+            if (rule.fallbackTarget?.id) {
+                const fallbackId = rule.fallbackTarget.id;
+                const fallbackUser = await User.findById(fallbackId).lean();
+                if (fallbackUser && fallbackUser.availability === 'Available' && isUserAvailableAndOnShift(fallbackUser)) {
+                    return await performAssignment(freshEntity, Model, modelName, fallbackId, rule.name + " (Fallback)", originalAssignedTo, cycleId, triggerEvent, attempt);
                 }
-                continue;
             }
+            continue;
+        }
 
-            // 4. Distribution Logic
-            let assignedTo = null;
+        let assignedTo = null;
 
-            switch (rule.distributionType) {
+        // 10. PRESERVE EXISTING DISTRIBUTION LOGIC
+        switch (rule.distributionType) {
                 case 'roundRobin': {
                     const updatedRule = await DistributionRule.findByIdAndUpdate(
                         rule._id,
@@ -168,28 +239,28 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
                 case 'loadBased': {
                     const userIds = eligibleUsers.map(u => u._id);
                     const counts = await Lead.aggregate([
-                        { 
-                            $match: { 
+                        {
+                            $match: {
                                 $or: [
                                     { owner: { $in: userIds } },
                                     { 'assignment.assignedTo': { $in: userIds } }
                                 ],
-                                stage: { $nin: ['Closed', 'Lost', 'Converted'] } 
-                            } 
+                                stage: { $nin: ['Closed', 'Lost', 'Converted'] }
+                            }
                         },
                         { $group: { _id: '$owner', count: { $sum: 1 } } }
                     ]);
-                    
+
                     const workloadMap = {};
                     userIds.forEach(id => workloadMap[id.toString()] = 0);
                     counts.forEach(c => { if(c._id) workloadMap[c._id.toString()] = c.count; });
-                    
+
                     let lowestLoad = Infinity;
                     for (const user of eligibleUsers) {
                         const load = workloadMap[user._id.toString()];
                         const capacityLimit = user.preferences?.capacityLimit || 100;
                         const loadRatio = load / capacityLimit;
-                        
+
                         if (loadRatio < lowestLoad) {
                             lowestLoad = loadRatio;
                             assignedTo = user._id;
@@ -243,7 +314,7 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
                     if (sourceAgentIds && Array.isArray(sourceAgentIds)) {
                         sourceAgents = eligibleUsers.filter(u => sourceAgentIds.includes(u._id.toString()));
                     }
-                    
+
                     if (sourceAgents.length > 0) {
                         const updatedRule = await DistributionRule.findByIdAndUpdate(rule._id, { $inc: { lastAssignedIndex: 1 } }, { new: true });
                         assignedTo = sourceAgents[updatedRule.lastAssignedIndex % sourceAgents.length]._id;
@@ -260,14 +331,14 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
                     for (const user of eligibleUsers) {
                         let score = 0;
                         const skills = user.skills || {};
-                        
+
                         if (entityData.budget && skills.budgetRange) {
                             const budget = parseFloat(entityData.budget);
                             if (budget >= (skills.budgetRange.min || 0) && budget <= (skills.budgetRange.max || Infinity)) {
                                 score += 3;
                             }
                         }
-                        
+
                         if (entityData.propertyType && skills.propertyTypes) {
                             if (skills.propertyTypes.includes(entityData.propertyType)) {
                                 score += 2;
@@ -287,60 +358,125 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
                     assignedTo = eligibleUsers[0]._id;
             }
 
-            if (assignedTo) {
-                console.log(`[Distribution] 🎯 Assigned to UserID: ${assignedTo} via "${rule.name}"`);
-                await performAssignment(entity, assignedTo, rule.name);
-                return { assignedTo, ruleName: rule.name };
-            }
+        if (assignedTo) {
+            return await performAssignment(freshEntity, Model, modelName, assignedTo, rule.name, originalAssignedTo, cycleId, triggerEvent, attempt);
         }
+    }
 
-        // Exhausted all rules, no one available
-        if (!isRetry) {
-            console.log(`[Distribution] ⏳ No eligible agents found across rules. Queuing entity ${entity._id}`);
-            await distributionQueue.add('distribute', { entity, triggerEvent });
+    // Exhausted rules, no agents available.
+    throw new Error('No eligible agents available yet (off-shift or capped).');
+};
+
+const performAssignment = async (entity, Model, modelName, assignedTo, ruleName, originalAssignedTo, cycleId, triggerEvent, attempt) => {
+    let updatedDoc;
+    let assignmentSuccess = false;
+    let skipReason = null;
+
+    const updatePayload = {
+        'assignment.assignedTo': assignedTo,
+        'assignment.assignedAt': new Date(),
+        'assignment.ruleName': ruleName,
+        assignedTo: assignedTo
+    };
+
+    if (modelName === 'Lead') {
+        updatePayload.owner = assignedTo;
+    }
+
+    try {
+        await withMongoTransaction(async (session) => {
+            const predicate = { _id: entity._id };
+
+            // 6. EXACT CONCURRENCY PREDICATE
+            if (modelName === 'Lead') {
+                predicate.owner = originalAssignedTo || { $eq: null };
+            } else {
+                predicate.assignedTo = originalAssignedTo || { $eq: null };
+            }
+
+            const updateResult = await Model.updateOne(predicate, { $set: updatePayload }, { session });
+
+            if (updateResult.modifiedCount === 1) {
+                assignmentSuccess = true;
+                updatedDoc = await Model.findById(entity._id).session(session);
+
+                await DistributionAudit.create([{
+                    entityId: entity._id,
+                    modelName,
+                    cycleId,
+                    triggerEvent,
+                    status: 'COMPLETED',
+                    assignedTo,
+                    ruleName,
+                    attempt
+                }], { session });
+            } else {
+                // 7. ZERO-MODIFICATION OUTCOME LOGIC
+                const latestDoc = await Model.findById(entity._id).session(session);
+                if (!latestDoc) {
+                    skipReason = 'Entity deleted during execution';
+                } else {
+                    const currentOwner = (modelName === 'Lead') ? latestDoc.owner : latestDoc.assignedTo;
+                    if (String(currentOwner) === String(assignedTo)) {
+                        skipReason = 'Assignment is already the intended assignment';
+                    } else if (currentOwner && String(currentOwner) !== String(originalAssignedTo)) {
+                        skipReason = 'Entity already assigned by another actor / manual override';
+                    } else {
+                        skipReason = 'Lost concurrency race or predicate mismatch';
+                    }
+                }
+
+                await DistributionAudit.create([{
+                    entityId: entity._id,
+                    modelName,
+                    cycleId,
+                    triggerEvent,
+                    status: 'SKIPPED',
+                    reason: skipReason,
+                    attempt
+                }], { session });
+            }
+        });
+
+        // 8. EVENT CRASH WINDOW: Post-commit emission
+        if (assignmentSuccess && updatedDoc) {
+            const eventName = `${modelName.toUpperCase()}_UPDATED`;
+            eventBus.emit(eventName, updatedDoc);
+
+            // Re-emit legacy assignment notification
+            try {
+                const { createNotification } = await import('../../services/notificationService.js');
+                if (createNotification) {
+                    await createNotification(
+                        assignedTo,
+                        'assignments',
+                        'New Lead Assigned',
+                        `A new ${modelName.toLowerCase()} has been assigned to you.`,
+                        `/${modelName.toLowerCase()}s/${entity._id}`,
+                        { entityId: entity._id }
+                    );
+                }
+            } catch (e) {
+                // Ignore notification failure
+            }
+
+            return { assignedTo, ruleName };
         }
         return null;
-    } catch (error) {
-        console.error(`[Distribution Error]:`, error);
-        return null;
+
+    } catch (txErr) {
+        if (txErr.code === 11000) {
+            console.log(`[Distribution] Duplicate audit detected. Safely skipping cycle ${cycleId}.`);
+            return null;
+        }
+        throw txErr;
     }
 };
 
-/**
- * Helper to update the entity with the assignment and emit events
- */
-const performAssignment = async (entity, assignedTo, ruleName) => {
-    const updatePayload = {
-        owner: assignedTo,
-        'assignment.assignedTo': assignedTo,
-        'assignment.assignedAt': new Date(),
-        'assignment.ruleName': ruleName
-    };
-
-    let updatedDoc;
-    let modelName;
-
-    if (entity.constructor.modelName) {
-        modelName = entity.constructor.modelName;
-        updatedDoc = await entity.constructor.findByIdAndUpdate(
-            entity._id, 
-            { $set: updatePayload }, 
-            { new: true } // Need to get the updated document to emit
-        );
-    } else if (entity._id) {
-        modelName = 'Lead'; // Assuming Lead by default for raw objects
-        const Lead = (await import('../../models/Lead.js')).default;
-        updatedDoc = await Lead.findByIdAndUpdate(
-            entity._id, 
-            { $set: updatePayload }, 
-            { new: true }
-        );
-    }
-
-    // Emit event so the AutomationEngine can react (e.g. sequence triggers, webhook firing)
-    if (updatedDoc) {
-        const eventName = `${modelName.toUpperCase()}_UPDATED`;
-        eventBus.emit(eventName, updatedDoc);
-        console.log(`[Distribution] 📢 Emitted ${eventName} after assigning to ${assignedTo}`);
+const logAudit = async (payload) => {
+    try {
+        await DistributionAudit.create(payload);
+    } catch (e) {
+        if (e.code !== 11000) console.error('[Distribution] Audit log failed:', e.message);
     }
 };
