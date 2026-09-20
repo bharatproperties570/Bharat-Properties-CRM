@@ -66,7 +66,7 @@ export class WorkflowEngine {
         }
     }
 
-    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false) {
+    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false, opts = {}) {
         try {
             // Process Delayed Actions if this is a 'fire_automated_action' and not already delayed
             if (action.type === 'fire_automated_action' && action.automatedActionId) {
@@ -104,10 +104,29 @@ export class WorkflowEngine {
                     ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}` 
                     : `imm-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`;
                     
-                const existingLog = await AutomationLog.findOne({ idempotencyKey });
-                if (existingLog) {
-                    console.log(`[WorkflowEngine] Action already executed for key: ${idempotencyKey}. Skipping.`);
-                    return;
+                try {
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger.module,
+                        status: 'pending',
+                        idempotencyKey,
+                        companyId
+                    });
+                } catch (err) {
+                    if (err.code === 11000) {
+                        const reclaimed = await AutomationLog.findOneAndUpdate(
+                            { idempotencyKey, status: 'failed' },
+                            { $set: { status: 'pending' } }
+                        );
+                        if (!reclaimed) {
+                            console.log(`[WorkflowEngine] Action already executed or executing for key: ${idempotencyKey}. Skipping.`);
+                            return;
+                        }
+                    } else {
+                        throw err;
+                    }
                 }
 
                 try {
@@ -166,27 +185,10 @@ export class WorkflowEngine {
                     }
                     
                     // Log success
-                    await AutomationLog.create({
-                        ruleType: 'AutomatedAction',
-                        ruleId: autoAction._id,
-                        targetEntityId: entityData._id || entityData.id,
-                        targetModule: trigger.module,
-                        status: 'success',
-                        idempotencyKey,
-                        companyId
-                    });
+                    await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'success' } });
                 } catch (execError) {
                     console.error(`[WorkflowEngine] Automated Action Execution failed:`, execError);
-                    await AutomationLog.create({
-                        ruleType: 'AutomatedAction',
-                        ruleId: autoAction._id,
-                        targetEntityId: entityData._id || entityData.id,
-                        targetModule: trigger.module,
-                        status: 'failed',
-                        details: { error: execError.message },
-                        idempotencyKey,
-                        companyId
-                    });
+                    await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'failed', details: { error: execError.message } } });
                     throw execError;
                 }
                 
@@ -291,25 +293,32 @@ export class WorkflowEngine {
                 await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
             }
             
-            await AutomationLog.create({
-                ruleType: 'Trigger',
-                ruleId: trigger._id,
-                targetEntityId: entityData._id || entityData.id,
-                targetModule: trigger.module,
-                status: 'success',
-                companyId
-            });
+            if (!opts.skipLogging) {
+                await AutomationLog.create({
+                    ruleType: 'Trigger',
+                    ruleId: trigger._id,
+                    targetEntityId: entityData._id || entityData.id,
+                    targetModule: trigger.module,
+                    status: 'success',
+                    companyId
+                });
+            }
         } catch (error) {
             console.error(`[WorkflowEngine] Action failed:`, error);
-            await AutomationLog.create({
-                ruleType: 'Trigger',
-                ruleId: trigger._id,
-                targetEntityId: entityData._id || entityData.id,
-                targetModule: trigger.module,
-                status: 'failed',
-                details: { error: error.message },
-                companyId
-            });
+            if (!opts.skipLogging) {
+                await AutomationLog.create({
+                    ruleType: 'Trigger',
+                    ruleId: trigger._id,
+                    targetEntityId: entityData._id || entityData.id,
+                    targetModule: trigger.module,
+                    status: 'failed',
+                    details: { error: error.message },
+                    companyId
+                });
+            }
+            if (opts.propagateError) {
+                throw error;
+            }
         }
     }
 

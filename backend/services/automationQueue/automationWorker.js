@@ -17,7 +17,7 @@ const processAutomationJob = async (job) => {
     try {
         // We pass a special flag `isDelayedExecution: true` so the WorkflowEngine knows 
         // to actually execute it now rather than re-queueing it.
-        await WorkflowEngine.executeAction(action, entityData, trigger, companyId, true);
+        await WorkflowEngine.executeAction(action, entityData, trigger, companyId, true, { propagateError: true });
         log.info(job.id, `Successfully completed delayed execution for Trigger ${trigger?.name}`);
     } catch (error) {
         log.error(job.id, `Failed to execute delayed action`, { error: error.message });

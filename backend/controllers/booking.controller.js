@@ -54,13 +54,13 @@ export const createBooking = async (req, res) => {
                 if (idempotencyKey) {
                     idK = `booking_${idempotencyKey}`;
                     const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
-                    if (existingLog && existingLog.entityId) {
-                        bookingId = existingLog.entityId;
+                    if (existingLog && existingLog.targetEntityId) {
+                        bookingId = existingLog.targetEntityId;
                         isIdempotentReturn = true;
                         return; 
                     }
                     try {
-                        await AutomationLog.collection.insertOne({ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }, { session });
+                        await AutomationLog.create([{ idempotencyKey: idK, status: 'pending', ruleType: 'IdempotencyLock', details: { description: 'Booking Creation Idempotency Lock' } }], { session });
                     } catch (err) {
                         if (err.code === 11000) {
                             throw new Error('IDEMPOTENT_CONFLICT: Booking creation in progress.');
@@ -74,7 +74,7 @@ export const createBooking = async (req, res) => {
                 const savedBooking = savedBookings[0];
                 bookingId = savedBooking._id;
                 if (idK) {
-                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: bookingId } }, { session });
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { targetEntityId: bookingId, status: 'success' } }, { session });
                 }
 
                 // 🚀 Deal Lifecycle Synchronization
