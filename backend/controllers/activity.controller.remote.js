@@ -2139,7 +2139,8 @@ export const convertToLead = async (req, res) => {
         const newStage = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: /Incoming/i });
 
         // 3. Create Lead
-        const lead = await Lead.create({
+        const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+        const leadResult = await createStandardizedLead({
             firstName: name || "Messaging",
             lastName: "Lead",
             mobile: cleanPhone,
@@ -2148,7 +2149,9 @@ export const convertToLead = async (req, res) => {
             stage: newStage?._id || null,
             owner: req.user?._id || null,
             remarks: `Manually created from Communication Hub by ${req.user?.fullName || 'Agent'}`
-        });
+        }, { triggerEvent: 'onCreate' });
+        
+        const lead = leadResult.lead;
 
         // 4. Update Conversation to link the lead
         await Conversation.findOneAndUpdate(

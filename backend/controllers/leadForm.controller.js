@@ -174,11 +174,27 @@ export const submitForm = async (req, res) => {
 
         // 2. Create or Link Lead
         let lead;
+        let isNewLead = false;
+        let staticFallbackUsed = false;
+        
         if (leadId) {
             lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
             console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
         } else {
-            lead = await Lead.create(leadData);
+            const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+            const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
+            lead = result.lead;
+            isNewLead = true;
+            
+            // Standard engine handles initial distribution, but fallback to static setting if missing
+            if (!result.assignment && form.settings.autoAssignTo) {
+                lead = await Lead.findByIdAndUpdate(lead._id, {
+                    owner: form.settings.autoAssignTo,
+                    'assignment.assignedTo': form.settings.autoAssignTo,
+                    'assignment.method': 'Manual/Form-Static'
+                }, { new: true });
+                staticFallbackUsed = true;
+            }
         }
 
         // 🚀 SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity
@@ -206,20 +222,27 @@ export const submitForm = async (req, res) => {
                 assignedTo: lead.owner || form.settings.autoAssignTo
             });
         }
-        try {
-            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-            const assignment = await distributeEntity(lead, 'onWebCapture');
 
-            if (!assignment && form.settings.autoAssignTo) {
-                // Priority 2: Fallback to static form-level assignment if no rule matched
-                await Lead.findByIdAndUpdate(lead._id, {
-                    owner: form.settings.autoAssignTo,
-                    'assignment.assignedTo': form.settings.autoAssignTo,
-                    'assignment.method': 'Manual/Form-Static'
-                });
+        // Apply legacy processing ONLY if it's an update (new leads are fully processed by LeadCreationEngine)
+        if (!isNewLead) {
+            try {
+                const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+                const assignment = await distributeEntity(lead, 'onWebCapture');
+
+                if (!assignment && form.settings.autoAssignTo) {
+                    lead = await Lead.findByIdAndUpdate(lead._id, {
+                        owner: form.settings.autoAssignTo,
+                        'assignment.assignedTo': form.settings.autoAssignTo,
+                        'assignment.method': 'Manual/Form-Static'
+                    }, { new: true });
+                }
+            } catch (distErr) {
+                console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
-        } catch (distErr) {
-            console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
+
+            // 4. Trigger Engines -> Moved to Background Event Queue
+            enrichmentQueue.add('enrichLead', { leadId: lead._id })
+                .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
         }
 
         // 3. Update Analytics
@@ -228,12 +251,10 @@ export const submitForm = async (req, res) => {
         form.analytics.conversions = Math.round((form.analytics.submissions / Math.max(1, form.analytics.views)) * 100);
         await form.save();
 
-        // 4. Trigger Engines -> Moved to Background Event Queue
-        enrichmentQueue.add('enrichLead', { leadId: lead._id })
-            .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
-
-        // 🚀 Senior Tweak: Notify Owner of New Capture
-        if (lead.owner) {
+        // 🚀 Senior Tweak: Notify Owner of New Capture (if assignment occurred and they weren't notified by distribution engine)
+        // DistributionEngine already handles assignment notification for new leads.
+        // But if form.settings.autoAssignTo fired as a fallback, or if it's an update, we should notify.
+        if (lead.owner && (!isNewLead || staticFallbackUsed)) {
             const { createNotification } = await import('./notification.controller.js');
             createNotification(
                 lead.owner,

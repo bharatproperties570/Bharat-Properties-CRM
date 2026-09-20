@@ -68,8 +68,9 @@ export const captureLeadWebhook = async (req, res) => {
         // Resolve 'source' to Lookup ObjectId (Lead schema requires ObjectId ref)
         const sourceId = await resolveLeadLookup('Source', source_meta.utm_source || 'Marketing Automation');
 
-        // Create the lead
-        const lead = await Lead.create({
+        // Create the lead using Standardized Engine
+        const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+        const leadResult = await createStandardizedLead({
             firstName,
             lastName,
             mobile,
@@ -79,8 +80,9 @@ export const captureLeadWebhook = async (req, res) => {
             intent_index: intentIndex,
             description: message || `Lead from ${source_meta.utm_medium || 'campaign'} campaign`,
             tags: ['Marketing Automation'],
-        });
-
+        }, { triggerEvent: 'onCampaignIntake' });
+        
+        const lead = leadResult.lead;
         console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);
 
         // Find the associated deal for context

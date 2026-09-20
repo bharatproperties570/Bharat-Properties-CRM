@@ -86,6 +86,30 @@ mock.module('bullmq', {
 mock.module('../src/config/redis.js', {
     defaultExport: {}
 });
+import fs from 'node:fs';
+import path from 'node:path';
+
+const servicesDir = path.resolve(import.meta.dirname, '../services');
+if (!fs.existsSync(servicesDir)) fs.mkdirSync(servicesDir, { recursive: true });
+const notifPath = path.join(servicesDir, 'notificationService.js');
+let createdNotif = false;
+if (!fs.existsSync(notifPath)) {
+    fs.writeFileSync(notifPath, 'export const createNotification = () => {};');
+    createdNotif = true;
+}
+
+process.on('exit', () => {
+    if (createdNotif) {
+        try { fs.unlinkSync(notifPath); } catch(e){}
+    }
+});
+
+mock.module('../services/notificationService.js', {
+    namedExports: {
+        createNotification: mock.fn()
+    }
+});
+
 
 
 // Import the module after mocks are registered
@@ -97,11 +121,11 @@ const DistributionAudit = (await import('../models/DistributionAudit.js')).defau
 const { distributionQueue } = await import('../src/queues/queueManager.js');
 
 test('R20 Durable Distribution Tests', async (t) => {
-    
+
     await t.test('TEST 1: Producer strictly queues pointer payload', async () => {
         distributionQueue.add.mock.resetCalls();
         const res = await distributeEntity({ _id: '123', constructor: { modelName: 'Lead' } }, 'onCreate');
-        
+
         assert.strictEqual(res, null);
         assert.strictEqual(distributionQueue.add.mock.calls.length, 1);
         const args = distributionQueue.add.mock.calls[0].arguments;
@@ -115,18 +139,18 @@ test('R20 Durable Distribution Tests', async (t) => {
 
     await t.test('TEST 2: STALE PAYLOAD & FRESH HYDRATION', async () => {
         DistributionAudit.create.mock.resetCalls();
-        
+
         const freshLead = { _id: '123', owner: null, leadScore: 50, toObject: () => ({ _id: '123' }) };
         Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
         Lead.updateOne.mock.mockImplementationOnce(() => ({ modifiedCount: 1 }));
-        
+
         DistributionRule.find.mock.mockImplementationOnce(() => ({ sort: () => [{ _id: 'r1', name: 'Rule 1', distributionType: 'roundRobin', assignmentTarget: { type: 'user', ids: ['u1'] }, conditions: [] }] }));
         DistributionRule.findByIdAndUpdate.mock.mockImplementationOnce(() => ({ lastAssignedIndex: 1 }));
-        
-        User.find.mock.mockImplementationOnce(() => ({ select: () => ({ lean: () => [{ _id: 'u1' }] }), lean: () => [{ _id: 'u1', status: 'Active', availability: 'Available' }] }));
+
+        User.find.mock.mockImplementationOnce(() => ({ select: () => ({ lean: () => [{ _id: 'u1' }] }), lean: () => [{ _id: 'u1', status: 'active', isActive: true, isDeleted: false, availability: 'Available' }] }));
 
         await executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c1', attempt: 1 });
-        
+
         assert.strictEqual(DistributionAudit.create.mock.calls.length, 1);
         const auditArg = DistributionAudit.create.mock.calls[0].arguments[0][0];
         assert.strictEqual(auditArg.status, 'COMPLETED');
@@ -135,13 +159,13 @@ test('R20 Durable Distribution Tests', async (t) => {
 
     await t.test('TEST 3: MANUAL OWNER CHANGE (Optimistic Concurrency skips update)', async () => {
         DistributionAudit.create.mock.resetCalls();
-        
+
         // Lead is already manually assigned to 'u2'
         const freshLead = { _id: '123', owner: 'u2', toObject: () => ({ _id: '123' }) };
         Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
-        
+
         const res = await executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c2', attempt: 1 });
-        
+
         assert.strictEqual(res, null);
         assert.strictEqual(DistributionAudit.create.mock.calls.length, 1);
         const auditArg = DistributionAudit.create.mock.calls[0].arguments[0];
@@ -151,10 +175,10 @@ test('R20 Durable Distribution Tests', async (t) => {
 
     await t.test('TEST 4: CONCURRENT EXECUTION (modifiedCount === 0)', async () => {
         DistributionAudit.create.mock.resetCalls();
-        
+
         // Initial state: not assigned
         const freshLead = { _id: '123', owner: null, toObject: () => ({ _id: '123' }) };
-        
+
         // Lead.findById is called twice in this flow (initial + after failed update)
         let findByIdCount = 0;
         Lead.findById.mock.mockImplementation(() => {
@@ -162,15 +186,15 @@ test('R20 Durable Distribution Tests', async (t) => {
             if (findByIdCount === 1) return { session: () => freshLead, then: (cb) => cb(freshLead) };
             if (findByIdCount === 2) return { session: () => ({ _id: '123', owner: 'other_worker' }) };
         });
-        
+
         Lead.updateOne.mock.mockImplementationOnce(() => ({ modifiedCount: 0 }));
-        
+
         DistributionRule.find.mock.mockImplementationOnce(() => ({ sort: () => [{ _id: 'r1', name: 'Rule 1', distributionType: 'roundRobin', assignmentTarget: { type: 'user', ids: ['u1'] }, conditions: [] }] }));
         DistributionRule.findByIdAndUpdate.mock.mockImplementationOnce(() => ({ lastAssignedIndex: 1 }));
-        User.find.mock.mockImplementationOnce(() => ({ select: () => ({ lean: () => [{ _id: 'u1' }] }), lean: () => [{ _id: 'u1', status: 'Active', availability: 'Available' }] }));
+        User.find.mock.mockImplementationOnce(() => ({ select: () => ({ lean: () => [{ _id: 'u1' }] }), lean: () => [{ _id: 'u1', status: 'active', isActive: true, isDeleted: false, availability: 'Available' }] }));
 
         await executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c3', attempt: 1 });
-        
+
         assert.strictEqual(DistributionAudit.create.mock.calls.length, 1);
         const auditArg = DistributionAudit.create.mock.calls[0].arguments[0][0];
         assert.strictEqual(auditArg.status, 'SKIPPED');
@@ -181,7 +205,7 @@ test('R20 Durable Distribution Tests', async (t) => {
         const freshLead = { _id: '123', owner: null, toObject: () => ({ _id: '123' }) };
         Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
         DistributionRule.find.mock.mockImplementationOnce(() => ({ sort: () => [{ _id: 'r1', name: 'Rule 1', distributionType: 'roundRobin', assignmentTarget: { type: 'user', ids: ['u1'] }, conditions: [] }] }));
-        
+
         // No users returned
         User.find.mock.mockImplementationOnce(() => ({ select: () => ({ lean: () => [] }), lean: () => [] }));
 
@@ -195,22 +219,157 @@ test('R20 Durable Distribution Tests', async (t) => {
         // We will simulate the worker logic for terminal failure since we can't easily mock BullMQ Worker internals here
         // The worker uses job.attemptsMade >= maxAttempts
         const job = { id: 'j1', attemptsMade: 12, opts: { attempts: 12 }, data: { entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c5' } };
-        
+
         DistributionAudit.create.mock.resetCalls();
         DistributionAudit.create.mock.mockImplementationOnce(() => Promise.resolve());
-        
+
         const { distributionWorker } = await import('../src/workers/distributionWorker.js');
-        
+
         // We manually trigger the 'failed' event handler
         const failedListeners = distributionWorker.listeners('failed');
         assert.ok(failedListeners.length > 0);
-        
+
         const failedHandler = failedListeners[0];
         await failedHandler(job, new Error('Terminal Error'));
-        
+
         assert.strictEqual(DistributionAudit.create.mock.calls.length, 1);
         const auditArg = DistributionAudit.create.mock.calls[0].arguments[0];
         assert.strictEqual(auditArg.status, 'FAILED');
         assert.strictEqual(auditArg.reason, 'Terminal Error');
+    });
+
+    await t.test('TEST 7: User Eligibility Strict Enforcement - Primary Eligible Only', async () => {
+        DistributionAudit.create.mock.resetCalls();
+        const freshLead = { _id: '123', owner: null, toObject: () => ({ _id: '123' }) };
+
+        const mockUsers = [
+            { _id: 'u_active', status: 'active', isActive: true, isDeleted: false, availability: 'Available' },
+            { _id: 'u_inactive', status: 'inactive', isActive: true, isDeleted: false, availability: 'Available' }
+        ];
+
+        Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
+        Lead.updateOne.mock.mockImplementation(() => ({ modifiedCount: 1 }));
+
+        DistributionRule.find.mock.mockImplementation(() => ({ sort: () => [{
+            _id: 'r1',
+            name: 'Eligibility Rule',
+            distributionType: 'roundRobin',
+            assignmentTarget: { type: 'user', ids: mockUsers.map(u => u._id) },
+            conditions: []
+        }] }));
+        DistributionRule.findByIdAndUpdate.mock.mockImplementation(() => ({ lastAssignedIndex: 0 }));
+        User.find.mock.mockImplementation(() => ({ select: () => ({ lean: () => mockUsers }), lean: () => mockUsers }));
+
+        const res = await executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c_eligibility_1', attempt: 1 });
+
+        assert.strictEqual(res.assignedTo, 'u_active');
+    });
+
+    await t.test('TEST 7.1: Fallback Ineligible -> Fails', async () => {
+        DistributionAudit.create.mock.resetCalls();
+        const freshLead = { _id: '123', owner: null, toObject: () => ({ _id: '123' }) };
+
+        const mockUsers = [
+            { _id: 'u_inactive_1', status: 'inactive', isActive: true, isDeleted: false, availability: 'Available' },
+            { _id: 'u_ooo_1', status: 'active', isActive: true, isDeleted: false, availability: 'Available', outOfOffice: { active: true, until: new Date(Date.now() + 86400000) } }
+        ];
+
+        Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
+        Lead.updateOne.mock.mockImplementation(() => ({ modifiedCount: 1 }));
+
+        DistributionRule.find.mock.mockImplementation(() => ({ sort: () => [{
+            _id: 'r1',
+            name: 'Eligibility Rule',
+            distributionType: 'roundRobin',
+            assignmentTarget: { type: 'user', ids: ['u_inactive_1'] },
+            fallbackTarget: { type: 'user', id: 'u_ooo_1' },
+            conditions: []
+        }] }));
+        DistributionRule.findByIdAndUpdate.mock.mockImplementation(() => ({ lastAssignedIndex: 0 }));
+
+        let callCount = 0;
+        User.find.mock.mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) return { select: () => ({ lean: () => [mockUsers[0]] }), lean: () => [mockUsers[0]] };
+            if (callCount === 2) return { select: () => ({ lean: () => [mockUsers[1]] }), lean: () => [mockUsers[1]] };
+            return { select: () => ({ lean: () => [] }), lean: () => [] };
+        });
+
+        await assert.rejects(
+            executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c_eligibility_2', attempt: 1 }),
+            /No eligible agents available yet/
+        );
+    });
+
+    await t.test('TEST 7.2: Fallback Eligible -> Succeeds with (Fallback)', async () => {
+        DistributionAudit.create.mock.resetCalls();
+        const freshLead = { _id: '123', owner: null, toObject: () => ({ _id: '123' }) };
+
+        const mockUsers = [
+            { _id: 'u_suspended', status: 'suspended', isActive: true, isDeleted: false, availability: 'Available' },
+            { _id: 'u_fallback_active', status: 'active', isActive: true, isDeleted: false, availability: 'Available' }
+        ];
+
+        Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
+        Lead.updateOne.mock.mockImplementation(() => ({ modifiedCount: 1 }));
+
+        DistributionRule.find.mock.mockImplementation(() => ({ sort: () => [{
+            _id: 'r1',
+            name: 'Base Rule',
+            distributionType: 'roundRobin',
+            assignmentTarget: { type: 'user', ids: ['u_suspended'] },
+            fallbackTarget: { type: 'user', id: 'u_fallback_active' },
+            conditions: []
+        }] }));
+        DistributionRule.findByIdAndUpdate.mock.mockImplementation(() => ({ lastAssignedIndex: 0 }));
+
+        let callCount = 0;
+        User.find.mock.mockImplementation(() => {
+            callCount++;
+            if (callCount === 1) return { select: () => ({ lean: () => [mockUsers[0]] }), lean: () => [mockUsers[0]] };
+            if (callCount === 2) return { select: () => ({ lean: () => [mockUsers[1]] }), lean: () => [mockUsers[1]] };
+            return { select: () => ({ lean: () => [] }), lean: () => [] };
+        });
+
+        const res = await executeDistributionCycle({ entityId: '123', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c_eligibility_3', attempt: 1 });
+
+        assert.strictEqual(res.assignedTo, 'u_fallback_active');
+        assert.strictEqual(res.ruleName, 'Base Rule (Fallback)');
+    });
+
+    await t.test('TEST 8: Deal and Lead Assignment Notification Title', async () => {
+        DistributionAudit.create.mock.resetCalls();
+        const { createNotification } = await import('../services/notificationService.js');
+        createNotification.mock.resetCalls();
+
+        // 1. Deal
+        const freshDeal = { _id: 'deal1', assignedTo: null, toObject: () => ({ _id: 'deal1' }) };
+        const Deal = (await import('../models/Deal.js')).default;
+
+        Deal.findById.mock.mockImplementation(() => ({ session: () => freshDeal, then: (cb) => cb(freshDeal) }));
+        Deal.updateOne.mock.mockImplementation(() => ({ modifiedCount: 1 }));
+
+        DistributionRule.find.mock.mockImplementation(() => ({ sort: () => [{ _id: 'r2', name: 'Deal Rule', distributionType: 'roundRobin', assignmentTarget: { type: 'user', ids: ['u_deal'] }, conditions: [] }] }));
+        DistributionRule.findByIdAndUpdate.mock.mockImplementation(() => ({ lastAssignedIndex: 0 }));
+        User.find.mock.mockImplementation(() => ({ select: () => ({ lean: () => [{ _id: 'u_deal' }] }), lean: () => [{ _id: 'u_deal', status: 'active', isActive: true, isDeleted: false, availability: 'Available' }] }));
+
+        const resDeal = await executeDistributionCycle({ entityId: 'deal1', modelName: 'Deal', triggerEvent: 'onCreate', cycleId: 'c_deal', attempt: 1 });
+        assert.strictEqual(resDeal.assignedTo, 'u_deal');
+
+        assert.strictEqual(createNotification.mock.calls.length, 1);
+        assert.strictEqual(createNotification.mock.calls[0].arguments[2], 'New Deal Assigned');
+
+        createNotification.mock.resetCalls();
+
+        // 2. Lead
+        const freshLead = { _id: 'lead1', owner: null, toObject: () => ({ _id: 'lead1' }) };
+        Lead.findById.mock.mockImplementation(() => ({ session: () => freshLead, then: (cb) => cb(freshLead) }));
+        Lead.updateOne.mock.mockImplementation(() => ({ modifiedCount: 1 }));
+
+        const resLead = await executeDistributionCycle({ entityId: 'lead1', modelName: 'Lead', triggerEvent: 'onCreate', cycleId: 'c_lead', attempt: 1 });
+        assert.strictEqual(resLead.assignedTo, 'u_deal');
+
+        assert.strictEqual(createNotification.mock.calls.length, 1);
+        assert.strictEqual(createNotification.mock.calls[0].arguments[2], 'New Lead Assigned');
     });
 });

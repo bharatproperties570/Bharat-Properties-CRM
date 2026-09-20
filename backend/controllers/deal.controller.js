@@ -46,7 +46,7 @@ const resolveFilter = async (type, value) => {
 
     const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
     const result = lookup ? lookup._id : null;
-    
+
     if (result) {
         if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
         _lookupResolveCache.set(cacheKey, result);
@@ -63,8 +63,8 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
 
     const escapedValue = escapeRegExp(value);
     const re = new RegExp(`^${escapedValue}$`, 'i');
-    let lookup = await Lookup.findOne({ 
-        lookup_type: type, 
+    let lookup = await Lookup.findOne({
+        lookup_type: type,
         $or: [
             { lookup_value: { $regex: re } },
             { "metadata.aliases": { $regex: re } }
@@ -97,7 +97,7 @@ const extractNumericSize = (val) => {
 const convertToSqYd = (val, unit) => {
     let num = extractNumericSize(val);
     if (isNaN(num)) return 0;
-    
+
     let u = '';
     if (typeof val === 'string' && /[a-zA-Z]/.test(val)) {
         u = val.toLowerCase();
@@ -105,9 +105,9 @@ const convertToSqYd = (val, unit) => {
     if (!u && unit) {
         u = String(unit).toLowerCase().trim();
     }
-    
+
     if (!u) return num;
-    
+
     if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq yd') || u.includes('sq. yard') || u.includes('sq yard') || u.includes('gaj') || u.includes('gaz')) return num;
     if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq ft')) return num / 9.0;
     if (u.includes('sq.m') || u.includes('sqm') || u.includes('sq meter') || u.includes('mtr')) return num * 1.19599;
@@ -133,7 +133,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 // 🧊 [ENTERPRISE] Advanced Specific Unit Range & String Matcher
 const checkUnitMatch = (leadUnits, dealUnitNo) => {
     if (!dealUnitNo || !leadUnits || leadUnits.length === 0) return false;
-    
+
     // 1. Exact string match fallback
     if (leadUnits.some(u => u === dealUnitNo || dealUnitNo.includes(u) || u.includes(dealUnitNo))) return true;
 
@@ -143,24 +143,24 @@ const checkUnitMatch = (leadUnits, dealUnitNo) => {
         try {
             const rangeStr = rangeUnit.replace('range:', '');
             const [startStr, endStr] = rangeStr.split('-');
-            
+
             const extractNum = (str) => {
                 const match = str ? str.match(/\d+/) : null;
                 return match ? parseInt(match[0], 10) : null;
             };
-            
+
             const startNum = extractNum(startStr);
             const endNum = extractNum(endStr);
             const dealNum = extractNum(dealUnitNo);
-            
+
             if (startNum !== null && endNum !== null && dealNum !== null) {
                 const minNum = Math.min(startNum, endNum);
                 const maxNum = Math.max(startNum, endNum);
-                
+
                 const getPrefix = (str) => (str || '').replace(/\d+/g, '').trim();
                 const startPrefix = getPrefix(startStr);
                 const dealPrefix = getPrefix(dealUnitNo);
-                
+
                 if (dealNum >= minNum && dealNum <= maxNum) {
                     if (!startPrefix || !dealPrefix || startPrefix === dealPrefix) {
                         return true;
@@ -176,14 +176,14 @@ const checkUnitMatch = (leadUnits, dealUnitNo) => {
 
 export const matchDeals = async (req, res) => {
     try {
-        const { 
-            leadId, 
-            budgetFlexibility = 20, 
+        const {
+            leadId,
+            budgetFlexibility = 20,
             sizeFlexibility = 20,
             weights: weightsParam,
             showOtherCities: showOtherCitiesParam
         } = req.query;
-        
+
         const showOtherCities = showOtherCitiesParam === 'true';
 
         if (!leadId) {
@@ -213,8 +213,8 @@ export const matchDeals = async (req, res) => {
             // Inventory-specific lookup types (critical for WhatsApp variable resolution)
             'Facing', 'Direction', 'RoadWidth', 'BuiltupType', 'Orientation'
         ];
-        const allLookups = await Lookup.find({ 
-            lookup_type: { $in: lookupTypes } 
+        const allLookups = await Lookup.find({
+            lookup_type: { $in: lookupTypes }
         }).select('_id lookup_type lookup_value').lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
@@ -225,7 +225,7 @@ export const matchDeals = async (req, res) => {
             const idStr = String(val._id || val);
             const resolved = lookupIdMap.get(idStr);
             if (resolved) return resolved.toLowerCase();
-            // If it's a raw string that's not an ID, return it
+            // If it's a raw string that's not an ID, return i
             if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
             return "";
         };
@@ -391,13 +391,13 @@ export const matchDeals = async (req, res) => {
                 ]
             });
         }
-        
+
         // Budget Pre-filter (Using existing lBudgetMin / lBudgetMax from line 319)
         if (lBudgetMin > 0 || lBudgetMax !== Infinity) {
             const bFlex = parseFloat(budgetFlexibility) / 100;
             const minB = lBudgetMin * (1 - bFlex);
             const maxB = lBudgetMax !== Infinity ? lBudgetMax * (1 + bFlex) : Infinity;
-            
+
             aggMatchStage.$and.push({
                 $or: [
                     { activePrice: { $gte: minB, $lte: maxB } },
@@ -429,13 +429,13 @@ export const matchDeals = async (req, res) => {
 
             const geoResults = await Deal.aggregate(geoNearQuery);
             const geoDealIds = geoResults.map(g => g._id);
-            
+
             geoResults.forEach(g => {
                 dealDistanceMap.set(String(g._id), g.dbCalculatedDistance);
             });
 
             // Fetch the populated deals for those IDs, plus any deals that don't have geoPoints
-            
+
             const geoPipeline = [
                 { $match: {
                     $or: [
@@ -445,38 +445,38 @@ export const matchDeals = async (req, res) => {
                 }},
                 { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', as: 'inventoryId' } },
                 { $unwind: { path: '$inventoryId', preserveNullAndEmptyArrays: true } },
-                { $addFields: { 
+                { $addFields: {
                     activeCategory: { $ifNull: ["$category", "$inventoryId.category"] },
                     activeIntent: { $ifNull: ["$intent", "$inventoryId.intent"] },
                     activePrice: { $max: [ { $convert: { input: "$price", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$quotePrice", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$inventoryId.price", to: "double", onError: 0, onNull: 0 } } ] }
                 }}
             ];
-            
+
             if (aggMatchStage.$and && aggMatchStage.$and.length > 0) {
                 geoPipeline.push({ $match: aggMatchStage });
             }
-            
+
             deals = await Deal.aggregate(geoPipeline);
 
 
         } else {
             // Fallback for leads without exact geo coordinates
-            
+
             const basePipeline = [
                 { $match: query },
                 { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', as: 'inventoryId' } },
                 { $unwind: { path: '$inventoryId', preserveNullAndEmptyArrays: true } },
-                { $addFields: { 
+                { $addFields: {
                     activeCategory: { $ifNull: ["$category", "$inventoryId.category"] },
                     activeIntent: { $ifNull: ["$intent", "$inventoryId.intent"] },
                     activePrice: { $max: [ { $convert: { input: "$price", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$quotePrice", to: "double", onError: 0, onNull: 0 } }, { $convert: { input: "$inventoryId.price", to: "double", onError: 0, onNull: 0 } } ] }
                 }}
             ];
-            
+
             if (aggMatchStage.$and && aggMatchStage.$and.length > 0) {
                 basePipeline.push({ $match: aggMatchStage });
             }
-            
+
             deals = await Deal.aggregate(basePipeline);
 
         }
@@ -488,7 +488,7 @@ export const matchDeals = async (req, res) => {
                 return p;
             })
             .filter(id => id && /^[0-9a-fA-F]{24}$/.test(String(id)));
-            
+
         const selectedProjects = projectIds.length > 0 ? await Project.find({ _id: { $in: projectIds } }).lean() : [];
 
         // 4. Activity Intelligence: Fetch Dispatch Proof
@@ -534,7 +534,7 @@ export const matchDeals = async (req, res) => {
                 if (!intentMatched) {
                     excludedDeals.push({
                         _id: deal._id, projectName: dealLabel,
-                        unitNo: deal.unitNo || deal.inventoryId?.unitNo, 
+                        unitNo: deal.unitNo || deal.inventoryId?.unitNo,
                         price: deal.price || deal.quotePrice,
                         excludeReason: `Intent mismatch — deal is listed as "${dealIntentLabel}" but lead requires "${leadReqLabel}"`
                     });
@@ -566,7 +566,7 @@ export const matchDeals = async (req, res) => {
                 // --- CITY ENFORCEMENT (User Requested Toggle) ---
                 const dealCity = getLookupValueLocal(deal.locationDetails?.city || deal.inventoryId?.address?.city || deal.inventoryId?.locationDetails?.city);
                 const leadCityMatch = leadLocCity && dealCity && leadLocCity === dealCity;
-                
+
                 if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) {
                     excludedDeals.push({
                         _id: deal._id, projectName: dealLabel,
@@ -596,11 +596,11 @@ export const matchDeals = async (req, res) => {
 
                 const dealLat = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
                 const dealLng = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
-                
+
                 const leadLat = parseFloat(lead.locLat);
                 const leadLng = parseFloat(lead.locLng);
                 const leadRange = parseFloat(lead.range) || 5; // Default 5km
-                
+
                 let locationResolved = false;
 
                 // Priority A: Search Location (Coordinates + Range)
@@ -617,7 +617,7 @@ export const matchDeals = async (req, res) => {
                             const extraDist = dist - leadRange;
                             const penalty = (extraDist / leadRange) * locWeight * 0.5; // lose up to 50% points up to 2x range
                             const earned = Math.max(0, locWeight - penalty);
-                            
+
                             score += earned;
                             scoreBreakdown.location = { earned: Math.round(earned), max: locWeight, label: `Outside radius (${dist.toFixed(1)}km away)` };
                             if (earned > locWeight * 0.4) matchDetails.push("Near Radius");
@@ -625,7 +625,7 @@ export const matchDeals = async (req, res) => {
                         locationResolved = true;
                     }
                 }
-                
+
                 // Priority B: Project Coordinates
                 if (!locationResolved && selectedProjects.length > 0 && dealLat && dealLng) {
                     // Check distance against any selected project coordinates
@@ -645,7 +645,7 @@ export const matchDeals = async (req, res) => {
                                     const extraDist = dist - projectBaseRange;
                                     const penalty = (extraDist / projectBaseRange) * locWeight * 0.5; // lose up to 50% points up to 2x range
                                     const earned = Math.max(0, locWeight - penalty);
-                                    
+
                                     if (earned > 0) {
                                         score += earned;
                                         scoreBreakdown.location = { earned: Math.round(earned), max: locWeight, label: `Outside project radius (${dist.toFixed(1)}km away)` };
@@ -672,7 +672,7 @@ export const matchDeals = async (req, res) => {
 
                     const locMatchCount = locSignalsMatch.filter(Boolean).length;
                     const projectMatchedDirectly = locSignalsMatch[0] === true;
-                    
+
                     // Also check if deal belongs to selected projects by ID
                     const projectMatchById = selectedProjects.some(p => dealProjName.includes((p.name || '').toLowerCase()) || String(deal.projectId) === String(p._id));
 
@@ -742,13 +742,13 @@ export const matchDeals = async (req, res) => {
 
                 // 4. SIZE ALIGNMENT (Weight: 25%)
                 const sizeWeight = weights.size || 25;
-                
+
                 let rawDealSizeNum = 0;
                 let rawDealSizeStr = null;
-                
+
                 // ENTERPRISE FIX: Prioritize sizeConfig, handle legacy 0-value objects
                 const configStr = getLookupValueLocal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
-                
+
                 if (configStr) {
                     rawDealSizeStr = configStr;
                 } else if (deal.size && deal.size.value > 0) {
@@ -765,7 +765,7 @@ export const matchDeals = async (req, res) => {
 
                 const dealSizeUnit = deal.sizeUnit || deal.inventoryId?.size?.unit || deal.inventoryId?.sizeUnit || 'Sq.Yd.';
                 const dealSizeNorm = convertToSqYd(rawDealSizeStr, dealSizeUnit);
-                
+
                 const leadAreaUnit = lead.areaMetric || 'Sq.Yd.';
                 const leadAreaMinNorm = convertToSqYd(lead.areaMin, leadAreaUnit);
                 const leadAreaMaxNorm = convertToSqYd(lead.areaMax, leadAreaUnit);
@@ -773,7 +773,7 @@ export const matchDeals = async (req, res) => {
                 if (dealSizeNorm > 0 && leadAreaMaxNorm > 0) {
                     const aMin = leadAreaMinNorm * (1 - sFlex);
                     const aMax = leadAreaMaxNorm * (1 + sFlex);
-                    
+
                     if (dealSizeNorm >= aMin && dealSizeNorm <= aMax) {
                         score += sizeWeight;
                         scoreBreakdown.size = { earned: sizeWeight, max: sizeWeight, label: `${rawDealSizeNum} ${dealSizeUnit} within preferred range` };
@@ -816,7 +816,7 @@ export const matchDeals = async (req, res) => {
                 // --- STRICT ENTERPRISE PREFERRED MATCH ---
                 const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
                 const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValueLocal(u)).filter(Boolean);
-                
+
                 const dealSizeDesc = [
                     deal.sizeType, deal.inventoryId?.sizeType,
                     deal.unitType, deal.inventoryId?.unitType,
@@ -824,14 +824,14 @@ export const matchDeals = async (req, res) => {
                     deal.sizeLabel, deal.inventoryId?.sizeLabel,
                     deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
                 ].map(s => getLookupValueLocal(s)).filter(Boolean).join(" ");
-                
+
                 const uiSizeLabelArr = [
                     deal.sizeLabel, deal.inventoryId?.sizeLabel,
                     deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel,
                     deal.sizeConfig, deal.inventoryId?.sizeConfig,
                     deal.sizeType, deal.inventoryId?.sizeType
                 ].map(s => getLookupValueLocal(s)).filter(Boolean);
-                
+
                 // Use Set to remove exact duplicates, then join. Or just take the most specific one.
                 // Taking the most specific non-duplicate words:
                 const uiSizeLabel = [...new Set(uiSizeLabelArr)][0] || "";
@@ -841,7 +841,7 @@ export const matchDeals = async (req, res) => {
                 const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
                 const isBudgetMatch = lBudgetMax === 0 || (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax);
                 const isLocationMatch = scoreBreakdown.location.label === 'Lead has no location set' || scoreBreakdown.location.earned >= scoreBreakdown.location.max;
-                
+
                 const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
 
                 return {
@@ -942,10 +942,10 @@ export const matchDeals = async (req, res) => {
         });
     } catch (error) {
         console.error("[CRITICAL_MATCH_ERROR]:", error);
-        res.status(500).json({ 
-            success: false, 
+        res.status(500).json({
+            success: false,
             error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined 
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
@@ -1056,7 +1056,7 @@ export const sanitizeDeal = async (req, res) => {
                 if (blacklist.includes(k)) continue;
                 const resolvedVal = await resolveValue(v);
                 if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false || resolvedVal === '-') continue;
-                
+
                 const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
                 resolvedLines.push(`${label}: ${resolvedVal}`);
             }
@@ -1066,8 +1066,8 @@ export const sanitizeDeal = async (req, res) => {
         const detailedSections = [
             await formatSection("Unit Specification", unitSpecSource),
             await formatSection("Location Intelligence", locIntelSource),
-            builtup.length > 0 ? { 
-                title: "Built-up Details", 
+            builtup.length > 0 ? {
+                title: "Built-up Details",
                 lines: await Promise.all(builtup.map(async b => {
                     const floor = b.floor || 'Floor';
                     const area = b.totalArea || b.area || '';
@@ -1076,7 +1076,7 @@ export const sanitizeDeal = async (req, res) => {
                 }))
             } : null
         ].filter(Boolean);
-        
+
         deal.broadcastMetadata = {
             title: `${projName} | ${deal.unitType || catName} for ${intentName}`,
             description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${displayLocation}. High potential for ${intentName}.`,
@@ -1110,9 +1110,9 @@ export const getDeals = async (req, res) => {
     console.log(">> getDeals API started");
     console.time("getDeals_Total");
     try {
-        const { 
+        const {
             page = 1, limit = 25, search = "", sortBy, sortOrder,
-            projectId, inventoryId, category, subCategory, 
+            projectId, inventoryId, category, subCategory,
             status, contactPhone, view, ...dynamicFilters
         } = req.query;
 
@@ -1123,7 +1123,7 @@ export const getDeals = async (req, res) => {
         // 🚀 SENIOR OPTIMIZATION: Redis Cache Layer for List View (Page 1)
         const isPageOne = Number(page) === 1 && !search;
         const cacheKey = `deals_list_v4:${req.user._id}:${JSON.stringify(req.query)}`;
-        
+
         if (isPageOne) {
             const cachedData = await safeRedisCall('get', cacheKey);
             if (cachedData) {
@@ -1145,11 +1145,11 @@ export const getDeals = async (req, res) => {
         for (const [key, value] of Object.entries(dynamicFilters)) {
             if (value && value !== "" && value !== "undefined") {
                 let searchValues = Array.isArray(value) ? value : [value];
-                
+
                 // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
                 const mixedValues = [];
                 searchValues.forEach(val => {
-                    mixedValues.push(val); 
+                    mixedValues.push(val);
                     if (mongoose.Types.ObjectId.isValid(val)) {
                         mixedValues.push(new mongoose.Types.ObjectId(val));
                     }
@@ -1181,27 +1181,27 @@ export const getDeals = async (req, res) => {
 
             await Promise.all(values.map(async (v) => {
                 const trimmedVal = String(v).trim();
-                
+
                 // CASE 1: Value is already an ObjectId
                 if (isValidObjectId(trimmedVal)) {
                     const objId = new mongoose.Types.ObjectId(trimmedVal);
                     results.ids.push(objId);
                     results.idStrings.push(trimmedVal);
-                    
+
                     const lookup = await Lookup.findById(objId).select('lookup_value').lean();
                     if (lookup?.lookup_value) results.names.push(lookup.lookup_value.trim());
                     return;
                 }
-                
+
                 // CASE 2: Value is a Name string
                 results.names.push(trimmedVal);
-                
+
                 // Find corresponding IDs in Lookup collection
-                const lookups = await Lookup.find({ 
-                    lookup_type: type, 
-                    lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') } 
+                const lookups = await Lookup.find({
+                    lookup_type: type,
+                    lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') }
                 }).select('_id lookup_value').lean();
-                
+
                 if (lookups.length > 0) {
                     lookups.forEach(l => {
                         results.ids.push(l._id);
@@ -1214,8 +1214,8 @@ export const getDeals = async (req, res) => {
             const nameRegexes = results.names.map(name => new RegExp(escapeRegExp(name.trim()), 'i'));
 
             const finalValues = [...new Set([
-                ...results.ids, 
-                ...results.idStrings, 
+                ...results.ids,
+                ...results.idStrings,
                 ...nameRegexes
             ])];
 
@@ -1223,8 +1223,8 @@ export const getDeals = async (req, res) => {
             return { $in: finalValues };
         };
 
-        const { 
-            direction, facing, roadWidth, block, range, location: queryLocation, 
+        const {
+            direction, facing, roadWidth, block, range, location: queryLocation,
             minPrice, maxPrice, dealType, transactionType, source,
             intent: queryIntent, stage: queryStage, unitType: queryUnitType,
             projectName: queryProjectName, project: queryProject,
@@ -1240,14 +1240,14 @@ export const getDeals = async (req, res) => {
         if (finalProjectName) {
             query.projectName = { $regex: new RegExp(`^${escapeRegExp(finalProjectName)}$`, 'i') };
         }
-        
+
         // Orientation Filters (Joined via Inventory)
         if (direction || facing || roadWidth) {
             const invQuery = {};
             if (direction) invQuery.direction = await resolveMultiFilter('Direction', direction);
             if (facing) invQuery.facing = await resolveMultiFilter('Facing', facing);
             if (roadWidth) invQuery.roadWidth = await resolveMultiFilter('RoadWidth', roadWidth);
-            
+
             const matchingInvs = await Inventory.find(invQuery).select('_id').lean();
             query.inventoryId = { $in: matchingInvs.map(i => i._id) };
         }
@@ -1265,7 +1265,7 @@ export const getDeals = async (req, res) => {
             const stages = Array.isArray(queryStage) ? queryStage : queryStage.split(',').filter(Boolean);
             if (stages.length > 0) query.stage = { $in: stages };
         } else {
-            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by default
+            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by defaul
             query.stage = { $nin: ['Closed Won', 'Closed Lost', 'Cancelled', 'Closed', 'Sold Out'] };
         }
         if (queryUnitType) {
@@ -1298,13 +1298,13 @@ export const getDeals = async (req, res) => {
         if (contactPhone) {
             const cleanPhone = contactPhone.replace(/[^0-9]/g, "").slice(-10);
             const phoneRegex = new RegExp(`${cleanPhone}$`);
-            
+
             // Find contacts/leads with this phone first to get their IDs
             const [contacts, leads] = await Promise.all([
                 Contact.find({ "phones.number": phoneRegex }).select('_id').lean(),
                 Lead.find({ mobile: phoneRegex }).select('_id').lean()
             ]);
-            
+
             const entityIds = [
                 ...contacts.map(c => c._id),
                 ...leads.map(l => l._id)
@@ -1323,17 +1323,17 @@ export const getDeals = async (req, res) => {
 
         if (req.query.contactId) {
             const contactIds = req.query.contactId.split(',').filter(id => id && isValidObjectId(id));
-            
+
             if (contactIds.length > 0) {
                 query.$or = query.$or || [];
-                
+
                 // Smart Identity Matching (Phone/Email) to resolve linked/cross-entities (Lead <-> Contact)
                 const identities = await Promise.all(contactIds.map(async (id) => {
                     const [c, l] = await Promise.all([
                         Contact.findById(id).lean(),
                         Lead.findById(id).lean()
                     ]);
-                    
+
                     const profile = { phones: [], emails: [] };
                     if (c) {
                         if (c.phones) profile.phones.push(...c.phones.map(p => p.number));
@@ -1380,7 +1380,7 @@ export const getDeals = async (req, res) => {
                     { associatedContact: { $in: uniqueIds } },
                     { "partyStructure.buyer": { $in: uniqueIds } }
                 );
-    
+
                 // 2. Legacy fallback for phone/email string representations in DB fields
                 if (phones.length > 0 || emails.length > 0) {
                     const identityMatches = [];
@@ -1446,17 +1446,17 @@ export const getDeals = async (req, res) => {
             { path: 'teams', select: 'name' }
         ];
 
-        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed 
-        // and might contain strings instead of ObjectIds, causing CastErrors. 
+        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed
+        // and might contain strings instead of ObjectIds, causing CastErrors.
         // We will resolve them manually after pagination.
 
-        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed 
-        // and might contain strings instead of ObjectIds, causing CastErrors. 
+        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed
+        // and might contain strings instead of ObjectIds, causing CastErrors.
         // We will resolve them manually after pagination.
 
         // 🏎️ SENIOR OPTIMIZATION: Parallelize Pagination and Aggregation
         let categoryStatsPromise = Promise.resolve([]);
-        
+
         if (Number(page) === 1) {
             // 🚀 PHASE 2.3-S OPT1: Add pipeline projection to $lookup — only fetch 'category' from inventories
             categoryStatsPromise = Deal.aggregate([
@@ -1540,7 +1540,7 @@ export const getDeals = async (req, res) => {
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
         console.time("getDeals_Lookup_Resolution");
-        
+
         // 🚀 PHASE 2.6-A FIX: Targeted Lookup Fetch (Extract only required IDs/Strings)
         const lookupIdSet = new Set();
         const lookupStringSet = new Set();
@@ -1611,7 +1611,7 @@ export const getDeals = async (req, res) => {
 
         const enrichedRecords = results.records.map((deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
-            
+
             // Live enrichment from inventory Map (O(1))
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
             let inventory = invId ? inventoryMap.get(String(invId)) : null;
@@ -1628,7 +1628,7 @@ export const getDeals = async (req, res) => {
             if (inventory) {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
                 if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
-                
+
                 // Metadata labels should always be live from the source of truth (Inventory)
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
                 dealObj.block = inventory.block || dealObj.block;
@@ -1638,7 +1638,7 @@ export const getDeals = async (req, res) => {
                 dealObj.unitType = inventory.unitType || dealObj.unitType;
                 dealObj.category = inventory.category || dealObj.category;
                 dealObj.subCategory = inventory.subCategory || dealObj.subCategory;
-                
+
                 const size = inventory.size || dealObj.size;
                 const sizeUnit = inventory.sizeUnit || inventory.size_unit || inventory.unit || dealObj.sizeUnit;
                 const sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
@@ -1650,7 +1650,7 @@ export const getDeals = async (req, res) => {
                 dealObj.sizeLabel = sizeLabel;
                 dealObj.sizeConfig = sizeConfig;
                 dealObj.unitSpecification = unitSpec;
-                
+
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
                     const inv = dealObj.inventoryId;
                     inv.projectName = inventory.projectName || inv.projectName;
@@ -1684,7 +1684,7 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.inventoryId, 'unitType');
                 enrichWithLookup(dealObj.inventoryId, 'sizeConfig');
             }
-            
+
             const ownerId = dealObj.owner?._id || dealObj.owner;
             const assocId = dealObj.associatedContact?._id || dealObj.associatedContact;
 
@@ -1735,8 +1735,8 @@ export const getDealById = async (req, res) => {
             { path: 'partyStructure.internalRM' },
             { path: 'team' },
             { path: 'teams' },
-            { 
-                path: 'leads', 
+            {
+                path: 'leads',
                 select: 'firstName lastName mobile email stage status createdAt',
                 populate: [
                     { path: 'stage', select: 'lookup_value' },
@@ -1747,7 +1747,7 @@ export const getDealById = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 🚀 SENIOR OPTIMIZATION: Parallel Data Fetching via Unified API Request
+        // 🚀 SENIOR OPTIMIZATION: Parallel Data Fetching via Unified API Reques
         const isUnified = req.query.unified === 'true';
 
         const [deal, activities, matchingLeads] = await Promise.all([
@@ -1780,11 +1780,11 @@ export const getDealById = async (req, res) => {
                 .populate({ path: 'associates.contact', model: 'Contact' })
                 .lean();
         }
-            
+
             if (inventory) {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
                 if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
-                
+
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
                 dealObj.block = inventory.block || dealObj.block;
                 dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
@@ -1800,8 +1800,8 @@ export const getDealById = async (req, res) => {
                 dealObj.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
                 dealObj.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
                 dealObj.unitSpecification = inventory.unitSpecification || dealObj.unitSpecification;
-                
-                // Redundancy for nested object
+
+                // Redundancy for nested objec
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
                     const inv = dealObj.inventoryId;
                     inv.projectName = inventory.projectName || inv.projectName;
@@ -1828,7 +1828,7 @@ export const getDealById = async (req, res) => {
                 if (typeof val === 'string' && !isValidObjectId(val)) {
                     // It's a raw string, find or create the lookup
                     const lookupTypeMap = {
-                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
+                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent',
                         status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size'
                     };
                     const lookupType = lookupTypeMap[field] || 'Location';
@@ -1877,7 +1877,7 @@ const sanitizeData = (data) => {
     const refFields = [
         'inventoryId', 'projectId', 'unitType', 'propertyType', 'location', 'intent',
         'status', 'dealType', 'transactionType', 'source', 'owner', 'associatedContact',
-        'category', 'subCategory', 'assignedTo', 'team', 
+        'category', 'subCategory', 'assignedTo', 'team',
         'partyStructure.owner', 'partyStructure.buyer', 'partyStructure.channelPartner', 'partyStructure.internalRM',
         'assignment.assignedTo'
     ];
@@ -1918,7 +1918,7 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
 
     const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
     const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
-    
+
     const availableId = availableLookup ? availableLookup._id : 'Available';
     const activeId = activeLookup ? activeLookup._id : 'Active';
 
@@ -1951,7 +1951,7 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
             inventoryId: deal.inventoryId,
             stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
         }).session(opts.session || null);
-        
+
         if (activeDeals === 0) {
             await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
         }
@@ -1961,18 +1961,18 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     // For Open / Quote / Negotiation
     // CRM Business Rule: Active Inventory is eligible for new Deals.
     // Duplicate Deal protection is handled at the Deal level, not by hijacking Inventory status.
-    const validStates = [ 
-        { status: availableId }, 
-        { status: activeId }, 
-        { status: null }, 
-        { status: { $exists: false } } 
+    const validStates = [
+        { status: availableId },
+        { status: activeId },
+        { status: null },
+        { status: { $exists: false } }
     ];
-    
+
     const filter = {
         _id: deal.inventoryId,
         $or: validStates
     };
-    
+
     const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
     if (!result) {
         const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
@@ -1983,302 +1983,54 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
 };
 
 export const addDeal = async (req, res) => {
-    console.log('[DEBUG] Incoming Add Deal Payload:', JSON.stringify(req.body, null, 2));
+    console.log('[DEBUG] Incoming Add Deal Payload (Engine Routed):', JSON.stringify(req.body, null, 2));
     try {
         const sanitizedData = sanitizeData(req.body);
+        const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
-        if (req.user) {
-            if (req.user.department && !sanitizedData.department) sanitizedData.department = req.user.department;
-            if (req.user.teams && req.user.teams.length > 0 && (!sanitizedData.teams || sanitizedData.teams.length === 0)) {
-                sanitizedData.teams = req.user.teams.map(t => t._id || t);
-            }
-        }
+        const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
+        const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
+        const mongoose = await import('mongoose');
 
-        // Rule: One Deal per Type per Inventory
-        if (sanitizedData.inventoryId && sanitizedData.intent) {
-            const query = {
+        const input = {
+            source: 'API',
+            idempotencyKey,
+            correlationId: req.headers['x-correlation-id'] || req.headers['x-request-id'] || 'web-form-fallback',
+            dealData: sanitizedData,
+            linkage: {
                 inventoryId: sanitizedData.inventoryId,
-                stage: { $nin: ['Cancelled', 'Closed Lost'] }
-            };
-
-            // If intent is provided, check for that specific intent
-            if (sanitizedData.intent) {
-                query.intent = sanitizedData.intent;
+                leadId: sanitizedData.lead,
+                projectId: sanitizedData.projec
+            },
+            ownerInfo: {
+                owner: sanitizedData.owner,
+                buyer: sanitizedData.partyStructure?.buyer,
+                channelPartner: sanitizedData.partyStructure?.channelPartner
             }
+        };
+
+        const options = {
+            triggerSms: true,
+            triggerAiMatch: !!(sanitizedData.sendMatchedDeal && Object.values(sanitizedData.sendMatchedDeal).some(v => v === true || (typeof v === 'string' && v !== ''))),
+            triggerMarketing: true,
+            triggerDocumentSync: !!(sanitizedData.documents && sanitizedData.documents.length),
+            triggerDiscovery: !!sanitizedData.inventoryId,
+            publishOnWebsite: !!sanitizedData.publishOn?.website
+        };
+
+        const result = await createStandardizedDeal(input, options);
+
+        if (result.isIdempotentReplay) {
+            return res.status(200).json({ success: true, data: result.deal, message: 'Returned existing idempotent deal' });
         }
 
-        // [ENTERPRISE HARDENING]: Persistence Layer
-        // If owner/associate are missing but inventoryId is present, snapshot them from Inventory
-        if (sanitizedData.inventoryId && (!sanitizedData.owner || !sanitizedData.associatedContact)) {
-            const inventory = await Inventory.findById(sanitizedData.inventoryId)
-                .populate({ path: 'owners', model: 'Contact' })
-                .populate({ path: 'associates.contact', model: 'Contact' });
-            
-            if (inventory) {
-                if (!sanitizedData.owner && inventory.owners?.[0]) {
-                    sanitizedData.owner = inventory.owners[0]._id;
-                    if (!sanitizedData.partyStructure) sanitizedData.partyStructure = {};
-                    sanitizedData.partyStructure.owner = inventory.owners[0]._id;
-                }
-                if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
-                    sanitizedData.associatedContact = inventory.associates[0].contact._id;
-                }
-                
-                // Also snapshot location/unit details for permanence
-                if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
-                if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
-                if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
-                if (!sanitizedData.category) sanitizedData.category = inventory.category;
-                if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
-                if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
-            }
-        }
-
-
-        let deal;
-        let isIdempotentReturn = false;
-
+        // Trigger Workflow Engine (Legacy compatibility)
         try {
-            await withMongoTransaction(async (session) => {
-                const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
-                let idK = null;
-                const AutomationLog = mongoose.model('AutomationLog');
+            await WorkflowEngine.fireEvent('deals', 'deal_created', result.deal, result.deal.companyId);
 
-                if (idempotencyKey) {
-                    idK = `deal_${idempotencyKey}`;
-                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
-                    if (existingLog && existingLog.entityId) {
-                        deal = await Deal.findById(existingLog.entityId).session(session);
-                        if (deal) {
-                            isIdempotentReturn = true;
-                            return; 
-                        }
-                    }
-                    try {
-                        await AutomationLog.create([{ idempotencyKey: idK, status: 'success', description: 'Deal Creation Idempotency Lock' }], { session });
-                    } catch (err) {
-                        if (err.code === 11000) {
-                            throw new Error('IDEMPOTENT_CONFLICT: Deal creation in progress.');
-                        }
-                        throw err;
-                    }
-                }
-
-                
-                // 🚀 PHASE 4.6 CONCURRENCY LOCK (Zero-pollution temporary barrier)
-                if (sanitizedData.inventoryId) {
-                    await mongoose.model('Inventory').updateOne(
-                        { _id: sanitizedData.inventoryId },
-                        { $set: { _tempTxnLock: new Date() } },
-                        { session }
-                    );
-                }
-
-
-
-            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
-            // Fetch policy from SystemSettings (Default: strict)
-            const SystemSetting = mongoose.model('SystemSetting');
-            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
-            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
-
-            if (isStrict) {
-                const coordQuery = {
-                    $or: [
-                        { inventoryId: sanitizedData.inventoryId },
-                        { 
-                            projectName: sanitizedData.projectName,
-                            block: sanitizedData.block,
-                            unitNo: sanitizedData.unitNo
-                        }
-                    ],
-                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
-                };
-
-                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
-                if (duplicateDeal) {
-                    return res.status(400).json({
-                        success: false,
-                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
-                    });
-                }
-            }
-
-                const createdDeals = await Deal.create([sanitizedData], { session });
-
-                if (sanitizedData.inventoryId) {
-                    await mongoose.model('Inventory').updateOne(
-                        { _id: sanitizedData.inventoryId },
-                        { $unset: { _tempTxnLock: 1 } },
-                        { session }
-                    );
-                }
-
-                deal = createdDeals[0];
-
-                if (idK) {
-                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: deal._id } }, { session });
-                }
-
-                await Deal.findByIdAndUpdate(deal._id, {
-                    $push: {
-                        stageHistory: {
-                            stage: deal.stage || 'Open',
-                            enteredAt: new Date(),
-                            triggeredBy: 'system',
-                            reason: 'Deal created'
-                        }
-                    },
-                    $set: { stageChangedAt: new Date() }
-                }, { session });
-
-                await syncInventoryStatus(deal, { session });
-                
-                if (sanitizedData.publishOn?.website) {
-                    const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                    await Deal.findByIdAndUpdate(deal._id, {
-                        isPublished: true,
-                        publishedAt: new Date(),
-                        'websiteMetadata.slug': slugBase,
-                        'websiteMetadata.title': deal.projectName || 'New Listing',
-                        'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing.'
-                    }, { session });
-                }
-
-                if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
-                    await mongoose.model('AuditLog').create([{
-                        eventType: 'deal_converted',
-                        targetType: 'deal',
-                        targetId: deal._id,
-                        targetName: deal.projectName || 'New Deal',
-                        userId: req.user?._id,
-                        changes: { before: null, after: deal.stage || 'Open' },
-                        description: `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`,
-                        timestamp: new Date()
-                    }], { session });
-                }
-            });
-        } catch (err) {
-            throw err;
-        }
-
-        if (isIdempotentReturn) {
-            return res.status(200).json({ success: true, data: deal, message: 'Returned existing idempotent deal' });
-        }
-
-        // Move syncDocumentsToContact outside transaction because it doesn't support sessions
-        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
-            const metadata = {
-                projectName: deal.projectName,
-                block: deal.block,
-                unitNumber: deal.unitNo
-            };
-            syncDocumentsToContact(sanitizedData.documents, metadata).catch(e => console.error(e));
-        }
-
-        // BUG D4 FIX: Correctly extract phone from phones array (Contact model)
-        try {
-            // NOTE: 'category' is a Mixed field and 'intent' is a String; do not populate them as they have no 'ref'
-            const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact');
-            
-            const extractPhone = (contact) => {
-                if (!contact) return null;
-                // If populated, it has a phones array. If mixed/other, check for phone/mobile field as fallback.
-                if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
-                    return contact.phones[0].number;
-                }
-                return contact.phone || contact.mobile || null;
-            };
-
-            const phone = extractPhone(dealWithConfig.owner) || extractPhone(dealWithConfig.associatedContact);
-            
-            if (phone) {
-                smsService.sendSMSWithTemplate(phone, 'deal_created', {
-                    dealId: dealWithConfig.dealId || dealWithConfig._id.toString().slice(-6).toUpperCase(),
-                    projectName: dealWithConfig.projectName || 'the property'
-                }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
-            }
-
-            // ─── PHASE 7: Automated Discovery (SaaS Proactivity) ──────────────
-            // Proactively find matching leads for this new property
-            if (deal.inventoryId) {
-                import('../services/discovery.service.js').then(m => {
-                    m.runProactiveDiscoveryForInventory(deal.inventoryId);
-                }).catch(e => console.error("[DISCOVERY_TRIGGER_ERROR]", e));
-            }
-        } catch (smsError) {
-            console.error('[Notification Error] SMS trigger isolated:', smsError.message);
-        }
-
-        // 🚀 AUTO-MARKETING: Fire campaign engine for new deal (fire-and-forget, non-blocking)
-        CampaignEngine.launch(deal._id).catch(err =>
-            console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
-        );
-
-        // 🎯 AI Lead Matching & Omnichannel Auto-Dispatch
-        if (sanitizedData.sendMatchedDeal && Object.values(sanitizedData.sendMatchedDeal).some(v => v === true || (typeof v === 'string' && v !== ''))) {
-            // Run asynchronously so deal creation doesn't block response
-            setTimeout(async () => {
-                try {
-                    const { matchLeads } = await import('./lead.controller.js');
-                    const { executeDispatch } = await import('./marketing.controller.js');
-
-                    // 1. Fetch matching leads using identical rules (same as Deal Match Center)
-                    const mockReqForMatch = {
-                        method: 'GET',
-                        query: { dealId: deal._id.toString(), budgetFlexibility: 20, sizeFlexibility: 20 }
-                    };
-                    const mockResForMatch = {
-                        status: function() { return this; },
-                        json: function(data) { this.data = data; return this; }
-                    };
-                    
-                    await matchLeads(mockReqForMatch, mockResForMatch);
-                    const matchedLeads = mockResForMatch.data?.matchingLeads || [];
-                    const leadIds = matchedLeads.map(l => l._id.toString());
-
-                    // 2. Dispatch if matches found and channels are selected
-                    const sd = sanitizedData.sendMatchedDeal;
-                    const toggles = {
-                        whatsapp: !!sd.whatsapp,
-                        whatsapp_app: !!sd.whatsapp_app,
-                        sms: !!sd.sms,
-                        email: !!sd.email,
-                        rcs: !!sd.rcs
-                    };
-                    const hasChannel = Object.values(toggles).some(v => v);
-                    
-                    if (leadIds.length > 0 && hasChannel) {
-                        console.log(`[AutoDispatch] Firing omni-dispatch for Deal ${deal._id} to ${leadIds.length} leads.`);
-                        const payload = { 
-                            dealIds: [deal._id.toString()], 
-                            leadIds: leadIds, 
-                            toggles, 
-                            hidePrice: !!sd.hidePrice, 
-                            hideUnit: !!sd.hideUnit, 
-                            hideLocation: !!sd.hideLocation, 
-                            templateId: sd.templateId && sd.templateId !== 'free_text' ? sd.templateId : null,
-                            matchContext: 'perfect'
-                        };
-                        const result = await executeDispatch(payload, req.user);
-                        console.log('[AutoDispatch] Result:', result);
-                    } else {
-                        console.log('[AutoDispatch] Skiped: No leads matched or no channels selected.');
-                    }
-                } catch(e) {
-                    console.error("[AUTO_DISPATCH_ERROR] Failed to auto-dispatch deal:", e);
-                }
-            }, 100);
-        }
-
-        // Trigger Workflow Engine
-        try {
-            await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
-            
-            // If Deal is linked to Inventory on creation, fire inventory hook
-            if (deal.inventoryId) {
-                const linkedInv = await Inventory.findById(deal.inventoryId).lean();
+            if (result.deal.inventoryId) {
+                const InventoryModel = mongoose.default ? mongoose.default.model('Inventory') : mongoose.model('Inventory');
+                const linkedInv = await InventoryModel.findById(result.deal.inventoryId).lean();
                 if (linkedInv) {
                     await WorkflowEngine.fireEvent('inventory', 'inventory_linked_to_deal', linkedInv, linkedInv.companyId);
                 }
@@ -2287,10 +2039,11 @@ export const addDeal = async (req, res) => {
             console.error('[WorkflowEngine] Trigger failed:', weErr.message);
         }
 
-        res.status(201).json({ success: true, data: deal });
+        res.status(201).json({ success: true, data: result.deal, warnings: result.warnings });
     } catch (error) {
         console.error("[ADD_DEAL_ERROR]", error);
-        res.status(500).json({ success: false, error: error.message });
+        const statusCode = error.code === 'DUPLICATE_DEAL' || error.code === 'IDEMPOTENT_CONFLICT' ? 409 : (error.code === 'INVENTORY_UNAVAILABLE' || error.name === 'ValidationError' ? 400 : 500);
+        res.status(statusCode).json({ success: false, error: error.message, code: error.code });
     }
 };
 
@@ -2360,11 +2113,11 @@ export const updateDeal = async (req, res) => {
                         const Role = mongoose.models.Role || mongoose.model('Role', new mongoose.Schema({ name: String }, {strict:false}));
                         const mgrRoles = await Role.find({ name: { $in: ['manager', 'admin'] } }).select('_id').lean().session(session);
                         const roleIds = mgrRoles.map(r => r._id);
-                        const managers = await User.find({ 
+                        const managers = await User.find({
                             role: { $in: roleIds },
-                            _id: { $ne: req.user?.id } 
+                            _id: { $ne: req.user?.id }
                         }).select('_id').lean().session(session);
-                        
+
                         for (const mgr of managers) {
                             notificationsToDispatch.push({
                                 userId: mgr._id,
@@ -2380,7 +2133,7 @@ export const updateDeal = async (req, res) => {
                 if (requiresHistoryUpdate) {
                     const atomicUpdate = { ...historyUpdate };
                     delete atomicUpdate.$push;
-                    
+
                     if (Object.keys(atomicUpdate).length > 0) {
                         await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate }, { session });
                     }
@@ -2419,11 +2172,11 @@ export const updateDeal = async (req, res) => {
                         .populate({ path: 'owners', model: 'Contact' })
                         .populate({ path: 'associates.contact', model: 'Contact' })
                         .session(session);
-                    
+
                     if (inventory) {
                         if (!sanitizedData.owner && inventory.owners?.[0]) sanitizedData.owner = inventory.owners[0]._id;
                         if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) sanitizedData.associatedContact = inventory.associates[0].contact._id;
-                        
+
                         if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
                         if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
                         if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
@@ -2452,7 +2205,7 @@ export const updateDeal = async (req, res) => {
             if (!deal) {
                 throw new Error('Deal not found');
             }
-            
+
             await syncInventoryStatus(deal, { session });
 
             // 🚀 ENTERPRISE RULE: Log Closed Lost to Inventory Activity Timeline
@@ -2460,7 +2213,7 @@ export const updateDeal = async (req, res) => {
                 const enteredAt = new Date(deal.createdAt);
                 const lostAt = new Date();
                 const daysActive = Math.max(1, Math.floor((lostAt - enteredAt) / 86400000));
-                
+
                 let lostPriceMsg = '';
                 if (sanitizedData.closingDetails?.lostPrice) {
                     lostPriceMsg = ` It was lost at a market price of ₹${Number(sanitizedData.closingDetails.lostPrice).toLocaleString('en-IN')}`;
@@ -2481,7 +2234,7 @@ export const updateDeal = async (req, res) => {
                     description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
                     priority: 'medium',
                     status: 'completed',
-                    completedAt: lostAt
+                    completedAt: lostA
                 }], { session });
             }
         });
@@ -2492,9 +2245,9 @@ export const updateDeal = async (req, res) => {
             return res.status(400).json({ success: false, error: msg, message: msg });
         }
         console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
-        return res.status(500).json({ 
-            success: false, 
-            error: error.message, 
+        return res.status(500).json({
+            success: false,
+            error: error.message,
             message: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
@@ -2592,49 +2345,57 @@ export const importDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data format" });
         }
 
-        const restructuredData = data.map(item => {
-            return {
-                projectName: item.projectName,
-                block: item.block,
-                unitNo: item.unitNo,
-                unitType: item.unitType,
-                propertyType: item.propertyType,
-                category: item.category,
-                subCategory: item.subCategory,
-                size: item.size,
-                location: item.location,
-                intent: item.intent,
-                price: parseFloat(item.price) || 0,
-                quotePrice: parseFloat(item.quotePrice) || 0,
-                pricingMode: item.pricingMode || 'Total',
-                ratePrice: parseFloat(item.ratePrice) || 0,
-                quoteRatePrice: parseFloat(item.quoteRatePrice) || 0,
-                pricingNature: {
-                    negotiable: item.negotiable === 'Yes' || item.negotiable === true,
-                    fixed: item.fixed === 'Yes' || item.fixed === true
-                },
-                status: item.status || 'Open',
-                dealType: item.dealType || 'Warm',
-                transactionType: item.transactionType || 'Full White',
-                flexiblePercentage: parseFloat(item.flexiblePercentage) || 50,
-                ownerName: item.ownerName, // Using strict: false or customFields if needed, but schema has owner ref
-                ownerPhone: item.ownerPhone,
-                ownerEmail: item.ownerEmail,
-                associatedContactName: item.associatedContactName,
-                associatedContactPhone: item.associatedContactPhone,
-                associatedContactEmail: item.associatedContactEmail,
-                team: item.team,
-                assignedTo: item.assignedTo,
-                visibleTo: item.visibleTo || 'Public',
-                remarks: item.remarks,
-                latitude: item.latitude || item.lat,
-                longitude: item.longitude || item.lng,
-                date: item.date ? new Date(item.date) : new Date()
-            };
-        });
+        const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
 
-        await Deal.insertMany(restructuredData, { ordered: false });
-        res.status(200).json({ success: true, message: `Successfully imported ${restructuredData.length} deals.` });
+        const results = [];
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < data.length; i++) {
+            const item = data[i];
+            try {
+                // We let Engine handle the normalization, but we map raw CSV keys if needed
+                const dealData = { ...item };
+                if (item.latitude || item.lat) dealData.latitude = item.latitude || item.lat;
+                if (item.longitude || item.lng) dealData.longitude = item.longitude || item.lng;
+
+                const input = {
+                    source: 'Import',
+                    idempotencyKey: `import_${req.headers['x-correlation-id'] || Date.now()}_row_${i}`,
+                    correlationId: req.headers['x-correlation-id'] || 'import',
+                    dealData,
+                    linkage: {
+                        inventoryId: item.inventoryId,
+                        projectId: item.projectId,
+                        leadId: item.leadId
+                    },
+                    ownerInfo: {
+                        owner: item.owner || item.ownerId
+                    }
+                };
+
+                const options = {
+                    triggerSms: false,
+                    triggerAiMatch: false,
+                    triggerMarketing: false,
+                    triggerDocumentSync: false,
+                    triggerDiscovery: false
+                };
+
+                const resObj = await createStandardizedDeal(input, options);
+                results.push({ row: i, success: true, dealId: resObj.deal._id, duplicate: resObj.isIdempotentReplay, warnings: resObj.warnings });
+                successCount++;
+            } catch (err) {
+                results.push({ row: i, success: false, error: err.message, code: err.code });
+                failCount++;
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Import complete. ${successCount} succeeded, ${failCount} failed.`,
+            results
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -2708,12 +2469,12 @@ export const getUniqueBlocks = async (req, res) => {
     try {
         const { project } = req.query;
         if (!project) return res.status(200).json({ success: true, blocks: [] });
-        
-        const blocks = await Deal.distinct("block", { 
-            projectName: { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') }, 
-            block: { $ne: null, $exists: true } 
+
+        const blocks = await Deal.distinct("block", {
+            projectName: { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') },
+            block: { $ne: null, $exists: true }
         });
-        
+
         const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         res.status(200).json({ success: true, blocks: sortedBlocks });
     } catch (error) {
@@ -2726,7 +2487,7 @@ export const addOffer = async (req, res) => {
     try {
         const { id } = req.params;
         const offerData = req.body;
-        
+
         const deal = await Deal.findById(id);
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
 
@@ -2767,7 +2528,7 @@ export const addOffer = async (req, res) => {
 export const getBulkExactMatchCounts = async (leads, options = {}) => {
     try {
         const { budgetFlexibility = 20, sizeFlexibility = 20, weightsParam, showOtherCities = false } = options;
-        
+
         let weights = { location: 30, type: 20, budget: 25, size: 25 };
         if (weightsParam) {
             try {
@@ -2788,7 +2549,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
         ];
         const allLookups = await Lookup.find({ lookup_type: { $in: lookupTypes } }).select('_id lookup_type lookup_value').lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
-        
+
         const getLookupValueLocal = (val) => {
             if (!val) return "";
             if (val.lookup_value) return String(val.lookup_value).toLowerCase();
@@ -2822,14 +2583,14 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
         const excludedStatusIds = allLookups
             .filter(l => ["Lost", "Closed", "Rejected", "Sold", "Cancelled"].includes(l.lookup_value))
             .map(l => l._id.toString());
-            
+
         let query = { status: { $nin: excludedStatusIds } };
         let allDeals = await Deal.find(query).populate('inventoryId').lean();
 
         // Distance helpers
         const calculateDistance = (lat1, lon1, lat2, lon2) => {
             if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-            const R = 6371; 
+            const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -2838,7 +2599,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
             return R * c;
         };
-        
+
         const extractNumericSize = (val) => {
             if (!val) return 0;
             const s = String(val).toLowerCase().replace(/,/g, '');
@@ -2849,7 +2610,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
         const convertToSqYd = (val, unit) => {
             let num = extractNumericSize(val);
             if (isNaN(num)) return 0;
-            
+
             let u = '';
             if (typeof val === 'string' && /[a-zA-Z]/.test(val)) {
                 u = val.toLowerCase();
@@ -2858,7 +2619,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 u = typeof unit === 'object' ? (unit.lookup_value || unit.name || '') : String(unit);
                 u = u.toLowerCase().trim();
             }
-            
+
             if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq. yard') || u.includes('sq. yd') || u.includes('yard')) return num;
             if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq. foot') || u.includes('sq. ft') || u.includes('feet')) return num / 9.0;
             if (u.includes('sq.m') || u.includes('sqm') || u.includes('sq. meter') || u.includes('meter')) return num * 1.19599;
@@ -2891,15 +2652,15 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
             const leadLocValue = getLookupValueLocal(lead.location);
             const leadBlocks = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => getLookupValueLocal(b));
             const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : []).map(p => getLookupValueLocal(p));
-            
+
             const selectedProjects = (Array.isArray(lead.project) ? lead.project : (lead.project ? [lead.project] : []));
 
             const lBudgetMin = getNum(lead.budgetMin);
             const lBudgetMax = getNum(lead.budgetMax);
-            
+
             const lAreaMin = getNum(lead.areaMin);
             const lAreaMax = getNum(lead.areaMax);
-            
+
             let lSizeSqYdMin = lAreaMin;
             let lSizeSqYdMax = lAreaMax;
             if (lead.areaMetric) {
@@ -2909,7 +2670,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
             for (const deal of allDeals) {
                 const dealIntent = getLookupValueLocal(deal.intent || deal.inventoryId?.intent);
-                
+
                 const intentMatched = (() => {
                     if (!dealIntent || !leadReq) return true;
                     if ((dealIntent.includes("sell") || dealIntent.includes("sale")) && (leadReq.includes("buy") || leadReq.includes("purchase"))) return true;
@@ -2917,13 +2678,13 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                     if (dealIntent === leadReq || dealIntent.includes(leadReq) || leadReq.includes(dealIntent)) return true;
                     return false;
                 })();
-                
+
                 if (!intentMatched) continue;
 
                 const dealCategory = getLookupValueLocal(deal.category || deal.inventoryId?.category);
-                const catMatched = !dealCategory || leadCats.length === 0 || leadCats.some(c => 
+                const catMatched = !dealCategory || leadCats.length === 0 || leadCats.some(c =>
                     c.includes(dealCategory) || dealCategory.includes(c) ||
-                    (dealCategory.includes("res") && c.includes("res")) || 
+                    (dealCategory.includes("res") && c.includes("res")) ||
                     (dealCategory.includes("comm") && c.includes("comm")) ||
                     (dealCategory.includes("plot") && c.includes("plot")) ||
                     (dealCategory.includes("agri") && c.includes("agri"))
@@ -2933,12 +2694,12 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
                 const dealCity = getLookupValueLocal(deal.locationDetails?.city || deal.inventoryId?.address?.city || deal.inventoryId?.locationDetails?.city);
                 const leadCityMatch = leadLocCity && dealCity && leadLocCity === dealCity;
-                
+
                 if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) continue;
 
                 let score = 0;
                 let locEarned = 0, typeEarned = 0, budgetEarned = 0, sizeEarned = 0;
-                
+
                 // A. Location
                 const locWeight = weights.location || 30;
                 const dealProjName = (deal.projectName || deal.inventoryId?.projectName || "").toLowerCase();
@@ -2948,11 +2709,11 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
                 const dealLat = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
                 const dealLng = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
-                
+
                 const leadLat = parseFloat(lead.locLat);
                 const leadLng = parseFloat(lead.locLng);
                 const leadRange = parseFloat(lead.range) || 5;
-                
+
                 let locationResolved = false;
 
                 if (leadLat && leadLng && dealLat && dealLng) {
@@ -2971,7 +2732,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                         locationResolved = true;
                     }
                 }
-                
+
                 if (!locationResolved && selectedProjects.length > 0 && dealLat && dealLng) {
                     for (const proj of selectedProjects) {
                         const pLat = parseFloat(proj.latitude);
@@ -2979,13 +2740,13 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                         if (pLat && pLng) {
                             const dist = calculateDistance(pLat, pLng, dealLat, dealLng);
                             if (dist !== null) {
-                                const projectBaseRange = 3; 
+                                const projectBaseRange = 3;
                                 if (dist <= projectBaseRange) {
                                     score += locWeight;
                                     locEarned = locWeight;
                                 } else {
                                     const extraDist = dist - projectBaseRange;
-                                    const penalty = (extraDist / projectBaseRange) * locWeight * 0.5; 
+                                    const penalty = (extraDist / projectBaseRange) * locWeight * 0.5;
                                     const earned = Math.max(0, locWeight - penalty);
                                     if (earned > 0) {
                                         score += earned;
@@ -3035,7 +2796,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                     typeEarned = typeWeight * 0.4;
                 }
 
-                // C. Budget
+                // C. Budge
                 const budgetWeight = weights.budget || 25;
                 const dealPrice = parseFloat(deal.price || deal.quotePrice) || 0;
                 if (dealPrice > 0 && lBudgetMax > 0) {
@@ -3060,7 +2821,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 let rawDealSizeNum = 0;
                 let rawDealSizeStr = null;
                 const configStr = getLookupValueLocal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
-                
+
                 if (configStr) {
                     rawDealSizeStr = configStr;
                 } else if (deal.size && deal.size.value > 0) {
@@ -3076,7 +2837,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 }
                 const dealSizeUnit = deal.sizeUnit || deal.inventoryId?.size?.unit || deal.inventoryId?.sizeUnit || 'Sq.Yd.';
                 let dSizeSqYd = 0;
-                
+
                 if (deal.sizeType && deal.sizeType.toLowerCase() === 'marla') {
                     dSizeSqYd = convertToSqYd(rawDealSizeStr, "marla");
                 } else if (deal.sizeType && deal.sizeType.toLowerCase() === 'sqyd') {
@@ -3109,7 +2870,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 // --- STRICT ENTERPRISE PREFERRED MATCH ---
                 const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
                 const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValueLocal(u)).filter(Boolean);
-                
+
                 const dealSizeDesc = [
                     deal.sizeType, deal.inventoryId?.sizeType,
                     deal.unitType, deal.inventoryId?.unitType,
@@ -3123,7 +2884,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
                 const isBudgetMatch = lBudgetMax === 0 || (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax);
                 const isLocationMatch = isLocationMissing || locEarned >= locWeight;
-                
+
                 const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
 
                 if (isPreferredMatch) {

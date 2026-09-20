@@ -619,7 +619,8 @@ export const receiveWebhook = async (req, res) => {
                     if (!match) {
                         console.log(`[SocialController] ❌ No match found for ${cleanPhone}. Creating automatic WhatsApp Lead...`);
                         const sourceId = await resolveLeadLookup('Source', 'WhatsApp Inbound');
-                        match = await Lead.create({
+                        const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+                        const leadResult = await createStandardizedLead({
                             firstName: 'WhatsApp',
                             lastName: 'Lead',
                             mobile: cleanPhone,
@@ -627,7 +628,8 @@ export const receiveWebhook = async (req, res) => {
                             intent_index: 50,
                             tags: ['AI Auto-Engaged'],
                             description: `Auto-created from inbound WhatsApp message: ${event.text.substring(0, 100)}`
-                        });
+                        }, { triggerEvent: 'onWhatsAppCapture' });
+                        match = leadResult.lead;
                         entityType = 'Lead';
                     }
 

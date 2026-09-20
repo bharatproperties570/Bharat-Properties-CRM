@@ -94,14 +94,12 @@ class LinkedInLeadSyncService {
                 }
             };
 
-            // Use the Lead model for saving (this triggers the pre-save merge logic)
-            const lead = new Lead(leadData);
-            await lead.save().catch(err => {
-                // Catch duplicate errors if merge logic didn't catch it
+            // Use standardized Lead Creation Engine
+            const { createStandardizedLead } = await import('./LeadCreationEngine.js');
+            await createStandardizedLead(leadData, { triggerEvent: 'onCampaignIntake' }).catch(err => {
                 if (err.name === 'MongoError' && err.code === 11000) return null;
                 throw err;
             });
-
             return true;
         } catch (error) {
             if (error.isDuplicateMerge) return true; // Already merged correctly

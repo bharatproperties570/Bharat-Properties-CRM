@@ -202,18 +202,28 @@ export const submitDealForm = async (req, res) => {
             dealData.assignedTo = form.settings.autoAssignTo;
         }
 
-        // Create Deal
-        const deal = await Deal.create(dealData);
+        // Route Deal Creation through standardized Enterprise Engine
+        const { createStandardizedDeal } = await import("../services/DealCreationEngine.js");
 
-        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
-        const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-        await distributeEntity(deal, 'onDealCapture');
+        const input = {
+            source: 'WebForm',
+            correlationId: req.headers['x-correlation-id'] || 'webform-' + Date.now(),
+            dealData,
+            linkage: {
+                inventoryId: inventory ? inventory._id : null
+            },
+            ownerInfo: {
+                owner: ownerContact ? ownerContact._id : null
+            }
+        };
 
-        // ⚡ [AUTO-PILOT]: Activate 360° Marketing Loop
-        // We don't await this to keep the form response fast
-        MarketingService.triggerAutoMarketing(deal._id).catch(err => {
-            console.error('[AUTO-MARKETING ERROR]: Failed to trigger loop for deal', deal._id, err);
-        });
+        const options = {
+            triggerDistribution: true,
+            triggerMarketing: true
+        };
+
+        const result = await createStandardizedDeal(input, options);
+        const deal = result.deal;
 
         // Update Analytics
         form.analytics.submissions += 1;

@@ -231,7 +231,11 @@ const sanitizeLeadData = async (data) => {
     // 2. Reference Normalization (Handle empty strings)
     const refFields = ['owner', 'contactDetails', 'capture_form', 'project', 'salutation'];
     refFields.forEach(f => {
-        if (data[f] === "" || data[f] === "null" || data[f] === undefined) data[f] = null;
+        if (data[f] !== undefined) {
+            if (data[f] === "" || data[f] === "null") {
+                data[f] = null;
+            }
+        }
     });
 
     // 3. Array Protection (Ensure arrays are arrays and not corrupted)

@@ -889,49 +889,10 @@ export const addLead = async (req, res, next) => {
             }
         }
 
-        let createdLeadId;
-        await withMongoTransaction(async (session) => {
-            // Enterprise Identity Resolution: Link existing Contact or Create a new one
-            const contactRes = await resolveContactIdentity({
-                mobile: data.mobile,
-                email: data.email,
-                session,
-                createIfMissing: true,
-                contactData: {
-                    name: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Unknown',
-                    title: data.salutation,
-                    tags: [...(data.tags || []), 'Lead Contact'],
-                    source: data.source,
-                    subSource: data.subSource,
-                    campaign: data.campaign,
-                    assignedTo: data.assignment?.assignedTo || data.owner,
-                    owner: data.owner,
-                    teams: data.teams || [],
-                    department: data.department,
-                    requirement: data.requirement,
-                    budget: data.budget,
-                    location: data.location,
-                    personalAddress: data.personalAddress
-                }
-            });
-            if (contactRes.success && contactRes.contact && !contactRes.conflict) {
-                data.contactDetails = contactRes.contact._id;
-            }
-
-            const leadDoc = new Lead(data);
-            await leadDoc.save({ session });
-            createdLeadId = leadDoc._id;
-        });
-        const lead = await Lead.findById(createdLeadId);
+        const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+        const leadResult = await createStandardizedLead(data, { triggerEvent: 'onCreate' });
+        const lead = leadResult.lead;
         console.log("[DEBUG] Lead created successfully:", lead._id);
-
-        // Auto-run Enrichment & Scoring (wrapped in try-catch to prevent crash)
-        try {
-            await runFullLeadEnrichment(lead._id);
-            await LeadScoringService.computeAndSave(lead._id);
-        } catch (enrichError) {
-            console.error("[ENRICHMENT ERROR] Failed in addLead:", enrichError.message);
-        }
 
         // ─── Proactive Duplicate Check & Conflict Notification ───────────────────────
         if (lead.mobile) {
@@ -952,31 +913,24 @@ export const addLead = async (req, res, next) => {
             }
         }
 
-        // ─── Auto-Assign via Enterprise Distribution Engine ────────────────────────
+        // Auto-Assign logic is now securely handled inside LeadCreationEngine
         let assignedAgent = null;
-        try {
-            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-            const assignment = await distributeEntity(lead, 'onCreate');
+        if (leadResult.assignment && leadResult.assignment.assignedTo) {
+            assignedAgent = {
+                userId: leadResult.assignment.assignedTo,
+                ruleName: leadResult.assignment.ruleName
+            };
+            console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${leadResult.assignment.ruleName}"`);
             
-            if (assignment && assignment.assignedTo) {
-                assignedAgent = {
-                    userId: assignment.assignedTo,
-                    ruleName: assignment.ruleName
-                };
-                console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${assignment.ruleName}"`);
-                
-                // Create Notification for auto-assignment
-                await createNotification(
-                    assignment.assignedTo,
-                    'assignments',
-                    'New Lead Assigned',
-                    `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
-                    `/leads/${lead._id}`,
-                    { leadId: lead._id }
-                );
-            }
-        } catch (distErr) {
-            console.warn('[DISTRIBUTION] distributeEntity failed (non-critical):', distErr.message);
+            // Create Notification for auto-assignment
+            await createNotification(
+                leadResult.assignment.assignedTo,
+                'assignments',
+                'New Lead Assigned',
+                `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
+                `/leads/${lead._id}`,
+                { leadId: lead._id }
+            );
         }
 
         await lead.populate(leadPopulateFields); console.log("Lead Status after populate:", lead.status);

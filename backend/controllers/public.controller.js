@@ -1200,20 +1200,28 @@ export const submitPropertyForm = async (req, res) => {
             source: 'Website - Professional Deal Capture'
         };
 
-        const deal = await Deal.create(dealData);
+        // Route Public Property Submission through DealCreationEngine
+        const { createStandardizedDeal } = await import("../services/DealCreationEngine.js");
 
-        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
-        try {
-            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-            const assignment = await distributeEntity(deal, 'onDealCapture');
-            
-            if (assignment && assignment.assignedTo) {
-                // assignedUser is used for notification later
-                dealData.assignedTo = assignment.assignedTo;
+        const input = {
+            source: 'Website - Public Submission',
+            correlationId: req.headers['x-correlation-id'] || 'public-' + Date.now(),
+            dealData,
+            linkage: {
+                inventoryId: inventoryId || null
+            },
+            ownerInfo: {
+                owner: contactRecord ? contactRecord._id : null
             }
-        } catch (distErr) {
-            console.error("[DISTRIBUTION ERROR] Deal Submit:", distErr);
-        }
+        };
+
+        const options = {
+            triggerDistribution: true,
+            triggerMarketing: false // Typically public leads go to verification first
+        };
+
+        const result = await createStandardizedDeal(input, options);
+        const deal = result.deal;
 
         res.status(201).json({
             success: true,
@@ -1222,7 +1230,7 @@ export const submitPropertyForm = async (req, res) => {
         });
 
         // 🌟 SENIOR ADDITION: Notify Assigned User (or Admin)
-        const notifyTarget = assignedUser || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
+        const notifyTarget = deal.assignedTo || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
         if (notifyTarget) {
             await createNotification(
                 notifyTarget,
@@ -1248,7 +1256,8 @@ export const submitLeadForm = async (req, res) => {
         let lead = await Lead.findOne({ mobile });
 
         if (!lead) {
-            lead = await Lead.create({
+            const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+            const leadResult = await createStandardizedLead({
                 firstName: name.split(' ')[0],
                 lastName: name.split(' ').slice(1).join(' '),
                 mobile,
@@ -1258,17 +1267,9 @@ export const submitLeadForm = async (req, res) => {
                 status: await resolveLookup('Status', 'Incoming'),
                 stage: await resolveLookup('Stage', 'Incoming'),
                 description: `Captured from website ${activityType || 'Contact'} form.`
-            });
-
-            // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Leads)
-            try {
-                const { distributeEntity } = await import("../src/utils/distributionEngine.js");
-                await distributeEntity(lead, 'onWebCapture');
-                // Re-fetch lead to get assigned owner
-                lead = await Lead.findById(lead._id);
-            } catch (distErr) {
-                console.error("[DISTRIBUTION ERROR] Lead Submit:", distErr);
-            }
+            }, { triggerEvent: 'onWebCapture' });
+            
+            lead = leadResult.lead;
         }
 
         // 2. Prepare Activity Data
