@@ -854,7 +854,16 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
             if (!id) return;
             setLoadingHist(true);
             try {
-                const res = await activitiesAPI.getThreadHistory(id, { via: item.via });
+                const params = { via: item.via };
+                if (item.via === 'WhatsApp' || (!item.via && item.type === 'WhatsApp')) {
+                    if (item.businessPhoneNumberId) {
+                        params.businessPhoneNumberId = item.businessPhoneNumberId;
+                    }
+                    if (item.whatsappIntegrationId) {
+                        params.integrationId = item.whatsappIntegrationId;
+                    }
+                }
+                const res = await activitiesAPI.getThreadHistory(id, params);
                 if (res?.success && isMounted) {
                     setHistory(res.data || []);
                 }
@@ -866,7 +875,7 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
         };
         fetchHistory();
         return () => { isMounted = false; };
-    }, [item.phone, item.id, item.via]);
+    }, [item.phone, item.id, item.via, item.businessPhoneNumberId, item.whatsappIntegrationId]);
 
     const handleSend = async () => {
         if ((!text.trim() && !pendingFile) || sending) return;
@@ -944,10 +953,23 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:800, color: T.text, fontSize:'0.9rem'}}>{item.participant}</div>
-                    <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'2px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'2px',flexWrap:'wrap'}}>
                         <span style={{fontSize:'0.62rem',padding:'2px 7px',borderRadius:'20px',background:`${chObj.color}18`,color:chObj.color,fontWeight:800,textTransform:'uppercase'}}>{chObj.icon} {item.via}</span>
                         {item.isMatched && <span style={{fontSize:'0.62rem',color:'#22c55e',fontWeight:700}}>✓ CRM Linked</span>}
                         {item.phone && <span style={{fontSize:'0.62rem',color:T.text3,fontFamily:'monospace'}}>{item.phone}</span>}
+                        {item.via === 'WhatsApp' && (item.businessPhoneNumber || item.businessPhoneNumberId) && (
+                            <span style={{
+                                fontSize:'0.62rem',
+                                padding:'2px 7px',
+                                borderRadius:'20px',
+                                background: isDark ? 'rgba(59,130,246,0.15)' : '#eff6ff',
+                                color: isDark ? '#93c5fd' : '#1d4ed8',
+                                fontWeight:700,
+                                border: isDark ? '1px solid rgba(59,130,246,0.3)' : '1px solid #bfdbfe'
+                            }}>
+                                Via {item.businessPhoneNumber || (item.businessPhoneNumberId === '1117700221418284' ? '+91 99960 00570' : (item.businessPhoneNumberId === '1025884503949059' ? '+91 99913 33570' : `ID: ${item.businessPhoneNumberId}`))}
+                            </span>
+                        )}
                     </div>
                 </div>
 

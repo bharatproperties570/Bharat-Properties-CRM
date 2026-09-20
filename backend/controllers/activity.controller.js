@@ -1386,6 +1386,15 @@ export const sendReply = async (req, res) => {
         const targetAccount = integrationId || fromPhoneNumberId || null;
         let dispatchResult = { success: false, error: "Initialization error" };
 
+        // 🛡️ Enterprise RBAC Check for WhatsApp Outbound
+        if (channel.toLowerCase() === 'whatsapp') {
+            const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+            const authCheck = await WhatsAppAccountAuthorizationService.assertCanSend(req.user, targetAccount);
+            if (!authCheck.authorized) {
+                return res.status(403).json({ success: false, error: authCheck.reason || "Unauthorized to send from this WhatsApp account" });
+            }
+        }
+
         try {
             if (channel.toLowerCase() === 'whatsapp') {
                 if (attachment) {
@@ -1593,7 +1602,11 @@ export const getMessagingActivities = async (req, res) => {
             if (!identifier) return;
 
             const via = ['Call', 'Voice', 'call', 'voice'].includes(a.type) ? 'Voice' : (['Email', 'email'].includes(a.type) ? 'Email' : (['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' ? 'WhatsApp' : 'SMS'));
-            const key = `${identifier}_${via}`;
+            let key = `${identifier}_${via}`;
+            if (via === 'WhatsApp') {
+                const bizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId || 'default';
+                key = `${identifier}_WhatsApp_${bizId}`;
+            }
 
             const isOutbound = (a.details?.direction || '').toLowerCase() === 'outbound' || (a.subject||'').toLowerCase().includes('outgoing') || ['Sent', 'Delivered'].includes(a.outcome || a.status);
             const prefix = isOutbound ? 'You: ' : 'Customer: ';
@@ -1643,7 +1656,8 @@ export const getMessagingActivities = async (req, res) => {
 
         rawConversations.forEach(c => {
             const phone = normalizePhone(c.phoneNumber);
-            const key = `${phone}_WhatsApp`;
+            const bizId = c.businessPhoneNumberId || 'default';
+            const key = `${phone}_WhatsApp_${bizId}`;
             const existingActivity = conversationsMap.get(key);
 
             if (!existingActivity || new Date(c.updatedAt) > new Date(existingActivity.timestamp)) {
@@ -1730,12 +1744,43 @@ export const getMessagingActivities = async (req, res) => {
 export const getThreadHistory = async (req, res) => {
     try {
         const { identifier } = req.params;
-        const { via } = req.query; // WhatsApp, SMS, Voice, Email
+        const { via, businessPhoneNumberId, integrationId } = req.query; // WhatsApp, SMS, Voice, Email
         if (!identifier) return res.status(400).json({ success: false, error: "Identifier required" });
 
         const phone = normalizePhone(identifier);
         const email = identifier.toLowerCase();
         const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // Account Identity Resolution for WhatsApp Isolation
+        let targetBizPhoneId = businessPhoneNumberId ? String(businessPhoneNumberId).trim() : null;
+        let targetIntegrationId = integrationId ? String(integrationId).trim() : null;
+
+        if (targetIntegrationId && !targetBizPhoneId && mongoose.Types.ObjectId.isValid(targetIntegrationId)) {
+            try {
+                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+                const intDoc = await WhatsAppIntegration.findById(targetIntegrationId).select('phoneNumberId').lean();
+                if (intDoc?.phoneNumberId) {
+                    targetBizPhoneId = String(intDoc.phoneNumberId).trim();
+                }
+            } catch (e) {}
+        }
+
+        // Build Conversation Query
+        let convQuery = { phoneNumber: phone };
+        const isWhatsAppChannel = via ? (via.toLowerCase() === 'whatsapp') : true;
+
+        if (isWhatsAppChannel && (targetBizPhoneId || targetIntegrationId)) {
+            if (targetBizPhoneId && targetIntegrationId) {
+                convQuery.$or = [
+                    { businessPhoneNumberId: targetBizPhoneId },
+                    { whatsappIntegrationId: targetIntegrationId }
+                ];
+            } else if (targetBizPhoneId) {
+                convQuery.businessPhoneNumberId = targetBizPhoneId;
+            } else if (targetIntegrationId) {
+                convQuery.whatsappIntegrationId = targetIntegrationId;
+            }
+        }
 
         // 1. Fetch relevant records in parallel
         const [activities, conversations] = await Promise.all([
@@ -1751,11 +1796,28 @@ export const getThreadHistory = async (req, res) => {
                     ]}
                 ]
             }).sort({ createdAt: 1 }).lean(),
-            Conversation.find({ phoneNumber: phone }).lean()
+            Conversation.find(convQuery).lean()
         ]);
 
         // 2. Unify and Sort
-        let thread = activities.map(a => {
+        let filteredActivities = activities;
+        if (isWhatsAppChannel && (targetBizPhoneId || targetIntegrationId)) {
+            filteredActivities = activities.filter(a => {
+                const isWa = ['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' || a.details?.platform === 'whatsapp';
+                if (!isWa) return true;
+                const aBizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId;
+                const aIntId = a.details?.whatsappIntegrationId || a.details?.integrationId;
+                if (aBizId && targetBizPhoneId && String(aBizId) !== targetBizPhoneId) {
+                    return false;
+                }
+                if (aIntId && targetIntegrationId && String(aIntId) !== targetIntegrationId) {
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        let thread = filteredActivities.map(a => {
             let text = a.description || a.subject;
             if (a.type?.toLowerCase() === 'marketing' && a.details?.results) {
                 const waRes = a.details.results.find(r => r.channel === 'whatsapp');

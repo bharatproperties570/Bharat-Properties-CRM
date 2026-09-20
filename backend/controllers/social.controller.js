@@ -117,7 +117,14 @@ export const sendWhatsAppMessage = async (req, res, next) => {
         const Lead = mongoose.model('Lead');
         const Activity = mongoose.model('Activity');
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
         const targetAccount = integrationId || fromPhoneNumberId || null;
+
+        // 🛡️ Enterprise RBAC Check for Outbound WhatsApp Send
+        const authCheck = await WhatsAppAccountAuthorizationService.assertCanSend(req.user, targetAccount);
+        if (!authCheck.authorized) {
+            return res.status(403).json({ success: false, error: authCheck.reason || "Unauthorized to send from this WhatsApp account" });
+        }
 
         console.log(`[SocialController] Dispatching WhatsApp to: ${mobile} (Template: ${templateId || 'None'}, Account: ${targetAccount || 'Default'})`);
 
@@ -1113,11 +1120,15 @@ export const getWhatsAppAccounts = async (req, res) => {
     try {
         const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
         const SystemSetting = mongoose.model('SystemSetting');
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
 
         // Fetch all active integrations
         const integrations = await WhatsAppIntegration.find({ status: 'ACTIVE' })
             .sort({ isDefault: -1, createdAt: 1 })
             .lean();
+
+        // 🛡️ Enterprise RBAC Filter: Only include integrations the current user is authorized to access
+        const authorizedIntegrations = WhatsAppAccountAuthorizationService.filterAuthorizedAccounts(req.user, integrations);
 
         // Check if legacy meta_wa_config exists
         const legacySetting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
@@ -1126,7 +1137,7 @@ export const getWhatsAppAccounts = async (req, res) => {
         const accounts = [];
 
         // Add registered integrations
-        integrations.forEach(i => {
+        authorizedIntegrations.forEach(i => {
             accounts.push({
                 id: i._id.toString(),
                 phoneNumberId: i.phoneNumberId,
@@ -1139,12 +1150,12 @@ export const getWhatsAppAccounts = async (req, res) => {
             });
         });
 
-        // Ensure legacy meta_wa_config is represented if not already in list
+        // Ensure legacy meta_wa_config is represented if not already in list AND user is authorized
         const legacyPhoneId = legacyConfig?.phoneId;
         const alreadyInList = accounts.some(a => a.phoneNumberId === legacyPhoneId);
 
         if (!alreadyInList && legacyPhoneId && legacyConfig?.token) {
-            accounts.unshift({
+            const legacyAccountObj = {
                 id: 'legacy_default',
                 phoneNumberId: legacyPhoneId,
                 wabaId: legacyConfig?.businessId || '',
@@ -1153,7 +1164,10 @@ export const getWhatsAppAccounts = async (req, res) => {
                 connectionType: 'NEW_API',
                 isDefault: true,
                 status: 'ACTIVE'
-            });
+            };
+            if (WhatsAppAccountAuthorizationService.canUserAccessAccount(req.user, legacyAccountObj)) {
+                accounts.unshift(legacyAccountObj);
+            }
         } else if (legacyPhoneId && alreadyInList) {
             // Ensure the legacy Cloud API number has isDefault: true unless another is explicitly set
             const hasDefault = accounts.some(a => a.isDefault);

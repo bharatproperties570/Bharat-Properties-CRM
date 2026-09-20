@@ -27,28 +27,28 @@ class WhatsAppService {
 
         // 1. If explicit account ID or Phone ID is requested, look in WhatsAppIntegration
         if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
-            try {
-                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
-                const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
-                    ? { _id: integrationIdOrPhoneId, status: 'ACTIVE' }
-                    : { phoneNumberId: String(integrationIdOrPhoneId), status: 'ACTIVE' };
+            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+            const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
+                ? { _id: integrationIdOrPhoneId, status: 'ACTIVE' }
+                : { phoneNumberId: String(integrationIdOrPhoneId), status: 'ACTIVE' };
 
-                const integration = await WhatsAppIntegration.findOne(query).lean();
-                if (integration && integration.credentials?.systemUserToken && !isPlaceholder(integration.credentials.systemUserToken)) {
-                    return {
-                        integrationId: integration._id,
-                        token: integration.credentials.systemUserToken,
-                        phoneId: integration.phoneNumberId,
-                        businessId: integration.wabaId,
-                        appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
-                        displayPhoneNumber: integration.displayPhoneNumber,
-                        accountLabel: integration.accountLabel || 'WhatsApp Account',
-                        connectionType: integration.connectionType
-                    };
-                }
-            } catch (e) {
-                console.warn('[WhatsAppService] Error resolving specific integration:', e.message);
+            const integration = await WhatsAppIntegration.findOne(query).lean();
+            if (!integration) {
+                throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' not found or inactive`);
             }
+            if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
+                throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' has no valid credentials`);
+            }
+            return {
+                integrationId: integration._id,
+                token: integration.credentials.systemUserToken,
+                phoneId: integration.phoneNumberId,
+                businessId: integration.wabaId,
+                appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                displayPhoneNumber: integration.displayPhoneNumber,
+                accountLabel: integration.accountLabel || 'WhatsApp Account',
+                connectionType: integration.connectionType
+            };
         }
 
         // 2. Try default active WhatsAppIntegration (e.g. if configured as default)
@@ -118,7 +118,13 @@ class WhatsAppService {
         }
 
         const targetAccount = typeof options === 'string' ? options : (options?.integrationId || options?.phoneId || null);
-        const config = await this._getMetaConfig(targetAccount);
+        let config;
+        try {
+            config = await this._getMetaConfig(targetAccount);
+        } catch (err) {
+            console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
+            return { success: false, error: err.message, provider: 'meta' };
+        }
         if (config) {
             return this._sendViaMeta(mobile, message, config, { type: 'text', ...(typeof options === 'object' ? options : {}) });
         }
@@ -268,7 +274,13 @@ class WhatsAppService {
         }
 
         const targetAccount = options?.integrationId || options?.phoneId || null;
-        const metaConfig = await this._getMetaConfig(targetAccount);
+        let metaConfig;
+        try {
+            metaConfig = await this._getMetaConfig(targetAccount);
+        } catch (err) {
+            console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
+            return { success: false, error: err.message, provider: 'meta' };
+        }
         if (!metaConfig) {
             console.log(`[WhatsApp/Meta] MOCK template to ${mobile}: ${templateName}`);
             return { success: true, mock: true, provider: 'mock' };
@@ -325,7 +337,13 @@ class WhatsAppService {
         }
 
         const targetAccount = extraOptions?.integrationId || extraOptions?.phoneId || null;
-        const metaConfig = await this._getMetaConfig(targetAccount);
+        let metaConfig;
+        try {
+            metaConfig = await this._getMetaConfig(targetAccount);
+        } catch (err) {
+            console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
+            return { success: false, error: err.message, provider: 'meta' };
+        }
         if (metaConfig) {
             let mediaId = null;
 
@@ -383,7 +401,13 @@ class WhatsAppService {
      * Required for reliable delivery when the source is not a public URL
      */
     async uploadToMeta(filePath, type, integrationId = null) {
-        const config = await this._getMetaConfig(integrationId);
+        let config;
+        try {
+            config = await this._getMetaConfig(integrationId);
+        } catch (err) {
+            console.error('[WhatsAppService] Error resolving config for uploadToMeta:', err.message);
+            return { success: false, error: err.message };
+        }
         if (!config || !config.token) return { success: false, error: 'Meta config missing' };
 
         try {
@@ -414,7 +438,13 @@ class WhatsAppService {
     }
 
     async getTemplates(integrationId = null) {
-        const config = await this._getMetaConfig(integrationId);
+        let config;
+        try {
+            config = await this._getMetaConfig(integrationId);
+        } catch (err) {
+            console.error('[WhatsAppService] Error resolving config for getTemplates:', err.message);
+            return [];
+        }
         
         if (!config || !config.token || !config.businessId) {
             return [
