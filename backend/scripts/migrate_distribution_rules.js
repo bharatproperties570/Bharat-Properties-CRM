@@ -3,6 +3,29 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function canonicalizeForComparison(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (obj instanceof mongoose.Types.ObjectId) return obj.toString();
+    if (obj instanceof Date) return obj.toISOString();
+    if (Array.isArray(obj)) return obj.map(canonicalizeForComparison);
+    if (typeof obj === 'object') {
+        const sortedKeys = Object.keys(obj).sort();
+        const result = {};
+        for (const key of sortedKeys) {
+            result[key] = canonicalizeForComparison(obj[key]);
+        }
+        return result;
+    }
+    return obj;
+}
+
+function documentsSemanticallyEqual(docA, docB) {
+    const canonA = canonicalizeForComparison(docA);
+    const canonB = canonicalizeForComparison(docB);
+    return JSON.stringify(canonA) === JSON.stringify(canonB);
+}
+
+
 export const TARGET_RULE_ID = '69b8c7ba81e723b58a586959';
 export const CAMPAIGN_OBJECT_ID = '698b3312861a01e0b08168ad';
 export const TARGET_AGENT_ID = '69d8661c8e2ebcc74dbfb56c';
@@ -77,7 +100,7 @@ export async function createBackup(db) {
     const backupRule = await db.collection(backupCollectionName).findOne({ _id: new mongoose.Types.ObjectId(TARGET_RULE_ID) });
 
     if (!backupRule) throw new Error("Target rule missing from backup.");
-    if (JSON.stringify(originalRule) !== JSON.stringify(backupRule)) {
+    if (!documentsSemanticallyEqual(originalRule, backupRule)) {
         throw new Error("Backup rule document mismatch.");
     }
 
