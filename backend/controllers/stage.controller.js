@@ -11,6 +11,7 @@ import Lead from '../models/Lead.js';
 import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
 import Lookup from '../models/Lookup.js';
+import LookupService from '../services/LookupService.js';
 import AuditLog from '../models/AuditLog.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import mongoose from 'mongoose';
@@ -68,32 +69,14 @@ const resolveMultiLeadDealStage = (leadStages = [], syncRules = [], hasOwnerWith
  * Lead.stage is a Lookup ref; Deal.stage is a plain string.
  */
 const resolveStageId = async (stageName) => {
-    if (!stageName) return null;
-    if (mongoose.Types.ObjectId.isValid(stageName)) return stageName;
-    let lookup = await Lookup.findOne({
-        lookup_type: 'Stage',
-        lookup_value: { $regex: new RegExp(`^${stageName}$`, 'i') }
-    });
-    if (!lookup) {
-        lookup = await Lookup.create({ lookup_type: 'Stage', lookup_value: stageName });
-    }
-    return lookup._id;
+    return await LookupService.resolve('Stage', stageName);
 };
 
 /**
  * Resolve a status string to Lookup ObjectId (for Lead model compatibility).
  */
 const resolveStatusId = async (statusName) => {
-    if (!statusName) return null;
-    if (mongoose.Types.ObjectId.isValid(statusName)) return statusName;
-    let lookup = await Lookup.findOne({
-        lookup_type: 'Status',
-        lookup_value: { $regex: new RegExp(`^${statusName}$`, 'i') }
-    });
-    if (!lookup) {
-        lookup = await Lookup.create({ lookup_type: 'Status', lookup_value: statusName });
-    }
-    return lookup._id;
+    return await LookupService.resolve('Status', statusName);
 };
 
 /**

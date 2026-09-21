@@ -3,6 +3,7 @@ import { resolveContactIdentity } from '../services/contactIdentity.service.js';
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
+import LookupService from "../services/LookupService.js";
 import User from "../models/User.js";
 import Contact from "../models/Contact.js";
 import Activity from "../models/Activity.js";
@@ -40,26 +41,18 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
     const cacheKey = `${type}:${String(value).toLowerCase()}`;
     if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
 
-    const escapedValue = escapeRegExp(value);
-    const re = new RegExp(`^${escapedValue}$`, 'i');
-    let lookup = await Lookup.findOne({ 
-        lookup_type: type, 
-        $or: [
-            { lookup_value: { $regex: re } },
-            { "metadata.aliases": { $regex: re } }
-        ]
+    const lookupId = await LookupService.resolve(type, value, {
+        createIfMissing,
+        checkAliases: true
     });
 
-    if (!lookup) {
-        if (!createIfMissing) return null;
-        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    if (lookupId) {
+        if (_lookupResolveCache.size >= LOOKUP_CACHE_MAX) {
+            _lookupResolveCache.delete(_lookupResolveCache.keys().next().value);
+        }
+        _lookupResolveCache.set(cacheKey, lookupId);
     }
-
-    if (_lookupResolveCache.size >= LOOKUP_CACHE_MAX) {
-        _lookupResolveCache.delete(_lookupResolveCache.keys().next().value);
-    }
-    _lookupResolveCache.set(cacheKey, lookup._id);
-    return lookup._id;
+    return lookupId;
 };
 
 // Helper to resolve User (By Name or Email)

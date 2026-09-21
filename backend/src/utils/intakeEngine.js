@@ -490,13 +490,8 @@ export const processIntake = async (payload) => {
 
         // Execute post-commit tasks safely if any
         if (result && result.postCommitTasks && Array.isArray(result.postCommitTasks)) {
-            const { executePostCommitTasks } = await import('../../services/DealCreationEngine.js');
-            const standardTasks = result.postCommitTasks.filter(t => typeof t !== 'function');
             const customTasks = result.postCommitTasks.filter(t => typeof t === 'function');
 
-            if (standardTasks.length > 0) {
-                await executePostCommitTasks(standardTasks).catch(e => log.error(traceId, 'Standard postCommitTasks failed', { err: e.message }));
-            }
             for (const t of customTasks) {
                 try { await t(); } catch (e) { log.error(traceId, 'Custom postCommitTask failed', { err: e.message }); }
             }

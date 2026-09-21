@@ -3,7 +3,7 @@ import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import { resolveContactIdentity } from './contactIdentity.service.js';
 import { runFullLeadEnrichment } from '../src/utils/enrichmentEngine.js';
 import LeadScoringService from '../src/services/LeadScoringService.js';
-import { distributeEntity } from '../src/utils/distributionEngine.js';
+
 import OutboxEvent from '../models/OutboxEvent.js';
 import { v4 as uuidv4 } from 'uuid';
 
