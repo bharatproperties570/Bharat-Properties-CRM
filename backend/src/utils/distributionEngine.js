@@ -138,7 +138,7 @@ export const distributeEntity = async (entity, triggerEvent, isRetry = false) =>
 
     // 6. BullMQ jobId lifecycle
     // Deterministic jobId tied to cycleId prevents duplicate active jobs.
-    const jobId = `dist:${entityId}:${triggerEvent}:${cycleId}`;
+    const jobId = `dist-${entityId}-${triggerEvent}-${cycleId}`;
 
     // 4. EXACT QUEUE PAYLOAD: Pointer only
     await distributionQueue.add('distribute', {
