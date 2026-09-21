@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
 import { useTriggers } from '../context/TriggersContext';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import smsService from '../services/smsService';
@@ -344,6 +345,7 @@ const SendMessageModal = ({
             if (channel === 'WHATSAPP') {
                 let successCount = 0;
                 let lastRes = null;
+                let lastError = null;
                 for (const recipient of recipients) {
                     try {
                         const individualRes = await whatsappService.sendMessage({
@@ -360,14 +362,17 @@ const SendMessageModal = ({
                         if (individualRes && individualRes.success) {
                             successCount++;
                             lastRes = individualRes;
+                        } else {
+                            lastError = individualRes?.error || 'Message send failed';
                         }
                     } catch (err) {
                         console.error(`Failed to send WA to ${recipient.phone || recipient.mobile}`, err);
+                        lastError = err.response?.data?.error || err.response?.data?.message || err.message;
                     }
                 }
                 
                 if (successCount === 0 && recipients.length > 0) {
-                    res = { success: false, error: 'All WhatsApp messages failed to send.' };
+                    res = { success: false, error: lastError || 'All WhatsApp messages failed to send.' };
                 } else if (successCount > 0) {
                     res = { success: true, mock: lastRes?.mock };
                     if (recipients.length > 1) {
@@ -868,19 +873,17 @@ const SendMessageModal = ({
                                         }
 
                                         // Step 3: Inform user to paste in desktop app
-                                        import('react-hot-toast').then(({ default: toastLib }) => {
-                                            toastLib(
-                                                (t) => (
-                                                    <div style={{ maxWidth: '300px' }}>
-                                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>✅ Message Copied!</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#374151' }}>
-                                                            Desktop app opens — <strong>paste (⌘V / Ctrl+V)</strong> in the message box.
-                                                        </div>
+                                        toast(
+                                            (t) => (
+                                                <div style={{ maxWidth: '300px' }}>
+                                                    <div style={{ fontWeight: 700, marginBottom: '4px' }}>✅ Message Copied!</div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#374151' }}>
+                                                        Desktop app opens — <strong>paste (⌘V / Ctrl+V)</strong> in the message box.
                                                     </div>
-                                                ),
-                                                { duration: 7000, icon: '📲' }
-                                            );
-                                        });
+                                                </div>
+                                            ),
+                                            { duration: 7000, icon: '📲' }
+                                        );
                                         onClose();
                                     }}
                                     style={{
