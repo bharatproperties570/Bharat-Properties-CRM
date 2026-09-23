@@ -12,6 +12,8 @@ import { invalidateAllUserCaches } from '../services/cache.service.js';
 import { calculateUserPermissions } from '../services/permission.service.js';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
+import OutboxEvent from '../models/OutboxEvent.js';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Get all users with filtering and pagination
@@ -563,12 +565,29 @@ export const toggleUserStatus = async (req, res) => {
                         }
                         console.log(`[User Management] Transferred ${openLeads.length} active leads from deactivated user ${user._id} to manager ${fallbackManager}`);
                     } else {
-                        // If no manager, queue them back to the distribution engine
-                        const { distributionQueue } = await import('../src/queues/queueManager.js');
+                        // If no manager, queue them back to the distribution engine via R56 Outbox
                         for (const lead of openLeads) {
-                            lead.owner = null; 
-                            await lead.save();
-                            await distributionQueue.add('distribute', { entity: lead, triggerEvent: 'onLeadReassignment' });
+                            const session = await mongoose.startSession();
+                            session.startTransaction();
+                            try {
+                                lead.owner = null;
+                                await lead.save({ session });
+                                await OutboxEvent.create([{
+                                    eventId: uuidv4(),
+                                    eventType: 'LeadReassignmentRequested',
+                                    aggregateType: 'Lead',
+                                    aggregateId: lead._id,
+                                    payload: {
+                                        triggerEvent: 'onLeadReassignment'
+                                    }
+                                }], { session });
+                                await session.commitTransaction();
+                            } catch (err) {
+                                await session.abortTransaction();
+                                console.error(`[User Management] Failed to transfer lead ${lead._id} to Outbox: ${err.message}`);
+                            } finally {
+                                session.endSession();
+                            }
                         }
                         console.log(`[User Management] Queued ${openLeads.length} active leads from deactivated user ${user._id} for redistribution (No manager).`);
                     }

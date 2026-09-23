@@ -128,6 +128,20 @@ export const processDomainEvent = async (job) => {
             break;
         }
 
+        case 'LeadReassignmentRequested': {
+            const { distributeEntity } = await import('../utils/distributionEngine.js');
+            const Lead = mongoose.model('Lead');
+
+            await executeEffect(eventId, 'distribution', aggregateType, aggregateId, async () => {
+                const freshLead = await Lead.findById(aggregateId);
+                if (freshLead) {
+                    await distributeEntity(freshLead, payload.triggerEvent, false);
+                }
+            });
+
+            break;
+        }
+
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }

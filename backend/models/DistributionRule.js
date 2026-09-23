@@ -11,7 +11,7 @@ const DistributionRuleSchema = new mongoose.Schema({
     triggerEvent: { 
         type: [{
             type: String, 
-            enum: ['onCreate', 'onImport', 'onCampaignIntake', 'onWebCapture', 'onDealCapture', 'onWhatsAppCapture', 'onEmailCapture'] 
+            enum: ['onCreate', 'onImport', 'onCampaignIntake', 'onWebCapture', 'onDealCapture', 'onWhatsAppCapture', 'onEmailCapture', 'onLeadReassignment']
         }], 
         required: true,
         validate: [
