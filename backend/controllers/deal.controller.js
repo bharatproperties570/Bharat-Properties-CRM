@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
@@ -2051,8 +2052,14 @@ export const updateDeal = async (req, res) => {
     console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
     let deal = null;
     let existing = null;
-    let notificationsToDispatch = [];
     const sanitizedData = sanitizeData(req.body);
+
+    const triggeredBy = req.user?.id || null;
+    const stageProvided = sanitizedData.stage !== undefined && sanitizedData.stage !== null;
+    let previousStage = null;
+    let newStage = stageProvided ? sanitizedData.stage : null;
+    let stageChanged = false;
+    const documents = Array.isArray(sanitizedData.documents) ? sanitizedData.documents : null;
 
     try {
         if (!isValidObjectId(req.params.id)) {
@@ -2068,13 +2075,15 @@ export const updateDeal = async (req, res) => {
                 .session(session);
 
             if (existing) {
+                previousStage = existing.stage || null;
+                stageChanged = stageProvided && sanitizedData.stage !== existing.stage;
+
                 const now = new Date();
                 const historyUpdate = {};
                 let requiresHistoryUpdate = false;
 
                 // 1. Stage History
-                const newStage = sanitizedData.stage;
-                if (newStage && newStage !== existing.stage) {
+                if (stageChanged) {
                     requiresHistoryUpdate = true;
                     if (existing.stageHistory?.length > 0) {
                         const lastIdx = existing.stageHistory.length - 1;
@@ -2093,42 +2102,6 @@ export const updateDeal = async (req, res) => {
                         triggeredBy: sanitizedData.triggeredBy || 'manual_override',
                         reason: sanitizedData.stageSyncReason || sanitizedData.reason || "Stage manually updated"
                     };
-
-                    // [NOTIFICATION] Queue High-Value Stage Change
-                    const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
-                    const ownerId = sanitizedData.assignedTo || existing.assignedTo || existing.owner;
-                    if (ownerId && String(ownerId) !== String(req.user?.id)) {
-                        notificationsToDispatch.push({
-                            userId: ownerId,
-                            type: 'deal',
-                            title: `🔥 Deal Stage: ${sanitizedData.stage}`,
-                            message: `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
-                            link: `/deals/${req.params.id}`,
-                            meta: { dealId: req.params.id, stage: sanitizedData.stage }
-                        });
-                    }
-
-                    if (milestoneStages.includes(sanitizedData.stage)) {
-                        const User = mongoose.model('User');
-                        const Role = mongoose.models.Role || mongoose.model('Role', new mongoose.Schema({ name: String }, {strict:false}));
-                        const mgrRoles = await Role.find({ name: { $in: ['manager', 'admin'] } }).select('_id').lean().session(session);
-                        const roleIds = mgrRoles.map(r => r._id);
-                        const managers = await User.find({
-                            role: { $in: roleIds },
-                            _id: { $ne: req.user?.id }
-                        }).select('_id').lean().session(session);
-
-                        for (const mgr of managers) {
-                            notificationsToDispatch.push({
-                                userId: mgr._id,
-                                type: 'deal',
-                                title: `💰 Achievement: Deal ${sanitizedData.stage}!`,
-                                message: `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
-                                link: `/deals/${req.params.id}`,
-                                meta: { dealId: req.params.id, type: 'milestone' }
-                            });
-                        }
-                    }
                 }
                 if (requiresHistoryUpdate) {
                     const atomicUpdate = { ...historyUpdate };
@@ -2234,9 +2207,24 @@ export const updateDeal = async (req, res) => {
                     description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
                     priority: 'medium',
                     status: 'completed',
-                    completedAt: lostA
+                    completedAt: lostAt
                 }], { session });
             }
+
+            // 📦 PHASE 6: Durable Domain Orchestration
+            await OutboxEvent.create([{
+                eventType: 'DealUpdated',
+                aggregateType: 'Deal',
+                aggregateId: deal._id,
+                payload: {
+                    triggeredBy,
+                    previousStage,
+                    newStage,
+                    stageProvided,
+                    stageChanged,
+                    documents
+                }
+            }], { session });
         });
 
     } catch (error) {
@@ -2251,52 +2239,10 @@ export const updateDeal = async (req, res) => {
             message: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
-    } finally {
-        await session.endSession();
     }
 
     if (deal) {
-        // --- POST-COMMIT SIDE EFFECTS ---
         res.json({ success: true, data: deal, deal: deal });
-
-        for (const notif of notificationsToDispatch) {
-            createNotification(notif.userId, notif.type, notif.title, notif.message, notif.link, notif.meta).catch(() => {});
-        }
-
-        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
-            const metadata = { projectName: deal.projectName, block: deal.block, unitNumber: deal.unitNo };
-            syncDocumentsToContact(sanitizedData.documents, metadata).catch(() => {});
-        }
-
-        if (sanitizedData.stage) {
-            try {
-                const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
-                const extractPhone = (contact) => {
-                    if (!contact) return null;
-                    if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) return contact.phones[0].number;
-                    return contact.phone || contact.mobile || null;
-                };
-                const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
-                if (phone) {
-                    smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
-                        dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
-                        stage: dealPop.stage
-                    }).catch(() => {});
-                }
-            } catch (smsError) {
-                console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
-            }
-        }
-
-        try {
-            if (sanitizedData.stage && existing && sanitizedData.stage !== existing.stage) {
-                WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId).catch(() => {});
-            }
-        } catch (weErr) {}
-
-        setTimeout(() => {
-            CampaignEngine.launch(deal._id).catch(() => {});
-        }, 100);
     }
 };
 

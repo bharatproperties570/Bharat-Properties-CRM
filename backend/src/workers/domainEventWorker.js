@@ -128,6 +128,128 @@ export const processDomainEvent = async (job) => {
             break;
         }
 
+
+        case 'DealUpdated': {
+            const Deal = mongoose.model('Deal');
+            const User = mongoose.model('User');
+            const Role = mongoose.models.Role || mongoose.model('Role', new mongoose.Schema({ name: String }, {strict:false}));
+            const deal = await Deal.findById(aggregateId).lean();
+            if (!deal) throw new Error(`Deal ${aggregateId} not found`);
+
+            const dealEffects = [];
+
+            dealEffects.push({
+                key: 'campaign',
+                fn: async () => {
+                    const CampaignEngineModule = await import('../../services/CampaignEngine.js');
+                    const CampaignEngine = CampaignEngineModule.default || CampaignEngineModule;
+                    await CampaignEngine.launch(deal._id);
+                }
+            });
+
+            if (payload.stageChanged) {
+                dealEffects.push({
+                    key: 'notification',
+                    fn: async () => {
+                        const { createNotification } = await import('../../controllers/notification.controller.js');
+
+                        const assignedRMId = deal.assignedTo || deal.assignment?.assignedTo;
+                        if (assignedRMId && String(assignedRMId) !== String(payload.triggeredBy)) {
+                            await createNotification(
+                                assignedRMId,
+                                'deal',
+                                `🔥 Deal Stage: ${payload.newStage}`,
+                                `Deal for project "${deal.projectName}" moved to ${payload.newStage}.`,
+                                `/deals/${deal._id}`,
+                                { dealId: deal._id, stage: payload.newStage }
+                            );
+                        }
+
+                        const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
+                        if (milestoneStages.includes(payload.newStage)) {
+                            const mgrRoles = await Role.find({ name: { $in: ['manager', 'admin'] } }).select('_id').lean();
+                            const roleIds = mgrRoles.map(r => r._id);
+                            const managers = await User.find({
+                                role: { $in: roleIds },
+                                _id: { $ne: payload.triggeredBy }
+                            }).select('_id').lean();
+
+                            for (const mgr of managers) {
+                                await createNotification(
+                                    mgr._id,
+                                    'deal',
+                                    `💰 Achievement: Deal ${payload.newStage}!`,
+                                    `Great news! A deal for "${deal.projectName}" has reached ${payload.newStage} status.`,
+                                    `/deals/${deal._id}`,
+                                    { dealId: deal._id, type: 'milestone' }
+                                );
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (payload.stageProvided) {
+                dealEffects.push({
+                    key: 'sms',
+                    fn: async () => {
+                        const smsServiceModule = await import('../modules/sms/sms.service.js');
+                        const smsService = smsServiceModule.default || smsServiceModule;
+                        const dealPop = await Deal.findById(deal._id).populate('owner associatedContact').lean();
+                        const extractPhone = (contact) => {
+                            if (!contact) return null;
+                            if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) return contact.phones[0].number;
+                            return contact.phone || contact.mobile || null;
+                        };
+                        const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
+                        if (phone) {
+                            await smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
+                                dealId: dealPop.dealId || dealPop._id.toString().slice(-6).toUpperCase(),
+                                stage: dealPop.stage
+                            });
+                        }
+                    }
+                });
+            }
+
+            if (payload.stageChanged) {
+                dealEffects.push({
+                    key: 'workflow',
+                    fn: async () => {
+                        const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+                        await WorkflowEngine.fireEvent('deals', 'deal_stage_changed', deal, deal.companyId);
+                    }
+                });
+            }
+
+            if (payload.documents && Array.isArray(payload.documents)) {
+                dealEffects.push({
+                    key: 'documents',
+                    fn: async () => {
+                        const { syncDocumentsToContact } = await import('../../utils/sync.js');
+                        const metadata = { projectName: deal.projectName, block: deal.block, unitNumber: deal.unitNo };
+                        await syncDocumentsToContact(payload.documents, metadata);
+                    }
+                });
+            }
+
+            const failures = [];
+            for (const effect of dealEffects) {
+                try {
+                    await executeEffect(eventId, effect.key, aggregateType, aggregateId, effect.fn);
+                } catch (err) {
+                    console.error(`[DomainEventWorker] DealUpdated effect ${effect.key} failed:`, err.message);
+                    failures.push(err);
+                }
+            }
+
+            if (failures.length > 0) {
+                throw new AggregateError(failures, `DealUpdated DomainEvent encountered ${failures.length} effect failures.`);
+            }
+
+            break;
+        }
+
         case 'LeadReassignmentRequested': {
             const { distributeEntity } = await import('../utils/distributionEngine.js');
             const Lead = mongoose.model('Lead');
