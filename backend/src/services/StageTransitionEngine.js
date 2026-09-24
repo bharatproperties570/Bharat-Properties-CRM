@@ -1210,7 +1210,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
 
     console.log(`[StageEngine] Executing transition for Lead ${leadId}: ${prevStageName} -> ${newStageName}`);
-    await Lead.findByIdAndUpdate(leadId, updatePayload);
+    await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
 
     // Audit log
     try {
@@ -1605,7 +1605,8 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         reason,
         triggeredByUser: context.triggeredByUser,
         stageFormData,
-        visitedProperties: context.visitedProperties || []
+        visitedProperties: context.visitedProperties || [],
+        session: context.session
     });
 
     // Post-Transition: Add AI Intelligence & Notifications

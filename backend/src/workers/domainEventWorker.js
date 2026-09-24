@@ -308,6 +308,54 @@ export const processDomainEvent = async (job) => {
             break;
         }
 
+
+        case 'ActivityCreated':
+            await executeEffect(eventId, 'activity_enrichment', aggregateType, aggregateId, async () => {
+                const QueueManager = await import('../queues/queueManager.js');
+                await QueueManager.enrichmentQueue.add('enrichLead', { leadId: aggregateId });
+            });
+            await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
+                const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
+                await LeadScoringService.computeAndSave(aggregateId, { triggeredBy: 'activity_created' });
+            });
+            await executeEffect(eventId, 'activity_notification', aggregateType, aggregateId, async () => {
+                // Not handled purely in background yet, placeholder for future
+            });
+            await executeEffect(eventId, 'activity_google_sync', aggregateType, aggregateId, async () => {
+                const QueueManager = await import('../queues/queueManager.js');
+                await QueueManager.googleSyncQueue.add('syncEvent', { activityId: aggregateId });
+            });
+            await executeEffect(eventId, 'activity_whatsapp_trigger', aggregateType, aggregateId, async () => {
+                const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
+                await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_created');
+            });
+            await executeEffect(eventId, 'activity_workflow', aggregateType, aggregateId, async () => {
+                const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
+                await WorkflowEngine.fireEvent('activities', 'activity_created', { _id: aggregateId, ...payload }, payload.companyId);
+            });
+            break;
+
+                case 'ActivityUpdated':
+            if (payload.statusChanged && payload.newStatus?.toLowerCase() === 'completed') {
+                await executeEffect(eventId, 'activity_whatsapp_trigger_completed', aggregateType, aggregateId, async () => {
+                    const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
+                    await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_completed');
+                });
+                await executeEffect(eventId, 'activity_workflow_completed', aggregateType, aggregateId, async () => {
+                    const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
+                    await WorkflowEngine.fireEvent('activities', 'activity_completed', { _id: aggregateId, ...payload }, payload.companyId);
+                });
+                await executeEffect(eventId, 'activity_scoring_completed', aggregateType, aggregateId, async () => {
+                    const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
+                    await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' });
+                });
+            }
+            await executeEffect(eventId, 'activity_google_sync_updated', aggregateType, aggregateId, async () => {
+                const QueueManager = await import('../queues/queueManager.js');
+                await QueueManager.googleSyncQueue.add('syncEvent', { activityId: aggregateId });
+            });
+            break;
+
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }

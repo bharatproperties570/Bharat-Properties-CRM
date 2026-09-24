@@ -2,65 +2,65 @@ import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
 const OutboxEventSchema = new mongoose.Schema({
-    eventId: { 
-        type: String, 
-        required: true, 
-        unique: true, 
-        default: () => uuidv4() 
-    },
-    eventType: { 
-        type: String, 
+    eventId: {
+        type: String,
         required: true,
-        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated']
+        unique: true,
+        default: () => uuidv4()
     },
-    aggregateType: { 
-        type: String, 
+    eventType: {
+        type: String,
         required: true,
-        enum: ['Lead', 'Deal'] 
+        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated']
     },
-    aggregateId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        required: true 
+    aggregateType: {
+        type: String,
+        required: true,
+        enum: ['Lead', 'Deal', 'Activity']
     },
-    payload: { 
-        type: mongoose.Schema.Types.Mixed, 
-        required: true 
+    aggregateId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
     },
-    correlationId: { 
-        type: String, 
-        required: false 
+    payload: {
+        type: mongoose.Schema.Types.Mixed,
+        required: true
     },
-    status: { 
-        type: String, 
+    correlationId: {
+        type: String,
+        required: false
+    },
+    status: {
+        type: String,
         required: true,
         enum: ['PENDING', 'PROCESSING', 'PUBLISHED', 'FAILED'],
         default: 'PENDING'
     },
-    attempts: { 
-        type: Number, 
+    attempts: {
+        type: Number,
         required: true,
         default: 0
     },
-    availableAt: { 
-        type: Date, 
+    availableAt: {
+        type: Date,
         required: true,
-        default: Date.now 
+        default: Date.now
     },
-    lockedUntil: { 
-        type: Date, 
-        required: false 
+    lockedUntil: {
+        type: Date,
+        required: false
     },
-    lockedBy: { 
-        type: String, 
-        required: false 
+    lockedBy: {
+        type: String,
+        required: false
     },
-    publishedAt: { 
-        type: Date, 
-        required: false 
+    publishedAt: {
+        type: Date,
+        required: false
     },
-    lastError: { 
-        type: String, 
-        required: false 
+    lastError: {
+        type: String,
+        required: false
     }
 }, { timestamps: true });
 

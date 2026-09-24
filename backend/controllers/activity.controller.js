@@ -1,4 +1,6 @@
 import Activity from "../models/Activity.js";
+import OutboxEvent from "../models/OutboxEvent.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
@@ -8,7 +10,7 @@ import Conversation from "../models/Conversation.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 
-import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
+import * as StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
 import { createNotification } from "./notification.controller.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
@@ -21,7 +23,7 @@ import Inventory from "../models/Inventory.js";
 /**
  * Enterprise Enrichment Layer:
  * Heals activities by auto-populating missing contact/lead metadata (name, mobile, email).
- * This ensures "Unknown Client" and missing phone/email labels are eliminated even if 
+ * This ensures "Unknown Client" and missing phone/email labels are eliminated even if
  * the activity was saved with partial data (e.g. from mobile sync or legacy imports).
  */
 const populateParticipantsAndRelatedData = async (activities) => {
@@ -61,7 +63,7 @@ const populateParticipantsAndRelatedData = async (activities) => {
                 }
             }
         });
-        
+
         // Also look for Inventory IDs to attach Project and Block for legacy records
         if (String(a.entityType || '').toLowerCase() === 'inventory' && a.entityId) {
             inventoryIds.add(String(a.entityId).trim());
@@ -109,13 +111,13 @@ const populateParticipantsAndRelatedData = async (activities) => {
 
     // Parallel lookup across both ID types AND names as an ultimate fallback for deep data healing
     const [leads, contacts, inventories] = await Promise.all([
-        Lead.find({ 
+        Lead.find({
             $or: [
                 { _id: { $in: validLeadObjIds } },
                 ...leadNameQueries
             ]
         }).select('firstName lastName mobile email salutation').lean(),
-        Contact.find({ 
+        Contact.find({
             $or: [
                 { _id: { $in: validContactObjIds } },
                 ...contactNameQueries
@@ -153,11 +155,11 @@ const populateParticipantsAndRelatedData = async (activities) => {
 
     return activities.map(a => {
         const act = { ...a };
-        
+
         // Identity Resolution Logic (Multi-Path)
         let entityMatch = null;
         let inventoryMatch = null;
-        
+
         // Path A: Primary Pointer
         const eId = String(act.entityId || '');
         const eType = String(act.entityType || '').toLowerCase();
@@ -182,7 +184,7 @@ const populateParticipantsAndRelatedData = async (activities) => {
                 }
             }
         }
-        
+
         if (!inventoryMatch && Array.isArray(act.relatedTo)) {
             for (const r of act.relatedTo) {
                 if (String(r.model || '').toLowerCase() === 'inventory') {
@@ -395,13 +397,13 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
         if (transition.stageChanged) {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
         }
-        
+
         // 🏢 ENTERPRISE: Deal Auto-Sync Cascade
         try {
             // Find if this activity relates to any Deals
             const dealRelations = (activity.relatedTo || []).filter(r => r.model === 'Deal' && r.id);
             const dealIds = dealRelations.map(r => r.id);
-            
+
             // Also if entityType is Deal (unlikely for Lead activity, but safety fallback)
             if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
                 dealIds.push(activity.entityId);
@@ -409,18 +411,18 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
 
             if (dealIds.length > 0) {
                 const uniqueDealIds = [...new Set(dealIds)];
-                
+
                 // For each linked Deal:
                 // 1. Add this Lead to the Deal's leads array
                 // 2. Trigger a sync using all leads connected to that deal
                 const { internalSyncDealStage } = await import('./stage.controller.js');
-                
+
                 for (const dId of uniqueDealIds) {
                     // Link lead to deal (idempotent addToSet)
                     await Deal.findByIdAndUpdate(dId, {
                         $addToSet: { leads: leadId }
                     }).catch(() => {});
-                    
+
                     // Fetch all leads now linked to this deal to resolve multi-lead stage
                     const deal = await Deal.findById(dId).select('leads').lean();
                     if (deal && deal.leads && deal.leads.length > 0) {
@@ -428,9 +430,9 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
                             .select('stage')
                             .populate('stage', 'lookup_value')
                             .lean();
-                            
+
                         const leadStages = linkedLeads.map(l => typeof l.stage === 'object' ? l.stage?.lookup_value : l.stage).filter(Boolean);
-                        
+
                         if (leadStages.length > 0) {
                             await internalSyncDealStage(dId, leadStages, {
                                 reason: `Auto-cascade from Lead activity: ${actType}`,
@@ -492,12 +494,12 @@ export const getActivities = async (req, res) => {
         if (includeCommunications !== 'true') {
             const actionableTypes = ['Call', 'Call Back', 'Email', 'Meeting', 'Site Visit', 'Task', 'Follow Up', 'Feedback', 'Note'];
             const typeRegexes = actionableTypes.map(t => new RegExp(`^${t}$`, 'i'));
-            
+
             query.$and = query.$and || [];
-            
+
             // 1. MUST be an actionable task type
             query.$and.push({ type: { $in: typeRegexes } });
-            
+
             // 2. MUST NOT be an automated system log or synced passive log
             query.$and.push({
                 'details.sid': { $exists: false },
@@ -513,7 +515,7 @@ export const getActivities = async (req, res) => {
         if (entityId && mongoose.Types.ObjectId.isValid(entityId)) query.entityId = entityId;
         else if (entityId) return res.status(400).json({ success: false, error: "Invalid entityId format" });
         if (entityType) query.entityType = entityType;
-        
+
         // If specific type is requested, it overrides the communication filter
         if (type) {
             query.type = type;
@@ -526,7 +528,7 @@ export const getActivities = async (req, res) => {
             }
         }
         if (assignedTo) query.assignedTo = assignedTo;
-        
+
         if (req.query.contactPhone) {
             const cleanPhone = req.query.contactPhone.replace(/[^0-9]/g, "").slice(-10);
             const phoneRegex = new RegExp(`${cleanPhone}$`);
@@ -570,7 +572,7 @@ export const getActivities = async (req, res) => {
                 if (act.assignedTo) {
                     act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
                 } else {
-                    act.performedBy = "System"; 
+                    act.performedBy = "System";
                 }
             }
             return act;
@@ -649,19 +651,19 @@ export const getUnifiedTimeline = async (req, res) => {
 
         // 0. Authorize Entity Access (Entity-Based Authorization)
         // If the user has access to the parent entity, they see ALL its history.
-        const ModelMap = { 
-            leads: Lead, 
+        const ModelMap = {
+            leads: Lead,
             lead: Lead,
-            contact: Contact, 
+            contact: Contact,
             contacts: Contact,
-            deal: Deal, 
+            deal: Deal,
             deals: Deal,
             project: Project,
             projects: Project,
             inventory: Inventory
         };
         const ParentModel = ModelMap[entityType.toLowerCase()];
-        
+
         if (ParentModel) {
             const parentExists = await ParentModel.findOne({ _id: objId, ...visibilityFilter }).select('_id').lean();
             if (!parentExists) {
@@ -846,7 +848,7 @@ export const getActivityById = async (req, res) => {
 const detectMentions = async (text, actorId, entityInfo) => {
     try {
         if (!text || !text.includes('@')) return;
-        
+
         // Match @Name or @Surname (handling spaces if quoted or just standard Slack-like pattern)
         const mentions = text.match(/@(\w+)/g);
         if (!mentions) return;
@@ -885,7 +887,7 @@ export const addActivity = async (req, res) => {
     try {
         const activityData = { ...req.body };
         const actorName = req.user?.fullName || req.user?.name || 'A teammate';
-        
+
         // Auto-set performer name from authenticated user
         if (req.user) {
             activityData.createdBy = req.user.id || req.user._id;
@@ -919,8 +921,23 @@ export const addActivity = async (req, res) => {
             activityData.department = req.user.department;
         }
 
-        const activity = await Activity.create(activityData);
-        
+        let activity = null;
+        let transition = null;
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await OutboxEvent.create([{
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    type: activity.type,
+                    actorId: req.user?.id || req.user?._id,
+                    entityId: activity.entityId,
+                    entityType: activity.entityType
+                }
+            }], { session });
+
         // 🚀 Detect Mentions in Note/Description
         if (activity.description) {
             detectMentions(activity.description, req.user?.id || req.user?._id, {
@@ -938,7 +955,7 @@ export const addActivity = async (req, res) => {
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
             if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(err => console.error("FIRST LEAD UPDATE ERROR", err));
             }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
@@ -979,15 +996,42 @@ export const addActivity = async (req, res) => {
                 }
 
                 if (Object.keys(updateData).length > 0) {
-                    await Deal.findByIdAndUpdate(dealId, updateData).catch(err => console.error("Score/Unit sync failed:", err));
+                    await Deal.findByIdAndUpdate(dealId, updateData, { session }).catch(err => console.error("Score/Unit sync failed:", err));
                 }
             }
         }
 
-        // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
         let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            transition = await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
+            const outcome = activity.details?.completionResult || activity.details?.meetingOutcomeStatus || activity.details?.callOutcome || activity.details?.outcome || activity.completionResult || '';
+            const reason = activity.details?.outcomeReason || activity.details?.reason || '';
+            const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
+
+            let resolvedOutcome = outcome;
+            const actTypeLower = activity.type?.toLowerCase();
+            if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
+                const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
+                resolvedOutcome = activity.details.visitedProperties
+                    .map(p => (p.result || '').toLowerCase())
+                    .filter(Boolean)
+                    .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
+            }
+
+            transition = await StageTransitionEngine.evaluateAndTransition(
+                activity.entityId,
+                activity.type,
+                resolvedOutcome,
+                reason,
+                {},
+                {
+                    activityId: activity._id,
+                    triggeredByUser: req.user?.id || req.user?._id || activity.assignedTo || null,
+                    purpose,
+                    status: activity.status,
+                    visitedProperties: activity.details?.visitedProperties || [],
+                    session
+                }
+            );
         }
 
         // 🚀 ENTERPRISE FIX: Mobile App Trigger Execution
@@ -995,7 +1039,7 @@ export const addActivity = async (req, res) => {
         try {
             const { default: ActivityTriggerService } = await import('../src/services/ActivityTriggerService.js');
             await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_created');
-            
+
             if (activity.status?.toLowerCase() === 'completed') {
                 await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_completed');
             }
@@ -1021,7 +1065,7 @@ export const addActivity = async (req, res) => {
         try {
             const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
             await WorkflowEngine.fireEvent('activities', 'activity_created', activity, activity.companyId);
-            
+
             // Communication Triggers
             if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
                 await WorkflowEngine.fireEvent('communication', 'call_logged', activity, activity.companyId);
@@ -1033,6 +1077,7 @@ export const addActivity = async (req, res) => {
             console.error('[WorkflowEngine] Error firing activity_created:', weError.message);
         }
 
+                }); // end tx
         res.status(201).json({ success: true, data: activity, transition });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -1044,7 +1089,7 @@ export const addActivity = async (req, res) => {
 export const updateActivity = async (req, res) => {
     try {
         const updateData = { ...req.body };
-        
+
         // If status is changing to Completed, ensure performedBy is set
         if (updateData.status === 'Completed' && req.user) {
             updateData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
@@ -1052,7 +1097,7 @@ export const updateActivity = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
-        
+
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
             if (existingAct && String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
@@ -1067,11 +1112,14 @@ export const updateActivity = async (req, res) => {
             }
         }
 
-        const activity = await Activity.findOneAndUpdate(
-            { _id: req.params.id, ...visibilityFilter },
-            updateData,
-            { new: true, runValidators: true }
-        );
+        let activity = null;
+        let transition = null;
+        await withMongoTransaction(async (session) => {
+            activity = await Activity.findOneAndUpdate(
+                { _id: req.params.id, ...visibilityFilter },
+                updateData,
+                { new: true, runValidators: true, session }
+            );
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
@@ -1084,18 +1132,78 @@ export const updateActivity = async (req, res) => {
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
             if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(err => console.error("FIRST LEAD UPDATE ERROR", err));
             }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
             await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
         }
 
-        // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
         let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            transition = await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
+            const outcome = activity.details?.completionResult || activity.details?.meetingOutcomeStatus || activity.details?.callOutcome || activity.details?.outcome || activity.completionResult || '';
+            const reason = activity.details?.outcomeReason || activity.details?.reason || '';
+            const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
+
+            let resolvedOutcome = outcome;
+            const actTypeLower = activity.type?.toLowerCase();
+            if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
+                const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
+                resolvedOutcome = activity.details.visitedProperties
+                    .map(p => (p.result || '').toLowerCase())
+                    .filter(Boolean)
+                    .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
+            }
+
+            transition = await StageTransitionEngine.evaluateAndTransition(
+                activity.entityId,
+                activity.type,
+                resolvedOutcome,
+                reason,
+                {},
+                {
+                    activityId: activity._id,
+                    triggeredByUser: req.user?.id || req.user?._id || activity.assignedTo || null,
+                    purpose,
+                    status: activity.status,
+                    visitedProperties: activity.details?.visitedProperties || [],
+                    session
+                }
+            );
         }
+
+            const statusChanged = existingAct.status !== activity.status;
+            const assignmentChanged = String(existingAct.assignedTo) !== String(activity.assignedTo);
+            const dateChanged = String(existingAct.dueDate) !== String(activity.dueDate);
+            const prevOutcome = existingAct.details?.callOutcome || existingAct.completionResult || '';
+            const newOutcome = activity.details?.callOutcome || activity.completionResult || '';
+            const outcomeChanged = prevOutcome !== newOutcome;
+            const descriptionChanged = existingAct.description !== activity.description;
+
+            if (statusChanged || assignmentChanged || dateChanged || outcomeChanged || descriptionChanged) {
+                await OutboxEvent.create([{
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: activity._id,
+                    payload: {
+                        statusChanged,
+                        previousStatus: existingAct.status,
+                        newStatus: activity.status,
+                        assignmentChanged,
+                        previousAssignedTo: existingAct.assignedTo,
+                        newAssignedTo: activity.assignedTo,
+                        dateChanged,
+                        outcomeChanged,
+                        descriptionChanged,
+                        type: activity.type,
+                        entityType: activity.entityType,
+                        entityId: activity.entityId,
+                        actorId: req.user?.id || req.user?._id
+                    }
+                }], { session });
+            }
+        }); // end tx
+
 
         // Trigger WhatsApp feedbacks for Task Management page completion
         if (activity.status === 'Completed' && existingAct && existingAct.status !== 'Completed') {
@@ -1115,7 +1223,7 @@ export const updateActivity = async (req, res) => {
             if (activity.status?.toLowerCase() === 'completed') {
                 await WorkflowEngine.fireEvent('activities', 'activity_completed', activity, activity.companyId);
             }
-            
+
             // Communication Triggers
             if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
                 if (activity.details?.callOutcome || activity.completionResult) {
@@ -1185,7 +1293,7 @@ export const syncMobileCalls = async (req, res) => {
             const cleanPhone = phone.replace(/[^0-9]/g, '');
             const normalizedPhone = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
             const escapedPhone = escapeRegExp(normalizedPhone);
-            
+
             // Search criteria: match the last 10 digits
             const phoneQuery = { $regex: new RegExp(`${escapedPhone}$`) };
 
@@ -1235,7 +1343,7 @@ export const syncMobileCalls = async (req, res) => {
                 performedBy: req.user?.fullName || req.user?.name || "Mobile User",
                 teams: match ? (match.entity.teams || match.entity.assignment?.team || []) : []
             };
-            
+
             // 🚀 [SENIOR FIX] Ensure teams, department and assignedTo are ALWAYS set for visibility
             if ((!activityData.teams || activityData.teams.length === 0) && req.user) {
                 // If user belongs to teams, assign this activity to those teams so it's visible in their scope
@@ -1271,9 +1379,9 @@ export const syncMobileCalls = async (req, res) => {
                         `Action Required: Call Logged`,
                         `Please complete your scheduled call activity for ${participantName}.`,
                         `/activities/${pendingActivity._id}`,
-                        { 
-                            activityId: pendingActivity._id, 
-                            syncActivityId: activity._id, 
+                        {
+                            activityId: pendingActivity._id,
+                            syncActivityId: activity._id,
                             type: 'pending_call_resolution',
                             participantName,
                             number: call.number
@@ -1313,7 +1421,9 @@ export const syncMobileCalls = async (req, res) => {
                 participants: [{ name: participantName, mobile: msg.address }],
                 dueDate: new Date(msg.date),
                 status: 'Completed',
-                description: `Synced from mobile SMS. Raw: ${msg.address}\n\nBody: ${msg.body}`,
+                description: `Synced from mobile SMS. Raw: ${msg.address}
+
+Body: ${msg.body}`,
                 details: {
                     direction: msg.type?.toUpperCase() === 'INCOMING' ? 'Incoming' : 'Outgoing',
                     platform: 'MobileSMS',
@@ -1330,9 +1440,9 @@ export const syncMobileCalls = async (req, res) => {
                 activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
             }
 
-            const existing = await Activity.findOne({ 
-                "details.mobileId": activityData.details.mobileId, 
-                "details.platform": 'MobileSMS' 
+            const existing = await Activity.findOne({
+                "details.mobileId": activityData.details.mobileId,
+                "details.platform": 'MobileSMS'
             });
 
             if (!existing) {
@@ -1381,7 +1491,7 @@ export const sendReply = async (req, res) => {
         // 1. Resolve Services
         const waService = (await import('../services/WhatsAppService.js')).default;
         const smsSvc = (await import('../services/SmsService.js')).default;
-        
+
         const cleanPhone = normalizePhone(phoneNumber);
         const targetAccount = integrationId || fromPhoneNumberId || null;
         let dispatchResult = { success: false, error: "Initialization error" };
@@ -1400,9 +1510,9 @@ export const sendReply = async (req, res) => {
                 if (attachment) {
                     // Send Media/Special Message
                     dispatchResult = await waService.sendMedia(
-                        cleanPhone, 
-                        attachment.type, 
-                        attachment.url, 
+                        cleanPhone,
+                        attachment.type,
+                        attachment.url,
                         attachment.caption || message,
                         attachment.filename,
                         { ...attachment, integrationId: targetAccount } // Pass whole object for location/contacts + integrationId
@@ -1468,17 +1578,17 @@ export const sendReply = async (req, res) => {
 
         await Conversation.findOneAndUpdate(
             convFilter,
-            { 
-                $push: { 
-                    messages: { 
-                        role: 'assistant', 
-                        content: displayMsg, 
+            {
+                $push: {
+                    messages: {
+                        role: 'assistant',
+                        content: displayMsg,
                         timestamp: new Date(),
-                        metadata: attachment ? { attachment } : null 
-                    } 
+                        metadata: attachment ? { attachment } : null
+                    }
                 },
                 $set: {
-                    status: 'handed_off', 
+                    status: 'handed_off',
                     updatedAt: new Date(),
                     ...(targetAccount ? { whatsappIntegrationId: targetAccount } : {})
                 }
@@ -1634,7 +1744,7 @@ export const getMessagingActivities = async (req, res) => {
                     whatsappIntegrationId: a.details?.whatsappIntegrationId || null,
                     businessPhoneNumberId: a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId || null,
                     // 🚀 Ultra-Fast: Don't send thread in list view
-                    thread: [] 
+                    thread: []
                 });
             }
         });
@@ -1663,7 +1773,7 @@ export const getMessagingActivities = async (req, res) => {
             if (!existingActivity || new Date(c.updatedAt) > new Date(existingActivity.timestamp)) {
                 const lastMsg = c.messages?.[c.messages.length - 1];
                 let snippet = 'Conversation started';
-                
+
                 if (lastMsg) {
                     const prefix = lastMsg.role === 'user' ? 'Customer: ' : 'You: ';
                     snippet = prefix + (lastMsg.content || '');
@@ -1676,7 +1786,7 @@ export const getMessagingActivities = async (req, res) => {
                     _id: c._id, type: 'WhatsApp', via: 'WhatsApp', subject: 'WhatsApp Chat',
                     description: snippet, snippet: snippet,
                     entityType: c.lead ? 'Lead' : 'Contact', entityId: c.lead || c.contact,
-                    participant: existingActivity?.participant || getParticipantName(phone, c.lead || c.contact), 
+                    participant: existingActivity?.participant || getParticipantName(phone, c.lead || c.contact),
                     phone, phoneNumber: phone,
                     isMatched: !!(c.lead || c.contact), outcome: c.status || 'Active', timestamp: c.updatedAt, date: c.updatedAt,
                     whatsappIntegrationId: c.whatsappIntegrationId || null,
@@ -1689,7 +1799,7 @@ export const getMessagingActivities = async (req, res) => {
 
         // 5. Final Filtering, Sort & Paginate
         let unified = Array.from(conversationsMap.values());
-        
+
         if (subTab === 'matched') unified = unified.filter(i => i.isMatched);
         else if (subTab === 'unmatched') unified = unified.filter(i => !i.isMatched);
 
@@ -1714,11 +1824,11 @@ export const getMessagingActivities = async (req, res) => {
         res.json({
             success: true,
             data: paginatedData,
-            pagination: { 
-                totalCount, 
-                totalPages: Math.ceil(totalCount / limit), 
-                currentPage: Number(page), 
-                limit: Number(limit) 
+            pagination: {
+                totalCount,
+                totalPages: Math.ceil(totalCount / limit),
+                currentPage: Number(page),
+                limit: Number(limit)
             },
             kpis: {
                 total: totalStreams,
@@ -1890,7 +2000,7 @@ export const convertToLead = async (req, res) => {
             owner: req.user?._id || null,
             remarks: `Manually created from Communication Hub by ${req.user?.fullName || 'Agent'}`
         }, { triggerEvent: 'onCreate' });
-        
+
         const lead = leadResult.lead;
 
         // 4. Update Conversation to link the lead
@@ -1928,12 +2038,12 @@ export const getPublicActivityDetails = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(activityId)) {
             return res.status(400).json({ success: false, message: "Invalid Activity ID" });
         }
-        
+
         // Fetch only safe fields needed for public form rendering
         const activity = await Activity.findById(activityId)
             .select('type subject details status')
             .lean();
-            
+
         if (!activity) {
             return res.status(404).json({ success: false, message: "Activity not found" });
         }
