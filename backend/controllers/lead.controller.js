@@ -208,7 +208,7 @@ const resolveAllReferenceFields = async (doc) => {
     return doc;
 };
 
-const leadPopulateFields = [
+export const leadPopulateFields = [
     { path: 'requirement', select: 'lookup_value' },
     { path: 'subRequirement', select: 'lookup_value' },
     { path: 'project', select: 'name' },
@@ -887,64 +887,9 @@ export const addLead = async (req, res, next) => {
         const lead = leadResult.lead;
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
-        // ─── Proactive Duplicate Check & Conflict Notification ───────────────────────
-        if (lead.mobile) {
-            const existingLead = await Lead.findOne({ 
-                _id: { $ne: lead._id }, 
-                mobile: lead.mobile 
-            }).populate('owner').lean();
-            
-            if (existingLead && existingLead.owner) {
-                await createNotification(
-                    existingLead.owner._id,
-                    'conflictAlerts',
-                    '⚠️ Duplicate Lead Attempt',
-                    `Someone just tried to register your client ${lead.firstName} (${lead.mobile}). Lead was merged/blocked.`,
-                    `/leads/${existingLead._id}`,
-                    { duplicateLeadId: lead._id }
-                ).catch(() => {});
-            }
-        }
-
-        // Auto-Assign logic is now securely handled inside LeadCreationEngine
         let assignedAgent = null;
-        if (leadResult.assignment && leadResult.assignment.assignedTo) {
-            assignedAgent = {
-                userId: leadResult.assignment.assignedTo,
-                ruleName: leadResult.assignment.ruleName
-            };
-            console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${leadResult.assignment.ruleName}"`);
-            
-            // Create Notification for auto-assignment
-            await createNotification(
-                leadResult.assignment.assignedTo,
-                'assignments',
-                'New Lead Assigned',
-                `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
-                `/leads/${lead._id}`,
-                { leadId: lead._id }
-            );
-        }
 
         await lead.populate(leadPopulateFields); console.log("Lead Status after populate:", lead.status);
-
-        // SMS Trigger: Welcome Message via registered DLT template
-        if (lead.mobile) {
-            smsService.sendSMSWithTemplate(
-                lead.mobile,
-                'Get Response',  // Name of the registered DLT template
-                { Name: lead.firstName || 'Customer' },
-                { entityType: 'Lead', entityId: lead._id }
-            ).catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
-        }
-
-        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
-        try {
-            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_created', lead, lead.companyId);
-        } catch (weError) {
-            console.error('[WorkflowEngine] Error firing lead_created:', weError.message);
-        }
 
         res.status(201).json({ success: true, data: lead, assignedAgent });
     } catch (error) {

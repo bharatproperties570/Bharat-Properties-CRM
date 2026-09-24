@@ -5,7 +5,7 @@ import { executeEffect } from './effectOrchestrator.js';
 
 export const processDomainEvent = async (job) => {
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
-    
+
     if (!eventId || !eventType || !aggregateType || !aggregateId || !payload) {
         throw new Error('Invalid event envelope payload');
     }
@@ -17,6 +17,7 @@ export const processDomainEvent = async (job) => {
             const { runFullLeadEnrichment } = await import('../utils/enrichmentEngine.js');
             const LeadScoringService = (await import('../services/LeadScoringService.js')).default;
             const { distributeEntity } = await import('../utils/distributionEngine.js');
+            const { leadPopulateFields } = await import('../../controllers/lead.controller.js');
 
             const Lead = mongoose.model('Lead');
 
@@ -33,6 +34,49 @@ export const processDomainEvent = async (job) => {
             await executeEffect(eventId, 'distribution', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
                 if (freshLead) await distributeEntity(freshLead, payload.triggerEvent || 'create', false);
+            });
+
+            await executeEffect(eventId, 'sms_welcome', aggregateType, aggregateId, async () => {
+                const freshLead = await Lead.findById(aggregateId);
+                if (freshLead && freshLead.mobile) {
+                    const smsService = (await import('../modules/sms/sms.service.js')).default;
+                    await smsService.sendSMSWithTemplate(
+                        freshLead.mobile,
+                        'Get Response',
+                        { Name: freshLead.firstName || 'Customer' },
+                        { entityType: 'Lead', entityId: freshLead._id }
+                    );
+                }
+            });
+
+            await executeEffect(eventId, 'conflict_notification', aggregateType, aggregateId, async () => {
+                const freshLead = await Lead.findById(aggregateId);
+                if (freshLead && freshLead.mobile) {
+                    const existingLead = await Lead.findOne({
+                        _id: { $ne: aggregateId },
+                        mobile: freshLead.mobile
+                    }).populate('owner').lean();
+
+                    if (existingLead && existingLead.owner) {
+                        const { createNotification } = await import('../../controllers/notification.controller.js');
+                        await createNotification(
+                            existingLead.owner._id,
+                            'conflictAlerts',
+                            '⚠️ Duplicate Lead Attempt',
+                            `Someone just tried to register your client ${freshLead.firstName} (${freshLead.mobile}). Lead was merged/blocked.`,
+                            `/leads/${existingLead._id}`,
+                            { duplicateLeadId: freshLead._id }
+                        );
+                    }
+                }
+            });
+
+            await executeEffect(eventId, 'workflow_trigger', aggregateType, aggregateId, async () => {
+                const freshLead = await Lead.findById(aggregateId).populate(leadPopulateFields);
+                if (freshLead) {
+                    const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+                    await WorkflowEngine.fireEvent('leads', 'lead_created', freshLead, freshLead.companyId);
+                }
             });
 
             break;
