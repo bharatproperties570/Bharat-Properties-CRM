@@ -61,7 +61,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
             // A. Global Activity Gap Penalty
             if (daysSinceActivity > (agingRules.activityGapDays?.value || 7)) {
-                penaltyToAdd += 5; 
+                penaltyToAdd += 5;
                 auditNotes.push(`Inactive for ${daysSinceActivity} days`);
             }
 
@@ -158,11 +158,11 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
     if (job.name === 'enforceSLAReassignment') {
         console.log('[Cron Worker] Checking SLA violations for reassignment...');
         const DistributionRule = (await import('../../models/DistributionRule.js')).default;
-        
+
         // Find rules that have reassignment enabled
-        const reassignmentRules = await DistributionRule.find({ 
-            enabled: true, 
-            'reassignmentPolicy.enabled': true 
+        const reassignmentRules = await DistributionRule.find({
+            enabled: true,
+            'reassignmentPolicy.enabled': true
         }).lean();
 
         let escalatedCount = 0;
@@ -171,7 +171,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         for (const rule of reassignmentRules) {
             const maxHours = rule.reassignmentPolicy.inactivityHours || 48;
             const cutoffDate = new Date(now.getTime() - maxHours * 60 * 60 * 1000);
-            
+
             const SLA_Violators = await Lead.find({
                 'assignment.ruleName': rule.name,
                 'assignment.assignedAt': { $lt: cutoffDate },
@@ -183,13 +183,13 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                 const SequenceEnrollment = (await import('../../models/SequenceEnrollment.js')).default;
                 const activeSequence = await SequenceEnrollment.exists({ entityId: lead._id, status: 'active' });
                 if (activeSequence) {
-                    continue; 
+                    continue;
                 }
 
                 const lastActivity = lead.lastActivityAt || lead.createdAt;
                 if (lastActivity < lead.assignment.assignedAt) {
                     let escalateTo = null;
-                    
+
                     // Fetch the current owner to determine their manager
                     if (lead.owner) {
                         const User = (await import('../../models/User.js')).default;
@@ -212,17 +212,17 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                             ruleName: rule.name + " (Escalation)"
                         };
                         await lead.save();
-                        
+
                         await AuditLog.logEntityUpdate(
-                            'reassigned', 'lead', lead._id, lead.firstName, null, 
-                            { assignedTo: escalateTo }, 
+                            'reassigned', 'lead', lead._id, lead.firstName, null,
+                            { assignedTo: escalateTo },
                             `SLA Breached (${maxHours}h inactivity). Escalated to manager.`
                         );
-                        
-                        
+
+
                         // [PHASE 5 FIX]: Removed manual eventBus.emit('LEAD_UPDATED', lead) here
                         // because lead.save() automatically triggers the Mongoose post-save hook which emits the event.
-                        
+
 
                         escalatedCount++;
                     }
@@ -235,19 +235,24 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
     if (job.name === 'evaluateTimeBasedTriggers') {
         console.log('[Cron Worker] Evaluating time-based triggers...');
-        const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+        // [C5] Import required models for durable producer pattern
+        const mongoose = (await import('mongoose')).default;
         const Trigger = (await import('../../models/Trigger.js')).default;
         const Deal = (await import('../../models/Deal.js')).default;
-        
+        const AutomationLog = (await import('../../models/AutomationLog.js')).default;
+        const OutboxEvent = (await import('../../models/OutboxEvent.js')).default;
+
         // Fetch all active time-based triggers
         const activeTimeTriggers = await Trigger.find({
             isActive: true,
             event: { $in: ['lead_inactivity', 'deal_inactivity', 'activity_overdue'] }
         }).lean();
 
-        let executedCount = 0;
+        // [C5] cronWorker is now a DURABLE PRODUCER. It does NOT execute actions directly.
+        // Actions are executed by domainEventWorker via OutboxEvent.
+        let enqueuedCount = 0;
         const now = new Date();
-        
+
         // Identify terminal stages to exclude for leads
         const lookups = await Lookup.find({ lookup_type: { $regex: /^stage$/i } }).lean();
         const closedStageIds = lookups
@@ -257,10 +262,96 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
             })
             .map(l => l._id);
 
+        /**
+         * [C5] Atomically acquire the execution lock and enqueue the durable OutboxEvent.
+         *
+         * Normal path (new entity):
+         *   - AutomationLog.create({ status: 'pending' }) + OutboxEvent.create() in one Mongo transaction.
+         *
+         * R27-protected retry path (previously failed entity):
+         *   - AutomationLog.findOneAndUpdate({ status: 'failed' → 'pending' }) + OutboxEvent.create() in one transaction.
+         *
+         * Skip path (status = 'success' or 'pending'):
+         *   - Skip entirely. Do NOT replay. Do NOT create an OutboxEvent.
+         *
+         * @param {string} idempotencyKey
+         * @param {ObjectId} triggerId
+         * @param {ObjectId} entityId
+         * @param {string} entityType    - 'leads' | 'deals' | 'activities'
+         * @param {string} aggregateType - 'Lead' | 'Deal' | 'Activity'
+         * @param {ObjectId} companyId
+         * @returns {boolean} true if an OutboxEvent was successfully enqueued.
+         */
+        async function acquireAndEnqueue(idempotencyKey, triggerId, entityId, entityType, aggregateType, companyId) {
+            const session = await mongoose.startSession();
+            try {
+                let enqueued = false;
+                await session.withTransaction(async () => {
+                    let isNewRecord = false;
+
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey }).session(session);
+
+                    if (existingLog) {
+                        if (existingLog.status === 'failed') {
+                            await AutomationLog.updateOne(
+                                { _id: existingLog._id },
+                                { $set: { status: 'pending' } },
+                                { session }
+                            );
+                            isNewRecord = false;
+                        } else {
+                            // 'success' or existing 'pending' — leave inert, abort transaction cleanly
+                            const e = new Error('SKIP_INERT');
+                            e.code = 'SKIP_INERT';
+                            throw e;
+                        }
+                    } else {
+                        await AutomationLog.create([{
+                            ruleType: 'TimeBasedTrigger',
+                            ruleId: triggerId,
+                            targetEntityId: entityId,
+                            targetModule: entityType,
+                            status: 'pending',
+                            idempotencyKey,
+                            companyId
+                        }], { session });
+                        isNewRecord = true;
+                    }
+
+                    // AutomationLog is now 'pending' (new or reclaimed from 'failed').
+                    // Create the OutboxEvent in the same session to guarantee atomicity.
+                    await OutboxEvent.create([{
+                        eventType: 'TimeTriggerExecutionRequested',
+                        aggregateType,
+                        aggregateId: entityId,
+                        payload: {
+                            triggerId,
+                            entityType,
+                            automationLogIdempotencyKey: idempotencyKey,
+                            companyId
+                        }
+                    }], { session });
+
+                    enqueued = true;
+                    const logContext = isNewRecord ? 'new execution' : 'retry (reclaimed from failed)';
+                    console.log(`[Cron Worker] [C5] Enqueued ${logContext} for trigger ${triggerId} entity ${entityId}`);
+                });
+                return enqueued;
+            } catch (err) {
+                if (err.code === 'SKIP_INERT') {
+                    return false;
+                }
+                console.error(`[Cron Worker] [C5] Transaction failed for trigger ${triggerId} entity ${entityId}:`, err.message);
+                return false;
+            } finally {
+                await session.endSession();
+            }
+        }
+
         for (const trigger of activeTimeTriggers) {
             const companyId = trigger.companyId;
-            const daysThreshold = parseInt(trigger.conditions?.value) || 5; 
-            
+            const daysThreshold = parseInt(trigger.conditions?.value) || 5;
+
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - daysThreshold);
 
@@ -273,41 +364,10 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
                 for await (const lead of inactiveLeadsCursor) {
                     const idempotencyKey = `time-trigger-${trigger._id}-${lead._id}`;
-                    try {
-                        await AutomationLog.create({
-                            ruleType: 'TimeBasedTrigger',
-                            ruleId: trigger._id,
-                            targetEntityId: lead._id,
-                            targetModule: 'leads',
-                            status: 'pending',
-                            idempotencyKey,
-                            companyId
-                        });
-                    } catch (err) {
-                        if (err.code === 11000) {
-                            // Retry only if explicitly failed (avoids blind TTL duplicate execution risk)
-                            const reclaimed = await AutomationLog.findOneAndUpdate(
-                                { idempotencyKey, status: 'failed' },
-                                { $set: { status: 'pending' } }
-                            );
-                            if (!reclaimed) continue;
-                        } else {
-                            console.error(`[Cron Worker] DB error locking time-based trigger for leads ${lead._id}:`, err);
-                            continue;
-                        }
-                    }
-                    
-                    try {
-                        for (const action of trigger.actions) {
-                            await WorkflowEngine.executeAction(action, lead, trigger, companyId, false, { skipLogging: true, propagateError: true });
-                        }
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'success' } });
-                        executedCount++;
-                    } catch (err) {
-                        console.error(`[Cron Worker] Failed to execute time-based trigger for ${lead._id}:`, err);
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'failed', details: { error: err.message } } });
-                    }
-                }} else if (trigger.event === 'deal_inactivity') {
+                    const enqueued = await acquireAndEnqueue(idempotencyKey, trigger._id, lead._id, 'leads', 'Lead', companyId);
+                    if (enqueued) enqueuedCount++;
+                }
+            } else if (trigger.event === 'deal_inactivity') {
                 const inactiveDealsCursor = Deal.find({
                     stage: { $nin: ['Closed Won', 'Closed Lost', 'Lost', 'Won'] },
                     lastActivityAt: { $lt: cutoffDate },
@@ -316,41 +376,10 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
                 for await (const deal of inactiveDealsCursor) {
                     const idempotencyKey = `time-trigger-${trigger._id}-${deal._id}`;
-                    try {
-                        await AutomationLog.create({
-                            ruleType: 'TimeBasedTrigger',
-                            ruleId: trigger._id,
-                            targetEntityId: deal._id,
-                            targetModule: 'deals',
-                            status: 'pending',
-                            idempotencyKey,
-                            companyId
-                        });
-                    } catch (err) {
-                        if (err.code === 11000) {
-                            // Retry only if explicitly failed (avoids blind TTL duplicate execution risk)
-                            const reclaimed = await AutomationLog.findOneAndUpdate(
-                                { idempotencyKey, status: 'failed' },
-                                { $set: { status: 'pending' } }
-                            );
-                            if (!reclaimed) continue;
-                        } else {
-                            console.error(`[Cron Worker] DB error locking time-based trigger for deals ${deal._id}:`, err);
-                            continue;
-                        }
-                    }
-                    
-                    try {
-                        for (const action of trigger.actions) {
-                            await WorkflowEngine.executeAction(action, deal, trigger, companyId, false, { skipLogging: true, propagateError: true });
-                        }
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'success' } });
-                        executedCount++;
-                    } catch (err) {
-                        console.error(`[Cron Worker] Failed to execute time-based trigger for ${deal._id}:`, err);
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'failed', details: { error: err.message } } });
-                    }
-                }} else if (trigger.event === 'activity_overdue') {
+                    const enqueued = await acquireAndEnqueue(idempotencyKey, trigger._id, deal._id, 'deals', 'Deal', companyId);
+                    if (enqueued) enqueuedCount++;
+                }
+            } else if (trigger.event === 'activity_overdue') {
                 const overdueActivitiesCursor = Activity.find({
                     status: { $regex: /pending|open|scheduled/i },
                     dueDate: { $lt: cutoffDate },
@@ -359,46 +388,14 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
                 for await (const activity of overdueActivitiesCursor) {
                     const idempotencyKey = `time-trigger-${trigger._id}-${activity._id}`;
-                    try {
-                        await AutomationLog.create({
-                            ruleType: 'TimeBasedTrigger',
-                            ruleId: trigger._id,
-                            targetEntityId: activity._id,
-                            targetModule: 'activities',
-                            status: 'pending',
-                            idempotencyKey,
-                            companyId
-                        });
-                    } catch (err) {
-                        if (err.code === 11000) {
-                            // Retry only if explicitly failed (avoids blind TTL duplicate execution risk)
-                            const reclaimed = await AutomationLog.findOneAndUpdate(
-                                { idempotencyKey, status: 'failed' },
-                                { $set: { status: 'pending' } }
-                            );
-                            if (!reclaimed) continue;
-                        } else {
-                            console.error(`[Cron Worker] DB error locking time-based trigger for activities ${activity._id}:`, err);
-                            continue;
-                        }
-                    }
-                    
-                    try {
-                        for (const action of trigger.actions) {
-                            await WorkflowEngine.executeAction(action, activity, trigger, companyId, false, { skipLogging: true, propagateError: true });
-                        }
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'success' } });
-                        executedCount++;
-                    } catch (err) {
-                        console.error(`[Cron Worker] Failed to execute time-based trigger for ${activity._id}:`, err);
-                        await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'failed', details: { error: err.message } } });
-                    }
+                    const enqueued = await acquireAndEnqueue(idempotencyKey, trigger._id, activity._id, 'activities', 'Activity', companyId);
+                    if (enqueued) enqueuedCount++;
                 }
             }
         }
-        
-        console.log(`[Cron Worker] Evaluated Time-Based Triggers. Fired actions for ${executedCount} entities.`);
-        return { executedCount };
+
+        console.log(`[Cron Worker] [C5] Evaluated Time-Based Triggers. Enqueued durable execution for ${enqueuedCount} entities.`);
+        return { enqueuedCount };
     }
 
 }, workerOptions);

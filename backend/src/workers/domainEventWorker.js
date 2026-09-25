@@ -459,6 +459,91 @@ export const processDomainEvent = async (job) => {
             });
             break;
 
+        // ─── C5: Time-Based Trigger Durable Execution ───────────────────────────────
+        case 'TimeTriggerExecutionRequested': {
+            const { triggerId, entityType, automationLogIdempotencyKey, companyId: triggerCompanyId } = payload;
+
+            // [C5] Re-fetch current Trigger document. Worker does NOT use a cached snapshot.
+            const TriggerModel = mongoose.models.Trigger || mongoose.model('Trigger', (await import('../../models/Trigger.js')).default.schema);
+            const AutomationLog = mongoose.models.AutomationLog || mongoose.model('AutomationLog', (await import('../../models/AutomationLog.js')).default.schema);
+
+            const trigger = await TriggerModel.findById(triggerId).lean();
+            if (!trigger) {
+                console.error(`[DomainEventWorker] [C5] Trigger ${triggerId} not found — marking AutomationLog failed.`);
+                await AutomationLog.updateOne(
+                    { idempotencyKey: automationLogIdempotencyKey },
+                    { $set: { status: 'failed', details: { error: `Trigger ${triggerId} not found` } } }
+                );
+                break;
+            }
+
+            // [C5] Re-fetch fresh entity using the entityType from payload.
+            const modelNameMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity' };
+            const modelName = modelNameMap[entityType];
+            if (!modelName) {
+                console.error(`[DomainEventWorker] [C5] Unknown entityType: ${entityType}`);
+                await AutomationLog.updateOne(
+                    { idempotencyKey: automationLogIdempotencyKey },
+                    { $set: { status: 'failed', details: { error: `Unknown entityType: ${entityType}` } } }
+                );
+                break;
+            }
+            const EntityModel = mongoose.models[modelName];
+            const entity = await EntityModel.findById(aggregateId).lean();
+            if (!entity) {
+                console.error(`[DomainEventWorker] [C5] Entity ${modelName} ${aggregateId} not found — marking AutomationLog failed.`);
+                await AutomationLog.updateOne(
+                    { idempotencyKey: automationLogIdempotencyKey },
+                    { $set: { status: 'failed', details: { error: `Entity ${modelName} ${aggregateId} not found` } } }
+                );
+                break;
+            }
+
+            const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+
+            console.log(`[DomainEventWorker] [C5] Processing TimeTriggerExecutionRequested — trigger=${triggerId} entity=${aggregateId} actions=${trigger.actions.length}`);
+
+            try {
+                // [C5] Execute actions SEQUENTIALLY in trigger.actions[] array order.
+                // Each action gets its own EffectExecution keyed by the stable action._id.
+                // COMPLETED effects are skipped on retry. Failed effects are retried by EffectOrchestrator.
+                // The next action MUST NOT execute before the previous one completes.
+                for (const action of trigger.actions) {
+                    const effectKey = `action-${action._id}`;
+                    await executeEffect(eventId, effectKey, aggregateType, aggregateId, async () => {
+                        await WorkflowEngine.executeAction(
+                            action,
+                            entity,
+                            trigger,
+                            triggerCompanyId,
+                            false,
+                            { skipLogging: true, propagateError: true }
+                        );
+                    });
+                    // Reaching here means this effect is COMPLETED or was SKIPPED (already done).
+                    // Proceed to next action.
+                }
+
+                // All required effects are COMPLETED (or SKIPPED if already done).
+                // Update AutomationLog to success as the business-level execution record.
+                await AutomationLog.updateOne(
+                    { idempotencyKey: automationLogIdempotencyKey },
+                    { $set: { status: 'success' } }
+                );
+                console.log(`[DomainEventWorker] [C5] TimeTriggerExecution succeeded — trigger=${triggerId} entity=${aggregateId}`);
+            } catch (err) {
+                // A required action effect reached terminal failure (MAX_ATTEMPTS) or threw unexpectedly.
+                // Stop remaining actions. Mark AutomationLog failed.
+                console.error(`[DomainEventWorker] [C5] TimeTriggerExecution failed — trigger=${triggerId} entity=${aggregateId}:`, err.message);
+                await AutomationLog.updateOne(
+                    { idempotencyKey: automationLogIdempotencyKey },
+                    { $set: { status: 'failed', details: { error: err.message } } }
+                );
+                throw err; // Re-throw so BullMQ marks the job as failed for its own retry tracking
+            }
+            break;
+        }
+
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
