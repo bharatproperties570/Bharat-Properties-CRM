@@ -8,6 +8,7 @@ import Conversation from '../models/Conversation.js';
 import Company from '../models/Company.js';
 import Activity from '../models/Activity.js';
 import MergeAudit from '../models/MergeAudit.js';
+import OutboxEvent from '../models/OutboxEvent.js';
 
 function nameSimilarity(name1, name2) {
     if (!name1 || !name2) return 'missing';
@@ -272,6 +273,16 @@ export const executeMerge = async (canonicalId, duplicateId, previewData, option
         audit.markModified("referenceRewires");
         await audit.save({ session });
         
+        // 5. Emit Durable Domain Event
+        await OutboxEvent.create([{
+            eventType: 'ContactMerged',
+            aggregateType: 'Contact',
+            aggregateId: canonicalId,
+            payload: {
+                mergeOperationId: audit.mergeOperationId
+            }
+        }], { session });
+
         return audit;
     });
 };

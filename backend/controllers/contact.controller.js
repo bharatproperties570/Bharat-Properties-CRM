@@ -1625,19 +1625,6 @@ export const mergeContacts = async (req, res, next) => {
             currentMaster = await Contact.findById(currentMaster._id).lean();
         }
 
-        // Audit Log on Master Contact
-        await Activity.create([{
-            type: 'Task',
-            subject: 'Contacts Merged',
-            entityType: 'Contact',
-            entityId: masterContactId,
-            dueDate: new Date(),
-            status: 'Completed',
-            description: `Merged ${duplicateContactIds.length} duplicate contacts into this master record via Enterprise Engine.`,
-            createdBy: req.user?._id,
-            owner: masterContact.owner || req.user?._id
-        }]);
-
         res.status(200).json({ 
             success: true, 
             message: `Successfully merged ${duplicateContactIds.length} duplicate(s) into Master.`,

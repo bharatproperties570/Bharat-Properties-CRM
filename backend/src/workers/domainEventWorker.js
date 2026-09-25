@@ -434,6 +434,31 @@ export const processDomainEvent = async (job) => {
             });
             break;
 
+        case 'ContactMerged':
+            await executeEffect(eventId, 'contact_merge_audit_task', aggregateType, aggregateId, async () => {
+                const MergeAudit = mongoose.model('MergeAudit');
+                const Activity = mongoose.model('Activity');
+                const Contact = mongoose.model('Contact');
+
+                const audit = await MergeAudit.findOne({ mergeOperationId: payload.mergeOperationId }).lean();
+                if (!audit) throw new Error(`MergeAudit not found for mergeOperationId: ${payload.mergeOperationId}`);
+
+                const masterContact = await Contact.findById(audit.masterContactId).lean();
+
+                await Activity.create([{
+                    type: 'Task',
+                    subject: 'Contacts Merged',
+                    entityType: 'Contact',
+                    entityId: audit.masterContactId,
+                    dueDate: new Date(),
+                    status: 'Completed',
+                    description: `Merged 1 duplicate contact into this master record via Enterprise Engine.`,
+                    createdBy: audit.createdBy,
+                    owner: masterContact?.owner || audit.createdBy
+                }]);
+            });
+            break;
+
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
