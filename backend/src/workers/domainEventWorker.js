@@ -319,7 +319,11 @@ export const processDomainEvent = async (job) => {
                 await LeadScoringService.computeAndSave(aggregateId, { triggeredBy: 'activity_created' });
             });
             await executeEffect(eventId, 'activity_notification', aggregateType, aggregateId, async () => {
-                // Not handled purely in background yet, placeholder for future
+                const { default: NotificationEngine } = await import('../../services/NotificationEngine.js');
+                if (payload.assignedTo || payload.owner) {
+                    const recipient = payload.assignedTo || payload.owner;
+                    await NotificationEngine.notifyWhatsApp(recipient, 'activities', 'New Activity', `Activity created: ${payload.subject}`, `/activities/${aggregateId}`);
+                }
             });
             await executeEffect(eventId, 'activity_google_sync', aggregateType, aggregateId, async () => {
                 const QueueManager = await import('../queues/queueManager.js');
@@ -332,6 +336,80 @@ export const processDomainEvent = async (job) => {
             await executeEffect(eventId, 'activity_workflow', aggregateType, aggregateId, async () => {
                 const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
                 await WorkflowEngine.fireEvent('activities', 'activity_created', { _id: aggregateId, ...payload }, payload.companyId);
+            });
+            await executeEffect(eventId, 'activity_media_download', aggregateType, aggregateId, async () => {
+                if (payload.details && payload.details.attachment && payload.details.attachment.id) {
+                    const { default: WhatsAppService } = await import('../../services/WhatsAppService.js');
+                    const Activity = mongoose.model('Activity');
+                    const downloaded = await WhatsAppService.downloadMedia(payload.details.attachment.id);
+                    await Activity.updateOne(
+                        { _id: aggregateId },
+                        { $set: {
+                            'details.attachment.url': downloaded.url,
+                            'details.attachment.mimeType': downloaded.mimeType,
+                            'details.attachment.filename': downloaded.fileName
+                        }}
+                    );
+                }
+            });
+            await executeEffect(eventId, 'activity_ai_response', aggregateType, aggregateId, async () => {
+                if (payload.type === 'WhatsApp' && payload.details && payload.details.waId) {
+                    const Activity = mongoose.model('Activity');
+                    const Conversation = mongoose.model('Conversation');
+                    const Lead = mongoose.model('Lead');
+                    const Contact = mongoose.model('Contact');
+                    const { generateBotResponse } = await import('../../services/aiBot.service.js');
+
+                    const activity = await Activity.findById(aggregateId).lean();
+                    if (!activity) return;
+
+                    const phoneNumber = activity.details.phoneNumber;
+                    if (!phoneNumber) return;
+
+                    const conversation = await Conversation.findOne({ phoneNumber, status: 'active' });
+                    if (!conversation) return;
+
+                    let entity = null;
+                    if (activity.entityId) {
+                        entity = await Lead.findById(activity.entityId).lean();
+                        if (!entity) entity = await Contact.findById(activity.entityId).lean();
+                    }
+
+                    // Format chat history
+                    const chatHistory = conversation.messages.map(item => `${item.role}: ${item.content}`).join('\n');
+
+                    // We only process if there is new user input that requires a response
+                    // In a production system, we'd check if the last message was from the user and not already replied to.
+                    const lastMessage = conversation.messages[conversation.messages.length - 1];
+                    if (lastMessage && lastMessage.role === 'user' && lastMessage.metadata?.waId === activity.details.waId) {
+                        const aiResult = await generateBotResponse(lastMessage.content, {
+                            chatHistory,
+                            userName: entity?.name || 'Client',
+                            entity: entity ? { name: entity.name, type: activity.entityType, id: entity._id, stage: entity.stage, requirements: entity.requirements, description: entity.description, customFields: entity.customFields } : null,
+                            entityType: activity.entityType,
+                        }, { useCase: conversation.currentUseCase || 'whatsapp_live' });
+
+                        if (aiResult.success && aiResult.reply) {
+                            const { default: WhatsAppService } = await import('../../services/WhatsAppService.js');
+                            await WhatsAppService.sendMessage(phoneNumber, aiResult.reply);
+
+                            // It's safe to update Conversation here because it's asynchronous
+                            // But wait, updating conversation messages should probably just append the assistant reply
+                            await Conversation.updateOne(
+                                { _id: conversation._id },
+                                {
+                                    $push: {
+                                        messages: {
+                                            role: 'assistant',
+                                            content: aiResult.reply,
+                                            timestamp: new Date()
+                                        }
+                                    }
+                                }
+                            );
+                        }
+                    }
+                }
             });
             break;
 

@@ -81,11 +81,11 @@ export const captureLeadWebhook = async (req, res) => {
             description: message || `Lead from ${source_meta.utm_medium || 'campaign'} campaign`,
             tags: ['Marketing Automation'],
         }, { triggerEvent: 'onCampaignIntake' });
-        
+
         const lead = leadResult.lead;
         console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);
 
-        // Find the associated deal for context
+        // Find the associated deal for contex
         let deal = null;
         if (source_meta.deal_id && mongoose.Types.ObjectId.isValid(source_meta.deal_id)) {
             deal = await Deal.findById(source_meta.deal_id).lean();
@@ -140,7 +140,7 @@ export const whatsAppReplyWebhook = async (req, res) => {
         const isPositive = /yes|haan|ha|interested|visit|book/i.test(message);
 
         if (isPositive) {
-            // Find the lead and boost intent
+            // Find the lead and boost inten
             const lead = await Lead.findOne({ mobile: normalizedMobile });
             if (lead) {
                 lead.intent_index = Math.min(100, (lead.intent_index || 40) + 25);
@@ -222,10 +222,10 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment,
         query.businessPhoneNumberId = businessPhoneNumberId;
     }
 
-    const setOnInsert = { 
-        phoneNumber: mobile, 
-        channel: 'whatsapp', 
-        status: 'active' 
+    const setOnInsert = {
+        phoneNumber: mobile,
+        channel: 'whatsapp',
+        status: 'active'
     };
     if (businessPhoneNumberId) setOnInsert.businessPhoneNumberId = businessPhoneNumberId;
     if (integrationId) setOnInsert.whatsappIntegrationId = integrationId;
@@ -247,21 +247,21 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment,
     const updated = await Conversation.findOneAndUpdate(
         { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id }, 'messages.waId': { $ne: message.id } },
         {
-            $push: { 
-                messages: { 
-                    role: 'user', 
-                    content: text, 
-                    timestamp: now, 
-                    metadata: { 
-                        waId: message.id, 
+            $push: {
+                messages: {
+                    role: 'user',
+                    content: text,
+                    timestamp: now,
+                    metadata: {
+                        waId: message.id,
                         attachment: attachment || null,
                         businessPhoneNumberId: businessPhoneNumberId || null,
                         integrationId: integrationId || null
-                    } 
-                } 
+                    }
+                }
             },
             $inc: { 'metadata.unreadCount': 1 },
-            $set: updateSet
+            $set: updateSe
         },
         { new: true }
     );
@@ -406,166 +406,90 @@ export const whatsAppLiveBotVerify = async (req, res) => {
     }
 };
 
-const processInboundMessage = async (message, value) => {
-    const fromNumber = message?.from;
-    const mobile = normalizePhone(fromNumber);
-    if (!mobile) return;
-
-    const businessPhoneNumberId = value?.metadata?.phone_number_id || null;
-    const businessPhoneNumber = value?.metadata?.display_phone_number || null;
-
-    let integration = null;
-    if (businessPhoneNumberId) {
-        try {
-            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
-            integration = await WhatsAppIntegration.findOne({ phoneNumberId: businessPhoneNumberId, status: 'ACTIVE' }).lean();
-        } catch (_) {}
-    }
-
-    const { text, attachment, flowResponse } = await normalizeInboundMessage(message);
-    if (!text && !attachment) return;
-
-    const reservation = await reserveInboundMessage({ 
-        mobile, 
-        message, 
-        text, 
-        attachment,
-        businessPhoneNumberId,
-        integrationId: integration?._id || null,
-        businessPhoneNumber
-    });
-    if (reservation.duplicate) return;
-
-    const conversation = reservation.conversation;
-    if (!conversation) {
-        console.warn(`[WhatsApp Webhook] Null conversation returned for message ${message?.id}. Skipping to avoid crash.`);
-        return;
-    }
-
-    try {
-        if (flowResponse) await applyFlowFeedback(mobile, flowResponse, text);
-
-        // Deal verification remains a distinct domain flow and must not fall through to generic AI.
-        if (await DealVerificationService.processVerificationReply(mobile, text, { message, value })) return;
-
-        const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
-        let lead = await Lead.findOne({ mobile: { $in: phones } });
-        let contact = await Contact.findOne({ 'phones.number': { $in: phones } });
-        const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
-        const intakeResult = await intakeEngine.processIntake({ mobile: fromNumber, message: text, source: 'whatsapp_live_bot', metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name } });
-        if (!lead && intakeResult.type === 'LEAD') lead = intakeResult.data;
-        if (!contact && intakeResult.type === 'CONTACT') contact = intakeResult.data;
-        if (lead) await reviveTerminalLeadOnInboundWhatsApp(await Lead.findById(lead._id).populate('stage'), text);
-
-        const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
-        const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
-
-        conversation.lead = lead?._id || conversation.lead;
-        conversation.contact = contact?._id || conversation.contact;
-        conversation.metadata = { ...(conversation.metadata || {}), entityType, entityId };
-        if (integration?._id) conversation.whatsappIntegrationId = integration._id;
-        if (businessPhoneNumberId) conversation.businessPhoneNumberId = businessPhoneNumberId;
-        if (businessPhoneNumber) conversation.businessPhoneNumber = businessPhoneNumber;
-        await conversation.save();
-
-        try {
-            const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
-            await WorkflowEngine.fireEvent('communication', 'message_received', conversation, lead?.companyId || contact?.companyId || null);
-        } catch (error) { console.error('[WorkflowEngine] message_received trigger failed:', error.message); }
-
-        const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
-        const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
-        await NotificationEngine.notifyWhatsApp(targetUserId, fromNumber, text, entityType === 'Lead' ? `/leads/${entityId}` : (entityType === 'Contact' ? `/contacts/${entityId}` : ''), entityId);
-
-        await Activity.create({
-            type: 'WhatsApp', subject: 'Incoming WhatsApp Message', description: text, status: 'Completed', performedBy: targetUserId || 'System', assignedTo: targetUserId, dueDate: new Date(),
-            entityType, entityId, participants: [{ name: lead?.fullName || lead?.name || contact?.name || 'Unknown', mobile }],
-            details: { 
-                direction: 'inbound', 
-                phoneNumber: mobile, 
-                platform: 'whatsapp', 
-                attachment: attachment || null, 
-                isMatched: !!(lead || contact), 
-                waId: message.id, 
-                from: fromNumber, 
-                department: lead?.department || contact?.department || null,
-                businessPhoneNumberId: businessPhoneNumberId || null,
-                integrationId: integration?._id || null
-            }
-        });
-
-        const aiResult = await generateBotResponse(text, {
-            chatHistory: conversation.messages.map(item => `${item.role}: ${item.content}`).join('\n'), userName: value?.contacts?.[0]?.profile?.name || 'Client',
-            entity: lead || contact ? { name: lead?.name || contact?.name, type: entityType, id: entityId, stage: lead?.stage || contact?.stage, requirements: lead?.requirements || contact?.requirements, description: lead?.description, customFields: lead?.customFields } : null,
-            entityType, intakeResult
-        }, { useCase: conversation.currentUseCase || 'whatsapp_live' });
-        if (aiResult.success && aiResult.reply) {
-            const result = await WhatsAppService.sendMessage(fromNumber, aiResult.reply, { integrationId: integration?._id || businessPhoneNumberId });
-            if (result.success) {
-                conversation.messages.push({ 
-                    role: 'assistant', 
-                    content: aiResult.reply, 
-                    metadata: { 
-                        waId: result.messageId || null, 
-                        inReplyToWaId: message.id,
-                        businessPhoneNumberId: businessPhoneNumberId || null,
-                        integrationId: integration?._id || null
-                    } 
-                });
-                await conversation.save();
-                if (lead) { lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2); await lead.save(); }
-            }
-        }
-    } catch (error) {
-        // Release the reservation so Meta can safely retry a failed message.
-        if (message.id && conversation && conversation._id) {
-            await Conversation.updateOne({ _id: conversation._id }, { $pull: { messages: { 'metadata.waId': message.id } }, $inc: { 'metadata.unreadCount': -1 } });
-        }
-        throw error;
-    }
-};
-
 // ── POST /api/webhooks/whatsapp-live-bot ────────────────────────────────────
 export const whatsAppLiveBotWebhook = async (req, res) => {
     const appSecret = process.env.FB_APP_SECRET;
     if (!isValidMetaSignature(req.rawBody, req.headers['x-hub-signature-256'], appSecret)) return res.sendStatus(401);
     if (req.body?.object !== 'whatsapp_business_account') return res.sendStatus(404);
 
-    // 1. Acknowledge Meta immediately to prevent timeouts and duplicate retries
-    res.sendStatus(200);
+    try {
+        const statuses = [];
+        const messages = [];
 
-    // 2. Process asynchronously
-    setImmediate(async () => {
-        try {
-            // 1. Standard Inbound (Messages & Statuses)
-            for (const value of extractWhatsAppChanges(req.body)) {
-                for (const status of value.statuses || []) {
-                    await Conversation.updateOne({ $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }, { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } });
-                }
-                for (const message of value.messages || []) await processInboundMessage(message, value);
+        for (const value of extractWhatsAppChanges(req.body)) {
+            for (const status of value.statuses || []) {
+                statuses.push({ status, value });
             }
-            
-            // 2. Coexistence Sync (History, State, Echoes)
-            for (const change of extractCoexistenceChanges(req.body)) {
-                const waba_id = req.body.entry?.[0]?.id;
-                const phone_number_id = change.value?.metadata?.phone_number_id; // standard Meta metadata structure
-
-                if (change.field === 'smb_message_echoes' && change.value.message_echoes) {
-                    await whatsAppCoexistenceService.processMessageEchoes(change.value.message_echoes, phone_number_id, waba_id);
-                } else if (change.field === 'smb_app_state_sync' && change.value.state_sync) {
-                    await whatsAppCoexistenceService.processAppStateSync(change.value.state_sync);
-                } else if (change.field === 'history' && change.value.history) {
-                    await whatsAppCoexistenceService.processHistory(change.value.history, phone_number_id, waba_id);
-                }
+            for (const message of value.messages || []) {
+                messages.push({ message, value });
             }
-        } catch (error) {
-            console.error('[WebhookController] Async processing error:', error.message);
         }
-    });
+
+        // Process status updates and coexistence sync asynchronously outside the C3 transaction core
+        setImmediate(async () => {
+            try {
+                for (const { status } of statuses) {
+                    await Conversation.updateOne(
+                        { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] },
+                        { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } }
+                    );
+                }
+                for (const change of extractCoexistenceChanges(req.body)) {
+                    const waba_id = req.body.entry?.[0]?.id;
+                    const phone_number_id = change.value?.metadata?.phone_number_id;
+
+                    if (change.field === 'smb_message_echoes' && change.value.message_echoes) {
+                        await whatsAppCoexistenceService.processMessageEchoes(change.value.message_echoes, phone_number_id, waba_id);
+                    } else if (change.field === 'smb_app_state_sync' && change.value.state_sync) {
+                        await whatsAppCoexistenceService.processAppStateSync(change.value.state_sync);
+                    } else if (change.field === 'history' && change.value.history) {
+                        await whatsAppCoexistenceService.processHistory(change.value.history, phone_number_id, waba_id);
+                    }
+                }
+            } catch (err) {
+                console.error('[WhatsApp Webhook] Async Status/Coexistence update error:', err.message);
+            }
+        });
+
+        if (messages.length > 0) {
+            const { InboundMessageService } = await import('../src/services/InboundMessageService.js');
+            for (const { message, value } of messages) {
+                const mobile = message.from;
+                const { text, attachment, flowResponse } = InboundMessageService.normalizeMessage(message);
+
+                if (!mobile || (!text && !attachment)) {
+                    return res.sendStatus(400);
+                }
+
+                if (flowResponse) {
+                    await applyFlowFeedback(mobile, flowResponse, text);
+                }
+
+                // R56: Deal Verification Intercept (Runs independently of generic C3 AI)
+                const DealVerificationService = (await import('../services/DealVerificationService.js')).default;
+                if (await DealVerificationService.processVerificationReply(mobile, text, { message, value })) {
+                    continue;
+                }
+
+                // C3 Durable Transaction
+                const result = await InboundMessageService.processInboundMessageTx(message, value);
+                if (result && !result.success && (result.reason === 'missing_mobile' || result.reason === 'empty_payload')) {
+                    return res.sendStatus(400);
+                }
+            }
+        }
+
+        // Durable acceptance complete
+        return res.sendStatus(200);
+    } catch (error) {
+        console.error('[WhatsApp Webhook] Error:', error);
+        // Transaction failed -> 500 triggers safe Meta retry
+        return res.sendStatus(500);
+    }
 };
 
 // ── POST /api/webhooks/website-chat ─────────────────────────────────────────
-// Incoming Live AI Message Processing from Public Website Widget
+// Incoming Live AI Message Processing from Public Website Widge
 export const websiteLiveBotWebhook = async (req, res) => {
     try {
         const { sessionId, message, name, mobile, email } = req.body;

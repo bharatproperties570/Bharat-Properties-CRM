@@ -411,10 +411,12 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
  * @param {string}  [payload.message]  - Free-form text / note
  * @param {string}  [payload.source]   - Traffic source (default: 'WhatsApp')
  * @param {object}  [payload.attachment] - { type: 'file'|'url'|'zip', data: Buffer|string }
+ * @param {object}  [options] - Optional options
+ * @param {object}  [options.session] - Existing Mongoose session for transaction wrapping
  *
  * @returns {Promise<{type: string, data: object, [inventory]: object}>}
  */
-export const processIntake = async (payload) => {
+export const processIntake = async (payload, options = {}) => {
     // 1. Generate trace ID for full request lifecycle correlation
     const traceId = crypto.randomBytes(8).toString('hex');
 
@@ -453,13 +455,13 @@ export const processIntake = async (payload) => {
         price:      entities.price,
     });
 
-    // 6. Open Mongoose session for transaction safety
-    const session = await mongoose.startSession();
+    const isExternalSession = !!options.session;
+    const session = options.session || await mongoose.startSession();
 
     try {
         let result;
 
-        await session.withTransaction(async () => {
+        const executeOperations = async () => {
             // ── Scenario A: Seller with enough data to act ──
             if (intent === 'SELLER' && entities.project && entities.unitNumber) {
                 result = await handleSellerIntent(session, traceId, entities, normalizedMobile, name, source);
@@ -486,7 +488,13 @@ export const processIntake = async (payload) => {
 
             // ── Scenario C: New identity — create lead (BUYER, UNKNOWN, partial SELLER) ──
             result = await handleNewLead(session, traceId, normalizedMobile, name, email, combinedText, source, intent);
-        });
+        };
+
+        if (isExternalSession) {
+            await executeOperations();
+        } else {
+            await session.withTransaction(executeOperations);
+        }
 
         // Execute post-commit tasks safely if any
         if (result && result.postCommitTasks && Array.isArray(result.postCommitTasks)) {
@@ -511,7 +519,9 @@ export const processIntake = async (payload) => {
         throw enriched;
 
     } finally {
-        await session.endSession();
+        if (!isExternalSession) {
+            await session.endSession();
+        }
     }
 };
 
