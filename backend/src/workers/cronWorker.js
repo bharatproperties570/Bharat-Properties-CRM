@@ -7,6 +7,7 @@ import AuditLog from '../../models/AuditLog.js';
 import { notificationQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -400,8 +401,9 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
 }, workerOptions);
 
-cronWorker.on('failed', (job, err) => {
+cronWorker.on('failed', async (job, err) => {
     console.error(`[Cron Worker] Job ${job?.name} failed: ${err.message}`);
+    await writeFailedJobLog(job, err);
 });
 
 // eslint-disable-next-line no-unused-vars

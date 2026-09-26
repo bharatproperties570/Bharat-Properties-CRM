@@ -2,6 +2,8 @@ import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 import { runFullLeadEnrichment } from '../utils/enrichmentEngine.js';
 
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
+
 const workerOptions = { connection: redisConnection };
 
 export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
@@ -19,8 +21,9 @@ export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
     return { success: true, duration };
 }, workerOptions);
 
-enrichmentWorker.on('failed', (job, err) => {
+enrichmentWorker.on('failed', async (job, err) => {
     console.error(`[Enrichment Worker] Job ${job?.id} failed with error ${err.message}`);
+    await writeFailedJobLog(job, err);
 });
 
 // eslint-disable-next-line no-unused-vars

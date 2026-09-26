@@ -30,6 +30,9 @@ cd backend && npm install && cd ..
 if command -v pm2 &> /dev/null
 then
     echo -e "${GREEN}♻️  Restarting CRM Services via PM2...${NC}"
+    if [ -f "backend/ecosystem.config.cjs" ]; then
+        pm2 start backend/ecosystem.config.cjs --update-env
+    fi
     pm2 restart all
 else
     echo -e "${RED}⚠️  PM2 not found. Please restart your node services manually.${NC}"

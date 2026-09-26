@@ -73,15 +73,22 @@ async function startServer() {
         googleDiscoveryService.initialize();
         automatedIntakeService.initialize();
 
-        // Dynamically load BullMQ Queues and Workers
-        await import("./workers/enrichmentWorker.js");
-        await import("./workers/googleSyncWorker.js");
-        await import("./workers/cronWorker.js");
-        await import("./workers/marketingWorker.js");
-        await import("./workers/distributionWorker.js");
-        await import("./workers/domainEventWorker.js");
-        await import("../services/intakeQueue/IntakeQueue.js");
-        await import("../services/automationQueue/automationWorker.js");
+        // Capture all Worker instances for graceful shutdown
+        const { enrichmentWorker } = await import("./workers/enrichmentWorker.js");
+        const { default: googleSyncWorker } = await import("./workers/googleSyncWorker.js");
+        const { cronWorker } = await import("./workers/cronWorker.js");
+        const { marketingWorker } = await import("./workers/marketingWorker.js");
+        const { distributionWorker } = await import("./workers/distributionWorker.js");
+        const { domainEventWorker } = await import("./workers/domainEventWorker.js");
+        const { notificationWorker } = await import("./workers/notificationWorker.js");
+        const { intakeWorker } = await import("../services/intakeQueue/IntakeQueue.js");
+        const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
+
+        const activeWorkers = [
+            enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
+            distributionWorker, domainEventWorker, notificationWorker,
+            intakeWorker, automationWorker
+        ];
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");
         outboxPublisher.start();
@@ -96,10 +103,12 @@ async function startServer() {
         } catch (queueErr) {}
 
         const NurtureBot = (await import("../services/NurtureBot.js")).default;
-        setInterval(() => {
+        const nurtureInterval = setInterval(() => {
             NurtureBot.processPendingLeads().catch(() => {});
         }, 60 * 60 * 1000);
         NurtureBot.processPendingLeads().catch(() => {});
+        
+        let agingCronInterval, matchingInterval, pricingInterval, archivalInterval;
         
         // Ensure AgingCronService, initMatchingScheduler etc are handled if imported
         try {
@@ -115,6 +124,44 @@ async function startServer() {
             const { startArchivalCron } = await import("../cron/archivalWorker.js");
             if (startArchivalCron) startArchivalCron();
         } catch(e) { /* Ignore optional crons not found */ }
+
+        // --- C9 Graceful Shutdown ---
+        let isShuttingDown = false;
+        
+        const shutdown = async (signal) => {
+            if (isShuttingDown) return;
+            isShuttingDown = true;
+            console.log(`\n[Server] Received ${signal}, starting graceful shutdown...`);
+
+            // 1. Stop polling/scheduling
+            outboxPublisher.stop();
+            clearInterval(nurtureInterval);
+
+            // 2. Setup hard timeout for drain
+            const SHUTDOWN_DRAIN_TIMEOUT_MS = 60000;
+            const drainTimeout = setTimeout(() => {
+                console.error(`[Server] Graceful shutdown timeout (${SHUTDOWN_DRAIN_TIMEOUT_MS}ms) reached. Forcing exit.`);
+                process.exit(1);
+            }, SHUTDOWN_DRAIN_TIMEOUT_MS);
+
+            try {
+                // 3. Stop accepting new jobs and wait for active jobs to finish
+                console.log(`[Server] Closing ${activeWorkers.length} active workers...`);
+                await Promise.all(activeWorkers.map(w => w.close()));
+                console.log('[Server] All workers gracefully closed.');
+                
+                // If we get here, drain was clean
+                clearTimeout(drainTimeout);
+                console.log('[Server] Shutdown complete.');
+                process.exit(0);
+            } catch (err) {
+                console.error('[Server] Error during graceful shutdown:', err.message);
+                process.exit(1);
+            }
+        };
+
+        process.on('SIGTERM', () => shutdown('SIGTERM'));
+        process.on('SIGINT', () => shutdown('SIGINT'));
     }
 }
 

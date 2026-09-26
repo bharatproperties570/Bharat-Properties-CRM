@@ -4,6 +4,7 @@ import Contact from '../../models/Contact.js';
 import Activity from '../../models/Activity.js';
 import { createGoogleContact, updateGoogleContact, deleteGoogleContact } from '../../services/googleContacts.service.js';
 import { createGoogleCalendarEvent, updateGoogleCalendarEvent, deleteGoogleCalendarEvent } from '../../services/googleCalendar.service.js';
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 /**
  * Google Sync Worker
@@ -85,8 +86,9 @@ worker.on('completed', (job) => {
     console.log(`[GoogleSyncWorker] Job ${job.id} completed successfully`);
 });
 
-worker.on('failed', (job, err) => {
+worker.on('failed', async (job, err) => {
     console.error(`[GoogleSyncWorker] Job ${job.id} failed with error:`, err.message);
+    await writeFailedJobLog(job, err);
 });
 
 export default worker;

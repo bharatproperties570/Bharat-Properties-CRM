@@ -2,6 +2,7 @@ import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 import mongoose from 'mongoose';
 import { executeEffect } from './effectOrchestrator.js';
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 export const processDomainEvent = async (job) => {
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
@@ -768,8 +769,9 @@ export const processDomainEvent = async (job) => {
 
 export const domainEventWorker = new Worker('domainEventQueue', processDomainEvent, { connection: redisConnection });
 
-domainEventWorker.on('failed', (job, err) => {
+domainEventWorker.on('failed', async (job, err) => {
     console.error(`[DomainEventWorker] Job ${job?.id} failed with error ${err.message}`);
+    await writeFailedJobLog(job, err);
 });
 
 // eslint-disable-next-line no-unused-vars

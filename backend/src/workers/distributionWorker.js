@@ -2,6 +2,7 @@ import { Worker } from 'bullmq';
 import redisConnection from '../config/redis.js';
 import { executeDistributionCycle } from '../utils/distributionEngine.js';
 import DistributionAudit from '../../models/DistributionAudit.js';
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 export const distributionWorker = new Worker('distributionQueue', async (job) => {
     const { entityId, modelName, triggerEvent, cycleId, attempt } = job.data;
@@ -55,4 +56,5 @@ distributionWorker.on('failed', async (job, err) => {
             }
         }
     }
+    await writeFailedJobLog(job, err);
 });

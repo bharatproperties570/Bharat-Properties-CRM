@@ -19,6 +19,7 @@
 import { Worker } from '../config/redis.js';
 import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
+import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 // Lazily imported services (avoids circular deps at module load)
 let whatsAppService, emailService, smsService, marketingService, nurtureBot;
@@ -725,8 +726,9 @@ marketingWorker.on('completed', (job, result) => {
         result?.completedAt || 'done');
 });
 
-marketingWorker.on('failed', (job, err) => {
+marketingWorker.on('failed', async (job, err) => {
     console.error(`[MarketingWorker] ❌ Job ${job?.name} (${job?.id}) failed (attempt ${job?.attemptsMade}):`, err.message);
+    await writeFailedJobLog(job, err);
 });
 
 marketingWorker.on('error', (err) => {
