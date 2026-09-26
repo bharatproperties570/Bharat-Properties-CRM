@@ -180,3 +180,6 @@ mongodb-database-tools-*/
 *.cjs
 *.zip
 .env.staging
+
+# Runtime cache files
+backend/cache/*.json
