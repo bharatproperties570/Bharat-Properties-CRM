@@ -1032,18 +1032,7 @@ export const addActivity = async (req, res) => {
             );
         }
 
-        // 🚀 ENTERPRISE FIX: Mobile App Trigger Execution
-        // Mobile APIs bypass the React Frontend TriggerEngine. We must process WhatsApp Activity Triggers here.
-        try {
-            const { default: ActivityTriggerService } = await import('../src/services/ActivityTriggerService.js');
-            await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_created');
 
-            if (activity.status?.toLowerCase() === 'completed') {
-                await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_completed');
-            }
-        } catch (triggerErr) {
-            console.error('[Backend Trigger] Failed to execute mobile triggers:', triggerErr);
-        }
 
         // Create Notification if assigned to a user
         if (activity.assignedTo) {
@@ -1185,15 +1174,7 @@ export const updateActivity = async (req, res) => {
         }); // end tx
 
 
-        // Trigger WhatsApp feedbacks for Task Management page completion
-        if (activity.status === 'Completed' && existingAct && existingAct.status !== 'Completed') {
-            try {
-                const { default: ActivityTriggerService } = await import('../src/services/ActivityTriggerService.js');
-                await ActivityTriggerService.executeActivityWhatsAppTriggers(activity, req.user, 'activity_completed');
-            } catch (err) {
-                console.error('[UpdateActivity] Trigger service err:', err);
-            }
-        }
+
 
         // Sync and Workflows moved to durable OutboxEvent (C8)
 
