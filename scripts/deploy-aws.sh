@@ -32,14 +32,30 @@ if ! ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} 
     exit 1
 fi
 
-# 3. Post-Deployment Health Check
-echo -e "${GREEN}🩺 Running Professional Health Check...${NC}"
-HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.bharatproperties.co/api/health)
+# 3. Post-Deployment Health Check with Bounded Retry
+echo -e "${GREEN}🩺 Running Professional Health Check (Waiting for Node startup)...${NC}"
+MAX_ATTEMPTS=12
+SLEEP_SECONDS=2
+ATTEMPT=1
+SUCCESS=0
 
-if [ "$HEALTH_STATUS" == "200" ]; then
-    echo -e "${GREEN}✅ Deployment verified! API is responding (Status: 200)${NC}"
-else
-    echo -e "${RED}⚠️  Health Check Failed (Status: ${HEALTH_STATUS}). Please check PM2 logs on the server.${NC}"
+while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.bharatproperties.co/api/health)
+
+    # curl output might be empty if network is down completely, defaulting to 000
+    if [ "$HEALTH_STATUS" == "200" ]; then
+        echo -e "${GREEN}✅ Deployment verified! API is responding (Status: 200)${NC}"
+        SUCCESS=1
+        break
+    else
+        echo -e "${BLUE}ℹ️  Attempt $ATTEMPT/$MAX_ATTEMPTS: API returned status ${HEALTH_STATUS:-000}. Retrying in ${SLEEP_SECONDS}s...${NC}"
+        sleep $SLEEP_SECONDS
+        ((ATTEMPT++))
+    fi
+done
+
+if [ $SUCCESS -ne 1 ]; then
+    echo -e "${RED}⚠️  Health Check persistently failed after $MAX_ATTEMPTS attempts. Please check PM2 logs on the server.${NC}"
     exit 1
 fi
 
