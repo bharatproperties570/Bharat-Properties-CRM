@@ -318,14 +318,16 @@ export const processDomainEvent = async (job) => {
 
 
         case 'ActivityCreated':
-            await executeEffect(eventId, 'activity_enrichment', aggregateType, aggregateId, async () => {
-                const QueueManager = await import('../queues/queueManager.js');
-                await QueueManager.enrichmentQueue.add('enrichLead', { leadId: aggregateId });
-            });
-            await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
-                const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
-                await LeadScoringService.computeAndSave(aggregateId, { triggeredBy: 'activity_created' });
-            });
+            if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
+                await executeEffect(eventId, 'activity_enrichment', aggregateType, aggregateId, async () => {
+                    const QueueManager = await import('../queues/queueManager.js');
+                    await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.entityId });
+                });
+                await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
+                    const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
+                    await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_created' });
+                });
+            }
             await executeEffect(eventId, 'activity_notification', aggregateType, aggregateId, async () => {
                 const { default: NotificationEngine } = await import('../../services/NotificationEngine.js');
                 if (payload.assignedTo || payload.owner) {
@@ -341,10 +343,22 @@ export const processDomainEvent = async (job) => {
                 const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
                 await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_created');
             });
-            await executeEffect(eventId, 'activity_workflow', aggregateType, aggregateId, async () => {
+            await executeEffect(eventId, 'activity_workflow_created', aggregateType, aggregateId, async () => {
                 const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
                 await WorkflowEngine.fireEvent('activities', 'activity_created', { _id: aggregateId, ...payload }, payload.companyId);
             });
+            if (['Call', 'Call Back', 'call', 'Voice'].includes(payload.type)) {
+                await executeEffect(eventId, 'activity_workflow_call_logged', aggregateType, aggregateId, async () => {
+                    const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
+                    await WorkflowEngine.fireEvent('communication', 'call_logged', { _id: aggregateId, ...payload }, payload.companyId);
+                });
+                if (payload.details?.callOutcome || payload.completionResult) {
+                    await executeEffect(eventId, 'activity_workflow_call_outcome', aggregateType, aggregateId, async () => {
+                        const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
+                        await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', { _id: aggregateId, ...payload }, payload.companyId);
+                    });
+                }
+            }
             await executeEffect(eventId, 'activity_media_download', aggregateType, aggregateId, async () => {
                 if (payload.details && payload.details.attachment && payload.details.attachment.id) {
                     const { default: WhatsAppService } = await import('../../services/WhatsAppService.js');
@@ -427,19 +441,63 @@ export const processDomainEvent = async (job) => {
                     const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
                     await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_completed');
                 });
+                if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
+                    await executeEffect(eventId, 'activity_scoring_completed', aggregateType, aggregateId, async () => {
+                        const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
+                        await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' });
+                    });
+                }
+            }
+
+            if (payload.status?.toLowerCase() === 'completed') {
                 await executeEffect(eventId, 'activity_workflow_completed', aggregateType, aggregateId, async () => {
                     const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
                     await WorkflowEngine.fireEvent('activities', 'activity_completed', { _id: aggregateId, ...payload }, payload.companyId);
                 });
-                await executeEffect(eventId, 'activity_scoring_completed', aggregateType, aggregateId, async () => {
-                    const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
-                    await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' });
+            }
+
+            if (['Call', 'Call Back', 'call', 'Voice'].includes(payload.type) && payload.outcomeChanged && (payload.details?.callOutcome || payload.completionResult)) {
+                await executeEffect(eventId, 'activity_workflow_call_outcome', aggregateType, aggregateId, async () => {
+                    const { WorkflowEngine } = await import("../utils/WorkflowEngine.js");
+                    await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', { _id: aggregateId, ...payload }, payload.companyId);
                 });
             }
+
             await executeEffect(eventId, 'activity_google_sync_updated', aggregateType, aggregateId, async () => {
                 const QueueManager = await import('../queues/queueManager.js');
                 await QueueManager.googleSyncQueue.add('syncEvent', { activityId: aggregateId });
             });
+            break;
+
+        case 'ActivityDeleted':
+            await executeEffect(eventId, 'activity_google_sync_deleted', aggregateType, aggregateId, async () => {
+                if (payload.googleEventId) {
+                    const QueueManager = await import('../queues/queueManager.js');
+                    await QueueManager.googleSyncQueue.add('deleteEvent', { googleEventId: payload.googleEventId });
+                }
+            });
+            await executeEffect(eventId, 'activity_entity_update', aggregateType, aggregateId, async () => {
+                if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
+                    const Activity = mongoose.model('Activity');
+                    const Lead = mongoose.model('Lead');
+                    const lastLog = await Activity.findOne({ entityId: payload.entityId }).sort({ createdAt: -1 });
+                    await Lead.findByIdAndUpdate(payload.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null });
+                } else if (payload.entityType?.toLowerCase() === 'deal' && payload.entityId) {
+                    const Activity = mongoose.model('Activity');
+                    const Deal = mongoose.model('Deal');
+                    const lastLog = await Activity.findOne({ entityId: payload.entityId }).sort({ createdAt: -1 });
+                    await Deal.findByIdAndUpdate(payload.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null });
+                }
+            });
+            break;
+
+        case 'ContactCreated':
+            if (payload.syncToGoogle) {
+                await executeEffect(eventId, 'contact_google_sync', aggregateType, aggregateId, async () => {
+                    const QueueManager = await import('../queues/queueManager.js');
+                    await QueueManager.googleSyncQueue.add('syncContact', { contactId: aggregateId });
+                });
+            }
             break;
 
         case 'ContactMerged':

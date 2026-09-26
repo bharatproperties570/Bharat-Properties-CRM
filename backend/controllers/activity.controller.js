@@ -931,10 +931,8 @@ export const addActivity = async (req, res) => {
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
                 payload: {
-                    type: activity.type,
-                    actorId: req.user?.id || req.user?._id,
-                    entityId: activity.entityId,
-                    entityType: activity.entityType
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
                 }
             }], { session });
 
@@ -1059,23 +1057,7 @@ export const addActivity = async (req, res) => {
             );
         }
 
-        // Sync to Google Calendar
-        googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
-        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
-        try {
-            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            await WorkflowEngine.fireEvent('activities', 'activity_created', activity, activity.companyId);
-
-            // Communication Triggers
-            if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
-                await WorkflowEngine.fireEvent('communication', 'call_logged', activity, activity.companyId);
-                if (activity.details?.callOutcome || activity.completionResult) {
-                    await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', activity, activity.companyId);
-                }
-            }
-        } catch (weError) {
-            console.error('[WorkflowEngine] Error firing activity_created:', weError.message);
-        }
+        // Sync and Workflows moved to durable OutboxEvent (C8)
 
                 }); // end tx
         res.status(201).json({ success: true, data: activity, transition });
@@ -1186,6 +1168,7 @@ export const updateActivity = async (req, res) => {
                     aggregateType: 'Activity',
                     aggregateId: activity._id,
                     payload: {
+                        ...activity.toJSON(),
                         statusChanged,
                         previousStatus: existingAct.status,
                         newStatus: activity.status,
@@ -1195,10 +1178,7 @@ export const updateActivity = async (req, res) => {
                         dateChanged,
                         outcomeChanged,
                         descriptionChanged,
-                        type: activity.type,
-                        entityType: activity.entityType,
-                        entityId: activity.entityId,
-                        actorId: req.user?.id || req.user?._id
+                        actorId: req.user?.id || req.user?._id || null
                     }
                 }], { session });
             }
@@ -1215,27 +1195,7 @@ export const updateActivity = async (req, res) => {
             }
         }
 
-        // Sync to Google Calendar
-        googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
-        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
-        try {
-            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            if (activity.status?.toLowerCase() === 'completed') {
-                await WorkflowEngine.fireEvent('activities', 'activity_completed', activity, activity.companyId);
-            }
-
-            // Communication Triggers
-            if (['Call', 'Call Back', 'call', 'Voice'].includes(activity.type)) {
-                if (activity.details?.callOutcome || activity.completionResult) {
-                    // Check if outcome actually changed
-                    if (existingAct && (existingAct.details?.callOutcome !== activity.details?.callOutcome || existingAct.completionResult !== activity.completionResult)) {
-                        await WorkflowEngine.fireEvent('communication', 'call_outcome_selected', activity, activity.companyId);
-                    }
-                }
-            }
-        } catch (weError) {
-            console.error('[WorkflowEngine] Error firing activity triggers:', weError.message);
-        }
+        // Sync and Workflows moved to durable OutboxEvent (C8)
 
         res.json({ success: true, data: activity, transition });
     } catch (error) {
@@ -1248,24 +1208,30 @@ export const updateActivity = async (req, res) => {
 export const deleteActivity = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const activity = await Activity.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id });
+        const activity = await withMongoTransaction(async (session) => {
+            const act = await Activity.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id, session });
+
+            if (act) {
+                await OutboxEvent.create([{
+                    eventType: 'ActivityDeleted',
+                    aggregateType: 'Activity',
+                    aggregateId: act._id,
+                    payload: {
+                        activityId: act._id,
+                        googleEventId: act.googleEventId,
+                        entityType: act.entityType,
+                        entityId: act.entityId,
+                        deletedAt: act.deletedAt || new Date(),
+                        actorId: req.user?.id || req.user?._id || null
+                    }
+                }], { session });
+            }
+
+            return act;
+        });
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
-        }
-
-        // Sync to Google Calendar
-        if (activity.googleEventId) {
-            googleSyncQueue.add('deleteEvent', { googleEventId: activity.googleEventId }).catch(() => { });
-        }
-
-        if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            // Fetch most recent activity remaining to reset lastActivityAt
-            const lastLog = await Activity.findOne({ entityId: activity.entityId }).sort({ createdAt: -1 });
-            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null }).catch(() => { });
-        } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
-            const lastLog = await Activity.findOne({ entityId: activity.entityId }).sort({ createdAt: -1 });
-            await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null }).catch(() => { });
         }
 
         res.json({ success: true, message: "Activity deleted successfully" });

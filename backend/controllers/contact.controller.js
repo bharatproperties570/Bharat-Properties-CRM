@@ -1,5 +1,7 @@
 import { previewMerge, executeMerge } from '../services/contactMerge.service.js';
 import mongoose from "mongoose";
+import OutboxEvent from "../models/OutboxEvent.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import Contact from "../models/Contact.js";
 import Lead from "../models/Lead.js";
 import Inventory from "../models/Inventory.js";
@@ -654,10 +656,22 @@ export const createContact = async (req, res, next) => {
             }
         }
 
-        const contact = await Contact.create(contactData);
+        const contact = await withMongoTransaction(async (session) => {
+            const [created] = await Contact.create([contactData], { session });
 
-        // Sync to Google
-        googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+            await OutboxEvent.create([{
+                eventType: 'ContactCreated',
+                aggregateType: 'Contact',
+                aggregateId: created._id,
+                payload: {
+                    contactId: created._id,
+                    syncToGoogle: true,
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            }], { session });
+
+            return created;
+        });
 
         res.status(201).json({ success: true, data: contact });
     } catch (error) {
