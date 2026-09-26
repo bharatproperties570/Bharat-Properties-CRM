@@ -5,8 +5,6 @@ import toast from 'react-hot-toast';
 import { formatIndianCurrency, formatFullIndianAmount, numberToIndianWords } from '../utils/numberToWords';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import smsService from '../services/smsService';
 
 const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
@@ -285,6 +283,9 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
     };
 
     const generateQuotationPDF = async () => {
+        const { jsPDF } = await import('jspdf');
+        const { default: autoTable } = await import('jspdf-autotable');
+        
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();

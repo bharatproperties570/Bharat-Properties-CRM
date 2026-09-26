@@ -459,7 +459,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 updatePayload.status = 'Active';
             }
 
-            console.log("[DEBUG] Saving feedback for Inventory ID:", inventory._id);
             const response = await api.put(`inventory/${inventory._id}`, updatePayload);
 
             if (response.data && response.data.success) {

@@ -1,8 +1,8 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { renderValue } from './renderUtils';
 
-export const generateDealsPDF = (deals, leadName = 'Valued Client') => {
+export const generateDealsPDF = async (deals, leadName = 'Valued Client') => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF();
     
     // Header

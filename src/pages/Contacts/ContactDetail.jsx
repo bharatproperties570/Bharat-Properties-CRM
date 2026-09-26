@@ -191,7 +191,6 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
             // Fetch Deals where contact is involved
             const dealsRes = await api.get(`deals?contactId=${id}`);
-            console.log(`[DEBUG] Deals for ${id}:`, dealsRes.data);
             if (dealsRes.data && dealsRes.data.success) {
                 const deals = (dealsRes.data.records || dealsRes.data.data) || [];
                 const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
@@ -260,7 +259,6 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
             // Fetch Inventory where contact is owner or associate
             const invRes = await api.get(`inventory`, { params: { contactId: id, limit: 100 } });
-            console.log(`[DEBUG] Inventory for ${id}:`, invRes.data);
             if (invRes.data && invRes.data.success) {
                 const inventory = (invRes.data.records || invRes.data.data) || [];
                 const owned = [];

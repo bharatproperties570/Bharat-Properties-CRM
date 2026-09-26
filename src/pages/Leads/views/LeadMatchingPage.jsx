@@ -1462,11 +1462,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => {
                                             const toastId = toast.loading('Generating Professional PDF...');
-                                            setTimeout(() => {
-                                                generateDealsPDF([item], lead?.name);
-                                                toast.success('Professional Listing PDF Generated!', { id: toastId });
-                                                logActivity('PDF Shared', item);
-                                            }, 500);
+                                            setTimeout(async () => {
+                                                try {
+                                                    await generateDealsPDF([item], lead?.name);
+                                                    toast.success('Professional Listing PDF Generated!', { id: toastId });
+                                                    logActivity('PDF Shared', item);
+                                                } catch (e) {
+                                                    toast.error('Failed to generate PDF', { id: toastId });
+                                                }
+                                            }, 50);
                                         }}
                                         title="Generate Professional PDF"
                                         style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #f1f5f9', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer' }}

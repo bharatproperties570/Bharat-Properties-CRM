@@ -293,20 +293,52 @@ api.interceptors.response.use(
         }
 
         // ── Normalized error handling (Phase 10.4) ───────────────────────────
-        // Only show toast for non-401 errors (401 is handled above via refresh/logout).
-        // Skip toast for requests that opt-out via config._silentError.
-        if (response && !originalRequest._silentError) {
-            const status = response.status;
-            if (status === 403) {
-                toast.error('Permission denied. You do not have access to perform this action.');
-            } else if (status === 404) {
-                toast.error('Resource not found. It may have been deleted or moved.');
-            } else if (status === 409) {
-                // 409 Conflict: callers handle this (e.g. duplicate lead) — no generic toast
-            } else if (status === 429) {
-                toast.error('Too many requests. Please wait a moment and try again.');
-            } else if (status >= 500) {
-                toast.error('Server error. Our team has been notified. Please try again shortly.');
+        
+        let normalizedStatus = response?.status || 0;
+        let normalizedCode = 'UNKNOWN_ERROR';
+        let normalizedMessage = response?.data?.message || response?.data?.error || error.message || 'Unknown error occurred';
+        let normalizedUserMessage = 'An unexpected error occurred.';
+
+        if (response) {
+            if (normalizedStatus === 403) {
+                normalizedCode = 'FORBIDDEN';
+                normalizedUserMessage = 'Permission denied';
+            } else if (normalizedStatus === 404) {
+                normalizedCode = 'NOT_FOUND';
+                normalizedUserMessage = 'Not found';
+            } else if (normalizedStatus === 429) {
+                normalizedCode = 'RATE_LIMITED';
+                normalizedUserMessage = 'Too many requests. Please try again later.';
+            } else if (normalizedStatus >= 500) {
+                normalizedCode = 'SERVER_ERROR';
+                normalizedUserMessage = 'Server error. Please try again later.';
+            } else if (normalizedStatus === 409) {
+                normalizedCode = 'CONFLICT';
+                normalizedUserMessage = 'Resource conflict';
+            } else {
+                normalizedCode = `HTTP_${normalizedStatus}`;
+                normalizedUserMessage = normalizedMessage;
+            }
+        } else {
+            if (error.code === 'ECONNABORTED' || error.message.toLowerCase().includes('timeout')) {
+                normalizedCode = 'TIMEOUT';
+                normalizedUserMessage = 'The request timed out. Please try again.';
+            } else if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
+                normalizedCode = 'NETWORK_ERROR';
+                normalizedUserMessage = 'Unable to connect to the server. Please check your connection.';
+            }
+        }
+
+        // Attach normalized structure while preserving Axios object for backwards compatibility
+        error.status = normalizedStatus;
+        error.code = normalizedCode;
+        error.message = normalizedMessage;
+        error.userMessage = normalizedUserMessage;
+
+        // Show toast for specific errors unless request opted out
+        if (!originalRequest?._silentError) {
+            if (['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(normalizedCode)) {
+                toast.error(normalizedUserMessage);
             }
         }
 

@@ -412,24 +412,13 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         fd.append('docType', 'Image');
         
         try {
-            // Using fetch to bypass any Axios Content-Type header override bugs
-            const token = localStorage.getItem('authToken') || (document.cookie.match(/(?:^|; )authToken=([^;]*)/) ? decodeURIComponent(document.cookie.match(/(?:^|; )authToken=([^;]*)/)[1]) : null);
-            const baseURL = api.defaults.baseURL.replace(/\/$/, '');
-            
-            const response = await fetch(`${baseURL}/upload`, {
-                method: 'POST',
+            const res = await api.post('upload', fd, {
                 headers: {
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                },
-                body: fd
+                    'Content-Type': 'multipart/form-data'
+                }
             });
             
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`Upload failed: ${response.status} ${errText}`);
-            }
-            
-            const resData = await response.json();
+            const resData = res.data;
             
             if (resData?.url) {
                 const newPlan = {
