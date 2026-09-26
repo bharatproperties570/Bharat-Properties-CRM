@@ -46,10 +46,19 @@ fi
 
 # 4. Install Dependencies
 echo -e "${GREEN}🛠️  Installing Frontend Dependencies...${NC}"
-npm install
+if ! npm install; then
+    echo -e "${RED}❌ ERROR: Frontend npm install failed. Deployment aborted.${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}🛠️  Installing Backend Dependencies...${NC}"
-cd backend && npm install && cd ..
+cd backend
+if ! npm install; then
+    echo -e "${RED}❌ ERROR: Backend npm install failed. Deployment aborted.${NC}"
+    cd ..
+    exit 1
+fi
+cd ..
 
 # 5. Database Migrations (C9)
 echo -e "${GREEN}⚙️  Executing database migrations...${NC}"

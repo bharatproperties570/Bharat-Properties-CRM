@@ -22,12 +22,15 @@ KEY_PATH="$(cd "$(dirname "$0")/.." && pwd)/bharat_properties.pem"
 echo -e "${GREEN}🔍 Checking connectivity to ${SERVER_IP}...${NC}"
 if ! ssh -i "$KEY_PATH" -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} exit 2>/dev/null; then
     echo -e "${RED}❌ SSH Connection failed. Ensure the key at $KEY_PATH is valid.${NC}"
-    # exit 1 (Removing hard exit to allow manual override if needed)
+    exit 1
 fi
 
-# 2. Remote Execution
-echo -e "${GREEN}⚙️  Executing remote update script...${NC}"
-ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "cd ${REMOTE_PATH} && bash scripts/update-live.sh"
+# 2. Remote Execution via Safe /tmp Handoff
+echo -e "${GREEN}⚙️  Executing remote update script via safe /tmp handoff...${NC}"
+if ! ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "DEPLOY_TMP=\"/tmp/bharat-crm-deploy-\$\$\"; mkdir -p \$DEPLOY_TMP; cp ${REMOTE_PATH}/scripts/update-live.sh \$DEPLOY_TMP/update-live.sh; cd ${REMOTE_PATH} && bash \$DEPLOY_TMP/update-live.sh; EXIT_CODE=\$?; rm -rf \$DEPLOY_TMP; exit \$EXIT_CODE"; then
+    echo -e "${RED}❌ Remote deployment failed. Aborting deployment flow.${NC}"
+    exit 1
+fi
 
 # 3. Post-Deployment Health Check
 echo -e "${GREEN}🩺 Running Professional Health Check...${NC}"
@@ -37,6 +40,7 @@ if [ "$HEALTH_STATUS" == "200" ]; then
     echo -e "${GREEN}✅ Deployment verified! API is responding (Status: 200)${NC}"
 else
     echo -e "${RED}⚠️  Health Check Failed (Status: ${HEALTH_STATUS}). Please check PM2 logs on the server.${NC}"
+    exit 1
 fi
 
-echo -e "${BLUE}🏁 Deployment Flow Finished.${NC}"
+echo -e "${BLUE}🏁 Deployment Flow Finished Successfully.${NC}"
