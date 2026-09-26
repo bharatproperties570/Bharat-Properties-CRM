@@ -42,7 +42,6 @@ import { useInvalidateLeads } from '../../utils/crmHooks';
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const { isDark } = useTheme();
 
-    console.log("[Leads Audit] LeadsPage rendering...");
     const {
         scoringAttributes,
         activityMasterFields,
@@ -247,7 +246,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         const fetchLeads = async () => {
             setLoading(true);
             try {
-                console.log("[Leads Audit] Attempting API call to /api/leads with params:", { page: currentPage, search: debouncedSearchTerm, ...filters });
                 const response = await api.get(`leads`, {
                     params: {
                         page: currentPage,
@@ -259,7 +257,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         ...filters
                     }
                 });
-                console.log("[Leads Audit] API Response Success:", response.data?.success, "Records:", response.data?.records?.length);
 
                 if (!response.data || !response.data.success) {
                     throw new Error("Failed to fetch leads");
@@ -1119,7 +1116,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onClose={() => setIsSendMessageOpen(false)}
                 initialRecipients={selectedLeadsForMessage}
                 onSend={(data, res) => {
-                    console.log('Message Data Outbound:', data);
                     toast.success(res?.message || 'Message Sent Successfully!');
                     setIsSendMessageOpen(false);
                     // trigger refresh if needed
@@ -1132,7 +1128,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onClose={() => setIsTagsModalOpen(false)}
                 selectedContacts={selectedLeadsForTags}
                 onUpdateTags={(payload) => {
-                    console.log('Tags Updated:', payload);
                     setIsTagsModalOpen(false);
                     setSelectedIds([]);
                 }}
@@ -1161,12 +1156,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             return;
                         }
                         
-                        console.log("[Assignment Audit] Starting manual assignment for", selectedLeadsForAssign.length, "leads");
-                        console.log("[Assignment Audit] Details:", assignmentDetails);
                         
                         const toastId = toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
                         const promises = selectedLeadsForAssign.map(lead => {
-                            console.log(`[Assignment Audit] Assigning lead ${lead._id} to ${assignmentDetails.assignedTo}`);
                             return api.put(`leads/${lead._id}`, {
                                 owner: assignmentDetails.assignedTo,
                                 teams: assignmentDetails.team ? [assignmentDetails.team] : undefined,
@@ -1186,7 +1178,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         });
                         
                         const responses = await Promise.all(promises);
-                        console.log("[Assignment Audit] All requests completed successfully", responses.length);
                         
                         toast.success(`${selectedLeadsForAssign.length} lead(s) assigned successfully`, { id: toastId });
                         setRefreshTrigger(prev => prev + 1);
@@ -1208,7 +1199,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onClose={() => setIsSendMailOpen(false)}
                 recipients={selectedLeadsForMail}
                 onSend={(data) => {
-                    console.log('Sending Mail:', data);
                     setIsSendMailOpen(false);
                 }}
             />
@@ -1227,7 +1217,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 mode={editingLead ? "edit" : "add"}
                 initialTab={initialTab}
                 onAdd={(updatedData) => {
-                    console.log('Lead Updated:', updatedData);
                     setIsAddLeadModalOpen(false);
                     setEditingLead(null);
                     setInitialTab(null);

@@ -210,6 +210,7 @@ export const triggerTestNotification = () => api.post('/notifications/test').the
 export const api = axios.create({
     // Use the dynamically resolved API_BASE_URL based on environment
     baseURL: API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`,
+    timeout: 30000, // 30 second request timeout (Phase 10.4)
     headers: {
         "Content-Type": "application/json",
         "Bypass-Tunnel-Reminder": "true",
@@ -219,7 +220,6 @@ export const api = axios.create({
 // Add a request interceptor to inject the token
 api.interceptors.request.use(
   (config) => {
-    console.log(`[API Request Audit] ${config.method?.toUpperCase()} ${config.url}`, config.params);
     const token = getAuthToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -252,12 +252,11 @@ api.interceptors.response.use(
         const { config, response } = error;
         const originalRequest = config;
 
+        // ── 401: Silent token refresh ─────────────────────────────────────────
         if (response?.status === 401 && !originalRequest._retry) {
             if (originalRequest.url.includes('/auth/refresh')) {
-                // If the refresh token call itself fails, we must logout
-                console.warn('Refresh token expired. Logging out...');
+                // Refresh token itself failed — force logout
                 safeStorage.removeItem('authToken');
-                // Clear cookie as well
                 document.cookie = 'authToken=; Max-Age=0; path=/';
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(error);
@@ -276,29 +275,45 @@ api.interceptors.response.use(
             isRefreshing = true;
 
             try {
-                console.log('Attempting silent token refresh...');
                 const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
                 if (res.data.success && res.data.token) {
                     const newToken = res.data.token;
                     safeStorage.setItem('authToken', newToken);
                     isRefreshing = false;
                     onRefreshed(newToken);
-                    
-                    // Retry original request
                     originalRequest.headers.Authorization = `Bearer ${newToken}`;
                     return api(originalRequest);
                 }
             } catch (refreshError) {
                 isRefreshing = false;
-                console.error('Silent refresh failed:', refreshError.message);
                 safeStorage.removeItem('authToken');
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(refreshError);
             }
         }
+
+        // ── Normalized error handling (Phase 10.4) ───────────────────────────
+        // Only show toast for non-401 errors (401 is handled above via refresh/logout).
+        // Skip toast for requests that opt-out via config._silentError.
+        if (response && !originalRequest._silentError) {
+            const status = response.status;
+            if (status === 403) {
+                toast.error('Permission denied. You do not have access to perform this action.');
+            } else if (status === 404) {
+                toast.error('Resource not found. It may have been deleted or moved.');
+            } else if (status === 409) {
+                // 409 Conflict: callers handle this (e.g. duplicate lead) — no generic toast
+            } else if (status === 429) {
+                toast.error('Too many requests. Please wait a moment and try again.');
+            } else if (status >= 500) {
+                toast.error('Server error. Our team has been notified. Please try again shortly.');
+            }
+        }
+
         return Promise.reject(error);
     }
 );
+
 
 // Simple request cache to prevent redundant simultaneous calls
 const pendingRequests = new Map();
