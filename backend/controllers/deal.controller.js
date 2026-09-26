@@ -2027,8 +2027,6 @@ export const addDeal = async (req, res) => {
 
         // Trigger Workflow Engine (Legacy compatibility)
         try {
-            await WorkflowEngine.fireEvent('deals', 'deal_created', result.deal, result.deal.companyId);
-
             if (result.deal.inventoryId) {
                 const InventoryModel = mongoose.default ? mongoose.default.model('Inventory') : mongoose.model('Inventory');
                 const linkedInv = await InventoryModel.findById(result.deal.inventoryId).lean();

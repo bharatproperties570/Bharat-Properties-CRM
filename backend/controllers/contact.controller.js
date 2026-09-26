@@ -723,35 +723,30 @@ export const updateContact = async (req, res, next) => {
         const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
-        contact.set(cleanData);
-        await contact.save();
+        const session = await mongoose.startSession();
+        try {
+            await session.withTransaction(async () => {
+                contact.set(cleanData);
+                await contact.save({ session });
 
-        // Sync to Google
-        googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+                const stageChanged = cleanData.stage !== undefined && String(existingContact?.stage) !== String(cleanData.stage);
+                const OutboxEvent = mongoose.model('OutboxEvent');
 
-        // Bidirectional Sync: Contact -> Inventory
-        if (cleanData.documents && Array.isArray(cleanData.documents)) {
-            const primaryPhone = contact.phones?.find(p => p.isPrimary)?.number || contact.phones?.[0]?.number;
-            await syncDocumentsToInventory(cleanData.documents, { 
-                name: contact.name, 
-                mobile: primaryPhone 
+                await OutboxEvent.create([{
+                    eventType: 'ContactUpdated',
+                    aggregateType: 'Contact',
+                    aggregateId: contact._id,
+                    payload: {
+                        documents: cleanData.documents,
+                        stageChanged,
+                        previousStage: existingContact?.stage,
+                        newStage: cleanData.stage,
+                        triggeredBy: req.user?._id || req.user?.id
+                    }
+                }], { session });
             });
-        }
-
-        // Emit Stage Changed AuditLog if updated
-        if (existingContact && cleanData.stage && String(existingContact.stage) !== String(cleanData.stage)) {
-            // Need AuditLog module explicitly imported at top if not present.
-            // Assuming AuditLog is imported at the top of contact.controller.js.
-            const AuditLog = mongoose.model('AuditLog');
-            await AuditLog.logEntityUpdate(
-                'stage_changed',
-                'contact',
-                contact._id,
-                `${contact.name} ${contact.surname || ''}`.trim(),
-                req.user?.id || null, // Best effort actor
-                { before: existingContact.stage || 'New', after: cleanData.stage },
-                `Contact stage shifted from ${existingContact.stage || 'New'} to ${cleanData.stage}`
-            );
+        } finally {
+            await session.endSession();
         }
 
         res.json({ success: true, data: contact });

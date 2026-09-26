@@ -950,7 +950,11 @@ export const updateLead = async (req, res, next) => {
             .select('stage stageHistory stageChangedAt createdAt owner assignment firstName lastName')
             .lean();
 
-        if (existing) {
+        const session = await mongoose.startSession();
+        let finalLead;
+        try {
+            await session.withTransaction(async () => {
+                if (existing) {
             // 🧠 Terminal State Lock: Prevent updates on closed leads (unless reviving)
             let currentStageStr = 'Incoming';
             if (existing.stage) {
@@ -1038,37 +1042,6 @@ export const updateLead = async (req, res, next) => {
                         `Lead stage shifted from ${currentStageStr} to ${newStageStr}${updateData.reason ? ' - ' + updateData.reason : ''}`
                     );
 
-                    // [ENTERPRISE] Automated Exit Interview Win-back
-                    if (isNewStageClosed) {
-                        try {
-                            const mobileNumber = existing.mobile || existing.phones?.[0] || updateData.mobile;
-                            if (mobileNumber) {
-                                // 🧊 [ENTERPRISE] Use official Meta Template to bypass 24hr restriction
-                                const templateComponents = [
-                                    {
-                                        type: "body",
-                                        parameters: [
-                                            { type: "text", text: existing.firstName || 'Customer' }
-                                        ]
-                                    }
-                                ];
-                                await WhatsAppService.sendTemplate(mobileNumber, 'exit_interview_winback', 'en_US', templateComponents);
-                                
-                                const Activity = mongoose.model('Activity');
-                                await Activity.create({
-                                    entityType: 'Lead',
-                                    entityId: req.params.id,
-                                    type: 'whatsapp',
-                                    subject: 'Automated Exit Survey',
-                                    details: `Automated exit survey dispatched to ${mobileNumber} due to stage change to ${newStageStr}.`,
-                                    user: req.user?.id || null,
-                                    timestamp: new Date()
-                                });
-                            }
-                        } catch(e) {
-                            console.error("[EXIT SURVEY ERROR]", e);
-                        }
-                    }
                 }
             }
 
@@ -1124,17 +1097,17 @@ export const updateLead = async (req, res, next) => {
                 // 🏎️ SENIOR OPTIMIZATION: Sequential updates to avoid Mongoose path conflicts
                 // (You cannot $set and $push to the same array/path in a single operation)
                 if (Object.keys(atomicUpdate).length > 0) {
-                    await Lead.findByIdAndUpdate(req.params.id, { $set: atomicUpdate });
+                    await Lead.findByIdAndUpdate(req.params.id, { $set: atomicUpdate }, { session });
                 }
                 
                 if (pushOps && Object.keys(pushOps).length > 0) {
-                    await Lead.findByIdAndUpdate(req.params.id, { $push: pushOps });
+                    await Lead.findByIdAndUpdate(req.params.id, { $push: pushOps }, { session });
                 }
             }
         }
 
         // Standard update (stage already resolved to ObjectId by resolveAllReferenceFields)
-        const finalLead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true }).populate(leadPopulateFields);
+        finalLead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true, session }).populate(leadPopulateFields);
 
         // 🧠 DATA COMPLETENESS AUTO-QUALIFICATION
         if (finalLead && checkLeadQualifiedStatus(finalLead)) {
@@ -1143,11 +1116,38 @@ export const updateLead = async (req, res, next) => {
                 const isCurrentlyQualified = finalLead.status && finalLead.status._id && finalLead.status._id.toString() === qualifiedStatusLookup._id.toString();
                 if (!isCurrentlyQualified) {
                     finalLead.status = qualifiedStatusLookup._id;
-                    await Lead.findByIdAndUpdate(finalLead._id, { status: qualifiedStatusLookup._id });
+                    await Lead.findByIdAndUpdate(finalLead._id, { status: qualifiedStatusLookup._id }, { session });
                 }
             }
         }
 
+
+            const payload = {
+                previousStage: existing?.stage,
+                triggeredBy: req.user?._id || req.user?.id
+            };
+            if (updateData.stage !== undefined) {
+                payload.stageChanged = String(existing?.stage) !== String(updateData.stage);
+                payload.newStage = updateData.stage;
+            }
+            if (updateData.status !== undefined) {
+                payload.statusChanged = String(existing?.status) !== String(updateData.status);
+            }
+            if (updateData.score !== undefined) {
+                payload.scoreChanged = Boolean(updateData.score);
+            }
+
+            const OutboxEvent = mongoose.model('OutboxEvent');
+            await OutboxEvent.create([{
+                eventType: 'LeadUpdated',
+                aggregateType: 'Lead',
+                aggregateId: finalLead._id,
+                payload
+            }], { session });
+        });
+    } finally {
+        await session.endSession();
+    }
 
         if (finalLead) {
             // Bidirectional Sync: Lead -> Inventory
@@ -1186,33 +1186,8 @@ export const updateLead = async (req, res, next) => {
                 }).catch(e => console.error("[AI_LOG_ERROR]", e));
             }
 
-            // SMS Trigger: Stage Change (only if lead has a DLT-compliant template configured)
-            // We skip arbitrary text messages as they violate DLT regulations in India
-            if (finalLead.mobile && updateData.stage) {
-                smsService.sendSMSWithTemplate(
-                    finalLead.mobile,
-                    'Get Response',
-                    { Name: finalLead.firstName || 'Customer' },
-                    { entityType: 'Lead', entityId: finalLead._id }
-                ).catch(e => console.error('[SMS Trigger Error] Stage change failed:', e.message));
-            }
         }
 
-        // ─── Trigger Workflow Engine (Automated Actions) ───────────────────────
-        try {
-            const { WorkflowEngine } = await import("../src/utils/WorkflowEngine.js");
-            if (updateData.stage) {
-                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', finalLead, finalLead.companyId);
-            }
-            if (updateData.status) {
-                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_status_changed', finalLead, finalLead.companyId);
-            }
-            if (updateData.score) {
-                console.log("Lead Status before fireEvent:", lead.status); await WorkflowEngine.fireEvent('leads', 'lead_score_changed', finalLead, finalLead.companyId);
-            }
-        } catch (weError) {
-            console.error('[WorkflowEngine] Error firing update events:', weError.message);
-        }
 
         res.json({ success: true, data: finalLead });
     } catch (error) {

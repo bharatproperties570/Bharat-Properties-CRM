@@ -11,7 +11,7 @@ const OutboxEventSchema = new mongoose.Schema({
     eventType: {
         type: String,
         required: true,
-        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested']
+        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested', 'LeadUpdated', 'ContactUpdated']
     },
     aggregateType: {
         type: String,

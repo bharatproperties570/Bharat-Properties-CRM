@@ -155,6 +155,14 @@ export const processDomainEvent = async (job) => {
                 });
             }
 
+            dealEffects.push({
+                key: 'workflow',
+                fn: async () => {
+                    const { WorkflowEngine } = await import('../../src/utils/WorkflowEngine.js');
+                    await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
+                }
+            });
+
             const failures = [];
             for (const effect of dealEffects) {
                 try {
@@ -544,6 +552,155 @@ export const processDomainEvent = async (job) => {
             break;
         }
 
+        case 'LeadUpdated': {
+            const Lead = mongoose.model('Lead');
+            const lead = await Lead.findById(aggregateId).populate('owner assignment.assignedTo').lean();
+            if (!lead) throw new Error(`Lead ${aggregateId} not found`);
+
+            const effects = [];
+
+            effects.push({
+                key: 'whatsapp',
+                fn: async () => {
+                    let newStageStr = String(lead.stage?.lookup_value || lead.stage || '').toLowerCase();
+                    let readableStage = String(payload.newStage || lead.stage || 'closed');
+
+                    if (mongoose.Types.ObjectId.isValid(readableStage) && /^[a-fA-F0-9]{24}$/.test(readableStage)) {
+                        const Lookup = mongoose.model('Lookup');
+                        const lookup = await Lookup.findById(readableStage).select('lookup_value').lean();
+                        if (lookup) {
+                            readableStage = lookup.lookup_value;
+                            newStageStr = readableStage.toLowerCase();
+                        }
+                    }
+
+                    const isNewStageClosed = newStageStr.includes('closed') || newStageStr.includes('lost') || newStageStr.includes('won') || newStageStr.includes('unqualified') || newStageStr.includes('junk');
+
+                    if (isNewStageClosed && payload.stageChanged !== undefined && payload.newStage) {
+                        const mobileNumber = lead.mobile || lead.phones?.[0];
+                        if (mobileNumber) {
+                            const templateComponents = [{ type: "body", parameters: [{ type: "text", text: lead.firstName || 'Customer' }] }];
+                            const WhatsAppService = (await import('../../services/WhatsAppService.js')).default || (await import('../../services/WhatsAppService.js'));
+                            await WhatsAppService.sendTemplate(mobileNumber, 'exit_interview_winback', 'en_US', templateComponents);
+
+                            const Activity = mongoose.model('Activity');
+                            await Activity.create({
+                                entityType: 'Lead',
+                                entityId: aggregateId,
+                                type: 'whatsapp',
+                                subject: 'Automated Exit Survey',
+                                details: `Automated exit survey dispatched to ${mobileNumber} due to stage change to ${readableStage}.`,
+                                user: payload.triggeredBy || null,
+                                timestamp: new Date()
+                            });
+                        }
+                    }
+                }
+            });
+
+            effects.push({
+                key: 'sms',
+                fn: async () => {
+                    if (lead.mobile && payload.stageChanged !== undefined && payload.newStage) {
+                        const smsServiceModule = await import('../modules/sms/sms.service.js');
+                        const smsService = smsServiceModule.default || smsServiceModule.smsService || smsServiceModule.SmsService || smsServiceModule;
+                        if (smsService && typeof smsService.sendSMSWithTemplate === 'function') {
+                            await smsService.sendSMSWithTemplate(
+                                lead.mobile,
+                                'Get Response',
+                                { Name: lead.firstName || 'Customer' },
+                                { entityType: 'Lead', entityId: aggregateId }
+                            );
+                        }
+                    }
+                }
+            });
+
+            effects.push({
+                key: 'workflow',
+                fn: async () => {
+                    const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+                    if (payload.stageChanged !== undefined && payload.newStage) {
+                        await WorkflowEngine.fireEvent('leads', 'lead_stage_changed', lead, lead.companyId);
+                    }
+                    if (payload.statusChanged !== undefined && lead.status) {
+                        await WorkflowEngine.fireEvent('leads', 'lead_status_changed', lead, lead.companyId);
+                    }
+                    if (payload.scoreChanged === true) {
+                        await WorkflowEngine.fireEvent('leads', 'lead_score_changed', lead, lead.companyId);
+                    }
+                }
+            });
+
+            const failures = [];
+            for (const effect of effects) {
+                try {
+                    await executeEffect(eventId, effect.key, aggregateType, aggregateId, effect.fn);
+                } catch (err) {
+                    console.error(`[DomainEventWorker] LeadUpdated effect ${effect.key} failed:`, err.message);
+                    failures.push(err);
+                }
+            }
+            if (failures.length > 0) throw new AggregateError(failures, `LeadUpdated event encountered ${failures.length} effect failures.`);
+            break;
+        }
+
+        case 'ContactUpdated': {
+            const Contact = mongoose.model('Contact');
+            const contact = await Contact.findById(aggregateId).lean();
+            if (!contact) throw new Error(`Contact ${aggregateId} not found`);
+
+            const effects = [];
+
+            effects.push({
+                key: 'auditLog',
+                fn: async () => {
+                    if (payload.stageChanged && payload.previousStage !== payload.newStage) {
+                        const AuditLog = mongoose.model('AuditLog');
+                        await AuditLog.logEntityUpdate(
+                            'stage_changed',
+                            'contact',
+                            aggregateId,
+                            `${contact.name} ${contact.surname || ''}`.trim(),
+                            payload.triggeredBy,
+                            { before: payload.previousStage || 'New', after: payload.newStage },
+                            `Contact stage shifted from ${payload.previousStage || 'New'} to ${payload.newStage}`
+                        );
+                    }
+                }
+            });
+
+            effects.push({
+                key: 'inventorySync',
+                fn: async () => {
+                    if (payload.documents && Array.isArray(payload.documents)) {
+                        const { syncDocumentsToInventory } = await import('../../utils/sync.js');
+                        const primaryPhone = contact.phones?.find(p => p.isPrimary)?.number || contact.phones?.[0]?.number;
+                        await syncDocumentsToInventory(payload.documents, { name: contact.name, mobile: primaryPhone });
+                    }
+                }
+            });
+
+            effects.push({
+                key: 'googleSync',
+                fn: async () => {
+                    const { googleSyncQueue } = await import('../queues/queueManager.js');
+                    await googleSyncQueue.add('syncContact', { contactId: aggregateId }, { jobId: eventId.toString() });
+                }
+            });
+
+            const failures = [];
+            for (const effect of effects) {
+                try {
+                    await executeEffect(eventId, effect.key, aggregateType, aggregateId, effect.fn);
+                } catch (err) {
+                    console.error(`[DomainEventWorker] ContactUpdated effect ${effect.key} failed:`, err.message);
+                    failures.push(err);
+                }
+            }
+            if (failures.length > 0) throw new AggregateError(failures, `ContactUpdated event encountered ${failures.length} effect failures.`);
+            break;
+        }
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
