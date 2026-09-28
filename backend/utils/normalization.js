@@ -39,3 +39,9 @@ export const normalizePhone = (phone) => {
     
     return cleaned;
 };
+
+export const normalizeIdentity = (val) => {
+    if (val === null || val === undefined) return val;
+    const str = String(val).trim();
+    return str ? str.toUpperCase() : str;
+};
