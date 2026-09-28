@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
+import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { toSqFt } from '../utils/pricingUtils.js';
 import { paginate } from "../utils/pagination.js";
@@ -162,6 +163,9 @@ export const getInventory = async (req, res) => {
             minSize, maxSize, sizeMin, sizeMax, sizeType,
             followUpFrom, followUpTo, view
         } = req.query;
+
+        // 🏗️ ENTERPRISE HARDENING: Limit cap to prevent memory exhaustion on large fetches
+        const safeLimit = Math.min(Number(limit) || 10, 500);
 
         // 🚀 COMPACT VIEW FLAG: Skip all non-essential heavy ops for mobile list
         const isCompactView = view === 'compact';
@@ -626,8 +630,11 @@ export const getInventory = async (req, res) => {
         if (!finalSortOption.projectName) finalSortOption.projectName = 1;
         if (!finalSortOption.createdAt) finalSortOption.createdAt = -1;
 
+        // 🚀 SENIOR OPTIMIZATION: List Projection to prevent memory cascades
+        const inventoryListProjection = '_id category subCategory status projectName projectId block unitNo unitNumber unitType size sizeConfig sizeId sizeLabel sizeType totalLandAreaText direction facing isCorner isTwoSideOpen orientation roadWidth address owners ownerName ownerPhone associates team assignedTo createdAt updatedAt followUpDate history primaryDealIntent intent teams';
+
         // Fetch paginated results
-        const results = await paginate(Inventory, query, Number(page), Number(limit), finalSortOption, populateFields, collation);
+        const results = await paginate(Inventory, query, Number(page), safeLimit, finalSortOption, populateFields, collation, inventoryListProjection);
 
         // Check for deals and their intents
         const inventoryIds = results.records.map(item => item._id);
@@ -1121,22 +1128,25 @@ const notifyMatchingLeads = async (inventory) => {
 
 export const addInventory = async (req, res) => {
     try {
-        const { projectName, block, unitNo, unitNumber } = req.body;
-        const finalUnitNo = unitNo || unitNumber;
-
-        if (projectName && block && finalUnitNo) {
-            const existing = await Inventory.findOne({
-                projectName,
-                block,
-                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }]
-            });
-
-            if (existing) {
-                return res.status(400).json({ success: false, error: "Duplicate Inventory: This Unit already exists in this Project/Block." });
-            }
+        const { projectId, block, unitNo, unitNumber } = req.body;
+        
+        if (!projectId) {
+            return res.status(400).json({ success: false, error: "projectId is required for inventory creation." });
         }
 
+        req.body.block = normalizeIdentity(block);
+        req.body.unitNo = normalizeIdentity(unitNo || unitNumber);
+        
+        // Remove unitNumber alias to prevent legacy bypass
+        delete req.body.unitNumber;
+
         const data = sanitizePayload({ ...req.body });
+        if ('block' in data) data.block = normalizeIdentity(data.block);
+        if ('unitNo' in data) data.unitNo = normalizeIdentity(data.unitNo);
+        if ('unitNumber' in data) {
+            if (!('unitNo' in data)) data.unitNo = normalizeIdentity(data.unitNumber);
+            delete data.unitNumber;
+        }
         
         // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
         if (req.user) {
@@ -1174,7 +1184,33 @@ export const addInventory = async (req, res) => {
             });
         }
 
-        let inventory = await Inventory.create(data);
+        let inventory;
+        await withMongoTransaction(async (session) => {
+            const created = await Inventory.create([data], { session });
+            inventory = created[0];
+            
+            // DomainEvent Outbox
+            const AutomationLog = mongoose.model('AutomationLog');
+            await AutomationLog.create([{
+                ruleType: 'DomainEvent',
+                targetEntityId: inventory._id,
+                targetModule: 'Inventory',
+                status: 'pending',
+                idempotencyKey: `DomainEvent:INVENTORY_CREATED:${inventory._id}`,
+                executedAt: new Date(),
+                details: { eventType: 'INVENTORY_CREATED', entityId: inventory._id, entityType: 'Inventory' }
+            }], { session });
+        });
+
+        // POST-COMMIT Enqueue
+        try {
+            const { distributionQueue } = await import('../src/queues/queueManager.js');
+            await distributionQueue.add('process_domain_event', {
+                idempotencyKey: `DomainEvent:INVENTORY_CREATED:${inventory._id}`
+            }, { jobId: `DomainEvent:INVENTORY_CREATED:${inventory._id}`, removeOnComplete: true });
+        } catch (err) {
+            console.error('[InventoryController] Failed to enqueue INVENTORY_CREATED', err);
+        }
 
         // Trigger Sync if documents were provided during creation
         if (data.inventoryDocuments && Array.isArray(data.inventoryDocuments)) {
@@ -1196,6 +1232,7 @@ export const addInventory = async (req, res) => {
         res.status(201).json({ success: true, data: inventory });
 
     } catch (error) {
+        if (error.status === 409) return res.status(409).json({ success: false, error: error.message });
         res.status(400).json({ success: false, error: error.message });
     }
 };
@@ -1471,19 +1508,49 @@ export const updateInventory = async (req, res) => {
             filter.status = currentInv.status;
         }
 
-        const inventory = await Inventory.findOneAndUpdate(filter, mongoUpdate, {
-            new: true,
-            runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
-        }).populate([
-            { path: "owners", select: "name phones" },
-            { path: "associates.contact", select: "name phones" },
-            { path: "projectId" },
-            { path: "assignedTo", select: "fullName" },
-            { path: "history.author", select: "fullName name" }
-        ]);
+        let inventory;
+        let domainEventIdKey;
+        await withMongoTransaction(async (session) => {
+            inventory = await Inventory.findOneAndUpdate(filter, mongoUpdate, {
+                new: true,
+                runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
+                session
+            }).populate([
+                { path: "owners", select: "name phones" },
+                { path: "associates.contact", select: "name phones" },
+                { path: "projectId" },
+                { path: "assignedTo", select: "fullName" },
+                { path: "history.author", select: "fullName name" }
+            ]);
 
-        if (!inventory) {
-            return res.status(409).json({ success: false, error: "Inventory update failed. The status was modified by a concurrent transaction (e.g. a new booking). Please refresh and try again." });
+            if (!inventory) {
+                const err = new Error("Inventory update failed. The status was modified by a concurrent transaction (e.g. a new booking). Please refresh and try again.");
+                err.status = 409;
+                throw err;
+            }
+
+            // DomainEvent Outbox
+            domainEventIdKey = `DomainEvent:INVENTORY_UPDATED:${inventory._id}:${Date.now()}`;
+            const AutomationLog = mongoose.model('AutomationLog');
+            await AutomationLog.create([{
+                ruleType: 'DomainEvent',
+                targetEntityId: inventory._id,
+                targetModule: 'Inventory',
+                status: 'pending',
+                idempotencyKey: domainEventIdKey,
+                executedAt: new Date(),
+                details: { eventType: 'INVENTORY_UPDATED', entityId: inventory._id, entityType: 'Inventory' }
+            }], { session });
+        });
+
+        // POST-COMMIT Enqueue
+        try {
+            const { distributionQueue } = await import('../src/queues/queueManager.js');
+            await distributionQueue.add('process_domain_event', {
+                idempotencyKey: domainEventIdKey
+            }, { jobId: domainEventIdKey, removeOnComplete: true });
+        } catch (err) {
+            console.error('[InventoryController] Failed to enqueue INVENTORY_UPDATED', err);
         }
 
         // Trigger Sync if documents were updated
@@ -2409,7 +2476,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 // 1. Find Inventory Record (Resilient Matching)
                 const cleanProject = String(projectName || '').trim();
                 const cleanBlock = String(block || '').trim();
-                const cleanUnit = String(unitNo || '').trim();
+                const cleanUnit = normalizeIdentity(unitNo);
                 const absoluteRow = (row._rowIdx !== undefined ? row._rowIdx + 1 : i + 1);
 
                 const inventoryQuery = {
@@ -2446,7 +2513,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         item: cleanUnit || 'Unknown Unit',
                         unitNo: cleanUnit,
                         projectName: cleanProject,
-                        block: cleanBlock,
+                        block: normalizeIdentity(block),
                         ownerName,
                         ownerMobile,
                         reason: `Inventory not found. Check if Project "${cleanProject}", Block "${cleanBlock || 'Any'}", and Unit "${cleanUnit}" exist in the system.`
@@ -3296,53 +3363,357 @@ export const bulkAddInventory = async (req, res) => {
             return res.status(400).json({ success: false, message: "No inventory items provided" });
         }
 
-        // Add creator info
-        const preparedItems = items.map(item => ({
-            ...item,
-            createdBy: req.user._id,
-            tenantId: req.user.tenantId
+        const results = new Array(items.length).fill(null);
+        const validItems = [];
+        const processedKeys = new Set();
+        
+        // 1. Initial Validation & Deduplication
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            // Validate required fields and ObjectId format to prevent Mongoose CastErrors
+            if (!item.projectId || !item.unitNo || (item.projectId && !mongoose.Types.ObjectId.isValid(item.projectId))) {
+                results[i] = { index: i, outcome: 'validationFailed', retryable: false, message: 'Invalid identity format.' };
+                continue;
+            }
+            
+            const projectId = item.projectId.toString();
+            const block = item.block || "";
+            const unitNo = item.unitNo.toString();
+            const key = `${projectId}__${normalizeIdentity(block)}__${normalizeIdentity(unitNo)}`;
+            
+            if (processedKeys.has(key)) {
+                results[i] = { index: i, outcome: 'duplicateInput', retryable: false, message: 'Duplicate identity in payload.' };
+                continue;
+            }
+            processedKeys.add(key);
+            
+            validItems.push({
+                originalIndex: i,
+                item: { ...item, _resolvedIdentity: { projectId, block: normalizeIdentity(block), unitNo: normalizeIdentity(unitNo) } },
+                key
+            });
+        }
+
+        // 2. Query Existing Records
+        let existingRecords = [];
+        const identityOrConditions = validItems.map(v => ({
+            projectId: v.item._resolvedIdentity.projectId,
+            block: v.item._resolvedIdentity.block,
+            unitNo: v.item._resolvedIdentity.unitNo
         }));
 
-        // Use bulkWrite with upsert to prevent duplicates and update existing units
-        const bulkOps = preparedItems.map(item => {
-            const { status, createdBy, tenantId, _id, team, visibleTo, assignedTo, ...updateFields } = item;
-            
-            const setOnInsert = { 
-                createdBy, 
-                tenantId,
-                assignedTo: assignedTo || [req.user._id]
-            };
-            
-            // Preserve existing status and assignment if we are just updating the unit (e.g. from map plotting)
-            if (status) setOnInsert.status = status;
-            if (team) setOnInsert.team = team;
-            if (visibleTo) setOnInsert.visibleTo = visibleTo;
+        if (identityOrConditions.length > 0) {
+            existingRecords = await Inventory.find({ $or: identityOrConditions }).lean();
+        }
 
-            return {
-                updateOne: {
-                    filter: { 
-                        projectId: item.projectId, 
-                        block: item.block || "", 
-                        unitNo: item.unitNo 
-                    },
-                    update: { 
-                        $set: updateFields,
-                        $setOnInsert: setOnInsert
-                    },
-                    upsert: true
+        const existingIds = existingRecords.map(r => r._id);
+        let authorizedIds = new Set();
+
+        if (existingIds.length > 0) {
+            const visibilityFilter = await getVisibilityFilter(req.user);
+            const authorizedRecords = await Inventory.find({ 
+                $and: [
+                    { _id: { $in: existingIds } },
+                    Object.keys(visibilityFilter).length > 0 ? visibilityFilter : {}
+                ]
+            }).lean();
+            authorizedIds = new Set(authorizedRecords.map(r => r._id.toString()));
+        }
+
+        const existingMap = new Map();
+        for (const record of existingRecords) {
+            const key = `${record.projectId.toString()}__${record.block || ""}__${record.unitNo}`;
+            existingMap.set(key, record);
+        }
+
+        // Helper: Check if update fields are actually changing the record
+        const isUnchanged = (item, existing) => {
+            const { status, createdBy, tenantId, _id, team, visibleTo, assignedTo, _resolvedIdentity, ownerSources, projectId, block, unitNo, ownerHistory, owners, ...updateFields } = item;
+            
+            for (const k of Object.keys(updateFields)) {
+                if (updateFields[k] !== undefined && String(updateFields[k]) !== String(existing[k] || '')) {
+                    return false;
                 }
-            };
+            }
+            
+            if (item.owners !== undefined && Array.isArray(item.owners)) {
+                const currentOwnerIds = (existing.owners || []).map(id => id.toString());
+                const newOwnerIds = item.owners.map(id => id.toString());
+                const added = newOwnerIds.filter(id => !currentOwnerIds.includes(id));
+                const removed = currentOwnerIds.filter(id => !newOwnerIds.includes(id));
+                if (added.length > 0 || removed.length > 0) return false;
+            }
+            
+            return true;
+        };
+
+        // 3. Partitioning
+        const updateOps = [];
+        const updateOpMapping = [];
+        const insertDocs = [];
+        const insertOpMapping = [];
+
+        for (const v of validItems) {
+            const { originalIndex, item, key } = v;
+            const existingRecord = existingMap.get(key);
+            
+            if (existingRecord) {
+                if (authorizedIds.has(existingRecord._id.toString())) {
+                    if (isUnchanged(item, existingRecord)) {
+                        results[originalIndex] = { index: originalIndex, outcome: 'unchanged', retryable: false, message: 'Record unchanged.' };
+                    } else {
+                        // Prepare Update
+                        const { status, createdBy, tenantId, _id, team, visibleTo, assignedTo, _resolvedIdentity, ownerSources, ...updateFields } = item;
+                        delete updateFields.projectId;
+                        delete updateFields.block;
+                        delete updateFields.unitNo;
+                        delete updateFields.ownerHistory;
+
+                        const mongoUpdate = { $set: updateFields };
+
+                        if (item.owners !== undefined && Array.isArray(item.owners)) {
+                            const currentOwnerIds = (existingRecord.owners || []).map(id => id.toString());
+                            const newOwnerIds = item.owners.map(id => id.toString());
+                            const addedOwnerIds = newOwnerIds.filter(id => !currentOwnerIds.includes(id));
+                            const removedOwnerIds = currentOwnerIds.filter(id => !newOwnerIds.includes(id));
+                            
+                            const ownerHistoryEntries = [];
+                            const srcMapping = ownerSources || {};
+                            
+                            addedOwnerIds.forEach(id => ownerHistoryEntries.push({
+                                date: new Date(), author: req.user?._id || null, contactId: id, role: 'Property Owner', type: 'Added', source: srcMapping[id] || 'Bulk Update'
+                            }));
+                            removedOwnerIds.forEach(id => ownerHistoryEntries.push({
+                                date: new Date(), author: req.user?._id || null, contactId: id, role: 'Property Owner', type: 'Removed', source: 'Bulk Update'
+                            }));
+                            
+                            if (ownerHistoryEntries.length > 0) {
+                                mongoUpdate.$push = { ownerHistory: { $each: ownerHistoryEntries } };
+                            }
+                        }
+                        
+                        updateOps.push({ updateOne: { filter: { _id: existingRecord._id }, update: mongoUpdate } });
+                        updateOpMapping.push(originalIndex);
+                    }
+                } else {
+                    results[originalIndex] = { index: originalIndex, outcome: 'unauthorized', retryable: false, message: 'Unauthorized.' };
+                }
+            } else {
+                // Prepare Insert
+                const { _id, _resolvedIdentity, ownerSources, ...fields } = item;
+                insertDocs.push({
+                    ...fields,
+                    projectId: _resolvedIdentity.projectId,
+                    block: normalizeIdentity(_resolvedIdentity.block),
+                    unitNo: normalizeIdentity(_resolvedIdentity.unitNo),
+                    createdBy: req.user?._id,
+                    tenantId: req.user?.tenantId,
+                    assignedTo: item.assignedTo || [req.user?._id]
+                });
+                insertOpMapping.push(originalIndex);
+            }
+        }
+
+        // 4. Execute Updates
+        if (updateOps.length > 0) {
+            try {
+                await Inventory.bulkWrite(updateOps, { ordered: false });
+                for (const idx of updateOpMapping) {
+                    results[idx] = { index: idx, outcome: 'updated', retryable: false, message: 'Success' };
+                }
+            } catch (err) {
+                if (err.name === 'MongoBulkWriteError' && err.writeErrors) {
+                    const failedIndices = new Set();
+                    for (const we of err.writeErrors) {
+                        const originalIndex = updateOpMapping[we.index];
+                        failedIndices.add(originalIndex);
+                        
+                        if (we.code === 11000) {
+                            results[originalIndex] = { index: originalIndex, outcome: 'otherFailed', retryable: false, message: 'Internal processing error.' };
+                        } else if (we.code === 121 || (we.errmsg && we.errmsg.includes('validation'))) {
+                            results[originalIndex] = { index: originalIndex, outcome: 'validationFailed', retryable: false, message: 'Invalid update data format.' };
+                        } else {
+                            results[originalIndex] = { index: originalIndex, outcome: 'otherFailed', retryable: false, message: 'Internal system error.' };
+                        }
+                    }
+                    for (const idx of updateOpMapping) {
+                        if (!failedIndices.has(idx)) {
+                            results[idx] = { index: idx, outcome: 'updated', retryable: false, message: 'Success' };
+                        }
+                    }
+                } else if (err.name === 'MongoNetworkError' || err.name === 'MongoTimeoutError' || err.name === 'WriteConcernError') {
+                    for (const idx of updateOpMapping) {
+                        results[idx] = { index: idx, outcome: 'otherFailed', retryable: true, message: 'Transient connection error.' };
+                    }
+                } else if (err.name === 'ValidationError' || err.name === 'CastError') {
+                    for (const idx of updateOpMapping) {
+                        results[idx] = { index: idx, outcome: 'validationFailed', retryable: false, message: 'Invalid data type.' };
+                    }
+                } else {
+                    for (const idx of updateOpMapping) {
+                        results[idx] = { index: idx, outcome: 'otherFailed', retryable: false, message: 'Internal system error.' };
+                    }
+                }
+            }
+        }
+
+        // 5. Execute Inserts
+        if (insertDocs.length > 0) {
+            try {
+                await Inventory.insertMany(insertDocs, { ordered: false });
+                for (const idx of insertOpMapping) {
+                    results[idx] = { index: idx, outcome: 'inserted', retryable: false, message: 'Success' };
+                }
+            } catch (err) {
+                if ((err.name === 'MongoBulkWriteError' || err.name === 'BulkWriteError') && err.writeErrors) {
+                    const failedIndices = new Set();
+                    for (const we of err.writeErrors) {
+                        const originalIndex = insertOpMapping[we.index];
+                        failedIndices.add(originalIndex);
+                        
+                        const errmsg = we.errmsg || "";
+                        if (we.code === 11000) {
+                            if (errmsg.includes('projectId_1_block_1_unitNo_1')) {
+                                results[originalIndex] = { index: originalIndex, outcome: 'duplicateIdentity', retryable: false, message: 'Unit already exists.' };
+                            } else {
+                                results[originalIndex] = { index: originalIndex, outcome: 'otherFailed', retryable: false, message: 'Internal processing error.' };
+                            }
+                        } else if (we.code === 121 || errmsg.includes('validation')) {
+                            results[originalIndex] = { index: originalIndex, outcome: 'validationFailed', retryable: false, message: 'Invalid data format.' };
+                        } else {
+                            results[originalIndex] = { index: originalIndex, outcome: 'otherFailed', retryable: false, message: 'Internal system error.' };
+                        }
+                    }
+                    for (const idx of insertOpMapping) {
+                        if (!failedIndices.has(idx)) {
+                            results[idx] = { index: idx, outcome: 'inserted', retryable: false, message: 'Success' };
+                        }
+                    }
+                } else if (err.name === 'MongoNetworkError' || err.name === 'MongoTimeoutError' || err.name === 'WriteConcernError') {
+                    for (const idx of insertOpMapping) {
+                        results[idx] = { index: idx, outcome: 'otherFailed', retryable: true, message: 'Transient connection error.' };
+                    }
+                } else if (err.name === 'ValidationError' || err.name === 'CastError') {
+                    for (const idx of insertOpMapping) {
+                        results[idx] = { index: idx, outcome: 'validationFailed', retryable: false, message: 'Invalid data type.' };
+                    }
+                } else {
+                    for (const idx of insertOpMapping) {
+                        results[idx] = { index: idx, outcome: 'otherFailed', retryable: false, message: 'Internal system error.' };
+                    }
+                }
+            }
+        }
+
+        // 6. Reconciliation
+        const summary = {
+            totalRequested: items.length,
+            inserted: 0,
+            updated: 0,
+            unchanged: 0,
+            duplicateInput: 0,
+            unauthorized: 0,
+            duplicateIdentity: 0,
+            validationFailed: 0,
+            otherFailed: 0
+        };
+
+        for (let i = 0; i < items.length; i++) {
+            if (!results[i] || !results[i].outcome) {
+                console.error(`[INVARIANT FAILURE] Index ${i} is missing a terminal outcome!`);
+                return res.status(500).json({ success: false, error: 'Internal system error: Count reconciliation failed.' });
+            }
+            summary[results[i].outcome] = (summary[results[i].outcome] || 0) + 1;
+        }
+        
+        if (results.length !== items.length) {
+            console.error(`[INVARIANT FAILURE] Results length (${results.length}) does not match requested length (${items.length})!`);
+            return res.status(500).json({ success: false, error: 'Internal system error: Count reconciliation failed.' });
+        }
+
+        // Legacy compatibility assignments
+        summary.rejectedUnauthorized = summary.unauthorized;
+        summary.collisions = summary.duplicateIdentity;
+
+        const successCount = summary.inserted + summary.updated + summary.unchanged;
+        const failCount = items.length - successCount;
+        const success = successCount > 0;
+        const partialSuccess = success && failCount > 0;
+
+        // Structured Logging
+        const failedIndices = results
+            .filter(r => !['inserted', 'updated', 'unchanged'].includes(r.outcome))
+            .map(r => r.index);
+            
+        console.info(JSON.stringify({
+            event: "bulk_inventory",
+            user: req.user?._id,
+            traceId: req.id || 'N/A',
+            summary,
+            failedIndices
+        }));
+
+        return res.status(200).json({
+            success,
+            partialSuccess,
+            summary,
+            results
         });
 
-        const result = await Inventory.bulkWrite(bulkOps);
-
-        res.status(200).json({
-            success: true,
-            message: `Successfully processed ${preparedItems.length} inventory units.`,
-            data: result
-        });
     } catch (error) {
         console.error("Error bulk adding inventory:", error);
+        return res.status(500).json({ success: false, error: 'Internal system error.' });
+    }
+};
+
+export const exportInventors = async (req, res, next) => {
+    try {
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        let query = { ...visibilityFilter };
+        
+        // ExportDataPage currently passes no filters except limit.
+        // We preserve the ability to add filters later, but start simple.
+        if (req.query.includeArchived !== 'true' && 'Inventor' === 'Lead') {
+            query.isArchived = { $ne: true };
+        }
+
+        const EXPORT_SYNC_CAP = 5000; // PROVISIONAL
+        const totalCount = await Inventory.countDocuments(query);
+        
+        if (totalCount > EXPORT_SYNC_CAP) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Export exceeds synchronous limit of ${EXPORT_SYNC_CAP} records. Please apply filters.` 
+            });
+        }
+
+        const records = await Inventory.find(query)
+            .select('_id category subCategory status projectName projectId block unitNo unitNumber unitType size sizeConfig sizeId sizeLabel sizeType totalLandAreaText direction facing isCorner isTwoSideOpen orientation roadWidth address owners ownerName ownerPhone associates team assignedTo createdAt updatedAt followUpDate history primaryDealIntent intent teams')
+            .populate([{ path: 'owners', select: 'name email phones' }, { path: 'associates.contact', select: 'name email phones' }])
+            .limit(EXPORT_SYNC_CAP)
+            .lean();
+
+        res.status(200).json({ success: true, records, count: records.length });
+    } catch (error) {
+        console.error(`[EXPORT ERROR] Inventor:`, error);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const restoreInventory = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await Inventory.restoreOne({ _id: id }, req.user?._id || 'System');
+        if (!result) {
+            return res.status(404).json({ success: false, error: "Inventory not found or not soft-deleted." });
+        }
+        res.json({ success: true, message: "Inventory restored successfully", data: result });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({ success: false, error: "Restore failed: An active inventory record currently occupies this Project/Block/UnitNo combination." });
+        }
+        console.error("Error restoring inventory:", error);
+        res.status(500).json({ success: false, error: "Server Error" });
     }
 };
