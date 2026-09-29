@@ -584,7 +584,31 @@ DealSchema.index(
 // --- GATE 121: E11000 PARSING HOOK ---
 DealSchema.post(['save', 'findOneAndUpdate', 'insertMany', 'updateMany', 'updateOne'], function(error, doc, next) {
     if (error.name === 'MongoServerError' && error.code === 11000) {
-        if (error.message.includes('deal_active_inventory_uidx') || error.message.includes('deal_active_coordinates_uidx')) {
+        let isDuplicateDeal = false;
+
+        // 1. PRIMARY: Check by keyPattern (most robust)
+        if (error.keyPattern) {
+            const keys = Object.keys(error.keyPattern);
+            if (keys.length === 1 && keys.includes('inventoryId')) {
+                isDuplicateDeal = true;
+            } else if (keys.includes('projectName') && keys.includes('block') && keys.includes('unitNo')) {
+                isDuplicateDeal = true;
+            }
+        }
+        
+        // 2. SECONDARY COMPATIBILITY: Check by explicit index names
+        if (!isDuplicateDeal && error.message) {
+            if (
+                error.message.includes('deal_active_inventory_uidx') || 
+                error.message.includes('deal_active_inventory_unique') || 
+                error.message.includes('deal_active_coordinates_uidx') || 
+                error.message.includes('deal_active_coordinates_unique')
+            ) {
+                isDuplicateDeal = true;
+            }
+        }
+
+        if (isDuplicateDeal) {
             const dupErr = new Error('An active deal already exists for this property coordinates or inventory linkage.');
             dupErr.code = 'DUPLICATE_DEAL';
             return next(dupErr);
