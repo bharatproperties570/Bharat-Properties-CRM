@@ -27,7 +27,7 @@ export async function runRollback() {
                                       .sort({ _id: 1 }).limit(batchSize).toArray();
         if (batch.length === 0) break;
 
-        const session = mongoose.connection.startSession();
+        const session = await mongoose.connection.startSession();
         try {
             session.startTransaction();
 
@@ -81,7 +81,7 @@ export async function runRollback() {
             console.error("Batch rollback failed, transaction aborted:", err.message);
             throw err;
         } finally {
-            session.endSession();
+            await session.endSession();
         }
     }
 
