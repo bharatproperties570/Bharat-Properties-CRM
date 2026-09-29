@@ -1,11 +1,21 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 dotenv.config({ path: 'backend/.env' });
 
 const MIGRATION_ID = 'R8_NORMALIZE';
 
 export async function runMigration() {
     console.log("Starting R8 Migration...");
+
+    const OPERATOR_ID = process.env.OPERATOR_ID?.trim();
+    if (!OPERATOR_ID) {
+        throw new Error("R8 migration requires OPERATOR_ID");
+    }
+
+    const RUN_ID = crypto.randomUUID();
+    const EXECUTION_SOURCE = process.env.EXECUTION_SOURCE?.trim() || "production-cli";
+
     await mongoose.connect(process.env.MONGODB_URI);
     
     const db = mongoose.connection.db;
@@ -63,7 +73,9 @@ export async function runMigration() {
                             originalUnitNo: doc.unitNo,
                             migratedBlock: cleanBlock,
                             migratedUnitNo: cleanUnit,
-                            operatorId: 'system',
+                            operatorId: OPERATOR_ID,
+                            runId: RUN_ID,
+                            executionSource: EXECUTION_SOURCE,
                             batchId: batchId,
                             timestamp: new Date(),
                             state: 'MIGRATED'
