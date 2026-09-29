@@ -149,28 +149,35 @@ export const createStandardizedDeal = async (input, options = {}) => {
             const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).session(session).lean();
             const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
 
-            if (isStrict && inventory) {
+            if (isStrict) {
                 const coordQuery = {
-                    $or: [
-                        { inventoryId: linkage.inventoryId }
-                    ],
+                    $or: [],
                     stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
                 };
 
-                if (dealData.projectName && dealData.unitNo) {
+                if (linkage?.inventoryId) {
+                    coordQuery.$or.push({ inventoryId: linkage.inventoryId });
+                }
+
+                const cProject = (dealData.projectName && String(dealData.projectName).trim().toUpperCase() !== '') ? String(dealData.projectName).trim().toUpperCase() : null;
+                const cBlock = (dealData.block && String(dealData.block).trim().toUpperCase() !== '') ? String(dealData.block).trim().toUpperCase() : null;
+                const cUnitNo = (dealData.unitNo && String(dealData.unitNo).trim().toUpperCase() !== '') ? String(dealData.unitNo).trim().toUpperCase() : null;
+
+                if (cProject && cBlock && cUnitNo) {
                     coordQuery.$or.push({
-                        projectName: dealData.projectName,
-                        block: dealData.block,
-                        unitNo: dealData.unitNo
+                        projectName: cProject,
+                        block: cBlock,
+                        unitNo: cUnitNo
                     });
                 }
 
-                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
-                if (duplicateDeal) {
-                    const dupErr = new Error(`DUPLICATE DEAL DETECTED: An active deal already exists for this unit.`);
-                    dupErr.code = 'DUPLICATE_DEAL';
-                    dupErr.duplicateId = duplicateDeal._id;
-                    throw dupErr;
+                if (coordQuery.$or.length > 0) {
+                    const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                    if (duplicateDeal) {
+                        const dupErr = new Error('An active deal already exists for this property coordinates or inventory linkage.');
+                        dupErr.code = 'DUPLICATE_DEAL';
+                        throw dupErr;
+                    }
                 }
             }
 

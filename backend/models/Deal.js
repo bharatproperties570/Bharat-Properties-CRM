@@ -83,6 +83,7 @@ const DealSchema = new mongoose.Schema({
         enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'], // Kept old ones for backward compatibility
         default: 'Open'
     },
+    isActiveDeal: { type: Boolean, default: true },
     status: { type: mongoose.Schema.Types.Mixed }, // Sub-stage, e.g. Won, Lost, On Hold, Cancelled
     isQualified: { type: Boolean, default: null }, // Tag for Intake Engine
     tags: [{ type: String }],
@@ -505,6 +506,91 @@ DealSchema.pre('insertMany', function(next, docs) {
         });
     }
     next();
+});
+
+
+// --- GATE 121: DEAL CANONICALIZATION & INVARIANT HOOKS ---
+DealSchema.pre('save', function(next) {
+    if (this.isModified('stage') || this.isNew) {
+        this.isActiveDeal = !['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'].includes(this.stage);
+    }
+    ['projectName', 'block', 'unitNo'].forEach(key => {
+        if (this[key] !== undefined && this[key] !== null) {
+            let val = String(this[key]).trim().toUpperCase();
+            this[key] = val === '' ? null : val;
+        }
+    });
+    next();
+});
+
+const applyUpdateCanonicalization = function(next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+    
+    const set = update.$set || {};
+    const setOnInsert = update.$setOnInsert || {};
+    
+    const newStage = update.stage || set.stage || setOnInsert.stage;
+    if (newStage !== undefined) {
+        const isActiveDeal = !['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'].includes(newStage);
+        if (!update.$set) update.$set = {};
+        update.$set.isActiveDeal = isActiveDeal;
+        if (update.isActiveDeal !== undefined) delete update.isActiveDeal;
+    }
+    
+    ['projectName', 'block', 'unitNo'].forEach(key => {
+        let val = update[key];
+        if (val === undefined) val = set[key];
+        if (val !== undefined) {
+            if (val === null) {
+                // leave null
+            } else {
+                let s = String(val).trim().toUpperCase();
+                if (s === '') s = null;
+                if (!update.$set) update.$set = {};
+                update.$set[key] = s;
+                if (update[key] !== undefined) delete update[key];
+            }
+        }
+    });
+    next();
+};
+
+DealSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], applyUpdateCanonicalization);
+
+// --- GATE 121: DEAL ACTIVE UNIQUE INDEXES ---
+DealSchema.index(
+    { inventoryId: 1 },
+    {
+        name: 'deal_active_inventory_uidx',
+        unique: true,
+        background: true,
+        partialFilterExpression: { isActiveDeal: true, inventoryId: { $type: "objectId" } }
+    }
+);
+
+DealSchema.index(
+    { projectName: 1, block: 1, unitNo: 1 },
+    {
+        name: 'deal_active_coordinates_uidx',
+        unique: true,
+        background: true,
+        partialFilterExpression: { isActiveDeal: true, projectName: { $type: "string" }, block: { $type: "string" }, unitNo: { $type: "string" } }
+    }
+);
+
+
+
+// --- GATE 121: E11000 PARSING HOOK ---
+DealSchema.post(['save', 'findOneAndUpdate', 'insertMany', 'updateMany', 'updateOne'], function(error, doc, next) {
+    if (error.name === 'MongoServerError' && error.code === 11000) {
+        if (error.message.includes('deal_active_inventory_uidx') || error.message.includes('deal_active_coordinates_uidx')) {
+            const dupErr = new Error('An active deal already exists for this property coordinates or inventory linkage.');
+            dupErr.code = 'DUPLICATE_DEAL';
+            return next(dupErr);
+        }
+    }
+    next(error);
 });
 
 export default mongoose.model("Deal", DealSchema);

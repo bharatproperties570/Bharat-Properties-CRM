@@ -2115,23 +2115,49 @@ export const updateDeal = async (req, res) => {
             }
 
             // [ENTERPRISE HARDENING]: coordinate-based duplicate check
-            if (sanitizedData.inventoryId || sanitizedData.unitNo) {
-                const current = await Deal.findById(req.params.id).lean().session(session);
-                const projectName = sanitizedData.projectName || current.projectName;
-                const block = sanitizedData.block || current.block;
-                const unitNo = sanitizedData.unitNo || current.unitNo;
+            const dupPolicy = await mongoose.model('SystemSetting').findOne({ key: 'crm_duplicate_policy' }).session(session).lean();
+            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
 
+            if (isStrict) {
+                const current = await Deal.findById(req.params.id).lean().session(session);
+                
+                const cInv = sanitizedData.inventoryId !== undefined ? sanitizedData.inventoryId : current.inventoryId;
+                const cProj = sanitizedData.projectName !== undefined ? sanitizedData.projectName : current.projectName;
+                const cBlock = sanitizedData.block !== undefined ? sanitizedData.block : current.block;
+                const cUnitNo = sanitizedData.unitNo !== undefined ? sanitizedData.unitNo : current.unitNo;
+                
                 const coordQuery = {
+                    $or: [],
                     _id: { $ne: req.params.id },
-                    projectName,
-                    block,
-                    unitNo,
                     stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
                 };
 
-                const duplicateDeal = await Deal.findOne(coordQuery).session(session);
-                if (duplicateDeal) {
-                    throw new Error(`DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`);
+                if (cInv) coordQuery.$or.push({ inventoryId: cInv });
+
+                const sProj = (cProj && String(cProj).trim().toUpperCase() !== '') ? String(cProj).trim().toUpperCase() : null;
+                const sBlock = (cBlock && String(cBlock).trim().toUpperCase() !== '') ? String(cBlock).trim().toUpperCase() : null;
+                const sUnitNo = (cUnitNo && String(cUnitNo).trim().toUpperCase() !== '') ? String(cUnitNo).trim().toUpperCase() : null;
+
+                if (sProj && sBlock && sUnitNo) {
+                    coordQuery.$or.push({
+                        projectName: sProj,
+                        block: sBlock,
+                        unitNo: sUnitNo
+                    });
+                }
+
+                if (coordQuery.$or.length > 0) {
+                    const pStage = sanitizedData.stage !== undefined ? sanitizedData.stage : current.stage;
+                    const isNowActive = !['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'].includes(pStage);
+                    
+                    if (isNowActive) {
+                        const duplicateDeal = await Deal.findOne(coordQuery).session(session);
+                        if (duplicateDeal) {
+                            const dupErr = new Error('An active deal already exists for this property coordinates or inventory linkage.');
+                            dupErr.code = 'DUPLICATE_DEAL';
+                            throw dupErr;
+                        }
+                    }
                 }
             }
 
@@ -2227,7 +2253,10 @@ export const updateDeal = async (req, res) => {
 
     } catch (error) {
         const msg = error.message || 'Transaction failed';
-        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('DUPLICATE PROTECTION') || msg.includes('Deal not found')) {
+        if (error.code === 'DUPLICATE_DEAL' || msg.includes('An active deal already exists')) {
+            return res.status(409).json({ success: false, error: msg, code: 'DUPLICATE_DEAL' });
+        }
+        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('Deal not found')) {
             return res.status(400).json({ success: false, error: msg, message: msg });
         }
         console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
