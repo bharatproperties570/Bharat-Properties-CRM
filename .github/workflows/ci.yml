@@ -1,0 +1,74 @@
+name: CI Safety Foundation
+
+on:
+  push:
+    branches: [ "main", "enterprise/*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  validate-and-build:
+    name: Validate and Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      
+      - name: Install Frontend Dependencies
+        run: npm ci
+        
+      - name: Install Backend Dependencies
+        run: cd backend && npm ci
+      
+      - name: Credential & Secret Scan
+        run: node scripts/secret-scan.js
+      
+      - name: Syntax & Static Validation (Backend)
+        # Simply parsing all js files to ensure no syntax errors in application code
+        run: |
+          find backend/src -name "*.js" | xargs -n1 node -c
+      
+      - name: Safe Test Execution
+        # Only explicitly allowed safe offline tests
+        run: cd backend && npm run test:ci
+      
+      - name: Frontend Build Validation
+        run: npm run build
+      
+      - name: Generate Release Metadata
+        id: release-meta
+        run: |
+          GIT_SHA=${GITHUB_SHA:-$(git rev-parse HEAD)}
+          BUILD_ID=${GITHUB_RUN_ID:-"local"}
+          BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          APP_VERSION=$(node -p "require('./package.json').version")
+          
+          cat << MANIFEST > release-manifest.json
+          {
+            "application": "bharat-properties-crm",
+            "gitSha": "$GIT_SHA",
+            "buildId": "$BUILD_ID",
+            "buildTimestamp": "$BUILD_TIMESTAMP",
+            "version": "$APP_VERSION",
+            "frontend": "dist",
+            "backend": "src",
+            "nodeVersion": "$(node -v)",
+  "osArchitecture": "$(uname -m)"
+          }
+          MANIFEST
+          
+          # Also copy to backend so the API endpoint can serve it
+          cp release-manifest.json backend/release-manifest.json
+          
+      - name: Upload Release Manifest Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: release-manifest.json
