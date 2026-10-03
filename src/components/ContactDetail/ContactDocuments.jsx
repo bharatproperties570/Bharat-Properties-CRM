@@ -1,6 +1,7 @@
 import { useTheme } from '../../context/ThemeContext';
 
 import React from 'react';
+import { useDocumentManager } from '../../hooks/useDocumentManager';
 import { BASE_BACKEND_URL } from '../../utils/api';
 
 // Professional Absolute URL Resolver
@@ -56,9 +57,14 @@ const ContactDocuments = React.memo(function ContactDocuments({
     expandedSections,
     toggleSection,
     setIsDocumentModalOpen,
-    renderLookup
+    renderLookup,
+    entityId,
+    entityType
 }) {
     const { isDark } = useTheme();
+
+    const { documents: unifiedDocs, loading: docsLoading, readNewDocument } = useDocumentManager(entityType, entityId, contactDocuments || []);
+
     return (
         <>
             <style>
@@ -133,131 +139,19 @@ const ContactDocuments = React.memo(function ContactDocuments({
                         <i className="fas fa-file-invoice" style={{ color: '#4f46e5' }}></i> Documents & Attachments
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsDocumentModalOpen(true);
-                            }}
-                            style={{
-                                background: '#4f46e5',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '8px',
-                                width: '26px',
-                                height: '26px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 10px rgba(79, 70, 229, 0.25)',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
-                        </button>
-                        <i className={`fas fa-chevron-${expandedSections.includes('documents') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#4f46e5' }}></i>
-                    </div>
-                </div>
-
-                {/* Expanded content */}
-                {expandedSections.includes('documents') && (
-                    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {contactDocuments.length > 0 ? (
-                            contactDocuments.map((doc, idx) => {
-                                // Extract file name & configuration
-                                const docUrl = (typeof doc.documentPicture === 'object' ? doc.documentPicture?.url : doc.documentPicture) || '';
-                                const absoluteDocUrl = getAbsoluteUrl(docUrl);
-                                const fileName = (typeof doc.documentPicture === 'object' ? doc.documentPicture?.name : '') || 
-                                                 (docUrl ? decodeURIComponent(docUrl.split('/').pop().split('?')[0]) : '');
-                                const fileConfig = getFileIconConfig(fileName);
-                                const docCategoryText = renderLookup(doc.documentCategory, '') || 
-                                                        (typeof doc.documentCategory === 'object' ? doc.documentCategory?.lookup_value : null) || 
-                                                        'Document';
-                                
-                                const docTypeText = renderLookup(doc.documentType, '') || 
-                                                    renderLookup(doc.documentName, '') || 
-                                                    (typeof doc.documentType === 'object' ? doc.documentType?.lookup_value : null) || 
-                                                    (typeof doc.documentName === 'object' ? doc.documentName?.lookup_value : null) || 
-                                                    fileName || 
-                                                    'File';
-
-                                return (
-                                    <div 
-                                        key={idx} 
-                                        className="enterprise-document-card"
-                                        style={{ cursor: absoluteDocUrl ? 'pointer' : 'default' }}
-                                        onClick={() => absoluteDocUrl && window.open(absoluteDocUrl, '_blank')}
-                                    >
-                                        
-                                        {/* Main Card Body (split into compact left icon column and right metadata column) */}
-                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                            
-                                            {/* Left Column: Dedicated Compact Document Type Icon Column */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                                                <div style={{
-                                                    width: '34px', height: '34px',
-                                                    background: fileConfig.bg,
-                                                    border: `1px solid ${fileConfig.border}`,
-                                                    borderRadius: '8px',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)'
-                                                }}>
-                                                    <i className={`fas ${fileConfig.icon}`} style={{ color: fileConfig.color, fontSize: '1rem' }}></i>
-                                                </div>
-                                                {docCategoryText && (
-                                                    <span style={{
-                                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff',
-                                                        color: '#2563eb',
-                                                        fontSize: '0.45rem',
-                                                        padding: '0.5px 4px',
-                                                        borderRadius: '3px',
-                                                        fontWeight: 900,
-                                                        border: '1px solid #bfdbfe',
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.5px',
-                                                        whiteSpace: 'nowrap'
-                                                    }}>
-                                                        {docCategoryText}
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            {/* Right Column: Document Type Name, Linked Inventory */}
-                                            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
-                                                    {docTypeText}
-                                                </span>
-                                                {(doc.unitNumber || doc.projectName) && (
-                                                    <span style={{ fontSize: '0.62rem', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px', marginTop: '1px' }}>
-                                                        <i className="fas fa-link" style={{ fontSize: '0.55rem', color: '#10b981' }}></i>
-                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {[
-                                                                doc.unitNumber ? `Unit ${doc.unitNumber}` : '',
-                                                                doc.projectName ? renderLookup(doc.projectName, '') || doc.projectName : ''
-                                                            ].filter(Boolean).join(' - ')}
-                                                        </span>
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Row 3: Upload Timestamp + View Action Button */}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', width: '100%' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.62rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>
-                                                <i className="far fa-clock" style={{ fontSize: '0.6rem', color: '#94a3b8' }}></i>
-                                                <span>
-                                                    {formatDateTime(doc.uploadedAt || doc.createdAt || doc.date) || 'Upload time N/A'}
-                                                </span>
-                                            </div>
-
-                                            {absoluteDocUrl && (
+                        
                                                 <button 
                                                     className="enterprise-doc-action-btn"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        window.open(absoluteDocUrl, '_blank');
+                                                        if (unifiedDoc.isLegacy) {
+                                                            window.open(absoluteDocUrl, '_blank');
+                                                        } else {
+                                                            readNewDocument(unifiedDoc.documentId, unifiedDoc.fileName);
+                                                        }
                                                     }}
                                                 >
+
                                                     <i className="fas fa-eye" style={{ fontSize: '0.65rem' }}></i>
                                                     View
                                                 </button>

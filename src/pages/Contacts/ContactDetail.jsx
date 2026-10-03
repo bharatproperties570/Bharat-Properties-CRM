@@ -834,6 +834,8 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             contactDocuments={contactDocuments}
                             setIsDocumentModalOpen={setIsDocumentModalOpen}
                             renderLookup={renderLookup}
+                            entityId={contact?._id}
+                            entityType="Contact"
                         />
 
 
