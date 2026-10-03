@@ -199,6 +199,7 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         }
     }
 
+    
     async _getPresignedReadUrl(objectKey, expiresInSeconds, options = {}) {
         const providerKey = this._resolveProviderKey(objectKey);
         try {
@@ -218,16 +219,14 @@ export default class S3CompatibleAdapter extends StorageAdapter {
 
             let signedUrl = null;
 
-            // Support V2 style client with built-in getSignedUrl, or injected presigner for V3
+            // Use the actual runtime injected signer. Do not fabricate command objects if the SDK is missing.
             if (this.s3Client && typeof this.s3Client.getSignedUrlPromise === 'function') {
+                // AWS SDK v2
                 params.Expires = expiresInSeconds;
                 signedUrl = await this.s3Client.getSignedUrlPromise('getObject', params);
             } else if (this.s3Presigner && typeof this.s3Presigner.getSignedUrl === 'function') {
-                signedUrl = await this.s3Presigner.getSignedUrl(
-                    this.s3Client,
-                    { name: 'GetObjectCommand', input: params },
-                    { expiresIn: expiresInSeconds }
-                );
+                // Abstract injected presigner (e.g., custom generic wrapper)
+                signedUrl = await this.s3Presigner.getSignedUrl('getObject', params, expiresInSeconds);
             } else {
                 // Signer unavailable
                 throw new ProviderUnavailableError(this.providerInstanceId, 'No compatible S3 signer available on this adapter.');
@@ -238,7 +237,6 @@ export default class S3CompatibleAdapter extends StorageAdapter {
             }
             
             // Validate that the signer didn't maliciously or mistakenly sign the wrong object
-            // This is a sanity check against mocked/injected signers
             if (!signedUrl.includes(encodeURIComponent(providerKey)) && !signedUrl.includes(providerKey)) {
                 throw new StorageError('Signer returned a URL for the wrong object.');
             }
@@ -251,5 +249,4 @@ export default class S3CompatibleAdapter extends StorageAdapter {
             throw this._translateError(err, 'PRESIGN_READ', objectKey);
         }
     }
-
 }

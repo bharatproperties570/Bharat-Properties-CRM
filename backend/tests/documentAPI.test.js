@@ -102,4 +102,42 @@ test('Phase 11.8.1-R1 - API Integration (Download URL)', async (t) => {
         assert.strictEqual(res.statusCode, 500);
         assert.strictEqual(res.body.success, false);
     });
+
+    await t.test('11. API Integration - Expiry security: Client query cannot override expiry', async () => {
+        // Set env var to known value
+        process.env.DOCUMENT_URL_EXPIRY_MS = '900000';
+        
+        let interceptedExpiry = null;
+        
+        mock.method(DocumentService.prototype, 'getDownloadUrl', async (user, documentId, versionId, expiryMs) => {
+            interceptedExpiry = expiryMs;
+            return {
+                url: 'https://signed.example.com/doc-valid?sig=123',
+                expiresAt: Date.now() + expiryMs,
+                documentId,
+                versionId: 'v1'
+            };
+        });
+
+        const req = { params: { documentId: 'doc-valid' }, query: { expiresIn: '999999999' }, user: { id: 'u1' } };
+        
+        const res = {
+            statusCode: null,
+            body: null,
+            status(code) {
+                this.statusCode = code;
+                return this;
+            },
+            json(data) {
+                this.body = data;
+                return this;
+            }
+        };
+
+        const { getDownloadUrl } = await import('../controllers/documentAPI.controller.js');
+        await getDownloadUrl(req, res);
+            
+        assert.strictEqual(res.statusCode, 200);
+        assert.strictEqual(interceptedExpiry, 900000, 'Controller MUST use server config, ignoring client expiresIn');
+    });
 });
