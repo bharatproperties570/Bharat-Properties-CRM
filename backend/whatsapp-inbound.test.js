@@ -9,7 +9,12 @@ import {
     normalizeTextMessage
 } from './utils/whatsappWebhook.utils.js';
 
-import { reserveInboundMessage } from './controllers/webhook.controller.js';
+import InboundMessageService from './src/services/InboundMessageService.js';
+import mongoose from 'mongoose';
+import OutboxEvent from './models/OutboxEvent.js';
+import Lead from './models/Lead.js';
+import Contact from './models/Contact.js';
+import intakeEngine from './src/utils/intakeEngine.js';
 import Conversation from './models/Conversation.js';
 
 test('1, 2, 3: raw Meta HMAC accepts exact bytes and rejects modified or missing signatures', () => {
@@ -51,43 +56,50 @@ test('15, 16: unsupported or extra media types fallback text logic', () => {
     assert.equal(normalizeTextMessage({ type: 'contacts', contacts: [] }).text, '');
 });
 
-test('8, 9, 10: reserveInboundMessage handles missing message.id, existing dupes, and new conversations', async () => {
-    // Mock 9: missing message.id
-    const resMissing = await reserveInboundMessage({ mobile: '123', message: {}, text: 'hi' });
-    assert.equal(resMissing.duplicate, false);
-    assert.equal(resMissing.conversation, null);
+test('8, 9, 10: processInboundMessageTx handles missing message.id, existing dupes, and new conversations', async () => {
+    // Setup generic mocks for transaction and downstream effects
+    mock.method(mongoose, 'startSession', async () => ({
+        withTransaction: async (cb) => await cb(),
+        endSession: async () => {}
+    }));
 
-    mock.method(Conversation, 'exists', async (query) => {
-        if (query['$or']) {
-            return query['$or'][0]['messages.metadata.waId'] === 'wamid.exists';
-        }
-        return query['messages.metadata.waId'] === 'wamid.exists';
-    });
+    mock.method(intakeEngine, 'processIntake', async () => ({ type: 'UNKNOWN', data: null }));
 
-    // Mock 8: duplicate wamid across db
-    const resDupe = await reserveInboundMessage({ mobile: '123', message: { id: 'wamid.exists' }, text: 'hi' });
-    assert.equal(resDupe.duplicate, true);
-    assert.equal(resDupe.conversation, null);
+    // Mongoose query mocks with lean/session support
+    const mockQuery = {
+        session: () => mockQuery,
+        lean: async () => null
+    };
+    mock.method(Lead, 'findOne', () => mockQuery);
+    mock.method(Contact, 'findOne', () => mockQuery);
+    mock.method(Activity, 'create', async (data) => [{ _id: 'act1', toObject: () => ({}) }]);
+    mock.method(OutboxEvent, 'create', async () => {});
 
-    // Mock 10: concurrent race condition where waId already pushed by another thread in findOneAndUpdate
+    // Mock 9: missing mobile
+    const resMissing = await InboundMessageService.processInboundMessageTx({ id: 'wamid.missing', from: null }, {});
+    assert.equal(resMissing.success, false);
+    assert.equal(resMissing.reason, 'missing_mobile');
+
+    // Mock 8: duplicate wamid (race condition / idempotency)
     mock.method(Conversation, 'findOneAndUpdate', async (query, update, opts) => {
-        if (query.phoneNumber === '123') return { _id: 'conv1' }; // Step 1: find active
-        if (query._id === 'conv1' && (query['messages.metadata.waId'] || query['$and'] || query['$or'])) return null; // Step 2: fails to push because waId exists
+        if (update.$setOnInsert) return { _id: 'conv1' }; // Step 1: find active
+        if (query._id === 'conv1') return null; // Step 2: fails to push because waId exists (idempotency check)
     });
 
-    const resRace = await reserveInboundMessage({ mobile: '123', message: { id: 'wamid.race' }, text: 'hi' });
+    const resRace = await InboundMessageService.processInboundMessageTx({ id: 'wamid.race', from: '123', type: 'text', text: { body: 'hi' } }, {});
+    assert.equal(resRace.success, true);
     assert.equal(resRace.duplicate, true);
-    assert.equal(resRace.conversation, null);
 
     // Normal insertion
     mock.method(Conversation, 'findOneAndUpdate', async (query, update, opts) => {
-        if (query.phoneNumber === '123') return { _id: 'conv2' };
-        if (query._id === 'conv2') return { _id: 'conv2', messages: [] };
+        if (update.$setOnInsert) return { _id: 'conv2' };
+        if (query._id === 'conv2') return { _id: 'conv2', messages: [], save: async () => {} };
     });
 
-    const resOk = await reserveInboundMessage({ mobile: '123', message: { id: 'wamid.new' }, text: 'hi' });
+    const resOk = await InboundMessageService.processInboundMessageTx({ id: 'wamid.new', from: '123', type: 'text', text: { body: 'hi' } }, {});
+    assert.equal(resOk.success, true);
     assert.equal(resOk.duplicate, false);
-    assert.equal(resOk.conversation._id, 'conv2');
+    assert.equal(resOk.activity._id, 'act1');
 });
 
 import { applyFlowFeedback } from './controllers/webhook.controller.js';
