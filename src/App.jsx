@@ -1,4 +1,3 @@
-console.log('[DEBUG] src/App.jsx module evaluated');
 import { useState, useEffect, Suspense, lazy } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './utils/queryClient';
@@ -54,7 +53,6 @@ const CallModalWrapper = () => {
 };
 const AppContent = () => {
     const { token } = useUserContext();
-    console.log('[DEBUG] AppContent rendering, token:', !!token);
 
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
@@ -306,10 +304,8 @@ const AppContent = () => {
         return <ResetPasswordPage />;
     }
 
-    console.log('[DEBUG] Final render decision, currentView:', currentView, 'hasToken:', !!token);
     
     if (!token) {
-        console.log('[DEBUG] Rendering LoginPage');
         return <LoginPage />;
     }
 

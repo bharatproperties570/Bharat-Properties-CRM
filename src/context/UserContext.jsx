@@ -37,7 +37,6 @@ export const useUserContext = () => {
 };
 
 export const UserProvider = ({ children }) => {
-    console.log('[DEBUG] UserProvider rendering start');
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [teams, setTeams] = useState([]);
@@ -45,7 +44,6 @@ export const UserProvider = ({ children }) => {
     const [error, setError] = useState(null);
     const [token, setToken] = useState(() => {
         const t = safeStorage.getItem('authToken');
-        console.log('[DEBUG] UserProvider initial token:', !!t);
         return t;
     });
     const [currentUser, setCurrentUser] = useState(null);

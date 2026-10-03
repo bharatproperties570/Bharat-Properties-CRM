@@ -1,6 +1,6 @@
 import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../../utils/api';
 import { formatINRShort } from '../../../utils/pricingUtils';
 
 // A dynamic, modern visualization for the Deal Price Journey
@@ -16,7 +16,7 @@ const PriceJourneyAnalysis = ({ dealId }) => {
         const fetchAnalysis = async () => {
             try {
                 setLoading(true);
-                const res = await axios.get(`/api/pricing/deal-analysis/${dealId}`);
+                const res = await api.get(`pricing/deal-analysis/${dealId}`);
                 if (res.data?.status === 'success') {
                     setData(res.data.data);
                 }

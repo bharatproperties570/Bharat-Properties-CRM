@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import { api } from '../utils/api';
 
 const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
     const [formData, setFormData] = useState({
@@ -119,10 +119,10 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
 
     const fetchRoleTemplates = useCallback(async () => {
         try {
-            const response = await axios.get(`/api/roles/templates?department=${formData.department}`);
+            const response = await api.get(`roles/templates?department=${formData.department}`);
             setRoleTemplates(response.data.data || []);
         } catch (error) {
-            console.error('Failed to fetch role templates:', error);
+            // Error normalized by api.js interceptor
         }
     }, [formData.department]);
 
@@ -191,9 +191,9 @@ const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
         try {
             let response;
             if (isEdit && roleData?._id) {
-                response = await axios.put(`/api/roles/${roleData._id}`, formData);
+                response = await api.put(`roles/${roleData._id}`, formData);
             } else {
-                response = await axios.post('/api/roles', formData);
+                response = await api.post('roles', formData);
             }
 
             if (response.data.success) {
