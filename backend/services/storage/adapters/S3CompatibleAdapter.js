@@ -8,59 +8,54 @@ import {
     ProviderConfigurationError,
     ObjectConflictError
 } from '../StorageErrors.js';
-import path from 'path';
+import { 
+    PutObjectCommand, 
+    GetObjectCommand, 
+    DeleteObjectCommand, 
+    HeadObjectCommand, 
+    ListObjectsV2Command, 
+    CopyObjectCommand 
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export default class S3CompatibleAdapter extends StorageAdapter {
-    constructor(providerInstanceId, config, capabilities, deps = {}) {
-        super(providerInstanceId, config, capabilities);
+    constructor(providerInstanceId, configuration, capabilities, deps = {}) {
+        super(providerInstanceId, configuration, capabilities);
         
-        if (!config.bucket) {
-            throw new Error(`Bucket configuration is required for S3CompatibleAdapter [${providerInstanceId}]`);
-        }
-
-        this.bucket = config.bucket;
-        this.pathPrefix = config.pathPrefix || '';
+        this.bucket = configuration.bucket;
+        this.pathPrefix = configuration.pathPrefix || '';
+        
         this.s3Client = deps.s3Client;
-        this.s3Presigner = deps.s3Presigner;
     }
 
-    _resolveProviderKey(objectKey) {
-        if (!objectKey || typeof objectKey !== 'string') {
-            throw new InvalidObjectKeyError(this.providerInstanceId, objectKey, 'Key must be a non-empty string.');
+    _resolveProviderKey(logicalKey) {
+        if (!logicalKey || typeof logicalKey !== 'string') {
+            throw new InvalidObjectKeyError(this.providerInstanceId, logicalKey);
         }
-
-        if (objectKey.includes('../') || objectKey.includes('..\\') || objectKey.startsWith('/')) {
-            throw new InvalidObjectKeyError(this.providerInstanceId, objectKey, 'Key contains invalid traversal or absolute path characters.');
+        if (logicalKey.includes('..') || logicalKey.startsWith('/')) {
+            throw new InvalidObjectKeyError(this.providerInstanceId, logicalKey, 'Path traversal detected');
         }
-
-        if (/[\x00-\x1F\x7F]/.test(objectKey)) {
-            throw new InvalidObjectKeyError(this.providerInstanceId, objectKey, 'Key contains invalid control characters.');
-        }
-
-        const normalizedPrefix = this.pathPrefix.endsWith('/') ? this.pathPrefix : (this.pathPrefix ? this.pathPrefix + '/' : '');
-        return `${normalizedPrefix}${objectKey}`;
+        return this.pathPrefix ? `${this.pathPrefix}/${logicalKey}` : logicalKey;
     }
 
-    _translateError(error, operation, objectKey = null) {
-        const errorName = error.name || error.code || '';
-        
-        if (errorName === 'NoSuchKey' || errorName === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+    _translateError(err, operation, objectKey = null) {
+        if (err.name === 'NoSuchKey' || err.name === 'NotFound') {
             return new ObjectNotFoundError(this.providerInstanceId, objectKey);
         }
-
-        if (errorName === 'AccessDenied' || errorName === 'InvalidAccessKeyId' || errorName === 'SignatureDoesNotMatch' || errorName === 'NoSuchBucket') {
+        
+        if (['CredentialsError', 'SignatureDoesNotMatch', 'InvalidAccessKeyId', 'AccessDenied'].includes(err.name)) {
             return new ProviderConfigurationError(this.providerInstanceId, `Authentication or bucket access failed during ${operation}.`);
         }
 
-        if (['NetworkingError', 'TimeoutError', 'EndpointConnectionError', 'SlowDown', 'Throttling', 'ThrottlingException'].includes(errorName)) {
+        if (['NetworkingError', 'TimeoutError', 'EndpointConnectionError', 'SlowDown', 'Throttling', 'ThrottlingException'].includes(err.name)) {
             return new ProviderUnavailableError(this.providerInstanceId, `S3 network or throttling error during ${operation}`);
         }
 
-        if (errorName === 'PreconditionFailed' || errorName === 'Conflict') {
+        if (err.name === 'PreconditionFailed' || err.name === 'Conflict') {
             return new ObjectConflictError(this.providerInstanceId, objectKey, `Conflict during ${operation}`);
         }
 
-        if (errorName === 'EntityTooLarge') {
+        if (err.name === 'EntityTooLarge') {
             return new StorageError(`Payload exceeded maximum allowed size during ${operation}`);
         }
 
@@ -71,12 +66,13 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         const providerKey = this._resolveProviderKey(objectKey);
         
         try {
-            const response = await this.s3Client.send('PutObjectCommand', {
+            const command = new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: providerKey,
                 Body: data,
                 ContentType: options.mimeType
             });
+            const response = await this.s3Client.send(command);
 
             return {
                 objectKey,
@@ -94,10 +90,11 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         const providerKey = this._resolveProviderKey(objectKey);
 
         try {
-            const response = await this.s3Client.send('GetObjectCommand', {
+            const command = new GetObjectCommand({
                 Bucket: this.bucket,
                 Key: providerKey
             });
+            const response = await this.s3Client.send(command);
 
             return {
                 stream: response.Body,
@@ -115,10 +112,11 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         const providerKey = this._resolveProviderKey(objectKey);
 
         try {
-            await this.s3Client.send('DeleteObjectCommand', {
+            const command = new DeleteObjectCommand({
                 Bucket: this.bucket,
                 Key: providerKey
             });
+            await this.s3Client.send(command);
 
             return { success: true };
         } catch (err) {
@@ -130,10 +128,11 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         const providerKey = this._resolveProviderKey(objectKey);
 
         try {
-            const response = await this.s3Client.send('HeadObjectCommand', {
+            const command = new HeadObjectCommand({
                 Bucket: this.bucket,
                 Key: providerKey
             });
+            const response = await this.s3Client.send(command);
 
             return {
                 objectKey,
@@ -150,12 +149,13 @@ export default class S3CompatibleAdapter extends StorageAdapter {
 
     async _enumerateObjects(paginationToken, limit) {
         try {
-            const response = await this.s3Client.send('ListObjectsV2Command', {
+            const command = new ListObjectsV2Command({
                 Bucket: this.bucket,
                 Prefix: this.pathPrefix ? (this.pathPrefix.endsWith('/') ? this.pathPrefix : this.pathPrefix + '/') : '',
                 MaxKeys: limit,
                 ContinuationToken: paginationToken || undefined
             });
+            const response = await this.s3Client.send(command);
 
             const objects = (response.Contents || []).map(obj => {
                 let logicalKey = obj.Key;
@@ -184,11 +184,12 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         const providerDestKey = this._resolveProviderKey(destKey);
 
         try {
-            const response = await this.s3Client.send('CopyObjectCommand', {
+            const command = new CopyObjectCommand({
                 Bucket: this.bucket,
                 CopySource: `${this.bucket}/${providerSourceKey}`,
                 Key: providerDestKey
             });
+            const response = await this.s3Client.send(command);
 
             return {
                 objectKey: destKey,
@@ -217,20 +218,12 @@ export default class S3CompatibleAdapter extends StorageAdapter {
                 params.ResponseContentType = options.mimeType;
             }
 
-            let signedUrl = null;
-
-            // Use the actual runtime injected signer. Do not fabricate command objects if the SDK is missing.
-            if (this.s3Client && typeof this.s3Client.getSignedUrlPromise === 'function') {
-                // AWS SDK v2
-                params.Expires = expiresInSeconds;
-                signedUrl = await this.s3Client.getSignedUrlPromise('getObject', params);
-            } else if (this.s3Presigner && typeof this.s3Presigner.getSignedUrl === 'function') {
-                // Abstract injected presigner (e.g., custom generic wrapper)
-                signedUrl = await this.s3Presigner.getSignedUrl('getObject', params, expiresInSeconds);
-            } else {
-                // Signer unavailable
+            if (!this.s3Client) {
                 throw new ProviderUnavailableError(this.providerInstanceId, 'No compatible S3 signer available on this adapter.');
             }
+
+            const command = new GetObjectCommand(params);
+            const signedUrl = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
 
             if (!signedUrl || typeof signedUrl !== 'string' || !signedUrl.startsWith('http')) {
                 throw new StorageError('Signer returned an invalid or empty URL.');
