@@ -268,6 +268,8 @@ export default class DocumentService {
                 } else {
                     this._transitionState(document, 'REJECTED');
                 }
+            } else if (scanResult.outcome === 'INVALID_RESULT') {
+                this._transitionState(document, 'REJECTED'); // Fails closed
             } else {
                 throw new Error(`Cannot transition document with scan outcome: ${scanResult.outcome}`);
             }
