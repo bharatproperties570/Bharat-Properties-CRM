@@ -186,32 +186,7 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         try {
             const response = await this.s3Client.send('CopyObjectCommand', {
                 Bucket: this.bucket,
-                CopySource: `${this.bucket}/${providerSourceKey
-    async _getPresignedReadUrl(objectKey, expiresInSeconds) {
-        const providerKey = this._resolveProviderKey(objectKey);
-        try {
-            // Support V2 style client with built-in getSignedUrl, or injected presigner for V3
-            if (this.s3Client && typeof this.s3Client.getSignedUrlPromise === 'function') {
-                return await this.s3Client.getSignedUrlPromise('getObject', {
-                    Bucket: this.bucket,
-                    Key: providerKey,
-                    Expires: expiresInSeconds
-                });
-            } else if (this.s3Presigner && typeof this.s3Presigner.getSignedUrl === 'function') {
-                return await this.s3Presigner.getSignedUrl(
-                    this.s3Client,
-                    { name: 'GetObjectCommand', input: { Bucket: this.bucket, Key: providerKey } },
-                    { expiresIn: expiresInSeconds }
-                );
-            }
-            // Fallback for tests/mocking since there's no actual aws-sdk in package.json
-            return `https://${this.bucket}.s3.amazonaws.com/${providerKey}?expiresIn=${expiresInSeconds}&signed=true`;
-        } catch (err) {
-            throw this._translateError(err, 'PRESIGN_READ', objectKey);
-        }
-    }
-}
-`,
+                CopySource: `${this.bucket}/${providerSourceKey}`,
                 Key: providerDestKey
             });
 
@@ -223,4 +198,58 @@ export default class S3CompatibleAdapter extends StorageAdapter {
             throw this._translateError(err, 'COPY', sourceKey);
         }
     }
+
+    async _getPresignedReadUrl(objectKey, expiresInSeconds, options = {}) {
+        const providerKey = this._resolveProviderKey(objectKey);
+        try {
+            const params = {
+                Bucket: this.bucket,
+                Key: providerKey,
+            };
+
+            if (options.originalFilename) {
+                // Ensure safe encoding for header injection prevention
+                const safeFilename = encodeURIComponent(options.originalFilename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+                params.ResponseContentDisposition = `attachment; filename="${safeFilename}"`;
+            }
+            if (options.mimeType) {
+                params.ResponseContentType = options.mimeType;
+            }
+
+            let signedUrl = null;
+
+            // Support V2 style client with built-in getSignedUrl, or injected presigner for V3
+            if (this.s3Client && typeof this.s3Client.getSignedUrlPromise === 'function') {
+                params.Expires = expiresInSeconds;
+                signedUrl = await this.s3Client.getSignedUrlPromise('getObject', params);
+            } else if (this.s3Presigner && typeof this.s3Presigner.getSignedUrl === 'function') {
+                signedUrl = await this.s3Presigner.getSignedUrl(
+                    this.s3Client,
+                    { name: 'GetObjectCommand', input: params },
+                    { expiresIn: expiresInSeconds }
+                );
+            } else {
+                // Signer unavailable
+                throw new ProviderUnavailableError(this.providerInstanceId, 'No compatible S3 signer available on this adapter.');
+            }
+
+            if (!signedUrl || typeof signedUrl !== 'string' || !signedUrl.startsWith('http')) {
+                throw new StorageError('Signer returned an invalid or empty URL.');
+            }
+            
+            // Validate that the signer didn't maliciously or mistakenly sign the wrong object
+            // This is a sanity check against mocked/injected signers
+            if (!signedUrl.includes(encodeURIComponent(providerKey)) && !signedUrl.includes(providerKey)) {
+                throw new StorageError('Signer returned a URL for the wrong object.');
+            }
+
+            return signedUrl;
+        } catch (err) {
+            if (err.name === 'ProviderUnavailableError' || err.name === 'StorageError') {
+                throw err;
+            }
+            throw this._translateError(err, 'PRESIGN_READ', objectKey);
+        }
+    }
+
 }

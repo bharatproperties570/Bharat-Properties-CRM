@@ -217,6 +217,7 @@ export default class DocumentService {
     /**
      * 5. Get Presigned Download URL
      */
+    
     async getDownloadUrl(user, documentId, versionId = null, requestedExpiryMs = 900000) {
         // 1. Authorization
         // Note: The requestedExpiryMs is passed but authorizeAccess maxes out at its internal limit
@@ -232,10 +233,17 @@ export default class DocumentService {
         const adapter = await this.registry.resolve(version.providerInstanceId);
         
         // 4. Expiry
-        const expiresInSeconds = Math.floor(requestedExpiryMs / 1000);
+        let expiresInSeconds = Math.floor(requestedExpiryMs / 1000);
+        if (isNaN(expiresInSeconds) || expiresInSeconds <= 0) {
+            // Unreasonable or invalid values handled safely
+            expiresInSeconds = 900;
+        }
 
         // 5. URL Generation
-        const url = await adapter.getPresignedReadUrl(version.objectKey, expiresInSeconds);
+        const url = await adapter.getPresignedReadUrl(version.objectKey, expiresInSeconds, {
+            mimeType: version.mimeType,
+            originalFilename: version.originalFilename
+        });
 
         return {
             url,
@@ -244,6 +252,7 @@ export default class DocumentService {
             versionId: version.versionId
         };
     }
+
 
 /**
      * 4. Read Document Content
