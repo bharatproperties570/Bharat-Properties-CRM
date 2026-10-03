@@ -177,6 +177,22 @@ export default class DocumentService {
             // But wait, the R4-A report said: "Unvalidated external uploads are physically blocked from ACTIVE status".
             
             await document.save();
+            
+            try {
+                const { malwareScanQueue } = await import('./workers/DocumentMalwareWorker.js');
+                await malwareScanQueue.add('scan-document', {
+                    documentId: document.documentId,
+                    versionId: version.versionId
+                }, {
+                    attempts: 5,
+                    backoff: { type: 'exponential', delay: 5000 },
+                    removeOnComplete: true,
+                    removeOnFail: false // Preserved for Dead Letter Queue (DLQ)
+                });
+            } catch (queueErr) {
+                console.error('[DocumentService] Failed to enqueue malware job:', queueErr);
+            }
+            
             return { document: this._toDocumentDTO(document), version: this._toVersionDTO(version) };
 
         } catch (err) {
