@@ -118,7 +118,7 @@ export const InboundMessageService = {
                             }
                         },
                         $inc: { 'metadata.unreadCount': 1 },
-                        $set: updateSe
+                        $set: updateSet
                     },
                     { new: true, session }
                 );
