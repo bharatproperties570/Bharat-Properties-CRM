@@ -19,12 +19,15 @@ const configureRegistry = (registry) => {
             clientConfig.forcePathStyle = true;
         }
 
-        if (secrets && secrets.accessKeyId && secrets.secretAccessKey) {
-            clientConfig.credentials = {
-                accessKeyId: secrets.accessKeyId,
-                secretAccessKey: secrets.secretAccessKey
-            };
+        // FAIL CLOSED: We MUST NOT silently construct an unusable client if secrets are missing
+        if (!secrets || !secrets.accessKeyId || !secrets.secretAccessKey) {
+            throw new Error(`CRITICAL: Missing S3 credentials for provider instance ${instanceDoc.providerInstanceId}. Runtime fails closed.`);
         }
+
+        clientConfig.credentials = {
+            accessKeyId: secrets.accessKeyId,
+            secretAccessKey: secrets.secretAccessKey
+        };
 
         const s3Client = new S3Client(clientConfig);
         
@@ -37,18 +40,29 @@ const configureRegistry = (registry) => {
     });
 };
 
+/**
+ * Enterprise Production Boundary
+ * 
+ * The CRM repository does not yet possess a concrete production SecretStore 
+ * (e.g. AWS Secrets Manager, HashiCorp Vault). 
+ * To prevent bypassing the abstraction with dummy objects, this placeholder 
+ * strictly FAILS CLOSED if production resolves secrets through it.
+ * 
+ * For isolated testing, a concrete TestSecretStore must be injected directly
+ * into ProviderRegistry.
+ */
+class ProductionSecretStoreBoundary {
+    async resolveSecret(credentialReference) {
+        throw new Error('Production SecretStore is not yet implemented. Cannot safely resolve credentials.');
+    }
+}
+
 let _registryInstance = null;
 
 export const getRegistry = () => {
     if (!_registryInstance) {
-        const dummySecretStore = {
-            resolveSecret: async (ref) => {
-                // In production, this would call AWS Secrets Manager or Vault
-                // For now, return empty unless mapped via env
-                return {};
-            }
-        };
-        _registryInstance = new ProviderRegistry(dummySecretStore);
+        const productionSecretStore = new ProductionSecretStoreBoundary();
+        _registryInstance = new ProviderRegistry(productionSecretStore);
         configureRegistry(_registryInstance);
     }
     return _registryInstance;
