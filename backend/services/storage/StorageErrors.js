@@ -64,3 +64,11 @@ export class ProviderConfigurationError extends StorageError {
         this.providerInstanceId = providerInstanceId;
     }
 }
+
+export class PolicyViolationError extends StorageError {
+    constructor(reason) {
+        super(`Upload policy violation: ${reason}`);
+        this.name = 'PolicyViolationError';
+        this.reason = reason;
+    }
+}

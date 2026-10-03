@@ -23,6 +23,9 @@ const handleDomainError = (res, error) => {
     if (error instanceof CapabilityNotSupportedError) {
         return res.status(501).json({ success: false, error: 'Operation capability is not supported by the underlying storage provider.' });
     }
+    if (error.name === 'PolicyViolationError') {
+        return res.status(400).json({ success: false, error: error.message });
+    }
     if (error instanceof StorageError) {
         return res.status(500).json({ success: false, error: 'Internal Storage Error' });
     }
@@ -69,8 +72,9 @@ export const uploadContent = async (req, res) => {
         const streamOrBuffer = req.file.buffer || require('fs').createReadStream(req.file.path);
         const mimeType = req.file.mimetype;
         const sizeBytes = req.file.size;
+        const originalFilename = req.file.originalname;
 
-        const result = await getService().uploadFile(req.user, documentId, versionId, streamOrBuffer, mimeType, sizeBytes);
+        const result = await getService().uploadFile(req.user, documentId, versionId, streamOrBuffer, mimeType, sizeBytes, originalFilename);
         return res.status(200).json({ success: true, data: result });
     } catch (err) {
         return handleDomainError(res, err);

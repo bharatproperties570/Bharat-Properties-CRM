@@ -84,7 +84,7 @@ export default class DocumentAccessService {
         // 5. Version Binding
         let boundVersionId = versionId;
         if (!boundVersionId) {
-            boundVersionId = document.currentVersionId ? document.currentVersionId.toString() : null;
+            boundVersionId = document.currentVersionId ? (await DocumentVersion.findById(document.currentVersionId).lean())?.versionId || null : null;
         } else {
             const version = await DocumentVersion.findOne({ versionId: boundVersionId, documentId }).lean();
             if (!version) {

@@ -131,7 +131,17 @@ export default class DocumentService {
     /**
      * 3. Upload File (Begin + Complete)
      */
-    async uploadFile(user, documentId, versionId, streamOrBuffer, mimeType, sizeBytes) {
+    async uploadFile(user, documentId, versionId, streamOrBuffer, mimeType, sizeBytes, originalFilename = 'unknown') {
+        const { validateMimeType, validateFileSize } = await import('./DocumentUploadPolicy.js');
+        const { PolicyViolationError } = await import('./StorageErrors.js');
+
+        if (!validateFileSize(sizeBytes)) {
+            throw new PolicyViolationError(`File size exceeds maximum allowed document size.`);
+        }
+        if (!validateMimeType(mimeType, originalFilename)) {
+            throw new PolicyViolationError(`Disallowed MIME type or extension mismatch: ${mimeType} / ${originalFilename}`);
+        }
+
         // Authorize physical storage execution
         const grant = await this.accessService.authorizeAccess(user, documentId, 'WRITE', versionId);
         
