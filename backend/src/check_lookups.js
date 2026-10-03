@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-properties';
+const mongoUri = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 async function checkLookups() {
     try {

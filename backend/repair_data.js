@@ -30,7 +30,7 @@ async function resolveLookup(type, value) {
 
 async function repair() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/crm');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         console.log('Connected to MongoDB.');
 
         // 1. Repair Deals

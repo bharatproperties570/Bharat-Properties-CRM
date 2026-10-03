@@ -15,7 +15,7 @@ dotenv.config({ path: path.join(__dirname, "../../.env") });
 async function fixDataTypes() {
     try {
         console.log("🚀 Starting Data Type Cleanup Script...");
-        const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/bharatproperties1";
+        const mongoUri = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })();
         await mongoose.connect(mongoUri);
         console.log("✅ Connected to MongoDB");
 

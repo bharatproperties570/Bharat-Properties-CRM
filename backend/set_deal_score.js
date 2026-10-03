@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/crm_db";
+const MONGODB_URI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 mongoose.connect(MONGODB_URI).then(async () => {
     const Deal = mongoose.connection.collection('deals');

@@ -37,10 +37,11 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
     };
 
     const { getLookupValue } = usePropertyConfig();
+    const [documents, setDocuments] = useState([]);
+
 
     const { uploadNewDocument, FEATURE_FLAG_NEW_DOCUMENTS } = useDocumentManager(activeEntityType, activeEntityId, documents);
 
-    const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
 

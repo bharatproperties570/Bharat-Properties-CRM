@@ -15,7 +15,7 @@ import Conversation from '../models/Conversation.js';
 
 const seedData = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://user:pass@cluster.mongodb.net/test');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         console.log("Connected to MongoDB for Seeding");
 
         // Create a dummy lead

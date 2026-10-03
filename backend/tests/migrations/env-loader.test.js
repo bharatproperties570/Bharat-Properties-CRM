@@ -22,7 +22,7 @@ export const runTests = () => {
         return 'ALLOW';
     };
 
-    assert.strictEqual(checkProductionGuard('mongodb://.../bharatproperties1', false), 'ABORT', 'Must abort prod without flag');
+    assert.strictEqual(checkProductionGuard((() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })(), false), 'ABORT', 'Must abort prod without flag');
     assert.strictEqual(checkProductionGuard('mongodb://.../bharat-properties-staging', false), 'ALLOW', 'Must allow staging without flag');
     testsPassed++;
 

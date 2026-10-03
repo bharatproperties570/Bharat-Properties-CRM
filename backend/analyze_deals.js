@@ -6,7 +6,7 @@ dotEnv.config({ path: './.env' });
 
 async function checkDeals() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/crm');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         
         const deals = await Deal.find({}).lean();
         console.log(`Checking ${deals.length} deals...`);

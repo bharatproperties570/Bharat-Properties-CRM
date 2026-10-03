@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/bharat_properties';
+const MONGO_URI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 async function run() {
     await mongoose.connect(MONGO_URI);

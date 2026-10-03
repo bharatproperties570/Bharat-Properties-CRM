@@ -1,7 +1,7 @@
 
 import mongoose from 'mongoose';
 
-const mongoUri = 'mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties';
+const mongoUri = (() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })();
 
 async function check() {
     try {

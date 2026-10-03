@@ -4,7 +4,7 @@ import SocialReview from './models/SocialReview.js';
 
 dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharatproperties';
+const MONGODB_URI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 // Helper to convert relative time/date strings to approximate Unix timestamps
 function parseTimeToUnix(timeStr) {

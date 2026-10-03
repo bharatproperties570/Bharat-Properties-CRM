@@ -2,7 +2,7 @@
 import mongoose from 'mongoose';
 import fs from 'fs';
 
-const mongoURI = 'mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1';
+const mongoURI = (() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })();
 const csvPath = '/Users/bharatproperties/Downloads/inventory_template (1).csv';
 
 const backfill = async () => {

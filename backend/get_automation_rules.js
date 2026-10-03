@@ -4,7 +4,7 @@ import SystemSetting from "./src/modules/systemSettings/system.model.js";
 
 dotenv.config();
 
-const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/crm";
+const mongoUri = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 async function run() {
     await mongoose.connect(mongoUri);

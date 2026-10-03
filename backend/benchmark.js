@@ -15,7 +15,7 @@ dotenv.config({ path: './.env' });
 
 const run = async () => {
     try {
-        await mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/bharatproperties");
+        await mongoose.connect(process.env.MONGO_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         console.log("Connected to MongoDB.");
 
         const query = {};

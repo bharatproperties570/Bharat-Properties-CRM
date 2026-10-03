@@ -6,7 +6,7 @@ dotenv.config({ path: './.env' });
 
 async function check() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/crm');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         const collection = mongoose.connection.db.collection('lookups');
         const doc = await collection.findOne({ _id: new mongoose.Types.ObjectId('69955276a08eee85d64611a3') });
         console.log('Lookup document:', doc);

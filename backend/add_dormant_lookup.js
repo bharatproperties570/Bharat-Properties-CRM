@@ -7,7 +7,7 @@
 
 import { MongoClient } from 'mongodb';
 
-const uri = "mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1";
+const uri = (() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })();
 const client = new MongoClient(uri);
 
 async function run() {

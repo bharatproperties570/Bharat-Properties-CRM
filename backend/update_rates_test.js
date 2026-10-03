@@ -4,7 +4,7 @@ import CollectorRate from './models/CollectorRate.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const mongoURI = process.env.MONGODB_URI || 'mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1';
+const mongoURI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: Hardcoded production credential removed. Use MONGODB_URI env var.') })();
 
 const updateRates = async () => {
     try {

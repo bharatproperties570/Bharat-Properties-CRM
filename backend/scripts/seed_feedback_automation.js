@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 // Load env
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-crm';
+const MONGODB_URI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 const run = async () => {
     try {

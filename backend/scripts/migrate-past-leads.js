@@ -4,7 +4,7 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(process.cwd(), 'backend', '.env') });
 
-const mongoURI = process.env.MONGODB_URI || "mongodb://localhost:27017/crm_db"; // fallback
+const mongoURI = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })(); // fallback
 
 async function migratePastLeads() {
     try {

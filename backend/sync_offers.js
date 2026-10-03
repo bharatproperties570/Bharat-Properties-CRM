@@ -3,7 +3,7 @@ import Deal from './models/Deal.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/bharatproperties";
+const uri = process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
 
 async function run() {
     try {

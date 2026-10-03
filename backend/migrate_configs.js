@@ -34,7 +34,7 @@ const resolveOrCreateLookup = async (type, value, parentId = null) => {
 
 const runMigration = async () => {
     try {
-        const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bharat-properties';
+        const uri = process.env.MONGODB_URI || process.env.MONGO_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })();
         await mongoose.connect(uri);
         console.log('Connected to MongoDB');
 

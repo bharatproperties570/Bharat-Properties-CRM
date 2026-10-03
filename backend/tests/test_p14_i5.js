@@ -4,22 +4,19 @@ import { execSync } from 'child_process';
 
 console.log("=== P14-I5 Verification Suite ===");
 
-// SecretProvider Tests
 process.env.TEST_SECRET = "placeholder-requires-external-secret";
 execSync('node backend/tests/test_secret_provider.js', { stdio: 'pipe' });
 console.log("✅ SecretProvider tests passed (C, D, E)");
 
-// Readiness Tests
 execSync('node backend/tests/test_readiness.js', { stdio: 'pipe' });
 console.log("✅ Readiness tests passed (F, G, H, I)");
 
-// PM2 Singleton Configuration
 const ecosystem = fs.readFileSync('backend/ecosystem.target.cjs', 'utf8');
 assert(!ecosystem.includes('instances:'), "PM2 must not scale horizontally");
 assert(!ecosystem.includes('exec_mode: "cluster"'), "PM2 must not use cluster mode");
 console.log("✅ PM2 Singleton configuration verified (J)");
 
-// Runtime State Migration Tool
+execSync('rm -rf /tmp/state-test');
 execSync('mkdir -p /tmp/state-test/backend/uploads /tmp/state-test/backend/cache');
 execSync('touch /tmp/state-test/backend/cache/social-reviews.json');
 const stateDry = execSync('cd /tmp/state-test && bash /Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/scripts/release/migrate-state.sh /tmp/state-test/release_root', { encoding: 'utf8' });
@@ -31,7 +28,6 @@ const stateConflict = execSync('cd /tmp/state-test && bash /Users/bharatproperti
 assert(stateConflict.includes('Destination already exists: /tmp/state-test/release_root/shared/uploads'), "Detects conflict");
 console.log("✅ Runtime state conflict detection verified (L)");
 
-// Artifact Preflight
 const testManifest = {
     gitSha: "abcd",
     artifactSha256: "fake",

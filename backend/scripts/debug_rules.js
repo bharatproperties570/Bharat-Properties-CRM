@@ -6,7 +6,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 
 const run = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat_properties');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         console.log("Connected to DB");
 
         const rules = await mongoose.connection.db.collection('duplicationrules').find({ entityType: 'Inventory' }).toArray();

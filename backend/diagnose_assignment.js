@@ -12,7 +12,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 async function checkData() {
     try {
         console.log('Connecting to MongoDB...');
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-properties');
+        await mongoose.connect(process.env.MONGODB_URI || (() => { throw new Error('CRITICAL: MONGODB_URI environment variable is required. Hardcoded fallbacks removed.') })());
         console.log('Connected.');
 
         const contacts = await Contact.find().limit(5).lean();

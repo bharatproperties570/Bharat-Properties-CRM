@@ -15,8 +15,7 @@ class SecretProvider {
         
         if (!value || value === 'placeholder-requires-external-secret') {
             if (isProduction) {
-                console.error(`❌ CRITICAL [SecretProvider]: Required secret '${name}' is missing in production environment.`);
-                process.exit(1);
+                throw new Error(`CRITICAL [SecretProvider]: Required secret '${name}' is missing in production environment.`);
             } else {
                 console.warn(`⚠️  WARNING [SecretProvider]: Required secret '${name}' is missing. (LOCAL ONLY ALLOWED)`);
             }
