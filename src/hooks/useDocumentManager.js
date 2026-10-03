@@ -142,6 +142,34 @@ export const useDocumentManager = (entityType, entityId, legacyDocuments = []) =
     const readNewDocument = async (documentId, fileName) => {
         const toastId = toast.loading("Downloading document securely...");
         try {
+            
+            // 11.8.1 Signed URL generation pattern
+            try {
+                // Try the new signed URL endpoint first
+                const res = await api.get(`/documents/${documentId}/download-url`);
+                if (res.data && res.data.success && res.data.data.url) {
+                    const downloadUrl = res.data.data.url;
+                    
+                    // Create an anchor and trigger direct download
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.setAttribute('download', fileName || `document-${documentId}`);
+                    link.target = '_blank'; // Fail-safe to avoid navigating away if 'download' attribute is ignored
+                    document.body.appendChild(link);
+                    link.click();
+                    link.parentNode.removeChild(link);
+                    
+                    toast.success("Download started", { id: toastId });
+                    return;
+                }
+            } catch (err) {
+                // If it's a 404 on the endpoint itself, fallback to legacy stream
+                if (err.response && err.response.status !== 404) {
+                    throw err; // Re-throw security or other errors
+                }
+            }
+
+            // Fallback for legacy environments that don't support presigned URLs
             const res = await api.get(`/documents/${documentId}/content`, {
                 responseType: 'blob'
             });
@@ -150,13 +178,14 @@ export const useDocumentManager = (entityType, entityId, legacyDocuments = []) =
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', fileName || `document-\${documentId}`);
+            link.setAttribute('download', fileName || `document-${documentId}`);
             document.body.appendChild(link);
             link.click();
             link.parentNode.removeChild(link);
             window.URL.revokeObjectURL(url);
             
             toast.success("Download complete", { id: toastId });
+
         } catch (err) {
             toast.dismiss(toastId);
             handleBackendError(err);

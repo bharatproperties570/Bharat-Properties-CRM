@@ -7,6 +7,7 @@ import {
     createVersion,
     uploadContent,
     downloadContent,
+    getDownloadUrl,
     deleteDocument
 } from '../controllers/documentAPI.controller.js';
 
@@ -29,6 +30,9 @@ router.post('/:documentId/upload', uploadGeneric.single('file'), uploadContent);
 
 // 4. Download / Stream content securely
 router.get('/:documentId/content', downloadContent);
+
+// 5. Get presigned download URL
+router.get('/:documentId/download-url', getDownloadUrl);
 
 // 5. Logical Delete
 router.delete('/:documentId', deleteDocument);

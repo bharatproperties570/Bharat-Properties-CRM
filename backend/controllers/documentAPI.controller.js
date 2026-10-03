@@ -81,6 +81,22 @@ export const uploadContent = async (req, res) => {
     }
 };
 
+
+export const getDownloadUrl = async (req, res) => {
+    try {
+        const { documentId } = req.params;
+        const { versionId } = req.query;
+        // Centralized configuration for expiry (15 minutes default)
+        const expiryMs = parseInt(process.env.DOCUMENT_URL_EXPIRY_MS, 10) || 900000;
+        
+        const result = await getService().getDownloadUrl(req.user, documentId, versionId, expiryMs);
+        
+        return res.status(200).json({ success: true, data: result });
+    } catch (err) {
+        return handleDomainError(res, err);
+    }
+};
+
 export const downloadContent = async (req, res) => {
     try {
         const { documentId } = req.params;

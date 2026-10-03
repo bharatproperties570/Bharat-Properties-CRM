@@ -213,7 +213,39 @@ export default class DocumentService {
         }
     }
 
+    
     /**
+     * 5. Get Presigned Download URL
+     */
+    async getDownloadUrl(user, documentId, versionId = null, requestedExpiryMs = 900000) {
+        // 1. Authorization
+        // Note: The requestedExpiryMs is passed but authorizeAccess maxes out at its internal limit
+        const grant = await this.accessService.authorizeAccess(user, documentId, 'READ', versionId, requestedExpiryMs);
+        
+        // 2. Version Resolution
+        const version = await DocumentVersion.findOne({ versionId: grant.versionId, documentId });
+        if (!version) {
+            throw new ObjectNotFoundError('CRM', grant.versionId);
+        }
+
+        // 3. Provider Resolution
+        const adapter = await this.registry.resolve(version.providerInstanceId);
+        
+        // 4. Expiry
+        const expiresInSeconds = Math.floor(requestedExpiryMs / 1000);
+
+        // 5. URL Generation
+        const url = await adapter.getPresignedReadUrl(version.objectKey, expiresInSeconds);
+
+        return {
+            url,
+            expiresAt: grant.expiresAt,
+            documentId,
+            versionId: version.versionId
+        };
+    }
+
+/**
      * 4. Read Document Content
      */
     async readDocumentStream(user, documentId, versionId = null) {

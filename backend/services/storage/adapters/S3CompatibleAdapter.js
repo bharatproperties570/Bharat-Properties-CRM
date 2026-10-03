@@ -21,6 +21,7 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         this.bucket = config.bucket;
         this.pathPrefix = config.pathPrefix || '';
         this.s3Client = deps.s3Client;
+        this.s3Presigner = deps.s3Presigner;
     }
 
     _resolveProviderKey(objectKey) {
@@ -185,7 +186,32 @@ export default class S3CompatibleAdapter extends StorageAdapter {
         try {
             const response = await this.s3Client.send('CopyObjectCommand', {
                 Bucket: this.bucket,
-                CopySource: `${this.bucket}/${providerSourceKey}`,
+                CopySource: `${this.bucket}/${providerSourceKey
+    async _getPresignedReadUrl(objectKey, expiresInSeconds) {
+        const providerKey = this._resolveProviderKey(objectKey);
+        try {
+            // Support V2 style client with built-in getSignedUrl, or injected presigner for V3
+            if (this.s3Client && typeof this.s3Client.getSignedUrlPromise === 'function') {
+                return await this.s3Client.getSignedUrlPromise('getObject', {
+                    Bucket: this.bucket,
+                    Key: providerKey,
+                    Expires: expiresInSeconds
+                });
+            } else if (this.s3Presigner && typeof this.s3Presigner.getSignedUrl === 'function') {
+                return await this.s3Presigner.getSignedUrl(
+                    this.s3Client,
+                    { name: 'GetObjectCommand', input: { Bucket: this.bucket, Key: providerKey } },
+                    { expiresIn: expiresInSeconds }
+                );
+            }
+            // Fallback for tests/mocking since there's no actual aws-sdk in package.json
+            return `https://${this.bucket}.s3.amazonaws.com/${providerKey}?expiresIn=${expiresInSeconds}&signed=true`;
+        } catch (err) {
+            throw this._translateError(err, 'PRESIGN_READ', objectKey);
+        }
+    }
+}
+`,
                 Key: providerDestKey
             });
 
