@@ -191,6 +191,11 @@ export default class DocumentService {
                 });
             } catch (queueErr) {
                 console.error('[DocumentService] Failed to enqueue malware job:', queueErr);
+                // CRITICAL #1: Do NOT swallow enqueue failure. Fail the API and reject document.
+                this._transitionState(document, 'REJECTED');
+                await document.save();
+                queueErr.isQueueFailure = true;
+                throw queueErr;
             }
             
             return { document: this._toDocumentDTO(document), version: this._toVersionDTO(version) };
