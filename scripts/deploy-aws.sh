@@ -16,18 +16,29 @@ NC='\033[0m'
 
 echo -e "${BLUE}🚢 Starting Professional Deployment to AWS...${NC}"
 
+# P14-I6: Mandatory SSH Host Verification
+if [ -z "$DEPLOY_KNOWN_HOSTS_FILE" ]; then
+    echo -e "${RED}❌ CRITICAL: DEPLOY_KNOWN_HOSTS_FILE is not set. Deployment must fail closed to prevent MITM attacks.${NC}"
+    exit 1
+fi
+
+if [ ! -f "$DEPLOY_KNOWN_HOSTS_FILE" ]; then
+    echo -e "${RED}❌ CRITICAL: Provided DEPLOY_KNOWN_HOSTS_FILE does not exist: $DEPLOY_KNOWN_HOSTS_FILE${NC}"
+    exit 1
+fi
+
 KEY_PATH="$(cd "$(dirname "$0")/.." && pwd)/bharat_properties.pem"
 
 # 1. Connection Check
 echo -e "${GREEN}🔍 Checking connectivity to ${SERVER_IP}...${NC}"
-if ! ssh -i "$KEY_PATH" -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} exit 2>/dev/null; then
-    echo -e "${RED}❌ SSH Connection failed. Ensure the key at $KEY_PATH is valid.${NC}"
+if ! ssh -i "$KEY_PATH" -o UserKnownHostsFile="$DEPLOY_KNOWN_HOSTS_FILE" -o StrictHostKeyChecking=yes -o ConnectTimeout=5 -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} exit 2>/dev/null; then
+    echo -e "${RED}❌ SSH Connection failed. Ensure the host is known and the key at $KEY_PATH is valid.${NC}"
     exit 1
 fi
 
 # 2. Remote Execution via Safe /tmp Handoff
 echo -e "${GREEN}⚙️  Executing remote update script via safe /tmp handoff...${NC}"
-if ! ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "DEPLOY_TMP=\"/tmp/bharat-crm-deploy-\$\$\"; mkdir -p \$DEPLOY_TMP; cp ${REMOTE_PATH}/scripts/update-live.sh \$DEPLOY_TMP/update-live.sh; cd ${REMOTE_PATH} && bash \$DEPLOY_TMP/update-live.sh; EXIT_CODE=\$?; rm -rf \$DEPLOY_TMP; exit \$EXIT_CODE"; then
+if ! ssh -i "$KEY_PATH" -o UserKnownHostsFile="$DEPLOY_KNOWN_HOSTS_FILE" -o StrictHostKeyChecking=yes ${SERVER_USER}@${SERVER_IP} "DEPLOY_TMP=\"/tmp/bharat-crm-deploy-\$\$\"; mkdir -p \$DEPLOY_TMP; cp ${REMOTE_PATH}/scripts/update-live.sh \$DEPLOY_TMP/update-live.sh; cd ${REMOTE_PATH} && bash \$DEPLOY_TMP/update-live.sh; EXIT_CODE=\$?; rm -rf \$DEPLOY_TMP; exit \$EXIT_CODE"; then
     echo -e "${RED}❌ Remote deployment failed. Aborting deployment flow.${NC}"
     exit 1
 fi
@@ -42,7 +53,6 @@ SUCCESS=0
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.bharatproperties.co/api/health)
 
-    # curl output might be empty if network is down completely, defaulting to 000
     if [ "$HEALTH_STATUS" == "200" ]; then
         echo -e "${GREEN}✅ Deployment verified! API is responding (Status: 200)${NC}"
         SUCCESS=1
