@@ -180,7 +180,14 @@ export default class DocumentService {
             return { document: this._toDocumentDTO(document), version: this._toVersionDTO(version) };
 
         } catch (err) {
-            // If it fails, we should perhaps transition back or leave it in uploading to eventually timeout
+            // Attach structured observability context for failure recovery/reconciliation
+            err.uploadContext = {
+                documentId,
+                versionId,
+                providerInstanceId: version ? version.providerInstanceId : null,
+                objectKey: version ? version.objectKey : null,
+                phase: 'S3_PUT_OR_PERSISTENCE'
+            };
             throw err;
         }
     }
