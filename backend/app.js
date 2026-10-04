@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import mongoose from "mongoose";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
 
