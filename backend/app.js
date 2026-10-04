@@ -198,12 +198,6 @@ app.get("/api/ready", (req, res) => {
 
     res.status(200).json({ status: "ready", database: dbState, redis: "online" });
 });
-    }
-    if (dbState !== 1) {
-        return res.status(503).json({ status: "not_ready", database: dbState });
-    }
-    res.status(200).json({ status: "ready" });
-});
 
 app.get("/api/health", (req, res) => {
     res.status(200).json({

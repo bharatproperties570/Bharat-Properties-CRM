@@ -19,15 +19,10 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 # 1. Copy necessary runtime backend files
-cp -R backend/src "$BUILD_DIR/"
-cp backend/package.json "$BUILD_DIR/"
-cp backend/package-lock.json "$BUILD_DIR/"
-cp backend/ecosystem.config.cjs "$BUILD_DIR/" || true
+rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'uploads' --exclude '.env*' backend/ "$BUILD_DIR/"
 cp release-manifest.json "$BUILD_DIR/"
 
-# 2. Extract specific migration scripts (so they are available separately)
-mkdir -p "$BUILD_DIR/scripts"
-cp backend/scripts/provision_c9_indexes.js "$BUILD_DIR/scripts/" 2>/dev/null || true
+# 2. Migration scripts are now already in $BUILD_DIR/scripts due to rsync
 
 # 3. Exclude unsafe/test/diagnostic caches explicitly
 rm -rf "$BUILD_DIR/src/tests" || true
