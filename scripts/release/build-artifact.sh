@@ -22,6 +22,10 @@ mkdir -p "$BUILD_DIR"
 rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'uploads' --exclude '.env*' --exclude '*.log' --exclude 'scratch' backend/ "$BUILD_DIR/"
 cp release-manifest.json "$BUILD_DIR/"
 
+# 1.5 Package release lifecycle scripts into the artifact (R20 requirement)
+mkdir -p "$BUILD_DIR/scripts/release"
+cp -r scripts/release/* "$BUILD_DIR/scripts/release/"
+
 # 2. Migration scripts are now already in $BUILD_DIR/scripts due to rsync
 
 # 3. Exclude unsafe/test/diagnostic caches explicitly
@@ -34,7 +38,9 @@ rm -f "$BUILD_DIR/.env" "$BUILD_DIR/.env."*
 # 4. Install production dependencies natively to bundle into artifact
 # The PM2 Node process uses these natively.
 echo "⚙️  Installing production dependencies..."
-docker run --rm --platform linux/amd64 -v "$BUILD_DIR:/usr/src/app" -w /usr/src/app node:20.20-bookworm-slim /bin/bash -c "npm ci --omit=dev"
+cd "$BUILD_DIR"
+npm ci --omit=dev
+cd - >/dev/null
 
 # 5. Compress artifact deterministically
 cd "$BUILD_DIR"
