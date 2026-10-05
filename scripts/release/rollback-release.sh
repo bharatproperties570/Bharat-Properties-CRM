@@ -55,7 +55,7 @@ if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
     fi
 else
     echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
-    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.js" --update-env; then
+    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
     fi

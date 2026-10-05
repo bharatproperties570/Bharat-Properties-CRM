@@ -85,8 +85,8 @@ tar -xzf "$ARTIFACT" -C "$RELEASE_DIR"
 cp "$MANIFEST_FILE" "$RELEASE_DIR/release-manifest.json"
 
 # Verify expected files
-if [ ! -f "$RELEASE_DIR/ecosystem.config.js" ]; then
-    echo "❌ CRITICAL: ecosystem.config.js missing from artifact."
+if [ ! -f "$RELEASE_DIR/ecosystem.config.cjs" ]; then
+    echo "❌ CRITICAL: ecosystem.config.cjs missing from artifact."
     rm -rf "$RELEASE_DIR"
     exit 1
 fi
@@ -130,7 +130,7 @@ if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
     fi
 else
     echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
-    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.js" --update-env; then
+    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
     fi
