@@ -46,16 +46,34 @@ else
   rm -f "${CURRENT_LINK}.tmp"
 fi
 
-echo "🔄 Reloading PM2 (Rollback)..."
+echo "🔄 Managing PM2 State (Rollback)..."
 RUNTIME_DIR="/home/ubuntu/bharat-crm-runtime"
 RELOAD_FAILED=0
-if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
+
+if ! JLIST_OUT=$(pm2 jlist 2>/dev/null); then
+    echo "❌ CRITICAL: PM2 daemon unavailable/unresponsive. Aborting rollback."
+    exit 1
+fi
+
+PM2_COUNT=$(echo "$JLIST_OUT" | jq '[.[] | select(.name=="bharat-crm-backend")] | length')
+
+if [ -z "$PM2_COUNT" ]; then
+    PM2_COUNT=0
+fi
+
+if [ "$PM2_COUNT" -gt 1 ]; then
+    echo "❌ CRITICAL_DUPLICATE_PROCESS_STATE: Found $PM2_COUNT instances of 'bharat-crm-backend'. Aborting rollback."
+    exit 1
+fi
+
+if [ "$PM2_COUNT" -eq 1 ]; then
+    echo "🔄 Reloading PM2 process..."
     if ! pm2 reload bharat-crm-backend; then
-        echo "❌ CRITICAL: pm2 reload failed for an existing process."
+        echo "❌ CRITICAL: pm2 reload failed."
         RELOAD_FAILED=1
     fi
-else
-    echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
+elif [ "$PM2_COUNT" -eq 0 ]; then
+    echo "⚠️ PM2 process 'bharat-crm-backend' absent. Initiating controlled ecosystem start..."
     if ! pm2 start "${RUNTIME_DIR}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
@@ -100,7 +118,16 @@ if [ $HEALTH_OK -eq 1 ]; then
     # Do NOT execute pm2 save here. The persistence bounds were already saved by the deployment script.
     exit 0
 else
-    echo "❌ Rollback health verification failed!"
-    echo "❌ ROLLBACK RESULT: FAILED"
+    echo "❌ CRITICAL_ROLLBACK_FAILURE"
+    echo "Diagnostic State:"
+    echo "  Target SHA: $GIT_SHA"
+    echo "  Current Symlink Target: $(readlink -f "$CURRENT_LINK" || echo "Broken")"
+    echo "  PM2 Process Count: $(pm2 jlist | jq '[.[] | select(.name=="bharat-crm-backend")] | length')"
+    echo "  PM2 Process Status: $(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.status')"
+    echo "  PM2 Exec Path: $(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.pm_exec_path')"
+    echo "  PM2 CWD: $(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.pm_cwd')"
+    echo "  Health Status Code: $HEALTH_STATUS"
+    echo "  Readiness Status Code: $READY_STATUS"
+    echo "  Version API: $API_VERSION"
     exit 1
 fi

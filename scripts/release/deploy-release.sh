@@ -45,9 +45,24 @@ CURRENT_LINK="${RELEASE_ROOT}/current"
 SHARED_DIR="${RELEASE_ROOT}/shared"
 
 PREVIOUS_SHA=""
-if [ -L "$CURRENT_LINK" ]; then
-    PREVIOUS_TARGET=$(readlink -f "$CURRENT_LINK")
+if [ -e "$CURRENT_LINK" ] || [ -L "$CURRENT_LINK" ]; then
+    if [ ! -L "$CURRENT_LINK" ]; then
+        echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current exists but is not a symlink. Aborting."
+        exit 1
+    fi
+    PREVIOUS_TARGET=$(readlink -f "$CURRENT_LINK" || echo "")
+    if [ ! -d "$PREVIOUS_TARGET" ]; then
+        echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current symlink resolves to non-existent directory. Aborting."
+        exit 1
+    fi
+    RELEASE_ROOT_REAL=$(readlink -f "${RELEASE_ROOT}/releases")
+    if [[ "$PREVIOUS_TARGET" != "$RELEASE_ROOT_REAL/"* ]]; then
+        echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current resolves outside intended release root ($PREVIOUS_TARGET). Aborting."
+        exit 1
+    fi
     PREVIOUS_SHA=$(basename "$PREVIOUS_TARGET")
+else
+    echo "⚠️  current symlink is absent. Classifying as INITIAL/NO-CURRENT state."
 fi
 
 echo "   Intended SHA: $GIT_SHA"
@@ -104,13 +119,22 @@ if find "$RELEASE_DIR" -name ".env*" -not -name ".env.example" | grep -q .; then
     exit 1
 fi
 
-# Link external production configuration securely
-echo "🔗 Linking production environment configuration..."
-if [ -f "/home/ubuntu/bharat-properties-crm/backend/.env" ]; then
-    ln -s "/home/ubuntu/bharat-properties-crm/backend/.env" "$RELEASE_DIR/.env"
-else
-    echo "⚠️  WARNING: Production .env file not found at /home/ubuntu/bharat-properties-crm/backend/.env"
+# Verify external .env exists before switching current
+ENV_PATH="/home/ubuntu/bharat-properties-crm/backend/.env"
+echo "🔍 Validating external environment file..."
+if [ ! -f "$ENV_PATH" ] || [ ! -r "$ENV_PATH" ]; then
+    echo "❌ CRITICAL: .env file missing or unreadable at $ENV_PATH. Aborting deployment."
+    rm -rf "$RELEASE_DIR"
+    exit 1
 fi
+if [ -d "$ENV_PATH" ]; then
+    echo "❌ CRITICAL: .env path is a directory. Aborting deployment."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+fi
+
+echo "🔗 Linking production environment configuration..."
+ln -s "$ENV_PATH" "$RELEASE_DIR/.env"
 
 # Ensure Shared Directories
 mkdir -p "$SHARED_DIR/uploads"
@@ -127,15 +151,46 @@ else
   rm -f "${CURRENT_LINK}.tmp"
 fi
 
-echo "🔄 Reloading PM2..."
+echo "🔄 Managing PM2 State..."
 RELOAD_FAILED=0
-if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
+
+# Safely check PM2 daemon responsiveness
+if ! JLIST_OUT=$(pm2 jlist 2>/dev/null); then
+    echo "❌ CRITICAL: PM2 daemon unavailable/unresponsive. Aborting deployment."
+    # Rollback symlink so state remains consistent
+    if [ -n "$PREVIOUS_TARGET" ]; then
+        ln -sfn "$PREVIOUS_TARGET" "$CURRENT_LINK"
+    else
+        rm -f "$CURRENT_LINK"
+    fi
+    exit 1
+fi
+
+PM2_COUNT=$(echo "$JLIST_OUT" | jq '[.[] | select(.name=="bharat-crm-backend")] | length')
+
+if [ -z "$PM2_COUNT" ]; then
+    PM2_COUNT=0
+fi
+
+if [ "$PM2_COUNT" -gt 1 ]; then
+    echo "❌ CRITICAL_DUPLICATE_PROCESS_STATE: Found $PM2_COUNT instances of 'bharat-crm-backend'. Aborting deployment."
+    # Rollback symlink
+    if [ -n "$PREVIOUS_TARGET" ]; then
+        ln -sfn "$PREVIOUS_TARGET" "$CURRENT_LINK"
+    else
+        rm -f "$CURRENT_LINK"
+    fi
+    exit 1
+fi
+
+if [ "$PM2_COUNT" -eq 1 ]; then
+    echo "🔄 Reloading PM2 process..."
     if ! pm2 reload bharat-crm-backend; then
-        echo "❌ CRITICAL: pm2 reload failed for an existing process."
+        echo "❌ CRITICAL: pm2 reload failed."
         RELOAD_FAILED=1
     fi
-else
-    echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
+elif [ "$PM2_COUNT" -eq 0 ]; then
+    echo "⚠️ PM2 process 'bharat-crm-backend' absent. Initiating controlled ecosystem start..."
     if ! pm2 start "${RUNTIME_DIR}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
