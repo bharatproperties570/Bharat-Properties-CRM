@@ -76,6 +76,12 @@ import adminQueueRoutes from "./src/routes/admin.queue.routes.js";
 
 const app = express();
 
+import { correlationMiddleware } from './src/middlewares/correlation.middleware.js';
+import { logger } from './src/utils/logger.js';
+
+// Apply correlation context as early as possible
+app.use(correlationMiddleware);
+
 // CORS configuration moved to middleware function below
 
 // combinedOrigins was unused
@@ -209,12 +215,29 @@ app.get("/api/health", (req, res) => {
     });
 });
 
+
+
 // Request Logger
 app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
         const duration = Date.now() - start;
-        console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]} ${res.statusCode} (${duration}ms)`);
+        const msg = `${req.method} ${req.url.split('?')[0]} ${res.statusCode} (${duration}ms)`;
+        
+        const meta = {
+            method: req.method,
+            route: req.url.split('?')[0],
+            statusCode: res.statusCode,
+            durationMs: duration
+        };
+
+        if (res.statusCode >= 500) {
+            logger.error(msg, meta);
+        } else if (res.statusCode >= 400) {
+            logger.warn(msg, meta);
+        } else {
+            logger.info(msg, meta);
+        }
     });
     next();
 });
@@ -322,23 +345,23 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
         });
     }
     
-    // 🛠️ SENIOR DIAGNOSTIC: Log actual error for debugging
     const statusCode = err.statusCode || err.status || 500;
     
-    if (statusCode === 400) {
-        console.error(`[400_BAD_REQUEST] ${req.method} ${req.url}`);
-        console.error(`Payload:`, JSON.stringify(req.body, null, 2));
-        console.error(`Reason: ${err.message}`);
-    }
+    const errorMeta = {
+        statusCode,
+        method: req.method,
+        route: req.url,
+        error: {
+            message: err.message,
+            stack: err.stack,
+            code: err.code
+        }
+    };
 
-    console.error(`[API_ERROR] ${req.method} ${req.url} - ${err.message}`);
-    if (err.stack) console.error(err.stack);
-
-    const logPath = path.join(process.cwd(), 'error.log');
-    try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url} (${statusCode})\nBody: ${JSON.stringify(req.body)}\n${err.stack || err.message}\n\n`);
-    } catch (fsErr) {
-        console.error('Failed to log error to file:', fsErr);
+    if (statusCode >= 500) {
+        logger.error(`[API_ERROR] ${err.message}`, errorMeta);
+    } else {
+        logger.warn(`[API_WARN] ${err.message}`, errorMeta);
     }
 
     let message = err.message || "Internal Server Error";
