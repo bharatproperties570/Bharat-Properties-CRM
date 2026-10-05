@@ -86,6 +86,24 @@ if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
 fi
 echo "✅ Checksum verified: $ACTUAL_SHA"
 
+# --- NEW CAPACITY & RETENTION CHECKS ---
+SCRIPT_DIR=$(dirname "$0")
+if [ ! -f "$SCRIPT_DIR/check-capacity.sh" ]; then
+    echo "❌ CRITICAL: check-capacity.sh missing from $SCRIPT_DIR"
+    exit 1
+fi
+source "$SCRIPT_DIR/check-capacity.sh"
+
+echo "🔍 Running Release Retention Cleanup..."
+cleanup_retention "$RELEASE_ROOT" "${PREVIOUS_SHA}" ""
+
+echo "🔍 Validating Deployment Capacity..."
+if ! check_capacity "$ARTIFACT" "$RELEASE_ROOT"; then
+    echo "❌ CRITICAL: Deployment aborted during capacity preflight."
+    exit 1
+fi
+# ---------------------------------------
+
 if [ -d "$RELEASE_DIR" ]; then
     echo "⚠️  Release directory already exists: $RELEASE_DIR"
     echo "Refusing to mutate existing release."

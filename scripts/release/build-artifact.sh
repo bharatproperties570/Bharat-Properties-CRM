@@ -19,7 +19,7 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 # 1. Copy necessary runtime backend files
-rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'uploads' --exclude '.env*' backend/ "$BUILD_DIR/"
+rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'uploads' --exclude '.env*' --exclude '*.log' --exclude 'scratch' backend/ "$BUILD_DIR/"
 cp release-manifest.json "$BUILD_DIR/"
 
 # 2. Migration scripts are now already in $BUILD_DIR/scripts due to rsync
