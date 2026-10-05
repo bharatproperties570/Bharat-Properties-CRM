@@ -132,6 +132,7 @@ cleanup_retention() {
         # copied into its root during deployment. However, manifest alone is not proof.
         # We must prove it satisfies the explicit MODEL_1 or MODEL_2 topology structural contract.
         local IS_VALID=0
+        local IS_UNKNOWN=0
         if [ -f "$CANDIDATE_PATH/release-manifest.json" ]; then
             # We source resolve-topology.sh if available
             local RESOLVER_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/resolve-topology.sh"
@@ -140,19 +141,25 @@ cleanup_retention() {
                 TOPOLOGY_OUT=$(bash "$RESOLVER_SCRIPT" "$CANDIDATE_PATH" 2>/dev/null || echo "INVALID")
                 if [[ "$TOPOLOGY_OUT" == MODEL_1* ]] || [[ "$TOPOLOGY_OUT" == MODEL_2_COMPATIBILITY* ]]; then
                     IS_VALID=1
+                else
+                    IS_UNKNOWN=1
                 fi
             else
                 # Fallback to basic structural checks if resolver is missing
                 if [ -f "$CANDIDATE_PATH/src/server.js" ] || [ -f "$CANDIDATE_PATH/backend/src/server.js" ]; then
                     IS_VALID=1
+                else
+                    IS_UNKNOWN=1
                 fi
             fi
         fi
 
-        if [ $IS_VALID -eq 0 ]; then
-            ORPHAN_RELEASES+=("$rel")
-        else
+        if [ $IS_VALID -eq 1 ]; then
             VALID_RELEASES+=("$rel")
+        elif [ $IS_UNKNOWN -eq 1 ]; then
+            echo "⚠️  Preserving release '$rel': valid manifest but unrecognized/invalid topology."
+        else
+            ORPHAN_RELEASES+=("$rel")
         fi
     done < <(ls -1trc "$RELEASES_DIR" 2>/dev/null || true)
 

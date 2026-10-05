@@ -44,6 +44,13 @@ RELEASE_DIR="${RELEASE_ROOT}/releases/${GIT_SHA}"
 CURRENT_LINK="${RELEASE_ROOT}/current"
 SHARED_DIR="${RELEASE_ROOT}/shared"
 
+SCRIPT_DIR=$(dirname "$0")
+if [ ! -f "$SCRIPT_DIR/resolve-topology.sh" ]; then
+    echo "❌ CRITICAL: resolve-topology.sh missing from $SCRIPT_DIR"
+    exit 1
+fi
+source "$SCRIPT_DIR/resolve-topology.sh"
+
 PREVIOUS_SHA=""
 if [ -e "$CURRENT_LINK" ] || [ -L "$CURRENT_LINK" ]; then
     if [ ! -L "$CURRENT_LINK" ]; then
@@ -55,12 +62,11 @@ if [ -e "$CURRENT_LINK" ] || [ -L "$CURRENT_LINK" ]; then
         echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current symlink resolves to non-existent directory. Aborting."
         exit 1
     fi
-    RELEASE_ROOT_REAL=$(readlink -f "${RELEASE_ROOT}/releases")
-    if [[ "$PREVIOUS_TARGET" != "$RELEASE_ROOT_REAL/"* ]]; then
-        echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current resolves outside intended release root ($PREVIOUS_TARGET). Aborting."
+    PREVIOUS_SHA=$(resolve_canonical_sha "$CURRENT_LINK" "${RELEASE_ROOT}/releases")
+    if [ -z "$PREVIOUS_SHA" ]; then
+        echo "❌ CRITICAL: INVALID_CURRENT_POINTER. current resolves to invalid or malicious path. Aborting."
         exit 1
     fi
-    PREVIOUS_SHA=$(basename "$PREVIOUS_TARGET")
 else
     echo "⚠️  current symlink is absent. Classifying as INITIAL/NO-CURRENT state."
 fi
@@ -95,10 +101,10 @@ fi
 source "$SCRIPT_DIR/check-capacity.sh"
 
 HISTORY_PREV_TARGET=$(readlink -f "${RELEASE_ROOT}/previous" 2>/dev/null || echo "")
-HISTORY_PREV_SHA=$(basename "$HISTORY_PREV_TARGET" 2>/dev/null || echo "")
+HISTORY_PREV_SHA=$(resolve_canonical_sha "${RELEASE_ROOT}/previous" "${RELEASE_ROOT}/releases" || echo "")
 
 HISTORY_FALLBACK_TARGET=$(readlink -f "${RELEASE_ROOT}/fallback" 2>/dev/null || echo "")
-HISTORY_FALLBACK_SHA=$(basename "$HISTORY_FALLBACK_TARGET" 2>/dev/null || echo "")
+HISTORY_FALLBACK_SHA=$(resolve_canonical_sha "${RELEASE_ROOT}/fallback" "${RELEASE_ROOT}/releases" || echo "")
 
 echo "🔍 Running Release Retention Cleanup..."
 cleanup_retention "$RELEASE_ROOT" "$PREVIOUS_SHA" "$HISTORY_PREV_SHA" "$HISTORY_FALLBACK_SHA"

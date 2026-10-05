@@ -150,10 +150,9 @@ if [ $HEALTH_OK -eq 1 ]; then
     HISTORY_FALLBACK_TARGET=$(readlink -f "${RELEASE_ROOT}/fallback" 2>/dev/null || echo "")
 
     # F1 Remediation: Compare SHAs, not raw symlinked paths
-    EFFECTIVE_SHA=$(basename "$EFFECTIVE_TARGET")
-    HISTORY_PREV_SHA=$(basename "$HISTORY_PREV_TARGET")
-    HISTORY_FALLBACK_SHA=$(basename "$HISTORY_FALLBACK_TARGET")
-
+    EFFECTIVE_SHA=$(resolve_canonical_sha "$EFFECTIVE_TARGET" "${RELEASE_ROOT}/releases" || echo "")
+    HISTORY_PREV_SHA=$(resolve_canonical_sha "${RELEASE_ROOT}/previous" "${RELEASE_ROOT}/releases" || echo "")
+    HISTORY_FALLBACK_SHA=$(resolve_canonical_sha "${RELEASE_ROOT}/fallback" "${RELEASE_ROOT}/releases" || echo "")
     # If we are rolling back exactly to the previous release, pop the history stack
     if [ "$EFFECTIVE_SHA" == "$HISTORY_PREV_SHA" ] && [ -n "$EFFECTIVE_SHA" ]; then
         echo "🔄 Reverting release history stack..."
