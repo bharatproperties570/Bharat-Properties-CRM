@@ -187,7 +187,34 @@ if [ -d "$ENV_PATH" ]; then
 fi
 
 echo "🔗 Linking production environment configuration..."
-ln -s "$ENV_PATH" "$EFFECTIVE_TARGET/.env"
+
+# Prevent arbitrary file placement
+if [ -e "$EFFECTIVE_TARGET/.env" ] || [ -L "$EFFECTIVE_TARGET/.env" ]; then
+    echo "❌ CRITICAL: .env artifact already exists in release footprint. Aborting deployment."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+fi
+
+if ! ln -s "$ENV_PATH" "$EFFECTIVE_TARGET/.env"; then
+    echo "❌ CRITICAL: Failed to link .env file! Aborting deployment."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+fi
+
+if [ ! -L "$EFFECTIVE_TARGET/.env" ]; then
+    echo "❌ CRITICAL: .env is not a valid symbolic link! Aborting deployment."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+fi
+
+RESOLVED_ENV=$(readlink -f "$EFFECTIVE_TARGET/.env")
+EXPECTED_ENV=$(readlink -f "$ENV_PATH")
+
+if [ "$RESOLVED_ENV" != "$EXPECTED_ENV" ]; then
+    echo "❌ CRITICAL: .env symlink resolves to unexpected target ($RESOLVED_ENV). Expected ($EXPECTED_ENV). Aborting."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+fi
 
 # Ensure Shared Directories
 mkdir -p "$SHARED_DIR/uploads"
@@ -211,12 +238,11 @@ atomic_symlink "$EFFECTIVE_TARGET" "$CURRENT_LINK"
 echo "🔄 Managing PM2 State..."
 RELOAD_FAILED=0
 
-# Safely check PM2 daemon responsiveness
 if ! JLIST_OUT=$(pm2 jlist 2>/dev/null); then
     echo "❌ CRITICAL: PM2 daemon unavailable/unresponsive. Aborting deployment."
     # Rollback symlink so state remains consistent
     if [ -n "$PREVIOUS_TARGET" ]; then
-        ln -sfn "$PREVIOUS_TARGET" "$CURRENT_LINK"
+        atomic_symlink "$PREVIOUS_TARGET" "$CURRENT_LINK"
     else
         rm -f "$CURRENT_LINK"
     fi
@@ -233,7 +259,7 @@ if [ "$PM2_COUNT" -gt 1 ]; then
     echo "❌ CRITICAL_DUPLICATE_PROCESS_STATE: Found $PM2_COUNT instances of 'bharat-crm-backend'. Aborting deployment."
     # Rollback symlink
     if [ -n "$PREVIOUS_TARGET" ]; then
-        ln -sfn "$PREVIOUS_TARGET" "$CURRENT_LINK"
+        atomic_symlink "$PREVIOUS_TARGET" "$CURRENT_LINK"
     else
         rm -f "$CURRENT_LINK"
     fi
