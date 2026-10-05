@@ -85,11 +85,17 @@ tar -xzf "$ARTIFACT" -C "$RELEASE_DIR"
 cp "$MANIFEST_FILE" "$RELEASE_DIR/release-manifest.json"
 
 # Verify expected files
-if [ ! -f "$RELEASE_DIR/ecosystem.config.cjs" ]; then
-    echo "❌ CRITICAL: ecosystem.config.cjs missing from artifact."
+if [ ! -f "$RELEASE_DIR/ecosystem.config.cjs" ] || [ ! -f "$RELEASE_DIR/launcher.mjs" ]; then
+    echo "❌ CRITICAL: ecosystem.config.cjs or launcher.mjs missing from artifact."
     rm -rf "$RELEASE_DIR"
     exit 1
 fi
+
+# Setup Stable Runtime Boundary
+RUNTIME_DIR="/home/ubuntu/bharat-crm-runtime"
+mkdir -p "$RUNTIME_DIR"
+cp "$RELEASE_DIR/launcher.mjs" "$RUNTIME_DIR/launcher.mjs"
+cp "$RELEASE_DIR/ecosystem.config.cjs" "$RUNTIME_DIR/ecosystem.config.cjs"
 
 # Verify Secrets Absence
 if find "$RELEASE_DIR" -name ".env*" -not -name ".env.example" | grep -q .; then
@@ -130,7 +136,7 @@ if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
     fi
 else
     echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
-    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.cjs" --update-env; then
+    if ! pm2 start "${RUNTIME_DIR}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
     fi
@@ -167,6 +173,14 @@ for i in $(seq 1 $MAX_RETRIES); do
     if [ "$API_VERSION" != "$GIT_SHA" ]; then
         sleep $RETRY_INTERVAL
         continue
+    fi
+    
+    # Check PM2 Pointer Durability
+    PM2_EXEC_PATH=$(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.pm_exec_path')
+    if [[ "$PM2_EXEC_PATH" != *"/bharat-crm-runtime/launcher.mjs" ]]; then
+        echo "❌ CRITICAL: PM2 Pointer Durability failed! Found: $PM2_EXEC_PATH"
+        HEALTH_OK=0
+        break
     fi
 
     HEALTH_OK=1

@@ -47,6 +47,7 @@ else
 fi
 
 echo "🔄 Reloading PM2 (Rollback)..."
+RUNTIME_DIR="/home/ubuntu/bharat-crm-runtime"
 RELOAD_FAILED=0
 if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
     if ! pm2 reload bharat-crm-backend; then
@@ -55,7 +56,7 @@ if pm2 describe bharat-crm-backend > /dev/null 2>&1; then
     fi
 else
     echo "⚠️ PM2 process 'bharat-crm-backend' missing. Initiating ecosystem start..."
-    if ! pm2 start "${CURRENT_LINK}/ecosystem.config.cjs" --update-env; then
+    if ! pm2 start "${RUNTIME_DIR}/ecosystem.config.cjs" --update-env; then
         echo "❌ CRITICAL: pm2 start failed."
         RELOAD_FAILED=1
     fi
@@ -79,6 +80,14 @@ for i in $(seq 1 $MAX_RETRIES); do
     API_VERSION=$(curl -s http://127.0.0.1:${PORT}/api/version | jq -r .gitSha || echo "")
 
     if [ "$HEALTH_STATUS" == "200" ] && [ "$READY_STATUS" == "200" ] && [ "$API_VERSION" == "$GIT_SHA" ]; then
+        # Check PM2 Pointer Durability
+        PM2_EXEC_PATH=$(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.pm_exec_path')
+        if [[ "$PM2_EXEC_PATH" != *"/bharat-crm-runtime/launcher.mjs" ]]; then
+            echo "❌ CRITICAL: PM2 Pointer Durability failed! Found: $PM2_EXEC_PATH"
+            HEALTH_OK=0
+            break
+        fi
+
         HEALTH_OK=1
         break
     fi
@@ -88,6 +97,7 @@ done
 if [ $HEALTH_OK -eq 1 ]; then
     echo "✅ Rollback health verified!"
     echo "✅ ROLLBACK RESULT: SUCCESS"
+    # Do NOT execute pm2 save here. The persistence bounds were already saved by the deployment script.
     exit 0
 else
     echo "❌ Rollback health verification failed!"
