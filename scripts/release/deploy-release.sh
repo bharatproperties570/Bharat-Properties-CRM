@@ -99,18 +99,41 @@ tar -xzf "$ARTIFACT" -C "$RELEASE_DIR"
 # Write the final manifest into the release dir
 cp "$MANIFEST_FILE" "$RELEASE_DIR/release-manifest.json"
 
-# Verify expected files
-if [ ! -f "$RELEASE_DIR/ecosystem.config.cjs" ] || [ ! -f "$RELEASE_DIR/launcher.mjs" ]; then
-    echo "❌ CRITICAL: ecosystem.config.cjs or launcher.mjs missing from artifact."
+# Resolve Topology
+SCRIPT_DIR=$(dirname "$0")
+if [ ! -f "$SCRIPT_DIR/resolve-topology.sh" ]; then
+    echo "❌ CRITICAL: resolve-topology.sh missing from $SCRIPT_DIR"
+    exit 1
+fi
+source "$SCRIPT_DIR/resolve-topology.sh"
+
+RESOLUTION=$(resolve_topology "$RELEASE_DIR")
+if [ "$RESOLUTION" == "AMBIGUOUS" ]; then
+    echo "❌ CRITICAL: AMBIGUOUS TOPOLOGY. Artifact satisfies both MODEL 1 and MODEL 2 criteria. Aborting."
+    rm -rf "$RELEASE_DIR"
+    exit 1
+elif [ "$RESOLUTION" == "INVALID" ]; then
+    echo "❌ CRITICAL: INVALID TOPOLOGY. Neither MODEL 1 nor MODEL 2 contracts are satisfied. Aborting."
     rm -rf "$RELEASE_DIR"
     exit 1
 fi
 
+TOPOLOGY=$(echo "$RESOLUTION" | cut -d'|' -f1)
+EFFECTIVE_TARGET=$(echo "$RESOLUTION" | cut -d'|' -f2)
+
+if [ "$TOPOLOGY" == "MODEL_2_COMPATIBILITY" ]; then
+    echo "⚠️  Topology Resolved: MODEL_2_COMPATIBILITY (Legacy Wrapper)"
+else
+    echo "✅ Topology Resolved: MODEL_1"
+fi
+
+
+
 # Setup Stable Runtime Boundary
 RUNTIME_DIR="/home/ubuntu/bharat-crm-runtime"
 mkdir -p "$RUNTIME_DIR"
-cp "$RELEASE_DIR/launcher.mjs" "$RUNTIME_DIR/launcher.mjs"
-cp "$RELEASE_DIR/ecosystem.config.cjs" "$RUNTIME_DIR/ecosystem.config.cjs"
+cp "$EFFECTIVE_TARGET/launcher.mjs" "$RUNTIME_DIR/launcher.mjs"
+cp "$EFFECTIVE_TARGET/ecosystem.config.cjs" "$RUNTIME_DIR/ecosystem.config.cjs"
 
 # Verify Secrets Absence
 if find "$RELEASE_DIR" -name ".env*" -not -name ".env.example" | grep -q .; then
@@ -134,20 +157,20 @@ if [ -d "$ENV_PATH" ]; then
 fi
 
 echo "🔗 Linking production environment configuration..."
-ln -s "$ENV_PATH" "$RELEASE_DIR/.env"
+ln -s "$ENV_PATH" "$EFFECTIVE_TARGET/.env"
 
 # Ensure Shared Directories
 mkdir -p "$SHARED_DIR/uploads"
 
 # Atomic Switch
 echo "🔄 Atomically switching current release..."
-ln -s "$RELEASE_DIR" "${CURRENT_LINK}.tmp"
+ln -s "$EFFECTIVE_TARGET" "${CURRENT_LINK}.tmp"
 if mv -T "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
   :
 elif mv -h "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
   :
 else
-  ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
+  ln -sfn "$EFFECTIVE_TARGET" "$CURRENT_LINK"
   rm -f "${CURRENT_LINK}.tmp"
 fi
 
