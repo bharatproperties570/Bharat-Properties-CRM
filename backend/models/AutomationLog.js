@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 
 const AutomationLogSchema = new mongoose.Schema({
-    ruleType: { type: String, enum: ['Trigger', 'Sequence', 'AutomatedAction', 'ScoringRule', 'TimeBasedTrigger', 'IdempotencyLock'], required: true },
-    ruleId: { type: mongoose.Schema.Types.ObjectId, required: function() { return this.ruleType !== 'IdempotencyLock'; } },
+    ruleType: { type: String, enum: ['Trigger', 'Sequence', 'AutomatedAction', 'ScoringRule', 'TimeBasedTrigger', 'IdempotencyLock', 'DomainEvent'], required: true },
+    ruleId: { type: mongoose.Schema.Types.ObjectId, required: function() { return this.ruleType !== 'IdempotencyLock' && this.ruleType !== 'DomainEvent'; } },
     targetEntityId: { type: mongoose.Schema.Types.ObjectId, required: function() { return this.ruleType !== 'IdempotencyLock'; } }, // e.g. Lead ID, Deal ID
     targetModule: { type: String, required: function() { return this.ruleType !== 'IdempotencyLock'; } },
     status: { type: String, enum: ['success', 'failed', 'pending'], default: 'success' },
