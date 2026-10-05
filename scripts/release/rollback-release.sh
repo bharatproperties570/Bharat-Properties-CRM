@@ -62,16 +62,20 @@ else
     echo "✅ Topology Resolved: MODEL_1"
 fi
 
+atomic_symlink() {
+    local TARGET="$1"
+    local LINK_NAME="$2"
+    ln -s "$TARGET" "${LINK_NAME}.tmp"
+    if mv -T "${LINK_NAME}.tmp" "$LINK_NAME" 2>/dev/null; then :
+    elif mv -h "${LINK_NAME}.tmp" "$LINK_NAME" 2>/dev/null; then :
+    else
+        ln -sfn "$TARGET" "$LINK_NAME"
+        rm -f "${LINK_NAME}.tmp"
+    fi
+}
+
 echo "🔄 Atomically rolling back to previous release ($GIT_SHA)..."
-ln -s "$EFFECTIVE_TARGET" "${CURRENT_LINK}.tmp"
-if mv -T "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
-  :
-elif mv -h "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
-  :
-else
-  ln -sfn "$EFFECTIVE_TARGET" "$CURRENT_LINK"
-  rm -f "${CURRENT_LINK}.tmp"
-fi
+atomic_symlink "$EFFECTIVE_TARGET" "$CURRENT_LINK"
 
 echo "🔄 Managing PM2 State (Rollback)..."
 RUNTIME_DIR="/home/ubuntu/bharat-crm-runtime"
@@ -141,6 +145,32 @@ done
 
 if [ $HEALTH_OK -eq 1 ]; then
     echo "✅ Rollback health verified!"
+
+    HISTORY_PREV_TARGET=$(readlink -f "${RELEASE_ROOT}/previous" 2>/dev/null || echo "")
+    HISTORY_FALLBACK_TARGET=$(readlink -f "${RELEASE_ROOT}/fallback" 2>/dev/null || echo "")
+
+    # F1 Remediation: Compare SHAs, not raw symlinked paths
+    EFFECTIVE_SHA=$(basename "$EFFECTIVE_TARGET")
+    HISTORY_PREV_SHA=$(basename "$HISTORY_PREV_TARGET")
+    HISTORY_FALLBACK_SHA=$(basename "$HISTORY_FALLBACK_TARGET")
+
+    # If we are rolling back exactly to the previous release, pop the history stack
+    if [ "$EFFECTIVE_SHA" == "$HISTORY_PREV_SHA" ] && [ -n "$EFFECTIVE_SHA" ]; then
+        echo "🔄 Reverting release history stack..."
+        if [ -n "$HISTORY_FALLBACK_TARGET" ] && [ -d "$HISTORY_FALLBACK_TARGET" ]; then
+            atomic_symlink "$HISTORY_FALLBACK_TARGET" "${RELEASE_ROOT}/previous"
+            rm -f "${RELEASE_ROOT}/fallback"
+        else
+            rm -f "${RELEASE_ROOT}/previous"
+        fi
+    elif [ "$EFFECTIVE_SHA" == "$HISTORY_FALLBACK_SHA" ] && [ -n "$EFFECTIVE_SHA" ]; then
+        echo "🔄 Reverting release history stack (skipped previous)..."
+        rm -f "${RELEASE_ROOT}/previous"
+        rm -f "${RELEASE_ROOT}/fallback"
+    else
+        echo "⚠️  Custom rollback target used. History symlinks preserved as-is."
+    fi
+
     echo "✅ ROLLBACK RESULT: SUCCESS"
     # Do NOT execute pm2 save here. The persistence bounds were already saved by the deployment script.
     exit 0

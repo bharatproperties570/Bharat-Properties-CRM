@@ -94,8 +94,14 @@ if [ ! -f "$SCRIPT_DIR/check-capacity.sh" ]; then
 fi
 source "$SCRIPT_DIR/check-capacity.sh"
 
+HISTORY_PREV_TARGET=$(readlink -f "${RELEASE_ROOT}/previous" 2>/dev/null || echo "")
+HISTORY_PREV_SHA=$(basename "$HISTORY_PREV_TARGET" 2>/dev/null || echo "")
+
+HISTORY_FALLBACK_TARGET=$(readlink -f "${RELEASE_ROOT}/fallback" 2>/dev/null || echo "")
+HISTORY_FALLBACK_SHA=$(basename "$HISTORY_FALLBACK_TARGET" 2>/dev/null || echo "")
+
 echo "🔍 Running Release Retention Cleanup..."
-cleanup_retention "$RELEASE_ROOT" "${PREVIOUS_SHA}" ""
+cleanup_retention "$RELEASE_ROOT" "$PREVIOUS_SHA" "$HISTORY_PREV_SHA" "$HISTORY_FALLBACK_SHA"
 
 echo "🔍 Validating Deployment Capacity..."
 if ! check_capacity "$ARTIFACT" "$RELEASE_ROOT"; then
@@ -181,16 +187,20 @@ ln -s "$ENV_PATH" "$EFFECTIVE_TARGET/.env"
 mkdir -p "$SHARED_DIR/uploads"
 
 # Atomic Switch
+atomic_symlink() {
+    local TARGET="$1"
+    local LINK_NAME="$2"
+    ln -s "$TARGET" "${LINK_NAME}.tmp"
+    if mv -T "${LINK_NAME}.tmp" "$LINK_NAME" 2>/dev/null; then :
+    elif mv -h "${LINK_NAME}.tmp" "$LINK_NAME" 2>/dev/null; then :
+    else
+        ln -sfn "$TARGET" "$LINK_NAME"
+        rm -f "${LINK_NAME}.tmp"
+    fi
+}
+
 echo "🔄 Atomically switching current release..."
-ln -s "$EFFECTIVE_TARGET" "${CURRENT_LINK}.tmp"
-if mv -T "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
-  :
-elif mv -h "${CURRENT_LINK}.tmp" "$CURRENT_LINK" 2>/dev/null; then
-  :
-else
-  ln -sfn "$EFFECTIVE_TARGET" "$CURRENT_LINK"
-  rm -f "${CURRENT_LINK}.tmp"
-fi
+atomic_symlink "$EFFECTIVE_TARGET" "$CURRENT_LINK"
 
 echo "🔄 Managing PM2 State..."
 RELOAD_FAILED=0
@@ -252,7 +262,7 @@ HEALTH_OK=0
 
 for i in $(seq 1 $MAX_RETRIES); do
     echo "   Attempt $i/$MAX_RETRIES..."
-    
+
     HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${PORT}/api/health || echo "000")
     if [ "$HEALTH_STATUS" != "200" ]; then
         sleep $RETRY_INTERVAL
@@ -270,7 +280,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         sleep $RETRY_INTERVAL
         continue
     fi
-    
+
     # Check PM2 Pointer Durability
     PM2_EXEC_PATH=$(pm2 jlist | jq -r '.[] | select(.name=="bharat-crm-backend") | .pm2_env.pm_exec_path')
     if [[ "$PM2_EXEC_PATH" != *"/bharat-crm-runtime/launcher.mjs" ]]; then
@@ -285,6 +295,17 @@ done
 
 if [ $HEALTH_OK -eq 1 ]; then
     echo "✅ Health verified!"
+
+    echo "🔄 Advancing release history symlinks atomically..."
+    # Update fallback first to securely duplicate HISTORY_PREV_TARGET before we overwrite previous.
+    # This guarantees that if a crash occurs between updates, we don't lose the old previous release.
+    if [ -n "$HISTORY_PREV_TARGET" ] && [ -d "$HISTORY_PREV_TARGET" ]; then
+        atomic_symlink "$HISTORY_PREV_TARGET" "${RELEASE_ROOT}/fallback"
+    fi
+    if [ -n "$PREVIOUS_TARGET" ] && [ -d "$PREVIOUS_TARGET" ]; then
+        atomic_symlink "$PREVIOUS_TARGET" "${RELEASE_ROOT}/previous"
+    fi
+
     echo "💾 Saving PM2 state..."
     pm2 save
     echo "✅ DEPLOYMENT RESULT: SUCCESS"
