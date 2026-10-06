@@ -317,6 +317,18 @@ class DealVerificationService {
         }
 
         // Validate intent is known
+        // P16-R4: Policy Boundary Enforcement
+        const { default: AIPolicyEngine } = await import('./ai/AIPolicyEngine.js');
+        const authDecision = await AIPolicyEngine.authorize(
+            { action: 'CRM_MUTATION', intent: parsed.intent },
+            { target: deals.map(d => d._id) },
+            'AI_DATA_EXTRACTION'
+        );
+
+        if (authDecision.decision !== 'ALLOW') {
+            throw new Error(`AI Action blocked by Policy Engine: ${authDecision.reasonCode}`);
+        }
+
         if (!Object.values(VERIFICATION_INTENTS).includes(parsed.intent)) {
             log.warn(traceId, 'Unknown intent from AI — defaulting to UNCLEAR', { intent: parsed.intent });
             parsed.intent = VERIFICATION_INTENTS.UNCLEAR;

@@ -2,6 +2,8 @@ import AiAgent from '../models/AiAgent.js';
 import unifiedAIService from './UnifiedAIService.js';
 import AIDataPolicy from './ai/AIDataPolicy.js';
 import AIOutputValidator from './ai/AIOutputValidator.js';
+import AIPolicyEngine from './ai/AIPolicyEngine.js';
+import AIDispatcher from './ai/AIDispatcher.js';
 import IntegrationSettings from '../models/IntegrationSettings.js'; // Kept for ElevenLabs right now
 
 /**
@@ -207,15 +209,24 @@ ${contextString}
         // It THROWS an error if validation fails (Fail Closed)
         const validatedOutput = AIOutputValidator.validateConversationIntent(reply);
 
-        // P16-R3: Side effects disabled pending P16-R4 PolicyEngine
-        // We omit 'reply' to naturally bypass downstream side effect execution in callers
+        // P16-R4: Policy Engine & Dispatcher Enforcement
+        const authDecision = await AIPolicyEngine.authorize(
+            validatedOutput,
+            { target: context.phoneNumber || 'UNKNOWN' }, // We need callers to pass phoneNumber if they want to dispatch. We'll leave it abstract here. 
+            agent.capability || 'AI_LIVE_CONVERSATION'
+        );
+
+        // We still omit 'reply' so that legacy callers do not attempt to bypass Dispatcher by manually sending.
+        // If the intent is to dispatch, the Dispatcher itself handles it.
+        // NOTE: For backward-compatibility tests, we return the decision state.
         return {
             success: true,
-            reply: null, // Blocked at R3!
+            reply: null, 
             intent: validatedOutput.intent,
-            content: validatedOutput.content, // Safe for tests/logs
+            content: validatedOutput.content,
             confidence: validatedOutput.confidence,
-            requestedAction: validatedOutput.requestedAction
+            requestedAction: validatedOutput.requestedAction,
+            authDecision
         };
 
     } catch (error) {
