@@ -11,6 +11,8 @@ const CAPABILITIES = {
     AI_MARKETING_GENERATION: 'AI_MARKETING_GENERATION',
     AI_MARKETING_DRAFT: 'AI_MARKETING_DRAFT',
     AI_INTERNAL_ASSIST: 'AI_INTERNAL_ASSIST',
+    AI_DEAL_VERIFICATION: 'AI_DEAL_VERIFICATION',
+    AI_LEAD_ENRICHMENT: 'AI_LEAD_ENRICHMENT',
     AI_UNCLASSIFIED: 'AI_UNCLASSIFIED'
 };
 
@@ -95,6 +97,26 @@ const CAPABILITY_MATRIX = {
         requiresHumanApproval: true,
         allowedActions: ['RESPOND_USER'],
         blockedActions: [],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+    
+    [CAPABILITIES.AI_DEAL_VERIFICATION]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_3',
+        autonomousAllowed: true,
+        requiresHumanApproval: false,
+        allowedActions: ['VERIFICATION_UPDATE'],
+        blockedActions: ['DELETE'],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+
+    [CAPABILITIES.AI_LEAD_ENRICHMENT]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_3',
+        autonomousAllowed: true,
+        requiresHumanApproval: false,
+        allowedActions: ['ENRICHMENT_UPDATE'],
+        blockedActions: ['DELETE'],
         emergencyBehavior: 'BLOCK_ALL'
     },
     [CAPABILITIES.AI_UNCLASSIFIED]: {

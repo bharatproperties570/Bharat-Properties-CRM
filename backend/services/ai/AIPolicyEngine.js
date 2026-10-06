@@ -41,6 +41,13 @@ class AIPolicyEngine {
             'SEND_EMAIL': { risk: 'LEVEL_4', decision: 'BLOCK' },
             'NONE': { risk: 'LEVEL_0', decision: 'ALLOW' }
         },
+        
+        [AIGovernance.CAPABILITIES.AI_DEAL_VERIFICATION]: {
+            'VERIFICATION_UPDATE': { risk: 'LEVEL_3', decision: 'ALLOW' }
+        },
+        [AIGovernance.CAPABILITIES.AI_LEAD_ENRICHMENT]: {
+            'ENRICHMENT_UPDATE': { risk: 'LEVEL_3', decision: 'ALLOW' }
+        },
         [AIGovernance.CAPABILITIES.AI_DATA_EXTRACTION]: {
             'EXTRACT_DATA': { risk: 'LEVEL_2', decision: 'ALLOW' }
         },
@@ -85,6 +92,19 @@ class AIPolicyEngine {
             }
 
             let decision = actionPolicy.decision;
+
+            // R4 Actor-Level Capability Constraints
+            const actorType = context?.actorType;
+            if (action === 'VERIFICATION_UPDATE') {
+                if (actorType && !['HUMAN_USER', 'WEBHOOK'].includes(actorType)) {
+                    return await this._denyAndLog('BLOCKED_UNAUTHORIZED_ACTOR', `Actor ${actorType} cannot execute VERIFICATION_UPDATE`, capability, intent, context, 'LEVEL_3');
+                }
+            } else if (action === 'ENRICHMENT_UPDATE') {
+                if (actorType && !['HUMAN_USER', 'SYSTEM'].includes(actorType)) {
+                    return await this._denyAndLog('BLOCKED_UNAUTHORIZED_ACTOR', `Actor ${actorType} cannot execute ENRICHMENT_UPDATE`, capability, intent, context, 'LEVEL_3');
+                }
+            }
+
 
             // In our system, if it's LEVEL_4 SEND_WHATSAPP under AI_LIVE_CONVERSATION, we might ALLOW it 
             // only if context explicitly whitelist it, otherwise default BLOCK / REQUIRE_HUMAN_APPROVAL.
