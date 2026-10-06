@@ -20,22 +20,26 @@ export class LeadMutationService {
             throw new LeadMutationError("Invalid context: Missing actor identity", 401);
         }
 
-        // 1. Validate Operation & Actor
-        // Webhooks shouldn't enrich leads directly via this API in this matrix.
         if (context.actorType === 'WEBHOOK') {
             throw new LeadMutationError("WEBHOOK actor is not authorized for Lead enrichment updates", 403);
         }
         
-        // Block WORKER if it cannot prove initiator
         if (context.actorType === 'WORKER') {
             throw new LeadMutationError("WORKER actor missing initiator authority", 403);
         }
 
-        // 2. Validate Allowed Fields
         const updates = {};
         for (const [key, value] of Object.entries(fields)) {
             if (!this.ALLOWED_FIELDS.includes(key)) {
                 throw new LeadMutationError(`Unauthorized field mutation: ${key}`, 403);
+            }
+            if (key === 'ai_intent_summary') {
+                if (typeof value !== 'string') throw new LeadMutationError("Invalid ai_intent_summary type", 400);
+            }
+            if (key === 'ai_closing_probability') {
+                if (typeof value !== 'number' || isNaN(value) || value < 0 || value > 100) {
+                    throw new LeadMutationError("Invalid ai_closing_probability value", 400);
+                }
             }
             updates[key] = value;
         }
@@ -44,7 +48,6 @@ export class LeadMutationService {
             return { success: true, message: "No fields to update" };
         }
 
-        // 3. Resource Authorization
         let query = { _id: leadId };
 
         if (context.actorType === 'HUMAN_USER') {
@@ -55,13 +58,13 @@ export class LeadMutationService {
             const visFilter = await getVisibilityFilter(user);
             query = { $and: [query, visFilter] };
         } else if (context.actorType === 'SYSTEM') {
-            // SYSTEM actor has global scope for enrichment
-            // Idempotency: For enrichment, it's an overwrite, which is idempotent by nature.
+            if (context.targetId !== leadId.toString()) {
+                throw new LeadMutationError("SYSTEM context missing required target authorization", 403);
+            }
         } else {
             throw new LeadMutationError(`Unsupported actor type: ${context.actorType}`, 403);
         }
 
-        // 4. Perform Atomic Update
         const lead = await Lead.findOneAndUpdate(
             query,
             { $set: updates },
