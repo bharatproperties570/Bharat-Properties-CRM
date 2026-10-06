@@ -25,11 +25,11 @@ test('AI Governance Architecture Implementation', async (t) => {
     await t.test('B. global kill switch false -> capability lookup continues', async (t) => {
         process.env.AI_GLOBAL_KILLSWITCH = 'false';
         const findOneStub = t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: true } }) };
+            return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: 'ENABLED' } }) };
         });
         
         const result = await AIGovernance.assertEnabled('AI_MARKETING_DRAFT');
-        assert.strictEqual(result, true);
+        assert.strictEqual(result, 'ENABLED');
         assert.strictEqual(findOneStub.mock.callCount(), 1);
     });
 
@@ -43,15 +43,15 @@ test('AI Governance Architecture Implementation', async (t) => {
 
     await t.test('D. capability enabled -> governance allows', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: true } }) };
+            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: 'ENABLED' } }) };
         });
         const result = await AIGovernance.assertEnabled('AI_DATA_EXTRACTION');
-        assert.strictEqual(result, true);
+        assert.strictEqual(result, 'ENABLED');
     });
 
     await t.test('E. capability disabled -> governance blocks', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: false } }) };
+            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: 'DISABLED' } }) };
         });
         await assert.rejects(
             async () => await AIGovernance.assertEnabled('AI_DATA_EXTRACTION'),
@@ -68,7 +68,7 @@ test('AI Governance Architecture Implementation', async (t) => {
 
     await t.test('G. missing capability -> AI_UNCLASSIFIED -> fail closed unless explicitly configured', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: { AI_LIVE_CONVERSATION: true } }) };
+            return { lean: () => Promise.resolve({ value: { AI_LIVE_CONVERSATION: 'ENABLED' } }) };
         });
         await assert.rejects(
             async () => await AIGovernance.assertEnabled('AI_UNCLASSIFIED'),
@@ -81,7 +81,7 @@ test('AI Governance Architecture Implementation', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
             if (isFirstCall) {
                 isFirstCall = false;
-                return { lean: () => Promise.resolve({ value: { AI_INTERNAL_ASSIST: true } }) };
+                return { lean: () => Promise.resolve({ value: { AI_INTERNAL_ASSIST: 'ENABLED' } }) };
             }
             throw new Error('MongoNetworkError');
         });
@@ -91,7 +91,7 @@ test('AI Governance Architecture Implementation', async (t) => {
         
         // Cache should still work
         const result = await AIGovernance.assertEnabled('AI_INTERNAL_ASSIST');
-        assert.strictEqual(result, true);
+        assert.strictEqual(result, 'ENABLED');
     });
 
     await t.test('I. MongoDB unavailable + expired/missing cache -> fail closed', async (t) => {
@@ -111,9 +111,9 @@ test('AI Governance Architecture Implementation', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
             if (callNum === 0) {
                 callNum++;
-                return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: true } }) };
+                return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: 'ENABLED' } }) };
             }
-            return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: false } }) };
+            return { lean: () => Promise.resolve({ value: { AI_MARKETING_DRAFT: 'DISABLED' } }) };
         });
         
         await AIGovernance.assertEnabled('AI_MARKETING_DRAFT'); // Primes cache
@@ -145,7 +145,7 @@ test('AI Governance Architecture Implementation', async (t) => {
 
     await t.test('M. UnifiedAIService without options.capability -> AI_UNCLASSIFIED', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: {} }) };
+            return { lean: () => Promise.resolve({ value: { AI_UNCLASSIFIED: 'DISABLED' } }) };
         });
         
         await assert.rejects(
@@ -156,7 +156,7 @@ test('AI Governance Architecture Implementation', async (t) => {
 
     await t.test('N. UnifiedAIService with known capability -> correct governance check', async (t) => {
         t.mock.method(SystemSetting, 'findOne', () => {
-            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: false } }) };
+            return { lean: () => Promise.resolve({ value: { AI_DATA_EXTRACTION: 'DISABLED' } }) };
         });
         
         await assert.rejects(

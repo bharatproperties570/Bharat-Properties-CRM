@@ -37,6 +37,7 @@ const AuditLogSchema = new mongoose.Schema({
             'ai_action_approval_required',
             'ai_action_authorized',
             'ai_action_dispatched',
+            'ai_activation_changed',
 
             // Entity Trackers
             'stage_changed',
