@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import Deal from '../models/Deal.js';
 import Activity from '../models/Activity.js';
+import { ServerAuthorityProof } from '../utils/ServerAuthorityProof.js';
 
 export class DealMutationError extends Error {
     constructor(message, status = 400) {
@@ -59,8 +60,11 @@ export class DealMutationService {
             query = { $and: [query, visFilter] };
         
         } else if (context.actorType === 'WEBHOOK') {
-            if (context.targetId !== dealId.toString()) {
-                throw new DealMutationError("WEBHOOK context missing required target authorization", 403);
+            if (!context.authorizationProof || !(context.authorizationProof instanceof ServerAuthorityProof)) {
+                throw new DealMutationError("WEBHOOK context missing server-derived authorization proof", 403);
+            }
+            if (context.authorizationProof.targetId !== dealId.toString() || context.authorizationProof.actorType !== 'WEBHOOK') {
+                throw new DealMutationError("WEBHOOK authorization proof mismatched or forged", 403);
             }
             query.verifiedAt = null; 
         } else if (context.actorType === 'WORKER') {

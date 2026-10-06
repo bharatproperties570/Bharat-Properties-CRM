@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import Lead from '../models/Lead.js';
+import { ServerAuthorityProof } from '../utils/ServerAuthorityProof.js';
 
 export class LeadMutationError extends Error {
     constructor(message, status = 400) {
@@ -58,8 +59,11 @@ export class LeadMutationService {
             const visFilter = await getVisibilityFilter(user);
             query = { $and: [query, visFilter] };
         } else if (context.actorType === 'SYSTEM') {
-            if (context.targetId !== leadId.toString()) {
-                throw new LeadMutationError("SYSTEM context missing required target authorization", 403);
+            if (!context.authorizationProof || !(context.authorizationProof instanceof ServerAuthorityProof)) {
+                throw new LeadMutationError("SYSTEM context missing server-derived authorization proof", 403);
+            }
+            if (context.authorizationProof.targetId !== leadId.toString() || context.authorizationProof.actorType !== 'SYSTEM') {
+                throw new LeadMutationError("SYSTEM authorization proof mismatched or forged", 403);
             }
         } else {
             throw new LeadMutationError(`Unsupported actor type: ${context.actorType}`, 403);
