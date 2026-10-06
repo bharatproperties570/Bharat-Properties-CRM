@@ -4,6 +4,7 @@
  */
 import fetch from 'node-fetch'; // Requires node-fetch if Node < 18, but Node 24 is used here so global fetch is ok. But we'll just use global.
 import AIDataPolicy from './AIDataPolicy.js';
+import AIOutputValidator from './AIOutputValidator.js';
 
 class LLMService {
     constructor() {
@@ -38,13 +39,19 @@ class LLMService {
         `;
 
         try {
+            let rawOutput;
             if (this.provider === 'claude') {
-                return await this._callClaude(prompt);
+                rawOutput = await this._callClaude(prompt);
             } else if (this.provider === 'openai') {
-                return await this._callOpenAI(prompt);
+                rawOutput = await this._callOpenAI(prompt);
             } else if (this.provider === 'gemini') {
-                return await this._callGemini(prompt);
+                rawOutput = await this._callGemini(prompt);
             }
+            
+            // Normalize & Validate the structured AI output (P16-R3)
+            // Note: _call* methods currently return parsed JSON. We stringify it back to simulate raw string if it is an object, 
+            // since AIOutputValidator accepts either string or object.
+            return AIOutputValidator.validateDocumentExtraction(rawOutput);
         } catch (error) {
             console.error('[LLMService] Extraction failed:', error.message);
             return null;
