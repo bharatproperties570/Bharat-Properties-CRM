@@ -1,4 +1,6 @@
 import UnifiedAIService from './UnifiedAIService.js';
+import AIExecutionService from './ai/AIExecutionService.js';
+import AIExecutionContext from './ai/AIExecutionContext.js';
 import mongoose from 'mongoose';
 
 const getLookupModel = () => {
@@ -617,7 +619,17 @@ Schema structure:
 }`;
         const userPrompt = `Address: "${rawAddress}"`;
         try {
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            
+            const context = AIExecutionContext.fromSystem('SYSTEM_TENANT', 'AddressParsingService');
+            const parsedOutput = await AIExecutionService.execute({
+                context,
+                capability: 'AI_ADDRESS_PARSING',
+                expectedSchema: 'ADDRESS_RESULT',
+                inputData: userPrompt,
+                systemInstructions: systemPrompt
+            });
+            const rawResponse = JSON.stringify(parsedOutput);
+
             return this._cleanAndParseJSON(rawResponse);
         } catch (error) {
             console.error(`[AddressParsingService] AI LLM Fallback failed:`, error.message);
@@ -959,7 +971,17 @@ If you cannot confidently determine a missing field, leave it empty.`;
 
         try {
             console.log(`[AddressParsingService] Enriching address via AI LLM...`);
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            
+            const context = AIExecutionContext.fromSystem('SYSTEM_TENANT', 'AddressParsingService');
+            const parsedOutput = await AIExecutionService.execute({
+                context,
+                capability: 'AI_ADDRESS_PARSING',
+                expectedSchema: 'ADDRESS_RESULT',
+                inputData: userPrompt,
+                systemInstructions: systemPrompt
+            });
+            const rawResponse = JSON.stringify(parsedOutput);
+
             const aiEnriched = this._cleanAndParseJSON(rawResponse);
             
             if (aiEnriched) {
@@ -1116,9 +1138,17 @@ Based on the full context of both addresses, output the JSON resolution mapping.
 
         try {
             console.log(`[AddressParsingService] Auto-resolving ${targetDiffs.length} address conflicts via AI LLM...`);
-            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
-            const decisionMap = this._cleanAndParseJSON(rawResponse);
+            
+            const context = AIExecutionContext.fromSystem('SYSTEM_TENANT', 'AddressParsingService');
+            const decisionMap = await AIExecutionService.execute({
+                context,
+                capability: 'AI_ADDRESS_CONFLICT_RESOLUTION',
+                expectedSchema: 'ADDRESS_CONFLICT_RESOLUTION_RESULT',
+                inputData: userPrompt,
+                systemInstructions: systemPrompt
+            });
             return decisionMap || {};
+
         } catch (error) {
             console.error(`[AddressParsingService] AI Conflict Resolution failed:`, error.message);
             return {};

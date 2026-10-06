@@ -5,6 +5,10 @@ import AuditLog from '../../models/AuditLog.js';
 const CAPABILITIES = {
     AI_LIVE_CONVERSATION: 'AI_LIVE_CONVERSATION',
     AI_DATA_EXTRACTION: 'AI_DATA_EXTRACTION',
+    AI_ADDRESS_PARSING: 'AI_ADDRESS_PARSING',
+    AI_ADDRESS_CONFLICT_RESOLUTION: 'AI_ADDRESS_CONFLICT_RESOLUTION',
+    AI_LEAD_PROFILING: 'AI_LEAD_PROFILING',
+    AI_MARKETING_GENERATION: 'AI_MARKETING_GENERATION',
     AI_MARKETING_DRAFT: 'AI_MARKETING_DRAFT',
     AI_INTERNAL_ASSIST: 'AI_INTERNAL_ASSIST',
     AI_UNCLASSIFIED: 'AI_UNCLASSIFIED'
@@ -20,7 +24,44 @@ const ACTIVATION_STATES = {
  * Matrix defining capability guardrails (Risk, Default State, Actions)
  */
 const CAPABILITY_MATRIX = {
+    [CAPABILITIES.AI_ADDRESS_PARSING]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_1',
+        autonomousAllowed: true,
+        requiresHumanApproval: false,
+        allowedActions: ['EXTRACT_DATA'],
+        blockedActions: ['CRM_MUTATION'],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+    [CAPABILITIES.AI_ADDRESS_CONFLICT_RESOLUTION]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_1',
+        autonomousAllowed: true,
+        requiresHumanApproval: false,
+        allowedActions: ['EXTRACT_DATA'],
+        blockedActions: ['CRM_MUTATION'],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+    [CAPABILITIES.AI_LEAD_PROFILING]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_2',
+        autonomousAllowed: true,
+        requiresHumanApproval: false,
+        allowedActions: ['EXTRACT_DATA'],
+        blockedActions: ['CRM_MUTATION'],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+    
     [CAPABILITIES.AI_MARKETING_DRAFT]: {
+        defaultState: ACTIVATION_STATES.ENABLED,
+        riskLevel: 'LEVEL_1',
+        autonomousAllowed: false,
+        requiresHumanApproval: true,
+        allowedActions: ['GENERATE_MARKETING_DRAFT'],
+        blockedActions: ['PUBLISH_TO_SOCIAL', 'SEND_MARKETING_MESSAGE'],
+        emergencyBehavior: 'BLOCK_ALL'
+    },
+    [CAPABILITIES.AI_MARKETING_GENERATION]: {
         defaultState: ACTIVATION_STATES.ENABLED,
         riskLevel: 'LEVEL_1',
         autonomousAllowed: false,
@@ -41,14 +82,14 @@ const CAPABILITY_MATRIX = {
     [CAPABILITIES.AI_DATA_EXTRACTION]: {
         defaultState: ACTIVATION_STATES.ENABLED,
         riskLevel: 'LEVEL_2',
-        autonomousAllowed: true, // autonomous execution of extraction allowed, but persistence is separate
+        autonomousAllowed: true, 
         requiresHumanApproval: false,
         allowedActions: ['EXTRACT_DATA'],
         blockedActions: ['CRM_MUTATION'],
         emergencyBehavior: 'BLOCK_ALL'
     },
     [CAPABILITIES.AI_LIVE_CONVERSATION]: {
-        defaultState: ACTIVATION_STATES.DISABLED, // Explicitly disabled pending production activation
+        defaultState: ACTIVATION_STATES.DISABLED, 
         riskLevel: 'LEVEL_4',
         autonomousAllowed: false,
         requiresHumanApproval: true,
@@ -155,9 +196,6 @@ class AIGovernance {
         return state; 
     }
 
-    /**
-     * Admin functionality to change activation state and audit it
-     */
     static async updateActivationState(capability, newState, actorId) {
         if (!Object.values(CAPABILITIES).includes(capability)) {
             throw new Error(`Invalid capability: ${capability}`);
@@ -184,7 +222,7 @@ class AIGovernance {
 
         try {
             await AuditLog.create({
-                eventType: 'ai_activation_changed', // reusing an existing event if ai_activation_changed is not permitted? Wait, "Where activation state changes are supported, audit..." - I will use 'permission_granted' or similar if I didn't add it. Let's patch AuditLog for ai_activation_changed just in case.
+                eventType: 'ai_activation_changed',
                 description: `AI Capability ${capability} changed from ${oldState} to ${newState}`,
                 metadata: {
                     capability,

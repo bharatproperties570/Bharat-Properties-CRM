@@ -20,6 +20,8 @@ import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
+import AIExecutionService from '../services/ai/AIExecutionService.js';
+import AIExecutionContext from '../services/ai/AIExecutionContext.js';
 import AddressParsingService from '../services/AddressParsingService.js';
 import WhatsAppService from '../services/WhatsAppService.js';
 
@@ -2208,22 +2210,16 @@ export const interpretLeadRequirements = async (req, res) => {
             };
         }
 
-        const aiResponseText = await UnifiedAIService.generate(prompt, {
-            provider: agent.provider || 'gemini',
-            systemPrompt: agent.systemPrompt,
-            model: agent.modelName,
-            temperature: 0.2
+        
+        const context = AIExecutionContext.fromHttpRequest(req.user);
+        const interpretation = await AIExecutionService.execute({
+            context,
+            capability: 'AI_LEAD_PROFILING',
+            expectedSchema: 'LEAD_PROFILE_RESULT',
+            inputData: prompt,
+            systemInstructions: agent.systemPrompt,
+            provider: agent.provider || 'gemini'
         });
-
-        // 3. Parse and Clean Response
-        let interpretation;
-        try {
-            const jsonMatch = aiResponseText.match(/\{.*\}/s);
-            interpretation = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponseText);
-        } catch (e) {
-            console.error("[AI_INTERPRET] JSON Parse Failed:", aiResponseText);
-            throw new Error("AI returned unparseable response");
-        }
 
         // 4. Transform Interpretation to DB IDs (Optional but professional)
         // Note: For now we return the raw interpretation and let the frontend confirm
