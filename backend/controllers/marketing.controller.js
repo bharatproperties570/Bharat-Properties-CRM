@@ -70,16 +70,42 @@ export const getMarketingStats = async (req, res) => {
     }
 };
 
+
+// 🧠 P18-05C-R2: DURABLE CAMPAIGN ANALYTICS (NEW ROUTE)
+export const getCampaignRunsForCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
+
+        const MarketingCampaign = mongoose.model('MarketingCampaign');
+        const campaign = await MarketingCampaign.findById(campaignId);
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+        
+        if (req.user.role !== 'Admin' && campaign.ownerId.toString() !== req.user.id.toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const CampaignRun = mongoose.model('CampaignRun');
+        const runs = await CampaignRun.find({ campaignId }).sort({ createdAt: -1 });
+
+        return res.json(runs);
+    } catch (error) {
+        console.error('Error fetching campaign runs:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// 🧠 P18-05C-R2: RESTORED LEGACY API CONTRACT FOR FRONTEND COMPATIBILITY
 export const getCampaignRuns = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
+        const Activity = mongoose.model('Activity');
         
         // Fetch all marketing activities from last 30 days within regional scope
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
  
-        // 🧠 SENIOR PROFESSIONAL: Strict Batch Filter
-        // Only include activities that are part of an orchestrated campaign batch
+        // Strict Batch Filter
         const activities = await Activity.find({ 
             ...visibilityFilter,
             $or: [
@@ -93,14 +119,10 @@ export const getCampaignRuns = async (req, res) => {
             return res.json({ success: true, data: [] });
         }
  
-        // 🧠 SENIOR PROFESSIONAL: Data-Driven Aggregation Engine
-        // Deep Analysis: Extracting specific channel names (SMS/WA/Email/RCS) from metadata
         const campaignGroups = {};
         
         activities.forEach(act => {
             const details = act.details || {};
-            // 🧠 SMART CHANNEL INFERENCE:
-            // Prioritize explicit metadata, then infer from subject/type
             let inferredChannel = details.channel || '';
             
             if (!inferredChannel) {
@@ -115,7 +137,6 @@ export const getCampaignRuns = async (req, res) => {
             const channel = inferredChannel.toUpperCase();
             const cName = details.campaignName || act.subject?.split(': ')[1] || 'Direct Broadcast';
             
-            // Professional Batching: Grouping by jobId or strict 10-minute time window
             const actDate = act.createdAt instanceof Date ? act.createdAt : new Date(act.createdAt);
             const timeWindow = Math.floor(actDate.getTime() / (10 * 60 * 1000)); 
             const batchKey = details.jobId || `batch_${cName}_${timeWindow}`;
@@ -139,7 +160,6 @@ export const getCampaignRuns = async (req, res) => {
             const status = (act.status || '').toLowerCase();
             campaignGroups[batchKey].totalTarget++;
             
-            // 🧠 ACTUAL DATA MAPPING: Strictly from database status
             if (['sent', 'delivered', 'read', 'completed', 'success'].includes(status)) {
                 campaignGroups[batchKey].sent++;
             }
@@ -186,6 +206,100 @@ export const getCampaignRuns = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+export const getCampaignRunMetrics = async (req, res) => {
+    try {
+        const { runId } = req.params;
+        const CampaignRun = mongoose.model('CampaignRun');
+        const run = await CampaignRun.findById(runId);
+        if (!run) return res.status(404).json({ error: 'Campaign run not found' });
+
+        const MarketingCampaign = mongoose.model('MarketingCampaign');
+        const campaign = await MarketingCampaign.findById(run.campaignId);
+        
+        if (req.user.role !== 'Admin' && campaign.ownerId.toString() !== req.user.id.toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const MarketingDelivery = mongoose.model('MarketingDelivery');
+        const metrics = await MarketingDelivery.aggregate([
+            { $match: { campaignRunId: new mongoose.Types.ObjectId(runId) } },
+            { $group: {
+                _id: "$status",
+                count: { $sum: 1 }
+            }}
+        ]);
+
+        const formatted = {
+            total: 0,
+            IN_PROGRESS: 0,
+            SENT: 0,
+            FAILED_RETRYABLE: 0,
+            FAILED_FINAL: 0,
+        };
+
+        metrics.forEach(m => {
+            formatted[m._id] = m.count;
+            formatted.total += m.count;
+        });
+
+        res.json({
+            run,
+            metrics: formatted
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getCampaignSummary = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const MarketingCampaign = mongoose.model('MarketingCampaign');
+        const campaign = await MarketingCampaign.findById(campaignId);
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+        
+        if (req.user.role !== 'Admin' && campaign.ownerId.toString() !== req.user.id.toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const CampaignRun = mongoose.model('CampaignRun');
+        const runs = await CampaignRun.find({ campaignId }).select('_id');
+        const runIds = runs.map(r => r._id);
+
+        const MarketingDelivery = mongoose.model('MarketingDelivery');
+        // Authoritative aggregation across all runs for the campaign
+        const metrics = await MarketingDelivery.aggregate([
+            { $match: { campaignRunId: { $in: runIds } } },
+            { $group: {
+                _id: "$status",
+                count: { $sum: 1 }
+            }}
+        ]);
+
+        const formatted = {
+            totalRuns: runs.length,
+            totalDeliveries: 0,
+            IN_PROGRESS: 0,
+            SENT: 0,
+            FAILED_RETRYABLE: 0,
+            FAILED_FINAL: 0,
+        };
+
+        metrics.forEach(m => {
+            formatted[m._id] = m.count;
+            formatted.totalDeliveries += m.count;
+        });
+
+        res.json({
+            campaign,
+            summary: formatted
+        });
+    } catch(error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 
 /**
  * GET /api/marketing/scheduled
@@ -633,7 +747,49 @@ export const sendCampaign = async (req, res) => {
             }
         }
 
+        
+
+        
+        let campaignRunId = null;
+        const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+        
+        if (idempotencyKey) {
+            jobOptions.jobId = idempotencyKey;
+        }
+
+        if (req.body.campaignId) {
+            const MarketingCampaign = mongoose.model('MarketingCampaign');
+            const CampaignRun = mongoose.model('CampaignRun');
+            const campaign = await MarketingCampaign.findById(req.body.campaignId);
+            if (!campaign) throw new Error('Invalid campaign ID');
+            
+            if (idempotencyKey) {
+                const run = await CampaignRun.findOneAndUpdate(
+                    { idempotencyKey },
+                    { 
+                        $setOnInsert: {
+                            campaignId: campaign._id,
+                            status: 'PENDING',
+                            audienceQuery: req.body.audienceConfig || req.body.segment || 'direct_list',
+                            targetCount: recipients.length
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+                campaignRunId = run._id;
+            } else {
+                const run = await CampaignRun.create({
+                    campaignId: campaign._id,
+                    status: 'PENDING',
+                    audienceQuery: req.body.audienceConfig || req.body.segment || 'direct_list',
+                    targetCount: recipients.length
+                });
+                campaignRunId = run._id;
+            }
+        }
+
         const job = await queue.add('blast', {
+            campaignRunId,
             channel,
             name:    name || 'Campaign',
             subject: subject || 'Update',
@@ -652,6 +808,11 @@ export const sendCampaign = async (req, res) => {
             repeatMode,
             repeatFreq
         }, jobOptions);
+
+        
+        if (campaignRunId) {
+            await mongoose.model('CampaignRun').findByIdAndUpdate(campaignRunId, { jobId: String(job.id) });
+        }
 
         res.json({ 
             success: true, 
@@ -807,7 +968,50 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const queue = await getMarketingQueue();
         const { isRedisOnline } = await import('../src/config/redis.js');
 
+        
+
+        
+        let campaignRunId = null;
+        const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey;
+        let jobOptions = { removeOnComplete: true };
+        
+        if (idempotencyKey) {
+            jobOptions.jobId = idempotencyKey;
+        }
+
+        if (req.body.campaignId) {
+            const MarketingCampaign = mongoose.model('MarketingCampaign');
+            const CampaignRun = mongoose.model('CampaignRun');
+            const campaign = await MarketingCampaign.findById(req.body.campaignId);
+            if (!campaign) throw new Error('Invalid campaign ID');
+            
+            if (idempotencyKey) {
+                const run = await CampaignRun.findOneAndUpdate(
+                    { idempotencyKey },
+                    { 
+                        $setOnInsert: {
+                            campaignId: campaign._id,
+                            status: 'PENDING',
+                            audienceQuery: 'bna-broadcast',
+                            targetCount: recipients.length
+                        }
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+                campaignRunId = run._id;
+            } else {
+                const run = await CampaignRun.create({
+                    campaignId: campaign._id,
+                    status: 'PENDING',
+                    audienceQuery: 'bna-broadcast',
+                    targetCount: recipients.length
+                });
+                campaignRunId = run._id;
+            }
+        }
+
         const jobData = {
+            campaignRunId,
             name: `BNA Broadcast: ${deal.broadcastMetadata.title}`,
             dealId,
             channels,
@@ -820,7 +1024,12 @@ export const broadcastToBrokerGroup = async (req, res) => {
         };
 
         if (queue && isRedisOnline) {
-            const job = await queue.add('bna-broadcast', jobData, { removeOnComplete: true });
+            
+            const job = await queue.add('bna-broadcast', jobData, jobOptions);
+            if (campaignRunId) {
+                await mongoose.model('CampaignRun').findByIdAndUpdate(campaignRunId, { jobId: String(job.id) });
+            }
+
             return res.json({ 
                 success: true, 
                 message: `Broadcast queued for ${recipients.length} brokers.`,

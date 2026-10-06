@@ -30,6 +30,7 @@ import Contact         from '../../models/Contact.js';
 import Activity        from '../../models/Activity.js';
 import { normalizePhone } from '../../utils/normalization.js';
 import DealVerificationService from '../../services/DealVerificationService.js';
+import { AttributionService } from '../services/AttributionService.js';
 
 // ─── Lazy-load distributionEngine ONCE at module level (not per request) ────
 let _distributeEntity = null;
@@ -313,16 +314,28 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
         ]);
 
         const { createStandardizedDeal } = await import('../../services/DealCreationEngine.js');
+        
+        // Step 9: Attribution for Deal
+        let touchId = null;
+        const dummyDealId = new mongoose.Types.ObjectId();
+        try {
+            touchId = await AttributionService.attributeInboundEvent(normalizedMobile, new Date(), dummyDealId, 'Deal', 'whatsapp_inbound', session);
+        } catch (e) {
+            log.error(traceId, 'Attribution failed', { err: e.message });
+        }
+        
         const input = {
             source: 'IntakeEngine',
             correlationId: traceId,
             dealData: {
+                _id: dummyDealId,
                 name: `Resale: ${project.name} - ${unitNumber}`,
                 price,
                 projectName: project.name,
                 stage: typeof stage === 'object' && stage ? stage._id : stage, // Map lookup ID
                 source: typeof src === 'object' && src ? src._id : src,
-                remarks: `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`
+                remarks: `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`,
+                attributedTouchId: touchId || undefined
             },
             linkage: {
                 inventoryId: inventory._id
@@ -372,7 +385,17 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
         cachedResolveLeadLookup('Status', 'New'),
     ]);
 
+    // Step 8: Attribution
+    let touchId = null;
+    const dummyId = new mongoose.Types.ObjectId();
+    try {
+        touchId = await AttributionService.attributeInboundEvent(normalizedMobile, new Date(), dummyId, 'Lead', 'whatsapp_inbound', session);
+    } catch (e) {
+        log.error(traceId, 'Attribution failed', { err: e.message });
+    }
+
     const lead = await Lead.create([{
+        _id:          dummyId,
         firstName,
         lastName,
         mobile:       normalizedMobile,
@@ -381,6 +404,7 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
         status:       resolvedStatus,
         description:  message,
         intent_index: intent === 'BUYER' ? 70 : (intent === 'UNKNOWN' ? 30 : 40),
+        attributedTouchId: touchId || undefined
     }], { session });
 
     const leadDoc = Array.isArray(lead) ? lead[0] : lead;

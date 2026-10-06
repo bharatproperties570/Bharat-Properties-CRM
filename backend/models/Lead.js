@@ -150,6 +150,7 @@ const LeadSchema = new mongoose.Schema({
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)
     dealHealthStatus: { type: String, enum: ['Healthy', 'Watch', 'At Risk', 'Unknown'], default: 'Unknown' }, // Computed status based on thresholds
     scoreBreakdown: { type: Object, default: {} }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
+    attributedTouchId: { type: mongoose.Schema.Types.ObjectId, ref: 'MarketingTouch' },
     ai_intent_summary: { type: String },
     ai_closing_probability: { type: Number, min: 0, max: 100 },
 

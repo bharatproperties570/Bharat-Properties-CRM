@@ -210,13 +210,17 @@ class WhatsAppService {
                 payload.contacts = options.contacts; // Array of contact objects
             }
 
-            const response = await axios.post(url, payload, {
-                headers: {
+            const headers = {
                     'Authorization': `Bearer ${config.token}`,
                     'Content-Type':  'application/json',
-                },
-                timeout: 20000,
-            });
+                };
+                if (options.idempotencyKey) {
+                    headers['Idempotency-Key'] = options.idempotencyKey;
+                }
+                const response = await axios.post(url, payload, {
+                    headers,
+                    timeout: 20000,
+                });
 
             const msgId = response.data?.messages?.[0]?.id;
             console.log(`[WhatsApp/Meta] ✅ SUCCESS: ${type} to ${toNumber}. ID: ${msgId}`);
@@ -307,18 +311,22 @@ class WhatsAppService {
                 template:          templatePayload,
             }, null, 2));
 
-            const response = await axios.post(url, {
-                messaging_product: 'whatsapp',
-                to:                toNumber,
-                type:              'template',
-                template:          templatePayload,
-            }, {
-                headers: {
+            const headers = {
                     'Authorization': `Bearer ${metaConfig.token}`,
                     'Content-Type':  'application/json',
-                },
-                timeout: 20000,
-            });
+                };
+                if (options.idempotencyKey) {
+                    headers['Idempotency-Key'] = options.idempotencyKey;
+                }
+                const response = await axios.post(url, {
+                    messaging_product: 'whatsapp',
+                    to:                toNumber,
+                    type:              'template',
+                    template:          templatePayload,
+                }, {
+                    headers,
+                    timeout: 20000,
+                });
 
             const msgId = response.data?.messages?.[0]?.id;
             console.log(`[WhatsApp/Meta] ✅ TEMPLATE SUCCESS: ${templateName} sent to ${toNumber}. ID: ${msgId}`);

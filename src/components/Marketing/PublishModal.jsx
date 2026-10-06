@@ -108,17 +108,18 @@ const PublishModal = ({ isOpen, onClose, data, type = 'deal', onPublishSuccess }
                                     return (
                                         <div 
                                             key={p} 
-                                            onClick={() => togglePlatform(p)}
+                                            onClick={() => toast.error(`${info.label} integration is currently unavailable.`)}
                                             style={{
                                                 ...styles.platformTile,
-                                                borderColor: active ? info.color : '#e2e8f0',
-                                                background: active ? `${info.color}08` : '#fff',
-                                                boxShadow: active ? `0 0 15px ${info.color}15` : 'none'
+                                                borderColor: '#e2e8f0',
+                                                background: '#f8fafc',
+                                                cursor: 'not-allowed',
+                                                opacity: 0.6
                                             }}
+                                            title="Integration coming soon"
                                         >
-                                            <i className={info.icon} style={{ ...styles.icon, color: active ? info.color : '#94a3b8' }}></i>
-                                            <span style={{ ...styles.platformLabel, color: active ? '#1e293b' : '#64748b' }}>{info.label}</span>
-                                            {active && <div style={{ ...styles.checkCircle, background: info.color }}><i className="fas fa-check"></i></div>}
+                                            <i className={info.icon} style={{ ...styles.icon, color: '#94a3b8' }}></i>
+                                            <span style={{ ...styles.platformLabel, color: '#64748b' }}>{info.label} (Coming Soon)</span>
                                         </div>
                                     );
                                 })}

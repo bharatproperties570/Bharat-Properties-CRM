@@ -20,6 +20,9 @@ import { Worker } from '../config/redis.js';
 import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
+import piiSanitizer from '../utils/piiSanitizer.js';
+import crypto from 'crypto';
+import MarketingDelivery from '../../models/MarketingDelivery.js';
 
 // Lazily imported services (avoids circular deps at module load)
 let whatsAppService, emailService, smsService, marketingService, nurtureBot;
@@ -42,27 +45,123 @@ const loadServices = async () => {
 
 // ── Job Processor ─────────────────────────────────────────────────────────────
 
-const processMarketingJob = async (job) => {
+        const acquireClaim = async (jobId, recipientId, channel, campaignRunId = null) => {
+            if (!recipientId) return false;
+            try {
+                await MarketingDelivery.create({
+                    jobId, recipientId: String(recipientId), channel, campaignRunId, status: 'IN_PROGRESS', lastAttemptAt: new Date(), attempts: 1
+                });
+                return true;
+            } catch (err) {
+                if (err.code !== 11000) throw err;
+                
+                const existing = await MarketingDelivery.findOne({ jobId, recipientId: String(recipientId), channel });
+                if (!existing) return true; // Edge case
+                if (existing.status === 'SENT' || existing.status === 'FAILED_FINAL') return false;
+                
+                if (existing.status === 'FAILED_RETRYABLE' || 
+                   (existing.status === 'IN_PROGRESS' && Date.now() - existing.lastAttemptAt.getTime() > 5 * 60000)) {
+                    
+                    const updated = await MarketingDelivery.findOneAndUpdate(
+                        { _id: existing._id, status: existing.status, lastAttemptAt: existing.lastAttemptAt },
+                        { $set: { status: 'IN_PROGRESS', lastAttemptAt: new Date() }, $inc: { attempts: 1 } },
+                        { new: true }
+                    );
+                    return !!updated;
+                }
+                return false;
+            }
+        };
+
+        const releaseClaim = async (jobId, recipientId, channel, success, error, messageId) => {
+            if (!recipientId) return;
+            try {
+                await MarketingDelivery.findOneAndUpdate(
+                    { jobId, recipientId: String(recipientId), channel },
+                    {
+                        $set: {
+                            status: success ? 'SENT' : 'FAILED_RETRYABLE',
+                            providerMessageId: messageId,
+                            error: !success ? (error ? piiSanitizer.sanitizeError(error) : null) : null,
+                            lastAttemptAt: new Date()
+                        }
+                    }
+                );
+            } catch (err) {
+                console.error('Failed to release claim:', err);
+            }
+        };
+
+
+export const processMarketingJob = async (job) => {
     await loadServices();
+    
     const { name, data } = job;
+    
+    if (!data.campaignRunId) {
+        throw new Error('No campaignRunId provided in job data.');
+    }
+    
+    const CampaignRun = mongoose.model('CampaignRun');
+    const runCheck = await CampaignRun.findById(data.campaignRunId);
+    if (!runCheck) {
+        throw new Error(`CampaignRun not found: ${data.campaignRunId}`);
+    }
+
+    const acquiredRun = await CampaignRun.findOneAndUpdate(
+        {
+            _id: data.campaignRunId,
+            status: { $in: ['PENDING', 'RUNNING'] },
+            jobId: job.id,
+            $or: [
+                { 'execution.attempt': { $lt: job.attemptsMade } },
+                { 'execution.jobId': { $ne: job.id } },
+                { execution: { $exists: false } }
+            ]
+        },
+        {
+            $set: {
+                status: 'RUNNING',
+                'execution.jobId': job.id,
+                'execution.attempt': job.attemptsMade,
+                'execution.ownerState': 'ACTIVE',
+                'execution.startedAt': new Date(),
+                'execution.terminalAt': null,
+                'execution.outcome': null
+            }
+        },
+        { new: true }
+    );
+
+    if (!acquiredRun) {
+        throw new Error(`Execution ownership acquisition failed for CampaignRun ${data.campaignRunId}, Job ${job.id}, Attempt ${job.attemptsMade}`);
+    }
+
     console.log(`[MarketingWorker] ▶ Processing job: ${name} (id=${job.id})`);
 
     // ─── BLAST: Campaign broadcast ─────────────────────────────────────────────
     if (name === 'blast') {
-        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, smsData, leads = [] } = data;
+        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, smsData, leads = [], campaignRunId } = data;
         await job.log(`Starting ${channel.toUpperCase()} blast for ${leads.length || mobiles.length || emails.length} recipients`);
 
         const { default: Activity } = await import('../../models/Activity.js');
         const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
         const { waMapping } = data;
 
-        let sent = 0, failed = 0;
+        let sent = 0, failed = 0, skipped = 0;
 
         // Unified Processing Loop
         for (let i = 0; i < leads.length; i++) {
             const recipient = leads[i]; // Standardized recipient from MarketingAudienceService
             const targetMobile = recipient.mobile;
             const targetEmail = recipient.email;
+
+            // 🛡️ DURABLE PRE-DISPATCH ATOMIC CLAIM
+            const claimed = await acquireClaim(job.id, recipient.id, channel, campaignRunId);
+            if (!claimed) {
+                skipped++;
+                continue;
+            }
 
             // 1. Resolve Variables
             let resolvedMessage = message || '';
@@ -158,13 +257,15 @@ const processMarketingJob = async (job) => {
                             }
                         });
 
-                        const res = await whatsAppService.sendTemplate(targetMobile, templateName, templateLang, finalComponents);
+                        const idempotencyKey = crypto.createHash('sha256').update(job.id + '_' + recipient.id + '_' + channel).digest('hex');
+                        const res = await whatsAppService.sendTemplate(targetMobile, templateName, templateLang, finalComponents, { idempotencyKey });
                         success = res.success;
                         messageId = res.messageId;
                         if (!success) recipient.error = res.error;
                     } else {
                         // Standardize on sendMessage for plain text dispatches
-                        const res = await whatsAppService.sendMessage(targetMobile, resolvedMessage);
+                        const idempotencyKey = crypto.createHash('sha256').update(job.id + '_' + recipient.id + '_' + channel).digest('hex');
+                        const res = await whatsAppService.sendMessage(targetMobile, resolvedMessage, { idempotencyKey });
                         success = res.success;
                         messageId = res.messageId;
                         if (!success) recipient.error = res.error;
@@ -227,15 +328,34 @@ const processMarketingJob = async (job) => {
 
                 if (success) sent++; else failed++;
 
-                // 2. LOG ACTIVITY (The Pulse) 
-                // 🧠 SENIOR PROFESSIONAL FIX: Log activities for ALL recipients (including imports)
-                // so they appear in the Performance Reports.
+                                // 🛡️ RELEASE CLAIM
+                await releaseClaim(job.id, recipient.id, channel, success, recipient.error, messageId);
+
+                // 2. LOG ACTIVITY (The Pulse)
+                // 🛡️ PERSIST IDEMPOTENCY STATE
+                try {
+                    await MarketingDelivery.findOneAndUpdate(
+                        { jobId: job.id, recipientId: String(recipient.id), channel },
+                        {
+                            $set: {
+                                status: success ? 'SENT' : 'FAILED_RETRYABLE',
+                                providerMessageId: messageId,
+                                error: !success ? recipient.error : null,
+                                lastAttemptAt: new Date()
+                            },
+                            $inc: { attempts: 1 }
+                        },
+                        { upsert: true }
+                    );
+                } catch(deliveryErr) {
+                    await job.log(`Delivery state persistence warning for ${piiSanitizer.maskName(recipient.name)}: ${deliveryErr.message}`);
+                }
+
                 try {
                     await Activity.create({
                         type: 'Marketing',
                         subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
                         entityType: recipient.context?.originalType || 'Lead',
-                        // Handle imports (non-mongo IDs) gracefully
                         entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
                         description: description,
                         status: status,
@@ -250,17 +370,17 @@ const processMarketingJob = async (job) => {
                         dueDate: new Date()
                     });
                 } catch (actErr) {
-                    await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
+                    await job.log(`Activity Log Warning for ${piiSanitizer.maskName(recipient.name)}: ${actErr.message}`);
                 }
 
                 if (!success) {
-                    await job.log(`Dispatch FAILED for ${recipient.name} (${targetMobile || targetEmail}): ${recipient.error || 'Unknown Error'}`);
+                    await job.log(`Dispatch FAILED for ${piiSanitizer.maskName(recipient.name)} (${piiSanitizer.maskPhone(targetMobile) || piiSanitizer.maskEmail(targetEmail)}): ${recipient.error || 'Unknown Error'}`);
                 } else {
-                    await job.log(`Dispatch SUCCESS for ${recipient.name} (${targetMobile || targetEmail})`);
+                    await job.log(`Dispatch SUCCESS for ${piiSanitizer.maskName(recipient.name)} (${piiSanitizer.maskPhone(targetMobile) || piiSanitizer.maskEmail(targetEmail)})`);
                 }
             } catch (err) {
                 failed++;
-                await job.log(`Worker EXCEPTION for ${recipient.name} (${targetMobile || targetEmail}): ${err.message}`);
+                await job.log(`Worker EXCEPTION for ${piiSanitizer.maskName(recipient.name)} (${piiSanitizer.maskPhone(targetMobile) || piiSanitizer.maskEmail(targetEmail)}): ${err.message}`);
                 
                 // 🧠 SENIOR PROFESSIONAL FIX: Log failures even for imports
                 try {
@@ -285,8 +405,8 @@ const processMarketingJob = async (job) => {
             await new Promise(r => setTimeout(r, channel === 'wa' ? 300 : 150));
         }
 
-        const result = { sent, failed };
-        await job.log(`${channel.toUpperCase()} Blast Complete: ${sent} sent, ${failed} failed`);
+        const result = { sent, failed, skipped };
+        await job.log(`${channel.toUpperCase()} Blast Complete: ${sent} sent, ${failed} failed, ${skipped} skipped (deduplicated)`);
         return { ...result, completedAt: new Date().toISOString() };
     }
 
@@ -579,9 +699,13 @@ if (name === 'bna-broadcast') {
         let sent = 0, failed = 0;
         await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} brokers`);
 
+        
         const { default: Activity } = await import('../../models/Activity.js');
         const waService = (await import('../../services/WhatsAppService.js')).default;
         const eSvc = (await import('../../services/email.service.js')).default;
+
+        let skipped = 0;
+
 
         // 🧠 Message Construction (Shared across recipients)
         let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
@@ -645,9 +769,21 @@ if (name === 'bna-broadcast') {
             if (setting?.value) registryMapping = setting.value;
         } catch (e) { await job.log(`Registry Fetch Warning: ${e.message}`); }
 
+        
         for (let i = 0; i < recipients.length; i++) {
             const recipient = recipients[i];
+            
+            if (!recipient.id) continue;
+            
+            // 🛡️ DURABLE PRE-DISPATCH ATOMIC CLAIM
+            const claimed = await acquireClaim(job.id, recipient.id, 'bna', campaignRunId);
+            if (!claimed) {
+                skipped++;
+                continue;
+            }
+
             const results = [];
+
             
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
@@ -660,9 +796,11 @@ if (name === 'bna-broadcast') {
                             registryMapping
                         );
                         
-                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
+                        const idempotencyKey = crypto.createHash('sha256').update(job.id + '_' + recipient.id + '_bna').digest('hex');
+                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { idempotencyKey });
                     } else {
-                        waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                        const idempotencyKey = crypto.createHash('sha256').update(job.id + '_' + recipient.id + '_bna').digest('hex');
+                        waRes = await waService.sendMessage(recipient.mobile, waMessage, { idempotencyKey });
                     }
                     results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
                 } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
@@ -679,9 +817,34 @@ if (name === 'bna-broadcast') {
             const success = results.some(r => r.status === 'success');
             if (success) sent++; else failed++;
 
+            
+            // 🛡️ RELEASE CLAIM
+            const bnaSuccess = results.some(r => r.status === 'success');
+            await releaseClaim(job.id, recipient.id, 'bna', bnaSuccess, results.map(r => r.error).filter(Boolean).join(' | '), null);
+
             // Log Activity
+            
+            // 🛡️ PERSIST IDEMPOTENCY STATE
+            try {
+                await MarketingDelivery.findOneAndUpdate(
+                    { jobId: job.id, recipientId: String(recipient.id), channel: 'bna' },
+                    {
+                        $set: {
+                            status: success ? 'SENT' : 'FAILED_RETRYABLE',
+                            error: !success ? results.map(r => r.error).filter(Boolean).join(' | ') : null,
+                            lastAttemptAt: new Date()
+                        },
+                        $inc: { attempts: 1 }
+                    },
+                    { upsert: true }
+                );
+            } catch(deliveryErr) {
+                await job.log(`Delivery state persistence warning for ${piiSanitizer.maskName(recipient.name)}: ${deliveryErr.message}`);
+            }
+
             try {
                 await Activity.create({
+
                     type: 'Marketing',
                     subject: `BNA Broadcast: ${meta.title}`,
                     entityType: 'Company',
@@ -695,14 +858,35 @@ if (name === 'bna-broadcast') {
                     dueDate: new Date()
                 });
             } catch (actErr) {
-                await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
+                await job.log(`Activity Log Warning for ${piiSanitizer.maskName(recipient.name)}: ${actErr.message}`);
             }
 
             await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
             await new Promise(r => setTimeout(r, channels.includes('whatsapp') ? 300 : 100));
         }
 
-        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);
+        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed, ${skipped} skipped (deduplicated)`);
+        
+        const terminalResult = await CampaignRun.updateOne(
+            {
+                _id: data.campaignRunId,
+                jobId: job.id,
+                'execution.attempt': job.attemptsMade,
+                'execution.ownerState': 'ACTIVE'
+            },
+            {
+                $set: {
+                    'execution.ownerState': 'TERMINAL',
+                    'execution.outcome': 'completed',
+                    'execution.terminalAt': new Date()
+                }
+            }
+        );
+
+        if (terminalResult.modifiedCount === 0) {
+            throw new Error(`Terminal marker update failed (stale execution) for Job ${job.id}`);
+        }
+
         return { sent, failed, completedAt: new Date().toISOString() };
     }
 
@@ -711,6 +895,120 @@ if (name === 'bna-broadcast') {
 
 
 // ── Worker Instance ────────────────────────────────────────────────────────────
+
+
+export async function finalizeCampaignRunStatus(campaignRunId, isJobFailed) {
+    if (!campaignRunId) return;
+    try {
+        const mongoose = (await import('mongoose')).default;
+        const CampaignRun = mongoose.model('CampaignRun');
+        
+        const run = await CampaignRun.findById(campaignRunId);
+        if (!run || !['PENDING', 'RUNNING'].includes(run.status)) return;
+        
+        let executionDefinitivelyTerminal = false;
+        let authoritativeQueueState = null;
+        
+        if (run.jobId) {
+            try {
+                const { marketingQueue } = await import('../queues/marketingQueue.js');
+                const job = await marketingQueue.getJob(run.jobId);
+                if (job) {
+                    const state = await job.getState();
+                    if (['completed', 'failed'].includes(state)) {
+                        executionDefinitivelyTerminal = true;
+                        authoritativeQueueState = state;
+                    }
+                } else {
+                    if (run.execution && run.execution.jobId === run.jobId && run.execution.ownerState === 'TERMINAL') {
+                        executionDefinitivelyTerminal = true;
+                        authoritativeQueueState = run.execution.outcome || 'failed';
+                    }
+                }
+            } catch (err) {}
+        }
+        
+        const MarketingDelivery = mongoose.model('MarketingDelivery');
+        const metrics = await MarketingDelivery.aggregate([
+            { $match: { campaignRunId: new mongoose.Types.ObjectId(campaignRunId) } },
+            { $group: {
+                _id: null,
+                total: { $sum: 1 },
+                sent: { $sum: { $cond: [{ $eq: ["$status", "SENT"] }, 1, 0] } },
+                failedFinal: { $sum: { $cond: [{ $eq: ["$status", "FAILED_FINAL"] }, 1, 0] } },
+                failedRetryable: { $sum: { $cond: [{ $eq: ["$status", "FAILED_RETRYABLE"] }, 1, 0] } },
+                inProgress: { $sum: { $cond: [{ $eq: ["$status", "IN_PROGRESS"] }, 1, 0] } }
+            }}
+        ]);
+        
+        if (metrics.length === 0) {
+            if (!executionDefinitivelyTerminal) return; 
+            
+            let nextZero = 'RUNNING';
+            if (authoritativeQueueState === 'failed') nextZero = 'FAILED';
+            else if (run.targetCount > 0) nextZero = 'FAILED';
+            else nextZero = 'COMPLETED';
+            
+            if (nextZero !== 'RUNNING') {
+                if (global.testSeamWorkerA_postCompute) await global.testSeamWorkerA_postCompute();
+                
+                const filter = { _id: campaignRunId, status: { $in: ['PENDING', 'RUNNING'] } };
+                if (run.execution && run.execution.jobId) {
+                    filter['execution.jobId'] = run.execution.jobId;
+                    filter['execution.attempt'] = run.execution.attempt;
+                    filter['execution.ownerState'] = run.execution.ownerState;
+                }
+                
+                await CampaignRun.findOneAndUpdate(
+                    filter,
+                    { $set: { status: nextZero } }
+                );
+            }
+            return;
+        }
+
+        const { sent, failedFinal, failedRetryable, inProgress } = metrics[0];
+        
+        if (inProgress > 0 || failedRetryable > 0) return; 
+        
+        let nextStatus = 'RUNNING';
+        const targetCount = run.targetCount || 0;
+        
+        if (executionDefinitivelyTerminal) {
+            if (sent > 0 && failedFinal === 0 && sent >= targetCount) {
+                 nextStatus = 'COMPLETED';
+            } else if (sent > 0 && failedFinal > 0) {
+                 nextStatus = 'PARTIAL';
+            } else if (sent > 0 && failedFinal === 0 && sent < targetCount) {
+                 nextStatus = 'PARTIAL'; 
+            } else if (sent === 0 && (failedFinal > 0 || targetCount > 0)) {
+                 nextStatus = 'FAILED';
+            } else if (sent === 0 && failedFinal === 0) {
+                 if (authoritativeQueueState === 'failed') nextStatus = 'FAILED';
+                 else nextStatus = 'COMPLETED';
+            }
+        }
+        
+        if (nextStatus !== 'RUNNING') {
+            if (global.testSeamWorkerA_postCompute) await global.testSeamWorkerA_postCompute();
+            
+            const filter = { _id: campaignRunId, status: { $in: ['PENDING', 'RUNNING'] } };
+            if (run.execution && run.execution.jobId) {
+                filter['execution.jobId'] = run.execution.jobId;
+                filter['execution.attempt'] = run.execution.attempt;
+                filter['execution.ownerState'] = run.execution.ownerState;
+            }
+            
+            await CampaignRun.findOneAndUpdate(
+                filter,
+                { $set: { status: nextStatus } }
+            );
+        }
+
+    } catch(e) {
+        console.error('[MarketingWorker] Finalize CampaignRun error:', e.stack || e.message);
+    }
+}
 
 export const marketingWorker = new Worker('marketingQueue', processMarketingJob, {
     connection: redisConnection,
@@ -721,14 +1019,50 @@ export const marketingWorker = new Worker('marketingQueue', processMarketingJob,
     },
 });
 
-marketingWorker.on('completed', (job, result) => {
-    console.log(`[MarketingWorker] ✅ Job ${job.name} (${job.id}) completed:`, 
-        result?.completedAt || 'done');
+marketingWorker.on('completed', async (job, result) => {
+    console.log(`[MarketingWorker] ✅ Job ${job.name} (${job.id}) completed:`, result?.completedAt || 'done');
+    await finalizeCampaignRunStatus(job?.data?.campaignRunId, false);
 });
 
 marketingWorker.on('failed', async (job, err) => {
     console.error(`[MarketingWorker] ❌ Job ${job?.name} (${job?.id}) failed (attempt ${job?.attemptsMade}):`, err.message);
-    await writeFailedJobLog(job, err);
+    try {
+        await writeFailedJobLog(job, err);
+    } catch(e) {}
+    
+    const maxAttempts = job?.opts?.attempts || 1;
+    if (job?.attemptsMade >= maxAttempts) {
+        if (job?.data?.campaignRunId) {
+            try {
+                const mongoose = (await import('mongoose')).default;
+                const CampaignRun = mongoose.model('CampaignRun');
+                const updateRes = await CampaignRun.updateOne(
+                    {
+                        _id: job.data.campaignRunId,
+                        jobId: job.id,
+                        'execution.attempt': job.attemptsMade,
+                        'execution.ownerState': 'ACTIVE'
+                    },
+                    {
+                        $set: {
+                            'execution.ownerState': 'TERMINAL',
+                            'execution.outcome': 'failed',
+                            'execution.terminalAt': new Date()
+                        }
+                    }
+                );
+                
+                if (updateRes.modifiedCount === 0) {
+                    console.warn(`[MarketingWorker] Stale failed event for Job ${job.id} - ignoring finalization.`);
+                    return; // DO NOT FINALIZE
+                }
+            } catch(e) {
+                console.error('[MarketingWorker] Terminal CAS on failure failed:', e);
+                return; // DO NOT FINALIZE ON DB ERROR
+            }
+        }
+        await finalizeCampaignRunStatus(job?.data?.campaignRunId, true);
+    }
 });
 
 marketingWorker.on('error', (err) => {

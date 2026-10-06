@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import AutomationLog from '../models/AutomationLog.js';
 import Deal from '../models/Deal.js';
 import Inventory from '../models/Inventory.js';
+import Lead from '../models/Lead.js';
 import AuditLog from '../models/AuditLog.js';
 import SystemSetting from '../models/SystemSetting.js';
 import OutboxEvent from '../models/OutboxEvent.js';
@@ -174,6 +175,15 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 }
             }
 
+            // Inherit Attribution
+            let inheritedTouchId = undefined;
+            if (linkage?.leadId) {
+                const sourceLead = await Lead.findById(linkage.leadId).session(session).select('attributedTouchId').lean();
+                if (sourceLead?.attributedTouchId) {
+                    inheritedTouchId = sourceLead.attributedTouchId;
+                }
+            }
+
             // 4. Normalize and Inject Geo (Bypass unsafe hook)
             const normalizedDealPayload = {
                 ...dealData,
@@ -188,6 +198,9 @@ export const createStandardizedDeal = async (input, options = {}) => {
                     channelPartner: ownerInfo?.channelPartner
                 }
             };
+            
+            if (inheritedTouchId) normalizedDealPayload.attributedTouchId = inheritedTouchId;
+            else if (dealData.attributedTouchId) normalizedDealPayload.attributedTouchId = dealData.attributedTouchId;
 
             if (inventory) {
                 normalizedDealPayload.latitude = inventory.latitude || inventory.lat || null;
