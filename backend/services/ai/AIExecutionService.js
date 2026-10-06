@@ -14,15 +14,14 @@ export class AIExecutionServiceError extends Error {
 
 class AIExecutionService {
     
-    // Explicit Schema Registry mapping
-    static SCHEMA_REGISTRY = {
-        'AI_DATA_EXTRACTION': 'DOCUMENT_EXTRACTION',
-        'AI_LIVE_CONVERSATION': 'CONVERSATION_INTENT',
-        'AI_ADDRESS_PARSING': 'ADDRESS_RESULT',
-        'AI_ADDRESS_CONFLICT_RESOLUTION': 'ADDRESS_CONFLICT_RESOLUTION_RESULT',
-        'AI_LEAD_PROFILING': 'LEAD_PROFILE_RESULT',
-        'AI_MARKETING_GENERATION': 'TEXT_GENERATION_RESULT', 
-        'AI_INTERNAL_ASSIST': 'INTERNAL_RESULT'
+    static SCHEMA_COMPATIBILITY_REGISTRY = {
+        'AI_DATA_EXTRACTION': ['DOCUMENT_EXTRACTION'],
+        'AI_LIVE_CONVERSATION': ['CONVERSATION_INTENT'],
+        'AI_ADDRESS_PARSING': ['ADDRESS_RESULT'],
+        'AI_ADDRESS_CONFLICT_RESOLUTION': ['ADDRESS_CONFLICT_RESOLUTION_RESULT'],
+        'AI_LEAD_PROFILING': ['LEAD_PROFILE_RESULT'],
+        'AI_MARKETING_GENERATION': ['TEXT_GENERATION_RESULT', 'EMAIL_CONTENT_RESULT'],
+        'AI_INTERNAL_ASSIST': ['INTERNAL_RESULT']
     };
 
     static MUTATING_CAPABILITIES = [
@@ -53,13 +52,13 @@ class AIExecutionService {
             throw new AIExecutionServiceError('MISSING_SCHEMA', 'request.expectedSchema is required');
         }
 
-        const allowedSchemas = [
+        const globalAllowedSchemas = [
             'DOCUMENT_EXTRACTION', 'CONVERSATION_INTENT', 
             'ADDRESS_RESULT', 'ADDRESS_CONFLICT_RESOLUTION_RESULT',
             'LEAD_PROFILE_RESULT', 'TEXT_GENERATION_RESULT', 'EMAIL_CONTENT_RESULT'
         ];
 
-        if (!allowedSchemas.includes(expectedSchema)) {
+        if (!globalAllowedSchemas.includes(expectedSchema)) {
             throw new AIExecutionServiceError('UNKNOWN_SCHEMA', `Schema ${expectedSchema} is not supported by AIOutputValidator`);
         }
 
@@ -67,6 +66,11 @@ class AIExecutionService {
             await AIGovernance.assertEnabled(capability);
         } catch (err) {
             throw new AIExecutionServiceError('GOVERNANCE_BLOCKED', `R1 Governance rejected execution: ${err.message}`);
+        }
+
+        const allowedSchemasForCap = this.SCHEMA_COMPATIBILITY_REGISTRY[capability];
+        if (!allowedSchemasForCap || !allowedSchemasForCap.includes(expectedSchema)) {
+            throw new AIExecutionServiceError('SCHEMA_CAPABILITY_MISMATCH', `Capability ${capability} does not support schema ${expectedSchema}`);
         }
 
         if (this.MUTATING_CAPABILITIES.includes(capability)) {

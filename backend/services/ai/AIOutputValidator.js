@@ -156,22 +156,10 @@ class AIOutputValidator {
         return value;
     }
 
-    static validateTextGenerationResult(rawOutput) {
-        let contentObj;
-        if (typeof rawOutput === 'string') {
-            try {
-                contentObj = this._parseRawJSON(rawOutput);
-                if (typeof contentObj !== 'object' || !contentObj.content) {
-                    contentObj = { content: rawOutput };
-                }
-            } catch (err) {
-                contentObj = { content: rawOutput };
-            }
-        } else {
-            contentObj = rawOutput;
-        }
 
-        const { error, value } = this.SCHEMAS.TEXT_GENERATION_RESULT.validate(contentObj, { abortEarly: false, stripUnknown: false });
+    static validateTextGenerationResult(rawOutput) {
+        const parsed = this._parseRawJSON(rawOutput);
+        const { error, value } = this.SCHEMAS.TEXT_GENERATION_RESULT.validate(parsed, { abortEarly: false, stripUnknown: false });
         if (error) throw new AIValidationError('Text Generation Schema Mismatch', { errors: error.details.map(d => d.message) });
         return value;
     }
