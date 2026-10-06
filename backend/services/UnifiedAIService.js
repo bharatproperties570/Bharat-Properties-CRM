@@ -2,6 +2,7 @@ import openAIService from './OpenAIService.js';
 import geminiService from './GeminiService.js';
 import claudeService from './ClaudeService.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import AIGovernance from './ai/AIGovernance.js';
 
 /**
  * UnifiedAIService.js
@@ -20,9 +21,12 @@ class UnifiedAIService {
     /**
      * Unified generate method with fallback support.
      * @param {string} prompt 
-     * @param {Object} options - { provider, temperature, maxTokens, systemPrompt }
+     * @param {Object} options - { provider, temperature, maxTokens, systemPrompt, capability }
      */
     async generate(prompt, options = {}) {
+        const capability = options.capability || AIGovernance.CAPABILITIES.AI_UNCLASSIFIED;
+        await AIGovernance.assertEnabled(capability);
+
         console.log(`[UnifiedAI_AUDIT] Request Received. Options: ${JSON.stringify(options)}`);
         const preferred = options.provider || await this._getPreferredProvider();
         const providers = [preferred, 'openai', 'gemini', 'claude'].filter((v, i, a) => a.indexOf(v) === i);
