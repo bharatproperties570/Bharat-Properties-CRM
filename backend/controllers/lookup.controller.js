@@ -335,6 +335,10 @@ export const updateLookup = async (req, res) => {
         }
 
         Object.assign(lookup, req.body);
+        if (req.body.metadata) {
+            lookup.metadata = req.body.metadata;
+            lookup.markModified('metadata');
+        }
         await lookup.save();
         res.json({ status: "success", data: lookup });
     } catch (error) {

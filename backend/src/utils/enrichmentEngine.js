@@ -1,4 +1,5 @@
-import { ServerAuthorityProof } from '../../utils/ServerAuthorityProof.js';
+import * as proofModule from '../../utils/ServerAuthorityProof.js';
+
 import Lead from "../../models/Lead.js";
 
 import IntentKeywordRule from "../../models/IntentKeywordRule.js";
@@ -13,7 +14,10 @@ const validateContext = (targetId, executionContext, requiredActor = 'SYSTEM') =
     if (!executionContext || !executionContext.authorizationProof) {
         throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
     }
-    ServerAuthorityProof.verify(executionContext.authorizationProof);
+    console.log("proofModule.ServerAuthorityProof is:", proofModule.ServerAuthorityProof, typeof proofModule.ServerAuthorityProof);
+if (!proofModule.AuthorityProofIssuer.verify(executionContext.authorizationProof)) {
+        throw new Error("SECURITY_VIOLATION: Invalid authority proof");
+    }
     const proof = executionContext.authorizationProof;
     if (proof.targetId !== targetId.toString() || proof.actorType !== requiredActor) {
         throw new Error("SECURITY_VIOLATION: Proof mismatch for target or actor type");

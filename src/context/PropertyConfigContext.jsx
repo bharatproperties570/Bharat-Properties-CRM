@@ -1310,8 +1310,25 @@ export const PropertyConfigProvider = ({ children }) => {
                 map.set(type.replace(/\s+/g, ''), valToId);
             }
         });
+
+        // ✅ ENTERPRISE: Populate 'Size' category in typeValueMap from sizes array
+        if (Array.isArray(sizes) && sizes.length > 0) {
+            let sizeMap = map.get('Size');
+            if (!sizeMap) {
+                sizeMap = new Map();
+                map.set('Size', sizeMap);
+            }
+            sizes.forEach(s => {
+                const id = s._id || s.id;
+                const name = s.name || s.lookup_value || '';
+                if (id && name) {
+                    sizeMap.set(name.trim().toLowerCase(), id.toString());
+                }
+            });
+        }
+
         return map;
-    }, [lookups]);
+    }, [lookups, sizes]);
 
     // --- PROFESSIONAL DATA MIGRATION ---
     const migrateConfigToIds = useCallback((config, currentLookups) => {
@@ -2567,13 +2584,31 @@ export const PropertyConfigProvider = ({ children }) => {
     // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block)
     const getSizesByProjectBlock = useCallback((project, block) => {
         if (!project) return sizes;
-        return sizes.filter(s => {
+        const targetProj = String(project || '').trim().toLowerCase();
+        const targetBlk = String(block || '').trim().toLowerCase();
+
+        return (sizes || []).filter(s => {
             const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-            if (mappings.length === 0) return false;
-            return mappings.some(m => {
-                if (block) return m.project === project && m.block === block;
-                return m.project === project;
-            });
+            if (mappings.length > 0) {
+                return mappings.some(m => {
+                    if (!m || !m.project) return false;
+                    const mProj = String(m.project).trim().toLowerCase();
+                    if (mProj !== targetProj) return false;
+                    const mBlk = String(m.block || '').trim().toLowerCase();
+                    if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
+                    if (targetBlk) return mBlk === targetBlk;
+                    return true;
+                });
+            }
+            if (s.project) {
+                const sProj = String(s.project).trim().toLowerCase();
+                if (sProj !== targetProj) return false;
+                const sBlk = String(s.block || '').trim().toLowerCase();
+                if (!sBlk || sBlk === 'all' || sBlk === 'all blocks') return true;
+                if (targetBlk) return sBlk === targetBlk;
+                return true;
+            }
+            return false;
         });
     }, [sizes]);
 

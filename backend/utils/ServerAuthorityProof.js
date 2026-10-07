@@ -3,166 +3,123 @@ import mongoose from 'mongoose';
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 const validProofs = new WeakSet();
 
-let _domainEventRegistered = false;
-let _revivalSyncRegistered = false;
-
 async function _enqueueSystemEnrichment(leadId) {
-    const Lead = mongoose.models.Lead || mongoose.model('Lead');
-    // Only allow request if it is not already requested or running
-    const lead = await Lead.findOneAndUpdate(
-        { _id: leadId, 'enrichmentState.status': { $in: ['NONE', 'COMPLETED', 'FAILED'] } },
-        { 
-            $set: { 
-                'enrichmentState.status': 'REQUESTED',
-                'enrichmentState.requestedAt': new Date()
-            } 
-        },
+    if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+    const Lead = mongoose.model("Lead");
+    const updated = await Lead.findOneAndUpdate(
+        { _id: leadId, "enrichmentState.status": { $nin: ["REQUESTED", "COMPLETED", "IN_PROGRESS", "FAILED_PERMANENTLY"] } },
+        { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.requestedAt": new Date() } },
         { new: true }
     );
-    
-    if (lead) {
-        const QueueManager = await import('../src/queues/queueManager.js');
-        const job = await QueueManager.enrichmentQueue.add('enrichLead', { leadId: lead._id });
-        return { success: true, jobId: job?.id || 'mock', status: 'REQUESTED' };
+    if (!updated) {
+        throw new Error("SECURITY_VIOLATION: Lead not found or already requested");
     }
-    return { success: false, reason: 'ALREADY_REQUESTED_OR_CLAIMED' };
+    const queues = await import('../src/queues/queueManager.js');
+    await queues.enrichmentQueue.add('enrichLead', { leadId });
 }
 
+const createDomainEventCapability = (job) => {
+    if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+    const { eventId, aggregateId, aggregateType, eventType } = job.data;
+    if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+    const capability = {
+        eventId,
+        aggregateId,
+        aggregateType,
+        eventType,
+        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
+    };
+    return Object.freeze(capability);
+};
+
+const createRevivalSyncCapability = (leadId) => {
+    if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+    const capability = {
+        targetId: leadId,
+        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
+    };
+    return Object.freeze(capability);
+};
+
 export class ServerAuthorityProof {
-    constructor(targetId, actorType, secret, provenance = {}) {
+    constructor(secret, targetId, actorType = 'SYSTEM') {
         if (secret !== AUTHORITY_SECRET) {
-            throw new Error("SECURITY_VIOLATION: ServerAuthorityProof cannot be arbitrarily instantiated. It must be derived from a trusted server ingress boundary.");
-        }
-        if (!targetId || !actorType) {
-            throw new Error("ServerAuthorityProof requires targetId and actorType");
+            throw new Error("SECURITY_VIOLATION: Cannot directly construct ServerAuthorityProof");
         }
         this.targetId = targetId.toString();
         this.actorType = actorType;
-        this.issuedAt = Date.now();
-        this.provenance = provenance;
-        this._isServerProof = true;
-        Object.freeze(this.provenance);
         Object.freeze(this);
-        
         validProofs.add(this);
-    }
-    
-    static verify(proof) {
-        if (!proof || !validProofs.has(proof)) {
-            throw new Error("SECURITY_VIOLATION: Forged or invalid ServerAuthorityProof");
-        }
-        return true;
     }
 }
 
 export class AuthorityProofIssuer {
-    /**
-     * INTERNAL DOMAIN BOUNDARY
-     * Registers the trusted domain event worker and securely injects the capability factory.
-     */
-    static registerDomainEventWorker(workerModule) {
-        if (_domainEventRegistered) throw new Error("SECURITY_VIOLATION: DomainEventWorker already registered.");
-        _domainEventRegistered = true;
-        
-        workerModule.injectCapabilityFactory((job) => {
-            if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-            const { eventId, aggregateId, aggregateType, eventType } = job.data;
-            if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
-            if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
-                throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
-            }
-            
-            return Object.freeze({
-                eventId,
-                aggregateId,
-                aggregateType,
-                eventType,
-                requestSystemEnrichment: async () => {
-                    return _enqueueSystemEnrichment(aggregateId);
-                }
-            });
-        });
+    static async resolveSystemProof(leadId, jobId = 'sync') {
+        const Lead = mongoose.model("Lead");
+        const updated = await Lead.findOneAndUpdate(
+            { _id: leadId, "enrichmentState.status": "REQUESTED" },
+            { $set: { "enrichmentState.status": "CLAIMED", "enrichmentState.lastJobId": jobId, "enrichmentState.claimedAt": new Date() } },
+            { new: true }
+        );
+        if (!updated) {
+            throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
+        }
+        return new ServerAuthorityProof(AUTHORITY_SECRET, leadId);
     }
 
-    /**
-     * REVIVAL SYNC BOUNDARY
-     * Registers the trusted RevivalSyncService and securely injects the capability factory.
-     */
-    static registerRevivalSyncService(serviceModule) {
-        if (_revivalSyncRegistered) throw new Error("SECURITY_VIOLATION: RevivalSyncService already registered.");
-        _revivalSyncRegistered = true;
+    static async finalizeSystemProof(leadId, success = true) {
+        const Lead = mongoose.model("Lead");
+        const update = success 
+            ? { $set: { "enrichmentState.status": "COMPLETED", "enrichmentState.completedAt": new Date() } }
+            : { $set: { "enrichmentState.status": "FAILED" } };
 
-        serviceModule.injectCapabilityFactory((leadId) => {
-            if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
-            
-            return Object.freeze({
-                targetId: leadId,
-                requestSystemEnrichment: async () => {
-                    return _enqueueSystemEnrichment(leadId);
-                }
-            });
-        });
+        const updated = await Lead.findOneAndUpdate(
+            { _id: leadId, "enrichmentState.status": "CLAIMED" },
+            update,
+            { new: true }
+        );
+        if (!updated) {
+            throw new Error("SECURITY_VIOLATION: Finalization failed or unauthorized state");
+        }
     }
 
     static async resolveWebhookProofs(mobile) {
-        if (!mobile) throw new Error("mobile required for webhook proof resolution");
-        
-        const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
-        let Conversation; try { Conversation = mongoose.model('Conversation'); } catch(e) { Conversation = (await import('../models/Conversation.js')).default; }
-        const conv = await Conversation.findOne({ phoneNumber: cleanMobile }).lean();
-        
-        if (!conv || !conv.verificationDealIds || conv.verificationDealIds.length === 0) {
-            return [];
+        let Conversation;
+        try {
+            Conversation = mongoose.model('Conversation');
+        } catch(e) {
+            Conversation = (await import('../models/Conversation.js')).default;
         }
         
-        return conv.verificationDealIds.map(dealId => 
-            new ServerAuthorityProof(dealId, 'WEBHOOK', AUTHORITY_SECRET, { authoritySource: 'WEBHOOK_CONVERSATION_MATCH' })
-        );
-    }
-
-    /**
-     * Atomically claims a Lead for SYSTEM enrichment.
-     */
-    static async resolveSystemProof(leadId, jobId = 'sync') {
-        const Lead = mongoose.models.Lead || mongoose.model('Lead');
-        
-         const lead = await Lead.findOneAndUpdate(
-            { _id: leadId, 'enrichmentState.status': 'REQUESTED' },
-            { 
-                $set: { 
-                    'enrichmentState.status': 'CLAIMED', 
-                    'enrichmentState.claimedAt': new Date(),
-                    'enrichmentState.jobId': jobId 
-                } 
-            },
-            { new: true }
-        );
-
-        if (!lead) {
-            const existing = await Lead.findById(leadId).lean();
-            if (!existing) throw new Error("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND");
-            if (existing.enrichmentState?.status === 'CLAIMED') throw new Error("SYSTEM_ENRICHMENT_ALREADY_CLAIMED");
-            throw new Error("SYSTEM_ENRICHMENT_NOT_ELIGIBLE");
-        }
-
-        return new ServerAuthorityProof(leadId, 'SYSTEM', AUTHORITY_SECRET, {
-            authoritySource: 'SYSTEM_ENRICHMENT_CLAIM',
-            jobId
+        const openConv = await Conversation.findOne({
+            userPhone: mobile,
+            status: { $in: ['open', 'pending'] }
         });
+
+        if (!openConv) {
+            throw new Error("SECURITY_VIOLATION: Invalid WEBHOOK proof");
+        }
+
+        return {
+            verify: (proof) => validProofs.has(proof)
+        };
     }
 
-    /**
-     * Finalizes the state after enrichment completes or fails.
-     */
-    static async finalizeSystemProof(leadId, success = true) {
-        const Lead = mongoose.models.Lead || mongoose.model('Lead');
-        await Lead.findOneAndUpdate(
-            { _id: leadId, 'enrichmentState.status': 'CLAIMED' },
-            { 
-                $set: { 
-                    'enrichmentState.status': success ? 'COMPLETED' : 'FAILED' 
-                } 
-            }
-        );
+    static verify(proof) {
+        return validProofs.has(proof);
     }
 }
+
+// ============================================================================
+// STRUCTURAL CAPABILITY INJECTION (MODULE OWNERSHIP)
+// ============================================================================
+// By importing the raw logic here and exporting the wired instances, 
+// ServerAuthorityProof OWNS the initialization boundary.
+// Controllers cannot acquire the capability factories because they are NOT exported.
+// They are passed strictly to the domain/service logic.
+
+import { createDomainEventProcessor } from '../src/workers/domainEventWorkerLogic.js';
+import { RevivalSyncServiceLogic } from '../src/services/RevivalSyncServiceLogic.js';
+
+export const processDomainEvent = createDomainEventProcessor(createDomainEventCapability);
+export const revivalSyncService = new RevivalSyncServiceLogic(createRevivalSyncCapability);

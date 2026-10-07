@@ -1155,10 +1155,35 @@ export const addInventory = async (req, res) => {
         if (data.direction !== undefined) data.direction = await resolveLookup('Direction', data.direction);
         if (data.orientation !== undefined) data.orientation = await resolveLookup('Orientation', data.orientation);
         if (data.intent !== undefined) data.intent = await resolveLookup('Intent', data.intent);
-        if (data.builtupType !== undefined) data.builtupType = await resolveLookup('BuiltupType', data.builtupType);
+        if (data.sizeConfig !== undefined) data.sizeConfig = await resolveLookup('Size', data.sizeConfig);
+        if (data.sizeLabel !== undefined) {
+            data.sizeLabel = String(data.sizeLabel || '').trim();
+            if (!data.sizeConfig && data.sizeLabel) {
+                const matchedSizeLookup = await Lookup.findOne({
+                    lookup_type: 'Size',
+                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
+                }).select('_id').lean();
+                if (matchedSizeLookup) {
+                    data.sizeConfig = matchedSizeLookup._id;
+                }
+            }
+        }
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
-        if (data.teams) data.teams = await resolveTeam(data.teams);
-        else if (data.team) data.team = await resolveTeam(data.team);
+        if (data.teams !== undefined) {
+            data.teams = await resolveTeam(data.teams);
+            if (Array.isArray(data.teams) && data.teams.length > 0 && !data.team) {
+                data.team = data.teams[0];
+            }
+        }
+        if (data.team !== undefined) {
+            data.team = await resolveTeam(data.team);
+            if (Array.isArray(data.team)) {
+                data.team = data.team[0] || null;
+            }
+            if (data.team && (!data.teams || data.teams.length === 0)) {
+                data.teams = [data.team];
+            }
+        }
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) {
@@ -1316,6 +1341,19 @@ export const updateInventory = async (req, res) => {
         // Strip ownerHistory and ownerSources from direct $set — backend is sole authority via $push above
         delete data.ownerHistory;
         delete data.ownerSources;
+
+        if (data.sizeLabel !== undefined) {
+            data.sizeLabel = String(data.sizeLabel || '').trim();
+            if (!data.sizeConfig && data.sizeLabel) {
+                const matchedSizeLookup = await Lookup.findOne({
+                    lookup_type: 'Size',
+                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
+                }).select('_id').lean();
+                if (matchedSizeLookup) {
+                    data.sizeConfig = matchedSizeLookup._id;
+                }
+            }
+        }
 
         // 🌟 SENIOR HARDENING: Resolve categorical fields BEFORE update to prevent populate-stage CastErrors
         const categoricalFields = [
