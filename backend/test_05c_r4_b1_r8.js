@@ -9,8 +9,30 @@ import revivalSyncServiceLib from './src/services/RevivalSyncService.js';
 
 // Real production execution paths
 const processDomainEvent = async (job) => {
+    const { domainEventQueue } = await import('./src/queues/queueManager.js');
     const { domainEventWorker } = await import('./src/workers/domainEventWorker.js');
-    return await domainEventWorker.processFn(job);
+    
+    return new Promise(async (resolve, reject) => {
+        const addedJob = await domainEventQueue.add('event', job.data);
+        
+        const onCompleted = (j) => {
+            if (j.id === addedJob.id) {
+                cleanup(); resolve({ success: true });
+            }
+        };
+        const onFailed = (j, err) => {
+            if (j.id === addedJob.id) {
+                cleanup(); reject(err);
+            }
+        };
+        const cleanup = () => {
+            domainEventWorker.removeListener('completed', onCompleted);
+            domainEventWorker.removeListener('failed', onFailed);
+        };
+        
+        domainEventWorker.on('completed', onCompleted);
+        domainEventWorker.on('failed', onFailed);
+    });
 };
 
 const revivalSyncService = {
@@ -152,6 +174,9 @@ async function runTests() {
     // We replaced 17 and 18 to verify there are NO generic setters for injection attacks.
     assertCondition(typeof DomainEventWorkerExports.setDomainEventIssuer === 'undefined', '17. setDomainEventIssuer injection setter completely removed');
     assertCondition(typeof StageTransitionEngineExports.setRevivalSyncIssuer === 'undefined', '18. setRevivalSyncIssuer injection setter completely removed');
+
+    // Attack C - Verify that direct invocation of processFn is impossible
+    assertCondition(typeof DomainEventWorkerExports.domainEventWorker.processFn === 'undefined', '18b. Attack C - Direct trusted worker invocation impossible');
 
     // 19. RevivalSync Lead A capability works
     await revivalSyncService.processRevivalActions(l2._id.toString());
