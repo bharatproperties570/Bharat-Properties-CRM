@@ -1782,6 +1782,11 @@ export const resolveSizeLookup = async (value, projectName, blockName, categoryN
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
+
+    if (typeof identifier === 'object' && identifier !== null) {
+        identifier = identifier._id || identifier.id || identifier.toString();
+    }
+
     const cacheKey = String(identifier).toLowerCase();
     if (userCache.has(cacheKey)) return userCache.get(cacheKey);
 
@@ -1812,6 +1817,10 @@ const resolveTeam = async (identifier) => {
     // Handle array of teams
     if (Array.isArray(identifier)) {
         return await Promise.all(identifier.map(id => resolveTeam(id)));
+    }
+
+    if (typeof identifier === 'object' && identifier !== null) {
+        identifier = identifier._id || identifier.id || identifier.toString();
     }
 
     const cacheKey = String(identifier).toLowerCase();

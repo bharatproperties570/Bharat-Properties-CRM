@@ -9,14 +9,14 @@ const getLookupModel = () => mongoose.models.Lookup || mongoose.model('Lookup');
 export const resolveLookup = async (type, value, parent_lookup_id = null) => {
     if (!value) return null;
 
+    // Handle populated object first to prevent [object Object] cast errors
+    if (typeof value === 'object' && value !== null) {
+        value = value._id || value.id || value.toString();
+    }
+
     // Handle already valid ObjectId
     if (mongoose.Types.ObjectId.isValid(value)) {
         return new mongoose.Types.ObjectId(value.toString());
-    }
-
-    // Handle populated object
-    if (typeof value === 'object' && value._id) {
-        return new mongoose.Types.ObjectId(value._id.toString());
     }
 
     const trimmedVal = String(value).trim();
