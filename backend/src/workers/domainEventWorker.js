@@ -4,10 +4,19 @@ import mongoose from 'mongoose';
 import { executeEffect } from './effectOrchestrator.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
+
 import { AuthorityProofIssuer } from '../../utils/ServerAuthorityProof.js';
-const domainEventCapability = AuthorityProofIssuer.mintDomainEventCapability();
+
+let domainEventCapabilityFactory = null;
+export function injectCapabilityFactory(factory) {
+    if (domainEventCapabilityFactory) throw new Error("SECURITY_VIOLATION: Factory already injected");
+    domainEventCapabilityFactory = factory;
+}
+AuthorityProofIssuer.registerDomainEventWorker({ injectCapabilityFactory });
 
 export const processDomainEvent = async (job) => {
+    const capability = domainEventCapabilityFactory ? domainEventCapabilityFactory(job) : null;
+
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
 
     if (!eventId || !eventType || !aggregateType || !aggregateId || !payload) {
@@ -18,8 +27,7 @@ export const processDomainEvent = async (job) => {
 
     switch (eventType) {
         case 'LeadCreated': {
-            const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
-            const LeadScoringService = (await import('../services/LeadScoringService.js')).default;
+                        const LeadScoringService = (await import('../services/LeadScoringService.js')).default;
             const { distributeEntity } = await import('../utils/distributionEngine.js');
             const { leadPopulateFields } = await import('../../controllers/lead.controller.js');
 
@@ -27,7 +35,7 @@ export const processDomainEvent = async (job) => {
 
             await executeEffect(eventId, 'enrichment', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead) await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, freshLead._id, eventType);
+                if (freshLead && capability) await capability.requestSystemEnrichment();
             });
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {
@@ -632,8 +640,7 @@ export const processDomainEvent = async (job) => {
             effects.push({
                 key: 'enrichment',
                 fn: async () => {
-                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
-                    await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, aggregateId, eventType);
+                                        if (capability) await capability.requestSystemEnrichment();
                 }
             });
 
@@ -785,7 +792,7 @@ export const processDomainEvent = async (job) => {
             effects.push({
                 key: 'enrichment',
                 fn: async () => {
-                    await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, aggregateId, eventType);
+                    if (capability) await capability.requestSystemEnrichment();
                 }
             });
             const failures = [];

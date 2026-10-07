@@ -4,9 +4,16 @@ import smsService from '../modules/sms/sms.service.js';
 import AuditLog from '../../models/AuditLog.js';
 import User from '../../models/User.js';
 import { runFullLeadEnrichment } from '../utils/enrichmentEngine.js';
+
+
 import { AuthorityProofIssuer } from '../../utils/ServerAuthorityProof.js';
 
-const revivalCapability = AuthorityProofIssuer.mintRevivalSyncCapability();
+let revivalSyncCapabilityFactory = null;
+export function injectCapabilityFactory(factory) {
+    if (revivalSyncCapabilityFactory) throw new Error("SECURITY_VIOLATION: Factory already injected");
+    revivalSyncCapabilityFactory = factory;
+}
+AuthorityProofIssuer.registerRevivalSyncService({ injectCapabilityFactory });
 
 class RevivalSyncService {
     /**
@@ -109,7 +116,8 @@ class RevivalSyncService {
     async _triggerAutoEnrichment(leadId) {
         try {
             console.log(`[RevivalSync] Triggering auto-enrichment for Lead: ${leadId}`);
-            await revivalCapability.requestSystemEnrichment(revivalCapability.token, leadId);
+            const capability = revivalSyncCapabilityFactory ? revivalSyncCapabilityFactory(leadId) : null;
+            if (capability) await capability.requestSystemEnrichment();
         } catch (err) {
             console.warn('[RevivalSync] Enrichment failed:', err.message);
         }

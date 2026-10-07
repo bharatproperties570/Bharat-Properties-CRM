@@ -3,6 +3,31 @@ import mongoose from 'mongoose';
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 const validProofs = new WeakSet();
 
+let _domainEventRegistered = false;
+let _revivalSyncRegistered = false;
+
+async function _enqueueSystemEnrichment(leadId) {
+    const Lead = mongoose.models.Lead || mongoose.model('Lead');
+    // Only allow request if it is not already requested or running
+    const lead = await Lead.findOneAndUpdate(
+        { _id: leadId, 'enrichmentState.status': { $in: ['NONE', 'COMPLETED', 'FAILED'] } },
+        { 
+            $set: { 
+                'enrichmentState.status': 'REQUESTED',
+                'enrichmentState.requestedAt': new Date()
+            } 
+        },
+        { new: true }
+    );
+    
+    if (lead) {
+        const QueueManager = await import('../src/queues/queueManager.js');
+        const job = await QueueManager.enrichmentQueue.add('enrichLead', { leadId: lead._id });
+        return { success: true, jobId: job?.id || 'mock', status: 'REQUESTED' };
+    }
+    return { success: false, reason: 'ALREADY_REQUESTED_OR_CLAIMED' };
+}
+
 export class ServerAuthorityProof {
     constructor(targetId, actorType, secret, provenance = {}) {
         if (secret !== AUTHORITY_SECRET) {
@@ -32,103 +57,58 @@ export class ServerAuthorityProof {
 
 export class AuthorityProofIssuer {
     /**
-     * TRUSTED DOMAIN OPERATION: Requests SYSTEM enrichment.
-     */
-        /**
      * INTERNAL DOMAIN BOUNDARY
-     * Only trusted execution contexts (like domainEventWorker) may request SYSTEM enrichment.
-     * The public API has been removed to prevent unauthorized manufacturing of SYSTEM authority.
+     * Registers the trusted domain event worker and securely injects the capability factory.
      */
-    
-    /**
-     * INTERNAL DOMAIN CAPABILITY (Unforgeable)
-     * Issued ONLY ONCE to the DomainEventWorker at module initialization.
-     * Enforces strict event provenance binding.
-     */
-    static mintDomainEventCapability() {
-        const stack = new Error().stack || "";
-        if (!stack.includes("src/workers/domainEventWorker.js") && !process.env.ALLOW_TEST_MINT) {
-            throw new Error("SECURITY_VIOLATION: Unauthorized caller for DomainEvent Capability");
-        }
-        if (this._domainEventMinted) {
-            throw new Error("SECURITY_VIOLATION: DomainEvent Capability can only be minted once.");
-        }
-        this._domainEventMinted = true;
-        const TOKEN = Symbol('DomainEventCapability');
-
-        return {
-            token: TOKEN,
-            requestSystemEnrichment: async (callerToken, eventId, aggregateType, aggregateId, eventType) => {
-                if (callerToken !== TOKEN) throw new Error("SECURITY_VIOLATION: Invalid DomainEvent Capability");
-                if (!eventId || !aggregateType || !aggregateId || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
-                if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
-                    throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
-                }
-                return AuthorityProofIssuer._enqueueSystemEnrichment(aggregateId);
-            }
-        };
-    }
-
-    /**
-     * REVIVAL SYNC CAPABILITY (Unforgeable)
-     * Issued ONLY ONCE to RevivalSyncService at module initialization.
-     */
-    static mintRevivalSyncCapability() {
-        const stack = new Error().stack || "";
-        if (!stack.includes("src/services/RevivalSyncService.js") && !process.env.ALLOW_TEST_MINT) {
-            throw new Error("SECURITY_VIOLATION: Unauthorized caller for RevivalSync Capability");
-        }
-        if (this._revivalSyncMinted) {
-            throw new Error("SECURITY_VIOLATION: RevivalSync Capability can only be minted once.");
-        }
-        this._revivalSyncMinted = true;
-        const TOKEN = Symbol('RevivalSyncCapability');
-
-        return {
-            token: TOKEN,
-            requestSystemEnrichment: async (callerToken, aggregateId) => {
-                if (callerToken !== TOKEN) throw new Error("SECURITY_VIOLATION: Invalid RevivalSync Capability");
-                if (!aggregateId) throw new Error("SECURITY_VIOLATION: Missing target ID");
-                return AuthorityProofIssuer._enqueueSystemEnrichment(aggregateId);
-            }
-        };
-    }
-
-    static async requestFromTest(leadId) {
-        if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID && !process.env.TEST_MODE) {
-             throw new Error("SECURITY_VIOLATION: requestFromTest is only permitted in test environments");
-        }
-        return this._enqueueSystemEnrichment(leadId);
-    }
-
-    static async _enqueueSystemEnrichment(leadId) {
-
-        const Lead = mongoose.models.Lead || mongoose.model('Lead');
-        // Only allow request if it is not already requested or running
-         const lead = await Lead.findOneAndUpdate(
-            { _id: leadId, 'enrichmentState.status': { $in: ['NONE', 'COMPLETED', 'FAILED'] } },
-            { 
-                $set: { 
-                    'enrichmentState.status': 'REQUESTED',
-                    'enrichmentState.requestedAt': new Date()
-                } 
-            },
-            { new: true }
-        );
+    static registerDomainEventWorker(workerModule) {
+        if (_domainEventRegistered) throw new Error("SECURITY_VIOLATION: DomainEventWorker already registered.");
+        _domainEventRegistered = true;
         
-        if (lead) {
-            const QueueManager = await import('../src/queues/queueManager.js');
-            const job = await QueueManager.enrichmentQueue.add('enrichLead', { leadId: lead._id });
-            return { success: true, jobId: job?.id || 'mock', status: 'REQUESTED' };
-        }
-        return { success: false, reason: 'ALREADY_REQUESTED_OR_CLAIMED' };
+        workerModule.injectCapabilityFactory((job) => {
+            if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+            const { eventId, aggregateId, aggregateType, eventType } = job.data;
+            if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+            if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
+                throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
+            }
+            
+            return Object.freeze({
+                eventId,
+                aggregateId,
+                aggregateType,
+                eventType,
+                requestSystemEnrichment: async () => {
+                    return _enqueueSystemEnrichment(aggregateId);
+                }
+            });
+        });
+    }
+
+    /**
+     * REVIVAL SYNC BOUNDARY
+     * Registers the trusted RevivalSyncService and securely injects the capability factory.
+     */
+    static registerRevivalSyncService(serviceModule) {
+        if (_revivalSyncRegistered) throw new Error("SECURITY_VIOLATION: RevivalSyncService already registered.");
+        _revivalSyncRegistered = true;
+
+        serviceModule.injectCapabilityFactory((leadId) => {
+            if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+            
+            return Object.freeze({
+                targetId: leadId,
+                requestSystemEnrichment: async () => {
+                    return _enqueueSystemEnrichment(leadId);
+                }
+            });
+        });
     }
 
     static async resolveWebhookProofs(mobile) {
         if (!mobile) throw new Error("mobile required for webhook proof resolution");
         
         const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
-        const Conversation = mongoose.models.Conversation || mongoose.model('Conversation');
+        let Conversation; try { Conversation = mongoose.model('Conversation'); } catch(e) { Conversation = (await import('../models/Conversation.js')).default; }
         const conv = await Conversation.findOne({ phoneNumber: cleanMobile }).lean();
         
         if (!conv || !conv.verificationDealIds || conv.verificationDealIds.length === 0) {
@@ -158,7 +138,7 @@ export class AuthorityProofIssuer {
             { new: true }
         );
 
-        if (!lead) { console.log('LEAD NOT ELIGIBLE OR NOT FOUND');
+        if (!lead) {
             const existing = await Lead.findById(leadId).lean();
             if (!existing) throw new Error("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND");
             if (existing.enrichmentState?.status === 'CLAIMED') throw new Error("SYSTEM_ENRICHMENT_ALREADY_CLAIMED");
