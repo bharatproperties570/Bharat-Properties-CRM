@@ -13,7 +13,7 @@ export class RevivalSyncServiceLogic {
      * @param {string} leadId 
      * @param {string} triggeredByUserId 
      */
-    async processRevivalActions(leadId, triggeredByUserId, capability) {
+    async processRevivalActions(leadId, triggeredByUserId) {
         try {
             console.log(`[RevivalSync] Processing automated actions for Lead: ${leadId}`);
 
@@ -26,9 +26,7 @@ export class RevivalSyncServiceLogic {
             // 2. Send Internal Alerts (Notifications to RM/TL)
             await this._sendInternalAlerts(lead, triggeredByUserId);
 
-            // 3. Trigger Automatic Enrichment
-            await this._triggerAutoEnrichment(capability);
-
+            
             // 4. Log Audit Event
             await AuditLog.logEntityUpdate(
                 'lead_revived_automation',
@@ -40,7 +38,7 @@ export class RevivalSyncServiceLogic {
                 `Automated re-engagement notifications sent for revived lead.`
             );
 
-            return { capability };
+            return { intent: 'REQUEST_SYSTEM_ENRICHMENT' };
         } catch (error) {
             console.error('[RevivalSync] Failed to process revival actions:', error.message);
         }

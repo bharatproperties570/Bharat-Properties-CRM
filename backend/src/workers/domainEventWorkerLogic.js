@@ -9,7 +9,7 @@ import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 
 
-export const processDomainEventJob = async (job, capability) => {
+export const processDomainEventJob = async (job) => {
 
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
 
@@ -27,9 +27,10 @@ export const processDomainEventJob = async (job, capability) => {
 
             const Lead = mongoose.model('Lead');
 
+            let intentEnrichment = false;
             await executeEffect(eventId, 'enrichment', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead && capability) await capability.requestSystemEnrichment();
+                if (freshLead) intentEnrichment = true;
             });
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {
@@ -85,6 +86,7 @@ export const processDomainEventJob = async (job, capability) => {
                 }
             });
 
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
         }
 
@@ -621,6 +623,7 @@ export const processDomainEventJob = async (job, capability) => {
             const lead = await Lead.findById(aggregateId).populate('owner assignment.assignedTo').lean();
             if (!lead) throw new Error(`Lead ${aggregateId} not found`);
 
+            let intentEnrichment = false;
             const effects = [];
 
             effects.push({
@@ -634,7 +637,7 @@ export const processDomainEventJob = async (job, capability) => {
             effects.push({
                 key: 'enrichment',
                 fn: async () => {
-                                        if (capability) await capability.requestSystemEnrichment();
+                    intentEnrichment = true;
                 }
             });
 
@@ -721,6 +724,7 @@ export const processDomainEventJob = async (job, capability) => {
                 }
             }
             if (failures.length > 0) throw new AggregateError(failures, `LeadUpdated event encountered ${failures.length} effect failures.`);
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
         }
 
@@ -782,11 +786,12 @@ export const processDomainEventJob = async (job, capability) => {
         }
         
         case 'ManualEnrichmentRequested': {
+            let intentEnrichment = false;
             const effects = [];
             effects.push({
                 key: 'enrichment',
                 fn: async () => {
-                    if (capability) await capability.requestSystemEnrichment();
+                    intentEnrichment = true;
                 }
             });
             const failures = [];
@@ -799,11 +804,12 @@ export const processDomainEventJob = async (job, capability) => {
                 }
             }
             if (failures.length > 0) throw new AggregateError(failures, `ManualEnrichmentRequested event encountered ${failures.length} effect failures.`);
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
         }
         default:
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
 
-    return { success: true, capability };
+    return { success: true };
 };

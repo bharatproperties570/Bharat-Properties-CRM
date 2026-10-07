@@ -38,9 +38,6 @@ import StageTransitionLog from '../../models/StageTransitionLog.js';
 import { safeRedisCall } from '../config/redis.js';
 import { DEFAULT_STAGE_RULES } from './StageTransitionEngineConstants.js';
 
-export const __composeStageTransitionEngine = (issueRevivalSyncCapability) => {
-
-
 const escapeRegExp = (string) => {
     if (!string) return '';
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -99,7 +96,7 @@ const flattenMasterFields = (activityMasterFields) => {
     return defaultRules;
 };
 
-const loadTransitionRules = async () => {
+export const loadTransitionRules = async () => {
     try {
         // 1. Try Redis First
         const redisCache = await safeRedisCall('get', 'stage_rules_cache');
@@ -144,7 +141,7 @@ const loadTransitionRules = async () => {
     }
 };
 
-const invalidateRulesCache = async () => {
+export const invalidateRulesCache = async () => {
     _localRulesCache = null;
     await safeRedisCall('del', 'stage_rules_cache');
 };
@@ -215,7 +212,7 @@ const matchOutcome = (outNorm, ruleOutNorm) => {
 const DEBUG_STAGE = process.env.STAGE_ENGINE_DEBUG === 'true';
 const debugLog = (...args) => { if (DEBUG_STAGE) console.log(...args); };
 
-const resolveTransition = async (activityType, outcome, reason = '', purpose = '', status = '') => {
+export const resolveTransition = async (activityType, outcome, reason = '', purpose = '', status = '') => {
     const rules = await loadTransitionRules();
     const activeRules = rules
         .filter(r => (r.isActive !== false && r.active !== false))
@@ -282,7 +279,7 @@ const resolveTransition = async (activityType, outcome, reason = '', purpose = '
  * @param {Object} stageFormData - Data submitted by user in the transition modal
  * @returns {{ valid: boolean, missingFields: string[] }}
  */
-const validateRequiredFields = (lead, requiredFields, stageFormData = {}) => {
+export const validateRequiredFields = (lead, requiredFields, stageFormData = {}) => {
     if (!requiredFields || requiredFields.length === 0) {
         return { valid: true, missingFields: [] };
     }
@@ -323,7 +320,7 @@ const validateRequiredFields = (lead, requiredFields, stageFormData = {}) => {
  * @param {Object} [options.stageFormData] - Fields to update on lead from form
  * @returns {Promise<{ success: boolean, prevStage: string, newStage: string }>}
  */
-const executeTransition = async (leadId, newStageName, options = {}) => {
+export const executeTransition = async (leadId, newStageName, options = {}) => {
     const {
         triggeredBy = 'activity',
         activityId = null,
@@ -469,11 +466,9 @@ const executeTransition = async (leadId, newStageName, options = {}) => {
     } catch (_) { /* Non-critical */ }
 
     // 🚀 LEAD REVIVAL AUTOMATION
+    let triggerRevivalSync = false;
     if (prevStageName.toLowerCase() === 'dormant' && newStageName.toLowerCase() === 'prospect') {
-        const capability = issueRevivalSyncCapability(leadId);
-        RevivalSyncService.processRevivalActions(leadId, triggeredByUser, capability).catch(err => {
-            console.error('[StageTransitionEngine] Revival automation trigger failed:', err.message);
-        });
+        triggerRevivalSync = true;
     }
     
     // 🚀 DEAL SYNC ENGINE (Phase 4)
@@ -481,7 +476,7 @@ const executeTransition = async (leadId, newStageName, options = {}) => {
         console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
     });
 
-    return { success: true, prevStage: prevStageName, newStage: newStageName };
+    return { success: true, prevStage: prevStageName, newStage: newStageName, triggerRevivalSync };
 };
 
 // ─── HIGH-LEVEL: Evaluate and execute in one call ────────────────────────────
@@ -499,7 +494,7 @@ const executeTransition = async (leadId, newStageName, options = {}) => {
  * @param {Object} context - { activityId, triggeredByUser }
  * @returns {Promise<Object>} transition result
  */
-const evaluateAndTransition = async (leadId, activityType, outcome, reason = '', stageFormData = {}, context = {}) => {
+export const evaluateAndTransition = async (leadId, activityType, outcome, reason = '', stageFormData = {}, context = {}) => {
     // Check if the engine should run for this specific activity type based on admin settings
     const shouldRun = true; // Hardcoded fallback since it was missing
     
@@ -872,6 +867,7 @@ const evaluateAndTransition = async (leadId, activityType, outcome, reason = '',
         skipped: result.skipped || false,
         prevStage: result.prevStage,
         newStage: result.newStage,
+        triggerRevivalSync: result.triggerRevivalSync,
         requiredForms,
         missingForms: [],
         missingFields: [],
@@ -880,13 +876,3 @@ const evaluateAndTransition = async (leadId, activityType, outcome, reason = '',
         playbookLink: `/playbook/${rule.newStage.toLowerCase()}`
     };
 };
-    return {
-        resolveTransition,
-        evaluateAndTransition,
-        executeTransition,
-        loadTransitionRules,
-        validateRequiredFields,
-        invalidateRulesCache,
-        DEFAULT_STAGE_RULES
-    };
-}; // End of __composeStageTransitionEngine

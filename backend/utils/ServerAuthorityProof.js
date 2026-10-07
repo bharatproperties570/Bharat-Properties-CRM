@@ -91,15 +91,16 @@ export class AuthorityProofIssuer {
 // ---------------------------------------------------------
 // TRUSTED BOOTSTRAP WIRING
 // ---------------------------------------------------------
-// Instead of exporting acquirers or using setters (which an attacker could call first),
-// ServerAuthorityProof internally wires the capability issuers directly into
-// the consumers via a private composition boundary.
-// This makes it absolutely impossible for an arbitrary module to acquire or inject issuers.
+// The business logic modules NO LONGER receive capability issuers.
+// They return execution intents.
+// ServerAuthorityProof securely evaluates these intents and applies
+// the privately held capability, ensuring zero public API surface.
 
 import { Worker } from 'bullmq';
 import redisConnection from '../src/config/redis.js';
 import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js';
-import { __composeStageTransitionEngine } from '../src/services/StageTransitionEngineLogic.js';
+import * as StageTransitionEngineLogic from '../src/services/StageTransitionEngineLogic.js';
+import RevivalSyncService from '../src/services/RevivalSyncService.js';
 
 const domainEventIssuer = (jobData) => {
     if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
@@ -127,8 +128,15 @@ const revivalSyncIssuer = (leadId) => {
 // 1. Compose DomainEventWorker
 export const domainEventWorker = new Worker('domainEventQueue', async (job) => {
     if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-    const capability = domainEventIssuer(job.data);
-    return await processDomainEventJob(job, capability);
+    
+    // Evaluate the business logic which returns an intent
+    const intent = await processDomainEventJob(job);
+    
+    // Process intent using the private capability
+    if (intent?.action === 'REQUEST_SYSTEM_ENRICHMENT') {
+        const capability = domainEventIssuer(job.data);
+        await capability.requestSystemEnrichment();
+    }
 }, { connection: redisConnection });
 
 domainEventWorker.on('failed', async (job, err) => {
@@ -137,5 +145,40 @@ domainEventWorker.on('failed', async (job, err) => {
 domainEventWorker.on('error', err => {});
 
 // 2. Compose StageTransitionEngine
-export const StageTransitionEngine = __composeStageTransitionEngine(revivalSyncIssuer);
+export const StageTransitionEngine = {
+    ...StageTransitionEngineLogic,
+    executeTransition: async (leadId, newStage, options) => {
+        // Evaluate the transition
+        const result = await StageTransitionEngineLogic.executeTransition(leadId, newStage, options);
+        
+        // Process intent using the private capability
+        if (result?.triggerRevivalSync) {
+            const revivalIntent = await RevivalSyncService.processRevivalActions(leadId, options.triggeredByUser);
+            if (revivalIntent?.intent === 'REQUEST_SYSTEM_ENRICHMENT') {
+                const capability = revivalSyncIssuer(leadId);
+                await capability.requestSystemEnrichment();
+            }
+        }
+        return result;
+    },
+    evaluateAndTransition: async (leadId, activityType, outcome, outcomeReason, context = {}) => {
+        // We must also wrap evaluateAndTransition because it calls executeTransition internally in the logic file.
+        // Wait, if evaluateAndTransition calls executeTransition internally in StageTransitionEngineLogic.js,
+        // it will call the UNWRAPPED executeTransition!
+        // So we must handle the intent returned from evaluateAndTransition as well!
+        const result = await StageTransitionEngineLogic.evaluateAndTransition(leadId, activityType, outcome, outcomeReason, context);
+        if (result?.stageChanged) {
+            // Wait, evaluateAndTransition returns { stageChanged, prevStage, newStage }.
+            // Does it return triggerRevivalSync? Let's propagate it.
+            if (result.triggerRevivalSync) {
+                const revivalIntent = await RevivalSyncService.processRevivalActions(leadId, context.triggeredByUser);
+                if (revivalIntent?.intent === 'REQUEST_SYSTEM_ENRICHMENT') {
+                    const capability = revivalSyncIssuer(leadId);
+                    await capability.requestSystemEnrichment();
+                }
+            }
+        }
+        return result;
+    }
+};
 
