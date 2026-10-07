@@ -3400,3 +3400,50 @@ export const bulkAddInventory = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+export const exportInventors = async (req, res, next) => {
+    try {
+        const visibilityFilter = typeof getVisibilityFilter === 'function' ? await getVisibilityFilter(req.user) : {};
+        let query = { ...visibilityFilter };
+
+        const EXPORT_SYNC_CAP = 5000;
+        const totalCount = await Inventory.countDocuments(query);
+        
+        if (totalCount > EXPORT_SYNC_CAP) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Export exceeds synchronous limit of ${EXPORT_SYNC_CAP} records. Please apply filters.` 
+            });
+        }
+
+        const records = await Inventory.find(query)
+            .select('_id category subCategory status projectName projectId block unitNo unitNumber unitType size sizeConfig sizeId sizeLabel sizeType totalLandAreaText direction facing isCorner isTwoSideOpen orientation roadWidth address owners ownerName ownerPhone associates team assignedTo createdAt updatedAt followUpDate history primaryDealIntent intent teams')
+            .populate([{ path: 'owners', select: 'name email phones' }, { path: 'associates.contact', select: 'name email phones' }])
+            .limit(EXPORT_SYNC_CAP)
+            .lean();
+
+        res.status(200).json({ success: true, records, count: records.length });
+    } catch (error) {
+        console.error(`[EXPORT ERROR] Inventor:`, error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const restoreInventory = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = typeof Inventory.restoreOne === 'function' 
+            ? await Inventory.restoreOne({ _id: id }, req.user?._id || 'System')
+            : await Inventory.findByIdAndUpdate(id, { $set: { isArchived: false, isDeleted: false } }, { new: true });
+        if (!result) {
+            return res.status(404).json({ success: false, error: "Inventory not found or not soft-deleted." });
+        }
+        res.json({ success: true, message: "Inventory restored successfully", data: result });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({ success: false, error: "Restore failed: An active inventory record currently occupies this Project/Block/UnitNo combination." });
+        }
+        console.error("Error restoring inventory:", error);
+        res.status(500).json({ success: false, error: "Server Error" });
+    }
+};
