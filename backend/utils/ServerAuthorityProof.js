@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 
 export class ServerAuthorityProof {
-    constructor(targetId, actorType, secret) {
+    constructor(targetId, actorType, secret, provenance = {}) {
         if (secret !== AUTHORITY_SECRET) {
             throw new Error("SECURITY_VIOLATION: ServerAuthorityProof cannot be arbitrarily instantiated. It must be derived from a trusted server ingress boundary.");
         }
@@ -13,16 +13,12 @@ export class ServerAuthorityProof {
         this.targetId = targetId.toString();
         this.actorType = actorType;
         this.issuedAt = Date.now();
+        this.provenance = provenance;
         this._isServerProof = true;
     }
 }
 
 export class AuthorityProofIssuer {
-    /**
-     * Resolves pending verification deals for a given mobile number.
-     * This independently verifies the CRM relationship (Conversation -> verificationDealIds)
-     * preventing callers from arbitrarily injecting deal IDs.
-     */
     static async resolveWebhookProofs(mobile) {
         if (!mobile) throw new Error("mobile required for webhook proof resolution");
         
@@ -35,17 +31,56 @@ export class AuthorityProofIssuer {
         }
         
         return conv.verificationDealIds.map(dealId => 
-            new ServerAuthorityProof(dealId, 'WEBHOOK', AUTHORITY_SECRET)
+            new ServerAuthorityProof(dealId, 'WEBHOOK', AUTHORITY_SECRET, { authoritySource: 'WEBHOOK_CONVERSATION_MATCH' })
         );
     }
 
     /**
-     * Attempts to resolve system authority for Lead enrichment.
-     * Forensic audit concluded that enrichmentEngine currently processes arbitrary caller-supplied lead IDs
-     * rather than performing independent server-side target resolution.
-     * Therefore, System authority CANNOT be safely certified in this gate.
+     * Atomically claims a Lead for SYSTEM enrichment based on its trusted status.
+     * Revalidates execution-time eligibility and rejects stale or replayed requests.
      */
-    static async resolveSystemProof(leadId) {
-        throw new Error("P16_RUNTIME_SECURITY_R4B1R4_BLOCKED_NO_TRUSTED_SYSTEM_TARGET_SOURCE");
+    static async resolveSystemProof(leadId, jobId = 'sync') {
+        const Lead = mongoose.models.Lead || mongoose.model('Lead');
+        
+        // Atomic claim: only succeed if the lead is currently REQUESTED
+        const lead = await Lead.findOneAndUpdate(
+            { _id: leadId, 'enrichmentState.status': 'REQUESTED' },
+            { 
+                $set: { 
+                    'enrichmentState.status': 'CLAIMED', 
+                    'enrichmentState.claimedAt': new Date(),
+                    'enrichmentState.jobId': jobId 
+                } 
+            },
+            { new: true }
+        );
+
+        if (!lead) {
+            // Determine failure reason
+            const existing = await Lead.findById(leadId).lean();
+            if (!existing) throw new Error("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND");
+            if (existing.enrichmentState?.status === 'CLAIMED') throw new Error("SYSTEM_ENRICHMENT_ALREADY_CLAIMED");
+            throw new Error("SYSTEM_ENRICHMENT_NOT_ELIGIBLE");
+        }
+
+        return new ServerAuthorityProof(leadId, 'SYSTEM', AUTHORITY_SECRET, {
+            authoritySource: 'SYSTEM_ENRICHMENT_CLAIM',
+            jobId
+        });
+    }
+
+    /**
+     * Finalizes the state after enrichment completes or fails.
+     */
+    static async finalizeSystemProof(leadId, success = true) {
+        const Lead = mongoose.models.Lead || mongoose.model('Lead');
+        await Lead.findOneAndUpdate(
+            { _id: leadId, 'enrichmentState.status': 'CLAIMED' },
+            { 
+                $set: { 
+                    'enrichmentState.status': success ? 'COMPLETED' : 'FAILED' 
+                } 
+            }
+        );
     }
 }

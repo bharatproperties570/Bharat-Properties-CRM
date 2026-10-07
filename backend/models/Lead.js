@@ -145,7 +145,13 @@ const LeadSchema = new mongoose.Schema({
     leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
     activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
     ruleScoreBoost: { type: Number, default: 0 }, // Accumulated boosts from Weighted Transition Rules
-    intent_index: { type: Number, default: 0, min: 0, max: 100 }, // Static intent based on enrichment & keywords
+    intent_index: { type: Number, default: 0, min: 0, max: 100 },
+    enrichmentState: {
+        status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'COMPLETED', 'FAILED'], default: 'NONE' },
+        requestedAt: { type: Date },
+        claimedAt: { type: Date },
+        jobId: { type: String }
+    }, // Static intent based on enrichment & keywords
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)
     dealHealthStatus: { type: String, enum: ['Healthy', 'Watch', 'At Risk', 'Unknown'], default: 'Unknown' }, // Computed status based on thresholds

@@ -1,6 +1,7 @@
 import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 import { runFullLeadEnrichment } from '../utils/enrichmentEngine.js';
+import { AuthorityProofIssuer } from '../utils/ServerAuthorityProof.js';
 
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
@@ -12,9 +13,23 @@ export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
 
     console.log(`[Enrichment Worker] Processing lead ${leadId}...`);
 
+    // 1. Fresh eligibility validation & Atomic Claim -> Issue Proof
+    let proof;
+    try {
+        proof = await AuthorityProofIssuer.resolveSystemProof(leadId, job.id);
+    } catch (e) {
+        if (e.message.includes("SYSTEM_ENRICHMENT_NOT_ELIGIBLE") || e.message.includes("SYSTEM_ENRICHMENT_ALREADY_CLAIMED")) {
+            console.log(`[Enrichment Worker] Skipping lead ${leadId}: ${e.message}`);
+            return { success: false, reason: e.message };
+        }
+        throw e;
+    }
+
     // Execute the intensive scoring/classification logic asynchronously
     const start = Date.now();
     await runFullLeadEnrichment(leadId);
+    // 3. Finalize state
+    await AuthorityProofIssuer.finalizeSystemProof(leadId, true);
     const duration = Date.now() - start;
 
     console.log(`[Enrichment Worker] Finished lead ${leadId} in ${duration}ms`);
