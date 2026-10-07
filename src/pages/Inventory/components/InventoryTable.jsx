@@ -223,11 +223,19 @@ const InventoryTable = ({
                                                 const resolveSizeLabel = (item, resolveLookupFn) => {
                                                     if (!item) return null;
                                                     
-                                                    // ✅ ENTERPRISE FIX: Use new Size Master system first
-                                                    if (item.sizeId && Array.isArray(sizes)) {
-                                                        const matchedSize = sizes.find(s => s.id === item.sizeId || s.id === String(item.sizeId));
+                                                    // 1. Direct clean sizeLabel string (highest fidelity to user input)
+                                                    if (item.sizeLabel && typeof item.sizeLabel === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.sizeLabel.trim())) {
+                                                        return item.sizeLabel.trim();
+                                                    }
+
+                                                    // 2. Size Master match by sizeConfig or sizeId
+                                                    const sizeRefId = (typeof item.sizeConfig === 'object' && item.sizeConfig !== null)
+                                                        ? (item.sizeConfig._id || item.sizeConfig.id)
+                                                        : (item.sizeConfig || item.sizeId);
+
+                                                    if (sizeRefId && Array.isArray(sizes)) {
+                                                        const matchedSize = sizes.find(s => String(s.id || s._id) === String(sizeRefId));
                                                         if (matchedSize) {
-                                                            // Format: Name or "UnitType - TotalArea"
                                                             return matchedSize.name || `${matchedSize.unitType || ''} ${matchedSize.totalArea ? matchedSize.totalArea + ' ' + (matchedSize.resultMetric || 'Sq Yd') : ''}`.trim();
                                                         }
                                                     }
@@ -245,15 +253,11 @@ const InventoryTable = ({
                                                         return null;
                                                     };
 
+                                                    // 3. Resolve sizeConfig via lookup resolution
                                                     const c1 = resolveLookupFn(item.sizeConfig, 'Size') || extractStr(item.sizeConfig);
                                                     if (c1 && c1 !== '0' && c1 !== 0) return c1;
                                                     
-                                                    const c2 = resolveLookupFn(item.sizeType, 'PropertyType') || extractStr(item.sizeType);
-                                                    if (c2 && c2 !== '0' && c2 !== 0) return c2;
-                                                    
-                                                    const c3 = resolveLookupFn(item.sizeLabel, 'Size') || extractStr(item.sizeLabel);
-                                                    if (c3 && c3 !== '0' && c3 !== 0) return c3;
-                                                    
+                                                    // 4. item.size object/string
                                                     if (item.size) {
                                                         if (typeof item.size === 'object') {
                                                             const val = Number(item.size.value);
@@ -263,6 +267,10 @@ const InventoryTable = ({
                                                             return item.size;
                                                         }
                                                     }
+
+                                                    // 5. Fallback to sizeType
+                                                    const c2 = resolveLookupFn(item.sizeType, 'PropertyType') || extractStr(item.sizeType);
+                                                    if (c2 && c2 !== '0' && c2 !== 0) return c2;
                                                     
                                                     return null;
                                                 };

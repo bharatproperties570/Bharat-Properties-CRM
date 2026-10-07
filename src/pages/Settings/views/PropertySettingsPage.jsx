@@ -228,7 +228,16 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
         console.log('[AddSizeModal] Initializing sizeData. initialData:', initialData);
         if (initialData) {
-            setSizeData(initialData);
+            const rawMappings = Array.isArray(initialData.projectMappings) ? initialData.projectMappings : [];
+            const mergedMappings = [...rawMappings];
+            if (initialData.project && !mergedMappings.some(m => m.project === initialData.project && m.block === (initialData.block || ''))) {
+                mergedMappings.push({ project: initialData.project, block: initialData.block || '' });
+            }
+            setSizeData({
+                ...defaultState,
+                ...initialData,
+                projectMappings: mergedMappings
+            });
         } else {
             const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
             const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
@@ -330,8 +339,16 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
         if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
         if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
+        let finalMappings = Array.isArray(sizeData.projectMappings) ? [...sizeData.projectMappings] : [];
+        if (quickProject) {
+            const alreadyAdded = finalMappings.some(m => m.project === quickProject && m.block === (quickBlock || ''));
+            if (!alreadyAdded) {
+                finalMappings.push({ project: quickProject, block: quickBlock || '' });
+            }
+        }
+
         // Pass projectMappings along — context will handle them
-        onAdd({ ...sizeData });
+        onAdd({ ...sizeData, projectMappings: finalMappings });
         onClose();
     };
 

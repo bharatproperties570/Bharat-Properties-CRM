@@ -142,6 +142,35 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 return '';
             };
 
+            const resolveInitialSize = () => {
+                if (property.sizeLabel && typeof property.sizeLabel === 'string' && !/^[0-9a-fA-F]{24}$/.test(property.sizeLabel)) {
+                    return property.sizeLabel;
+                }
+                if (property.sizeConfig) {
+                    if (typeof property.sizeConfig === 'object') {
+                        const scVal = property.sizeConfig.lookup_value || property.sizeConfig.name || property.sizeConfig.label;
+                        if (scVal && !/^[0-9a-fA-F]{24}$/.test(String(scVal))) return String(scVal);
+                    } else if (typeof property.sizeConfig === 'string') {
+                        const resolved = getLookupValue('Size', property.sizeConfig);
+                        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) return String(resolved);
+                        const matched = (sizes || []).find(s => String(s.id || s._id) === String(property.sizeConfig));
+                        if (matched?.name) return matched.name;
+                    }
+                }
+                if (typeof property.size === 'string' && !/^[0-9a-fA-F]{24}$/.test(property.size)) {
+                    return property.size;
+                }
+                if (property.size && typeof property.size === 'object') {
+                    if (property.size.name) return property.size.name;
+                    if (property.size.value !== undefined) return `${property.size.value} ${property.size.unit || ''}`.trim();
+                }
+                return '';
+            };
+
+            const initialSizeConfig = (typeof property.sizeConfig === 'object' && property.sizeConfig !== null)
+                ? (property.sizeConfig._id || property.sizeConfig.id || null)
+                : (typeof property.sizeConfig === 'string' && /^[0-9a-fA-F]{24}$/.test(property.sizeConfig) ? property.sizeConfig : null);
+
             setFormData(prev => ({
                 ...prev,
                 ...property,
@@ -151,7 +180,8 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 unitType: resolveField(property.unitType, 'UnitType').toLowerCase(),
                 category: resolveField(property.category, 'Category') || 'Residential',
                 block: property.block?.name || property.block || '',
-                size: property.sizeConfig?.lookup_value || property.sizeConfig?.name || property.sizeLabel || property.size || '',
+                size: resolveInitialSize(),
+                sizeConfig: initialSizeConfig,
                 sizeType: resolveField(property.sizeType, 'PropertyType'),
                 locationSearch: property.locationSearch || property.location || '',
                 status: resolveField(property.status, 'Status') || 'Active',
@@ -665,14 +695,24 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 delete payload.kmlFileName;
             }
 
+            // Enterprise Size resolution
+            const matchedSizeObj = (sizes || []).find(s => 
+                s.name === payload.size || 
+                s.lookup_value === payload.size ||
+                (payload.sizeConfig && String(s.id || s._id) === String(payload.sizeConfig))
+            );
+            const resolvedSizeConfig = matchedSizeObj?.id || matchedSizeObj?._id 
+                || getLookupId('Size', payload.size)
+                || (typeof payload.sizeConfig === 'string' && /^[0-9a-fA-F]{24}$/.test(payload.sizeConfig) ? payload.sizeConfig : null);
+
             const transformedData = {
                 ...payload,
                 category: getLookupId('Category', payload.category),
                 subCategory: getLookupId('SubCategory', payload.subCategory),
                 unitType: getLookupId('UnitType', payload.unitType),
                 sizeType: getLookupId('PropertyType', payload.sizeType), // Resolve sizeType against PropertyType
-                sizeConfig: getLookupId('Size', payload.size) || payload.sizeConfig,
-                sizeLabel: payload.size, // Retain string label for reference
+                sizeConfig: resolvedSizeConfig,
+                sizeLabel: typeof payload.size === 'string' ? payload.size.trim() : (payload.sizeLabel || ''),
                 size: (typeof payload.size === 'string' && payload.size.trim() !== '') ? {
                     value: parseFloat((payload.size.match(/[\d.]+/)?.[0]) || 0),
                     unit: payload.size.replace(/[\d.]+/g, '').trim() || 'Sq.Yd.'

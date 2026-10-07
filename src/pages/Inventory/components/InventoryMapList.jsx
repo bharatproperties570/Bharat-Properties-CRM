@@ -114,7 +114,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                                             <div style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? '#60a5fa' : '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.6rem' }}></i>
-                                                {renderValue(getLookupValue('Size', item.sizeConfig)) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit)}`}
+                                                {renderValue(item.sizeLabel) || renderValue(getLookupValue('Size', item.sizeConfig)) || (typeof item.size === 'object' && item.size ? `${renderValue(item.size.value)} ${renderValue(item.size.unit || '')}`.trim() : `${renderValue(item.size)} ${renderValue(item.sizeUnit || '')}`.trim())}
                                             </div>
                                             
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

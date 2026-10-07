@@ -1158,13 +1158,21 @@ export const addInventory = async (req, res) => {
         if (data.sizeConfig !== undefined) data.sizeConfig = await resolveLookup('Size', data.sizeConfig);
         if (data.sizeLabel !== undefined) {
             data.sizeLabel = String(data.sizeLabel || '').trim();
-            if (!data.sizeConfig && data.sizeLabel) {
+            if (data.sizeLabel) {
                 const matchedSizeLookup = await Lookup.findOne({
                     lookup_type: 'Size',
                     lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
-                }).select('_id').lean();
+                }).select('_id lookup_value').lean();
                 if (matchedSizeLookup) {
                     data.sizeConfig = matchedSizeLookup._id;
+                }
+            }
+        } else if (data.sizeConfig) {
+            const scId = typeof data.sizeConfig === 'object' ? data.sizeConfig._id : data.sizeConfig;
+            if (scId && mongoose.Types.ObjectId.isValid(scId)) {
+                const matchedSizeLookup = await Lookup.findById(scId).select('lookup_value').lean();
+                if (matchedSizeLookup?.lookup_value) {
+                    data.sizeLabel = matchedSizeLookup.lookup_value;
                 }
             }
         }
@@ -1344,13 +1352,21 @@ export const updateInventory = async (req, res) => {
 
         if (data.sizeLabel !== undefined) {
             data.sizeLabel = String(data.sizeLabel || '').trim();
-            if (!data.sizeConfig && data.sizeLabel) {
+            if (data.sizeLabel) {
                 const matchedSizeLookup = await Lookup.findOne({
                     lookup_type: 'Size',
                     lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
-                }).select('_id').lean();
+                }).select('_id lookup_value').lean();
                 if (matchedSizeLookup) {
                     data.sizeConfig = matchedSizeLookup._id;
+                }
+            }
+        } else if (data.sizeConfig) {
+            const scId = typeof data.sizeConfig === 'object' ? data.sizeConfig._id : data.sizeConfig;
+            if (scId && mongoose.Types.ObjectId.isValid(scId)) {
+                const matchedSizeLookup = await Lookup.findById(scId).select('lookup_value').lean();
+                if (matchedSizeLookup?.lookup_value) {
+                    data.sizeLabel = matchedSizeLookup.lookup_value;
                 }
             }
         }

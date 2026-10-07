@@ -231,7 +231,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
                         )}
                     </div>
                 </div>
-                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name, sizeType) => setFormData(prev => ({ ...prev, size: name, sizeType: sizeType }))} />
+                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name, sizeType, sizeId) => setFormData(prev => ({ ...prev, size: name, sizeType: sizeType, sizeConfig: sizeId || prev.sizeConfig }))} />
                 <style>{`
                     .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
                     .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
