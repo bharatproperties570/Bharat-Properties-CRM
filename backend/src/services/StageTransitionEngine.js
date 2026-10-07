@@ -30,9 +30,13 @@ import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
-import { acquireRevivalSyncIssuer } from '../../utils/ServerAuthorityProof.js';
 
-const issueRevivalSyncCapability = acquireRevivalSyncIssuer();
+let issueRevivalSyncCapability = null;
+
+export const setRevivalSyncIssuer = (issuer) => {
+    if (issueRevivalSyncCapability) throw new Error("SECURITY_VIOLATION: RevivalSync capability issuer already bound");
+    issueRevivalSyncCapability = issuer;
+};
 import DealSyncEngine from './DealSyncEngine.js';
 import AuditLog from '../../models/AuditLog.js';
 import StageTransitionLog from '../../models/StageTransitionLog.js';

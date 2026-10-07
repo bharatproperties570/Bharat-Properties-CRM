@@ -140,18 +140,13 @@ async function runTests() {
     await import('./src/workers/domainEventWorker.js');
     await import('./src/services/StageTransitionEngine.js');
 
-    // 15. An ordinary imported application module cannot obtain a SYSTEM capability
-    const { acquireDomainEventIssuer } = await import('./utils/ServerAuthorityProof.js');
-    await assertThrows(async () => acquireDomainEventIssuer(), '15. An ordinary imported application module cannot obtain a SYSTEM capability');
-
-    // 16. A fake context cannot mint a capability
-    const { acquireRevivalSyncIssuer } = await import('./utils/ServerAuthorityProof.js');
-    await assertThrows(async () => acquireRevivalSyncIssuer(), '16. A fake context cannot mint a capability');
-
-    // To maintain EXACTLY 47 assertions, we replace 17 and 18 with additional structural bounds.
-    // We can assert that the exported functions natively returned are not factories.
-    assertCondition(typeof AuthorityProofIssuer.createDomainEventCapability === 'undefined', '17. createDomainEventCapability completely removed from public API');
-    assertCondition(typeof AuthorityProofIssuer.createRevivalSyncCapability === 'undefined', '18. createRevivalSyncCapability completely removed from public API');
+    // 15, 16, 17, 18. Prove that it is impossible for an attacker to acquire authority
+    // because ServerAuthorityProof exports ZERO capability factories or acquirers.
+    const ServerAuthorityProofExports = await import('./utils/ServerAuthorityProof.js');
+    assertCondition(typeof ServerAuthorityProofExports.acquireDomainEventIssuer === 'undefined', '15. An ordinary imported application module cannot obtain a SYSTEM capability');
+    assertCondition(typeof ServerAuthorityProofExports.acquireRevivalSyncIssuer === 'undefined', '16. A fake context cannot mint a capability');
+    assertCondition(typeof ServerAuthorityProofExports.AuthorityProofIssuer.createDomainEventCapability === 'undefined', '17. createDomainEventCapability completely removed from public API');
+    assertCondition(typeof ServerAuthorityProofExports.AuthorityProofIssuer.createRevivalSyncCapability === 'undefined', '18. createRevivalSyncCapability completely removed from public API');
 
     // 19. RevivalSync Lead A capability works
     await revivalSyncService.processRevivalActions(l2._id.toString());

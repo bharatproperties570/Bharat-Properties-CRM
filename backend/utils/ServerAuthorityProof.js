@@ -88,42 +88,41 @@ export class AuthorityProofIssuer {
     }
 }
 
-let domainEventIssuerAcquired = false;
-export const acquireDomainEventIssuer = () => {
-    if (domainEventIssuerAcquired) {
-        throw new Error("SECURITY_VIOLATION: DomainEvent capability issuer already bound");
-    }
-    domainEventIssuerAcquired = true;
+// ---------------------------------------------------------
+// TRUSTED BOOTSTRAP WIRING
+// ---------------------------------------------------------
+// Instead of exporting acquirers (which an attacker could call first),
+// ServerAuthorityProof directly imports the legitimate consumers and
+// pushes the capability issuers into their private closures.
+// This makes it impossible for an arbitrary module to acquire the issuers.
 
-    return (jobData) => {
-        if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-        const { eventId, aggregateId, aggregateType, eventType } = jobData;
-        if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
-        const capability = {
-            eventId,
-            aggregateId,
-            aggregateType,
-            eventType,
-            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
-        };
-        return Object.freeze(capability);
+import { setDomainEventIssuer } from '../src/workers/domainEventWorker.js';
+import { setRevivalSyncIssuer } from '../src/services/StageTransitionEngine.js';
+
+const domainEventIssuer = (jobData) => {
+    if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+    const { eventId, aggregateId, aggregateType, eventType } = jobData;
+    if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+    const capability = {
+        eventId,
+        aggregateId,
+        aggregateType,
+        eventType,
+        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
     };
+    return Object.freeze(capability);
 };
 
-let revivalSyncIssuerAcquired = false;
-export const acquireRevivalSyncIssuer = () => {
-    if (revivalSyncIssuerAcquired) {
-        throw new Error("SECURITY_VIOLATION: RevivalSync capability issuer already bound");
-    }
-    revivalSyncIssuerAcquired = true;
-
-    return (leadId) => {
-        if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
-        const capability = {
-            targetId: leadId,
-            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
-        };
-        return Object.freeze(capability);
+const revivalSyncIssuer = (leadId) => {
+    if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+    const capability = {
+        targetId: leadId,
+        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
     };
+    return Object.freeze(capability);
 };
+
+// Push to consumers
+setDomainEventIssuer(domainEventIssuer);
+setRevivalSyncIssuer(revivalSyncIssuer);
 
