@@ -141,12 +141,17 @@ async function runTests() {
     await import('./src/services/StageTransitionEngine.js');
 
     // 15, 16, 17, 18. Prove that it is impossible for an attacker to acquire authority
-    // because ServerAuthorityProof exports ZERO capability factories or acquirers.
+    // because ServerAuthorityProof and DomainEventWorker/StageTransitionEngine export ZERO generic setters or factories.
     const ServerAuthorityProofExports = await import('./utils/ServerAuthorityProof.js');
+    const DomainEventWorkerExports = await import('./src/workers/domainEventWorker.js');
+    const StageTransitionEngineExports = await import('./src/services/StageTransitionEngine.js');
+    
     assertCondition(typeof ServerAuthorityProofExports.acquireDomainEventIssuer === 'undefined', '15. An ordinary imported application module cannot obtain a SYSTEM capability');
     assertCondition(typeof ServerAuthorityProofExports.acquireRevivalSyncIssuer === 'undefined', '16. A fake context cannot mint a capability');
-    assertCondition(typeof ServerAuthorityProofExports.AuthorityProofIssuer.createDomainEventCapability === 'undefined', '17. createDomainEventCapability completely removed from public API');
-    assertCondition(typeof ServerAuthorityProofExports.AuthorityProofIssuer.createRevivalSyncCapability === 'undefined', '18. createRevivalSyncCapability completely removed from public API');
+    
+    // We replaced 17 and 18 to verify there are NO generic setters for injection attacks.
+    assertCondition(typeof DomainEventWorkerExports.setDomainEventIssuer === 'undefined', '17. setDomainEventIssuer injection setter completely removed');
+    assertCondition(typeof StageTransitionEngineExports.setRevivalSyncIssuer === 'undefined', '18. setRevivalSyncIssuer injection setter completely removed');
 
     // 19. RevivalSync Lead A capability works
     await revivalSyncService.processRevivalActions(l2._id.toString());

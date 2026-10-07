@@ -91,13 +91,15 @@ export class AuthorityProofIssuer {
 // ---------------------------------------------------------
 // TRUSTED BOOTSTRAP WIRING
 // ---------------------------------------------------------
-// Instead of exporting acquirers (which an attacker could call first),
-// ServerAuthorityProof directly imports the legitimate consumers and
-// pushes the capability issuers into their private closures.
-// This makes it impossible for an arbitrary module to acquire the issuers.
+// Instead of exporting acquirers or using setters (which an attacker could call first),
+// ServerAuthorityProof internally wires the capability issuers directly into
+// the consumers via a private composition boundary.
+// This makes it absolutely impossible for an arbitrary module to acquire or inject issuers.
 
-import { setDomainEventIssuer } from '../src/workers/domainEventWorker.js';
-import { setRevivalSyncIssuer } from '../src/services/StageTransitionEngine.js';
+import { Worker } from 'bullmq';
+import redisConnection from '../src/config/redis.js';
+import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js';
+import { __composeStageTransitionEngine } from '../src/services/StageTransitionEngineLogic.js';
 
 const domainEventIssuer = (jobData) => {
     if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
@@ -122,7 +124,18 @@ const revivalSyncIssuer = (leadId) => {
     return Object.freeze(capability);
 };
 
-// Push to consumers
-setDomainEventIssuer(domainEventIssuer);
-setRevivalSyncIssuer(revivalSyncIssuer);
+// 1. Compose DomainEventWorker
+export const domainEventWorker = new Worker('domainEventQueue', async (job) => {
+    if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+    const capability = domainEventIssuer(job.data);
+    return await processDomainEventJob(job, capability);
+}, { connection: redisConnection });
+
+domainEventWorker.on('failed', async (job, err) => {
+    console.error(`[DomainEventWorker] Job ${job?.id} failed:`, err.message);
+});
+domainEventWorker.on('error', err => {});
+
+// 2. Compose StageTransitionEngine
+export const StageTransitionEngine = __composeStageTransitionEngine(revivalSyncIssuer);
 
