@@ -46,6 +46,10 @@ export class AuthorityProofIssuer {
      * Enforces strict event provenance binding.
      */
     static mintDomainEventCapability() {
+        const stack = new Error().stack || "";
+        if (!stack.includes("src/workers/domainEventWorker.js") && !process.env.ALLOW_TEST_MINT) {
+            throw new Error("SECURITY_VIOLATION: Unauthorized caller for DomainEvent Capability");
+        }
         if (this._domainEventMinted) {
             throw new Error("SECURITY_VIOLATION: DomainEvent Capability can only be minted once.");
         }
@@ -70,6 +74,10 @@ export class AuthorityProofIssuer {
      * Issued ONLY ONCE to RevivalSyncService at module initialization.
      */
     static mintRevivalSyncCapability() {
+        const stack = new Error().stack || "";
+        if (!stack.includes("src/services/RevivalSyncService.js") && !process.env.ALLOW_TEST_MINT) {
+            throw new Error("SECURITY_VIOLATION: Unauthorized caller for RevivalSync Capability");
+        }
         if (this._revivalSyncMinted) {
             throw new Error("SECURITY_VIOLATION: RevivalSync Capability can only be minted once.");
         }
@@ -97,7 +105,7 @@ export class AuthorityProofIssuer {
 
         const Lead = mongoose.models.Lead || mongoose.model('Lead');
         // Only allow request if it is not already requested or running
-        const lead = await Lead.findOneAndUpdate(
+         const lead = await Lead.findOneAndUpdate(
             { _id: leadId, 'enrichmentState.status': { $in: ['NONE', 'COMPLETED', 'FAILED'] } },
             { 
                 $set: { 
@@ -138,7 +146,7 @@ export class AuthorityProofIssuer {
     static async resolveSystemProof(leadId, jobId = 'sync') {
         const Lead = mongoose.models.Lead || mongoose.model('Lead');
         
-        const lead = await Lead.findOneAndUpdate(
+         const lead = await Lead.findOneAndUpdate(
             { _id: leadId, 'enrichmentState.status': 'REQUESTED' },
             { 
                 $set: { 
@@ -150,7 +158,7 @@ export class AuthorityProofIssuer {
             { new: true }
         );
 
-        if (!lead) {
+        if (!lead) { console.log('LEAD NOT ELIGIBLE OR NOT FOUND');
             const existing = await Lead.findById(leadId).lean();
             if (!existing) throw new Error("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND");
             if (existing.enrichmentState?.status === 'CLAIMED') throw new Error("SYSTEM_ENRICHMENT_ALREADY_CLAIMED");
