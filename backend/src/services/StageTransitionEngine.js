@@ -30,7 +30,9 @@ import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
-import { AuthorityProofIssuer } from '../../utils/ServerAuthorityProof.js';
+import { acquireRevivalSyncIssuer } from '../../utils/ServerAuthorityProof.js';
+
+const issueRevivalSyncCapability = acquireRevivalSyncIssuer();
 import DealSyncEngine from './DealSyncEngine.js';
 import AuditLog from '../../models/AuditLog.js';
 import StageTransitionLog from '../../models/StageTransitionLog.js';
@@ -1228,7 +1230,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // 🚀 LEAD REVIVAL AUTOMATION
     if (prevStageName.toLowerCase() === 'dormant' && newStageName.toLowerCase() === 'prospect') {
-        const capability = AuthorityProofIssuer.createRevivalSyncCapability(leadId, this);
+        const capability = issueRevivalSyncCapability(leadId);
         RevivalSyncService.processRevivalActions(leadId, triggeredByUser, capability).catch(err => {
             console.error('[StageTransitionEngine] Revival automation trigger failed:', err.message);
         });

@@ -1,10 +1,13 @@
 import { Worker } from 'bullmq';
 import { processDomainEventJob } from './domainEventWorkerLogic.js';
-import { AuthorityProofIssuer } from '../../utils/ServerAuthorityProof.js';
+import { acquireDomainEventIssuer } from '../../utils/ServerAuthorityProof.js';
 import redisConnection from '../config/redis.js';
 
+const issueDomainEventCapability = acquireDomainEventIssuer();
+
 export const domainEventWorker = new Worker('domainEventQueue', async (job) => {
-    const capability = AuthorityProofIssuer.createDomainEventCapability(job);
+    if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+    const capability = issueDomainEventCapability(job.data);
     return await processDomainEventJob(job, capability);
 }, { connection: redisConnection });
 

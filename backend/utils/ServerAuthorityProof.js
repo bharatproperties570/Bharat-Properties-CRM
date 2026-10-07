@@ -32,35 +32,6 @@ export class ServerAuthorityProof {
 
 export class AuthorityProofIssuer {
     
-    static createDomainEventCapability(job) {
-        if (!job || typeof job.updateProgress !== 'function') {
-            throw new Error("SECURITY_VIOLATION: Untrusted execution provenance");
-        }
-        if (!job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-        const { eventId, aggregateId, aggregateType, eventType } = job.data;
-        if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
-        const capability = {
-            eventId,
-            aggregateId,
-            aggregateType,
-            eventType,
-            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
-        };
-        return Object.freeze(capability);
-    }
-
-    static createRevivalSyncCapability(leadId, context) {
-        if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
-        if (!context || !context.constructor || context.constructor.name !== 'StageTransitionEngine') {
-            throw new Error("SECURITY_VIOLATION: Untrusted execution provenance");
-        }
-        const capability = {
-            targetId: leadId,
-            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
-        };
-        return Object.freeze(capability);
-    }
-
     static async resolveSystemProof(leadId, jobId = 'sync') {
         const Lead = mongoose.model("Lead");
         const updated = await Lead.findOneAndUpdate(
@@ -116,4 +87,43 @@ export class AuthorityProofIssuer {
         return validProofs.has(proof);
     }
 }
+
+let domainEventIssuerAcquired = false;
+export const acquireDomainEventIssuer = () => {
+    if (domainEventIssuerAcquired) {
+        throw new Error("SECURITY_VIOLATION: DomainEvent capability issuer already bound");
+    }
+    domainEventIssuerAcquired = true;
+
+    return (jobData) => {
+        if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+        const { eventId, aggregateId, aggregateType, eventType } = jobData;
+        if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+        const capability = {
+            eventId,
+            aggregateId,
+            aggregateType,
+            eventType,
+            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
+        };
+        return Object.freeze(capability);
+    };
+};
+
+let revivalSyncIssuerAcquired = false;
+export const acquireRevivalSyncIssuer = () => {
+    if (revivalSyncIssuerAcquired) {
+        throw new Error("SECURITY_VIOLATION: RevivalSync capability issuer already bound");
+    }
+    revivalSyncIssuerAcquired = true;
+
+    return (leadId) => {
+        if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+        const capability = {
+            targetId: leadId,
+            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
+        };
+        return Object.freeze(capability);
+    };
+};
 
