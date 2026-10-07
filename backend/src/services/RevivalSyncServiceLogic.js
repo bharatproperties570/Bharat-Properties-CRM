@@ -7,15 +7,13 @@ import { runFullLeadEnrichment } from '../utils/enrichmentEngine.js';
 
 
 export class RevivalSyncServiceLogic {
-    constructor(revivalSyncCapabilityFactory) {
-        this.revivalSyncCapabilityFactory = revivalSyncCapabilityFactory;
-    }
+
     /**
      * Process automated actions for a revived lead
      * @param {string} leadId 
      * @param {string} triggeredByUserId 
      */
-    async processRevivalActions(leadId, triggeredByUserId) {
+    async processRevivalActions(leadId, triggeredByUserId, capability) {
         try {
             console.log(`[RevivalSync] Processing automated actions for Lead: ${leadId}`);
 
@@ -29,7 +27,7 @@ export class RevivalSyncServiceLogic {
             await this._sendInternalAlerts(lead, triggeredByUserId);
 
             // 3. Trigger Automatic Enrichment
-            const capability = await this._triggerAutoEnrichment(leadId);
+            await this._triggerAutoEnrichment(capability);
 
             // 4. Log Audit Event
             await AuditLog.logEntityUpdate(
@@ -108,12 +106,10 @@ export class RevivalSyncServiceLogic {
         }
     }
 
-    async _triggerAutoEnrichment(leadId) {
+    async _triggerAutoEnrichment(capability) {
         try {
-            console.log(`[RevivalSync] Triggering auto-enrichment for Lead: ${leadId}`);
-            const capability = this.revivalSyncCapabilityFactory ? this.revivalSyncCapabilityFactory(leadId) : null;
+            console.log(`[RevivalSync] Triggering auto-enrichment for Lead: ${capability ? capability.targetId : "unknown"}`);
             if (capability) await capability.requestSystemEnrichment();
-            return capability;
         } catch (err) {
             console.warn('[RevivalSync] Enrichment failed:', err.message);
         }

@@ -9,9 +9,7 @@ import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
 
 
-export const createDomainEventProcessor = (domainEventCapabilityFactory) => {
-    return async (job) => {
-    const capability = domainEventCapabilityFactory ? domainEventCapabilityFactory(job) : null;
+export const processDomainEventJob = async (job, capability) => {
 
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
 
@@ -808,5 +806,4 @@ export const createDomainEventProcessor = (domainEventCapabilityFactory) => {
     }
 
     return { success: true, capability };
-};
 };

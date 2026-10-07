@@ -18,29 +18,6 @@ async function _enqueueSystemEnrichment(leadId) {
     await queues.enrichmentQueue.add('enrichLead', { leadId });
 }
 
-const createDomainEventCapability = (job) => {
-    if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-    const { eventId, aggregateId, aggregateType, eventType } = job.data;
-    if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
-    const capability = {
-        eventId,
-        aggregateId,
-        aggregateType,
-        eventType,
-        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
-    };
-    return Object.freeze(capability);
-};
-
-const createRevivalSyncCapability = (leadId) => {
-    if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
-    const capability = {
-        targetId: leadId,
-        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
-    };
-    return Object.freeze(capability);
-};
-
 export class ServerAuthorityProof {
     constructor(secret, targetId, actorType = 'SYSTEM') {
         if (secret !== AUTHORITY_SECRET) {
@@ -54,6 +31,36 @@ export class ServerAuthorityProof {
 }
 
 export class AuthorityProofIssuer {
+    
+    static createDomainEventCapability(job) {
+        if (!job || typeof job.updateProgress !== 'function') {
+            throw new Error("SECURITY_VIOLATION: Untrusted execution provenance");
+        }
+        if (!job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
+        const { eventId, aggregateId, aggregateType, eventType } = job.data;
+        if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+        const capability = {
+            eventId,
+            aggregateId,
+            aggregateType,
+            eventType,
+            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
+        };
+        return Object.freeze(capability);
+    }
+
+    static createRevivalSyncCapability(leadId, context) {
+        if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+        if (!context || !context.constructor || context.constructor.name !== 'StageTransitionEngine') {
+            throw new Error("SECURITY_VIOLATION: Untrusted execution provenance");
+        }
+        const capability = {
+            targetId: leadId,
+            requestSystemEnrichment: async () => await _enqueueSystemEnrichment(leadId)
+        };
+        return Object.freeze(capability);
+    }
+
     static async resolveSystemProof(leadId, jobId = 'sync') {
         const Lead = mongoose.model("Lead");
         const updated = await Lead.findOneAndUpdate(
@@ -110,16 +117,3 @@ export class AuthorityProofIssuer {
     }
 }
 
-// ============================================================================
-// STRUCTURAL CAPABILITY INJECTION (MODULE OWNERSHIP)
-// ============================================================================
-// By importing the raw logic here and exporting the wired instances, 
-// ServerAuthorityProof OWNS the initialization boundary.
-// Controllers cannot acquire the capability factories because they are NOT exported.
-// They are passed strictly to the domain/service logic.
-
-import { createDomainEventProcessor } from '../src/workers/domainEventWorkerLogic.js';
-import { RevivalSyncServiceLogic } from '../src/services/RevivalSyncServiceLogic.js';
-
-export const processDomainEvent = createDomainEventProcessor(createDomainEventCapability);
-export const revivalSyncService = new RevivalSyncServiceLogic(createRevivalSyncCapability);
