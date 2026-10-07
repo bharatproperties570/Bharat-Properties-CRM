@@ -4,6 +4,9 @@ import mongoose from 'mongoose';
 import { executeEffect } from './effectOrchestrator.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 
+import { AuthorityProofIssuer } from '../../utils/ServerAuthorityProof.js';
+const domainEventCapability = AuthorityProofIssuer.mintDomainEventCapability();
+
 export const processDomainEvent = async (job) => {
     const { eventId, eventType, aggregateType, aggregateId, payload, correlationId } = job.data;
 
@@ -782,8 +785,7 @@ export const processDomainEvent = async (job) => {
             effects.push({
                 key: 'enrichment',
                 fn: async () => {
-                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
-                    await AuthorityProofIssuer.requestFromDomainEvent(aggregateId, 'ManualEnrichmentRequested');
+                    await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, aggregateId, eventType);
                 }
             });
             const failures = [];

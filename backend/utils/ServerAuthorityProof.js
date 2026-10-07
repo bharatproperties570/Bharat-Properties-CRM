@@ -39,15 +39,51 @@ export class AuthorityProofIssuer {
      * Only trusted execution contexts (like domainEventWorker) may request SYSTEM enrichment.
      * The public API has been removed to prevent unauthorized manufacturing of SYSTEM authority.
      */
-    static async requestFromDomainEvent(leadId, eventType) {
-        if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
-            throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
+    
+    /**
+     * INTERNAL DOMAIN CAPABILITY (Unforgeable)
+     * Issued ONLY ONCE to the DomainEventWorker at module initialization.
+     * Enforces strict event provenance binding.
+     */
+    static mintDomainEventCapability() {
+        if (this._domainEventMinted) {
+            throw new Error("SECURITY_VIOLATION: DomainEvent Capability can only be minted once.");
         }
-        return this._enqueueSystemEnrichment(leadId);
+        this._domainEventMinted = true;
+        const TOKEN = Symbol('DomainEventCapability');
+
+        return {
+            token: TOKEN,
+            requestSystemEnrichment: async (callerToken, eventId, aggregateType, aggregateId, eventType) => {
+                if (callerToken !== TOKEN) throw new Error("SECURITY_VIOLATION: Invalid DomainEvent Capability");
+                if (!eventId || !aggregateType || !aggregateId || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+                if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
+                    throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
+                }
+                return AuthorityProofIssuer._enqueueSystemEnrichment(aggregateId);
+            }
+        };
     }
 
-    static async requestFromRevivalSync(leadId) {
-        return this._enqueueSystemEnrichment(leadId);
+    /**
+     * REVIVAL SYNC CAPABILITY (Unforgeable)
+     * Issued ONLY ONCE to RevivalSyncService at module initialization.
+     */
+    static mintRevivalSyncCapability() {
+        if (this._revivalSyncMinted) {
+            throw new Error("SECURITY_VIOLATION: RevivalSync Capability can only be minted once.");
+        }
+        this._revivalSyncMinted = true;
+        const TOKEN = Symbol('RevivalSyncCapability');
+
+        return {
+            token: TOKEN,
+            requestSystemEnrichment: async (callerToken, aggregateId) => {
+                if (callerToken !== TOKEN) throw new Error("SECURITY_VIOLATION: Invalid RevivalSync Capability");
+                if (!aggregateId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+                return AuthorityProofIssuer._enqueueSystemEnrichment(aggregateId);
+            }
+        };
     }
 
     static async requestFromTest(leadId) {

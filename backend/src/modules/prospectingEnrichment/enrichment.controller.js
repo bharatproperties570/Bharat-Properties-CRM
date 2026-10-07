@@ -111,15 +111,15 @@ export const runEnrichment = async (req, res, next) => {
     try {
         const { leadId } = req.params;
 
-        import('../../../models/OutboxEvent.js').then(async ({ default: OutboxEvent }) => {
-            await OutboxEvent.create([{
-                eventId: (await import('uuid')).v4(),
-                eventType: 'ManualEnrichmentRequested',
-                aggregateType: 'Lead',
-                aggregateId: leadId,
-                payload: { requestedBy: req.user?._id }
-            }]);
-        });
+        const { default: OutboxEvent } = await import('../../../models/OutboxEvent.js');
+        const { v4 } = await import('uuid');
+        await OutboxEvent.create([{
+            eventId: v4(),
+            eventType: 'ManualEnrichmentRequested',
+            aggregateType: 'Lead',
+            aggregateId: leadId,
+            payload: { requestedBy: req.user?._id }
+        }]);
 
         const updatedLead = await Lead.findById(leadId);
 
