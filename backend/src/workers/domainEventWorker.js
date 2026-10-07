@@ -24,7 +24,7 @@ export const processDomainEvent = async (job) => {
 
             await executeEffect(eventId, 'enrichment', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead) await AuthorityProofIssuer.requestSystemEnrichment(freshLead, { actorType: 'SYSTEM', trustedSource: 'DOMAIN_EVENT', authorizedOperation: 'ENRICHMENT_SYNC' });
+                if (freshLead) await AuthorityProofIssuer.requestFromDomainEvent(freshLead._id, 'LeadCreated');
             });
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {
@@ -619,6 +619,22 @@ export const processDomainEvent = async (job) => {
             const effects = [];
 
             effects.push({
+                key: 'scoring',
+                fn: async () => {
+                    const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
+                    await LeadScoringService.computeAndSave(aggregateId);
+                }
+            });
+
+            effects.push({
+                key: 'enrichment',
+                fn: async () => {
+                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                    await AuthorityProofIssuer.requestFromDomainEvent(aggregateId, 'LeadUpdated');
+                }
+            });
+
+            effects.push({
                 key: 'whatsapp',
                 fn: async () => {
                     let newStageStr = String(lead.stage?.lookup_value || lead.stage || '').toLowerCase();
@@ -758,6 +774,28 @@ export const processDomainEvent = async (job) => {
                 }
             }
             if (failures.length > 0) throw new AggregateError(failures, `ContactUpdated event encountered ${failures.length} effect failures.`);
+            break;
+        }
+        
+        case 'ManualEnrichmentRequested': {
+            const effects = [];
+            effects.push({
+                key: 'enrichment',
+                fn: async () => {
+                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                    await AuthorityProofIssuer.requestFromDomainEvent(aggregateId, 'ManualEnrichmentRequested');
+                }
+            });
+            const failures = [];
+            for (const effect of effects) {
+                try {
+                    await executeEffect(eventId, effect.key, aggregateType, aggregateId, effect.fn);
+                } catch (err) {
+                    console.error(`[DomainEventWorker] ManualEnrichmentRequested effect ${effect.key} failed:`, err.message);
+                    failures.push(err);
+                }
+            }
+            if (failures.length > 0) throw new AggregateError(failures, `ManualEnrichmentRequested event encountered ${failures.length} effect failures.`);
             break;
         }
         default:

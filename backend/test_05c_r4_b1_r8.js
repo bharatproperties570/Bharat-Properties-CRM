@@ -53,7 +53,7 @@ async function runTests() {
     // 4. Mutated proof rejected (it's frozen, so mutation throws in strict mode)
     const validP = await AuthorityProofIssuer.resolveWebhookProofs('1234567890');
     // Webhook returns empty array here, let's make a real one
-    await AuthorityProofIssuer.requestSystemEnrichment(lead1._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    await AuthorityProofIssuer.requestFromTest(lead1._id);
     const validProof = await AuthorityProofIssuer.resolveSystemProof(lead1._id, 'jobA');
     try {
         "use strict";
@@ -67,13 +67,13 @@ async function runTests() {
     console.log("\n--- B. Request creation ---");
     // 5. NONE -> REQUESTED
     const lead5 = await Lead.create({ firstName: 'Lead5', mobile: '5555500005', owner: user1._id });
-    const reqRes = await AuthorityProofIssuer.requestSystemEnrichment(lead5._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    const reqRes = await AuthorityProofIssuer.requestFromTest(lead5._id);
     assert.strictEqual(reqRes.success, true);
     assert.strictEqual(reqRes.status, 'REQUESTED');
     console.log("5. PASS"); testsRun++;
 
     // 6. REQUESTED duplicate
-    const reqDup = await AuthorityProofIssuer.requestSystemEnrichment(lead5._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    const reqDup = await AuthorityProofIssuer.requestFromTest(lead5._id);
     assert.strictEqual(reqDup.success, false);
     assert.strictEqual(reqDup.reason, 'ALREADY_REQUESTED_OR_CLAIMED');
     console.log("6. PASS"); testsRun++;
@@ -116,7 +116,7 @@ async function runTests() {
     console.log("\n--- C. Claim ---");
     // 11. REQUESTED -> CLAIMED
     const lead11 = await Lead.create({ firstName: 'Lead11', mobile: '1110001110', owner: user1._id });
-    await AuthorityProofIssuer.requestSystemEnrichment(lead11._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    await AuthorityProofIssuer.requestFromTest(lead11._id);
     const proof11 = await AuthorityProofIssuer.resolveSystemProof(lead11._id, 'job11');
     assert.strictEqual(proof11.targetId, lead11._id.toString());
     const l11After = await Lead.findById(lead11._id);
@@ -125,7 +125,7 @@ async function runTests() {
 
     // 12. Two concurrent workers
     const lead12 = await Lead.create({ firstName: 'Lead12', mobile: '1210001210', owner: user1._id });
-    await AuthorityProofIssuer.requestSystemEnrichment(lead12._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    await AuthorityProofIssuer.requestFromTest(lead12._id);
     const p12_1 = AuthorityProofIssuer.resolveSystemProof(lead12._id, 'w1');
     const p12_2 = AuthorityProofIssuer.resolveSystemProof(lead12._id, 'w2');
     const res12 = await Promise.all([p12_1, p12_2].map(p => p.catch(e => e)));
@@ -144,7 +144,7 @@ async function runTests() {
 
     console.log("\n--- D. Execution proof ---");
     const leadEx = await Lead.create({ firstName: 'LeadEx', mobile: '3330003330', owner: user1._id });
-    await AuthorityProofIssuer.requestSystemEnrichment(leadEx._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    await AuthorityProofIssuer.requestFromTest(leadEx._id);
     const proofEx = await AuthorityProofIssuer.resolveSystemProof(leadEx._id, 'jobEx');
     
     // 15. Without proof
@@ -183,12 +183,12 @@ async function runTests() {
     // 22. Valid proof permits (Tested via 20)
     console.log("22. PASS"); testsRun++;
     // 23, 24, 25. Caller tampering blocked via frozen objects (Tested via 4, 19)
-    console.log("23, 24, 25. PASS"); testsRun+=3;
+    console.log("23, 24, 25. PASS"); testsRun++;
 
     console.log("\n--- F. Failure semantics ---");
     // 26, 27, 28, 29, 30 Worker semantics
         const leadFail = await Lead.create({ firstName: 'F', mobile: '9990009990', owner: user1._id });
-    await AuthorityProofIssuer.requestSystemEnrichment(leadFail._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    await AuthorityProofIssuer.requestFromTest(leadFail._id);
     
     // We mock findByIdAndUpdate to throw inside enrichment
     const origFind = Lead.findByIdAndUpdate;
@@ -199,15 +199,23 @@ async function runTests() {
         return origFind.apply(this, args);
     };
 
-    await new Promise(r => setTimeout(r, 1000)); // wait for background worker to process it
+    
+    // Deterministic worker execution
+    const mockJob = { id: 'test-job', data: { leadId: leadFail._id } };
+    try {
+        await enrichmentWorker.processor(mockJob);
+    } catch(err) {
+        // expected to fail
+    }
+
     Lead.findByIdAndUpdate = origFind; // Restore
     
     const leadFailAfter = await Lead.findById(leadFail._id);
     assert.strictEqual(leadFailAfter.enrichmentState.status, 'FAILED');
-    console.log("26, 27, 28, 29. PASS"); testsRun+=4;
+    console.log("26, 27, 28, 29. PASS"); testsRun++;
 
     // 30. Retry via REQUESTED
-    const req30 = await AuthorityProofIssuer.requestSystemEnrichment(leadFail._id, { actorType: 'SYSTEM', trustedSource: 'SYSTEM_TEST', authorizedOperation: 'ENRICHMENT_TEST' });
+    const req30 = await AuthorityProofIssuer.requestFromTest(leadFail._id);
     assert.strictEqual(req30.success, true);
     assert.strictEqual(req30.status, 'REQUESTED');
     console.log("30. PASS"); testsRun++;

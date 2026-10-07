@@ -1174,13 +1174,7 @@ export const updateLead = async (req, res, next) => {
                     mobile: finalLead.mobile 
                 });
             }
-            // Auto-run Enrichment & Scoring (wrapped in try-catch)
-            try {
-                await AuthorityProofIssuer.requestSystemEnrichment(finalLead._id, { actorType: 'SYSTEM', trustedSource: 'LEAD_CREATION', authorizedOperation: 'ENRICHMENT_SYNC' });
-                await LeadScoringService.computeAndSave(finalLead._id);
-            } catch (enrichError) {
-                console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);
-            }
+            // Enrichment and Scoring are now handled by Domain Event Worker via OutboxEvent
 
             // ─── Phase 5: AI Audit Trail (SaaS Grade Persistence) ────────────
             if (req.body.source === 'AI_PROFILER') {

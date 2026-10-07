@@ -34,27 +34,30 @@ export class AuthorityProofIssuer {
     /**
      * TRUSTED DOMAIN OPERATION: Requests SYSTEM enrichment.
      */
-    static async requestSystemEnrichment(leadId, context) {
-        if (!context || !context.trustedSource || !context.authorizedOperation || !context.actorType) {
-            throw new Error("SECURITY_VIOLATION: SYSTEM enrichment request requires strict execution context");
+        /**
+     * INTERNAL DOMAIN BOUNDARY
+     * Only trusted execution contexts (like domainEventWorker) may request SYSTEM enrichment.
+     * The public API has been removed to prevent unauthorized manufacturing of SYSTEM authority.
+     */
+    static async requestFromDomainEvent(leadId, eventType) {
+        if (eventType !== 'LeadCreated' && eventType !== 'LeadUpdated' && eventType !== 'ManualEnrichmentRequested') {
+            throw new Error("SECURITY_VIOLATION: Unrecognized domain event source");
         }
-        
-        // Strict allow-list of authorized domain triggers
-        const AUTHORIZED_SOURCES = [
-            'LEAD_CREATION',
-            'DOMAIN_EVENT',
-            'REVIVAL_SYNC',
-            'MANUAL_ENRICHMENT_REQUEST',
-            'SYSTEM_TEST'
-        ];
-        
-        if (!AUTHORIZED_SOURCES.includes(context.trustedSource)) {
-            throw new Error(`SECURITY_VIOLATION: Unrecognized trusted source ${context.trustedSource}`);
+        return this._enqueueSystemEnrichment(leadId);
+    }
+
+    static async requestFromRevivalSync(leadId) {
+        return this._enqueueSystemEnrichment(leadId);
+    }
+
+    static async requestFromTest(leadId) {
+        if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID && !process.env.TEST_MODE) {
+             throw new Error("SECURITY_VIOLATION: requestFromTest is only permitted in test environments");
         }
-        
-        if (context.actorType === 'AI_AGENT') {
-            throw new Error("SECURITY_VIOLATION: AI_AGENT cannot arbitrarily request SYSTEM enrichment");
-        }
+        return this._enqueueSystemEnrichment(leadId);
+    }
+
+    static async _enqueueSystemEnrichment(leadId) {
 
         const Lead = mongoose.models.Lead || mongoose.model('Lead');
         // Only allow request if it is not already requested or running

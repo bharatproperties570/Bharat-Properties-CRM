@@ -111,7 +111,15 @@ export const runEnrichment = async (req, res, next) => {
     try {
         const { leadId } = req.params;
 
-        await AuthorityProofIssuer.requestSystemEnrichment(leadId, { actorType: 'SYSTEM', trustedSource: 'MANUAL_ENRICHMENT_REQUEST', authorizedOperation: 'ENRICHMENT_SYNC' });
+        import('../../../models/OutboxEvent.js').then(async ({ default: OutboxEvent }) => {
+            await OutboxEvent.create([{
+                eventId: (await import('uuid')).v4(),
+                eventType: 'ManualEnrichmentRequested',
+                aggregateType: 'Lead',
+                aggregateId: leadId,
+                payload: { requestedBy: req.user?._id }
+            }]);
+        });
 
         const updatedLead = await Lead.findById(leadId);
 
@@ -128,13 +136,7 @@ export const runEnrichment = async (req, res, next) => {
  * Run Manual Margin Detection for a Deal
  */
 export const runMarginDetection = async (req, res, next) => {
-    try {
-        const { dealId } = req.params;
-        const result = await detectMarginOpportunity(dealId);
-        res.status(200).json({ success: true, negotiation_window: result });
-    } catch (error) {
-        next(error);
-    }
+    return next(new AppError('SECURITY_VIOLATION: Margin detection can only be triggered via authorized WEBHOOK pipelines.', 403));
 };
 
 /**
