@@ -14,7 +14,6 @@ const validateContext = (targetId, executionContext, requiredActor = 'SYSTEM') =
     if (!executionContext || !executionContext.authorizationProof) {
         throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
     }
-    console.log("proofModule.ServerAuthorityProof is:", proofModule.ServerAuthorityProof, typeof proofModule.ServerAuthorityProof);
 if (!proofModule.AuthorityProofIssuer.verify(executionContext.authorizationProof)) {
         throw new Error("SECURITY_VIOLATION: Invalid authority proof");
     }
