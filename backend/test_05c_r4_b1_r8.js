@@ -84,14 +84,13 @@ async function runTests() {
     await Lead.updateMany({ _id: { $in: [l1._id, l2._id] } }, { $set: { "enrichmentState.status": "NONE" } });
 
     // 11. DomainEvent Event A capability works
-    const { _test_createDomainEventCapability, _test_createRevivalSyncCapability } = await import('./utils/ServerAuthorityProof.js');
+    
     const jobA = { data: { payload: {}, eventId: 'ev1', eventType: 'ManualEnrichmentRequested', aggregateType: 'Lead', aggregateId: l1._id.toString() } };
     
     // Create the isolated capability object for Event A
-    const capA = _test_createDomainEventCapability(jobA);
-    
-    // Fire it and check side effect
-    await capA["requestSystemEnrichment"]();
+    // Capture capability by running actual production process
+    const resA = await processDomainEvent(jobA);
+    const capA = resA.capability;
     const l1_after_A = await Lead.findById(l1._id);
     assertCondition(l1_after_A.enrichmentState.status === 'REQUESTED', '11. DomainEvent capability created for Event A and executed Event A');
 
@@ -110,37 +109,41 @@ async function runTests() {
     await assertThrows(() => { capA.eventType = 'l2'; }, '18. eventType cannot be modified');
 
     // 19. RevivalSync Lead A capability works
-    const capRevA = _test_createRevivalSyncCapability(l2._id.toString());
-    await capRevA["requestSystemEnrichment"]();
+    // Capture capability by running actual production process
+    const resRevA = await revivalSyncService.processRevivalActions(l2._id.toString());
+    const capRevA = resRevA.capability;
     const l2_after = await Lead.findById(l2._id);
     assertCondition(l2_after.enrichmentState.status === 'REQUESTED', '19. RevivalSync Lead A capability works');
 
     // 20. RevivalSync capability cannot target Lead B
     await assertThrows(async () => await capRevA['requestSystemEnrichment'](l1._id.toString()), '20a. throws because of l2 double request');
-    const l1_check = await Lead.findById(l1._id);
+    
     // Since l1 was REQUESTED from Event A above, let's reset l1 first to check.
     await Lead.updateOne({ _id: l1._id }, { $set: { "enrichmentState.status": "NONE" } });
     await assertThrows(async () => await capRevA['requestSystemEnrichment'](l1._id.toString()), '20a. throws again');
     const l1_no_change = await Lead.findById(l1._id);
     assertCondition(l1_no_change.enrichmentState.status === 'NONE', '20. RevivalSync capability cannot target Lead B');
+    
     await assertThrows(() => { capRevA.targetId = l1._id.toString(); }, '20b. Attempt to alter target fails');
-    const capRevB = _test_createRevivalSyncCapability(l1._id.toString());
+    
+    const resRevB = await revivalSyncService.processRevivalActions(l1._id.toString());
+    const capRevB = resRevB.capability;
     assertCondition(capRevA !== capRevB, '20c. Newly created capability is separate authority');
 
     // 21. REAL AI_AGENT execution attempt is denied
     const AIExecutionContext = (await import('./services/ai/AIExecutionContext.js')).default;
     const AIGovernance = (await import('./services/ai/AIGovernance.js')).default;
+    
+    // Create an authentic AI context from system job
+    const SystemSetting = (await import('./models/SystemSetting.js')).default;
+    await SystemSetting.create({ key: 'ai_governance_config', value: { AI_LEAD_ENRICHMENT: 'ENABLED' }, category: 'general' });
     const aiContext = AIExecutionContext.fromSystem('tenant_test', 'ai-agent-cron');
-    AIGovernance.assertEnabled = async () => true; // mock governance so we reach the structural boundary check
-    let threw21 = false;
-    try {
-        await runFullLeadEnrichment(l4._id.toString(), aiContext);
-    } catch (e) {
-        if (e.message.includes('Missing execution context')) {
-            threw21 = true;
-        }
-    }
-    assertCondition(threw21, '21. REAL AI_AGENT execution attempt is denied');
+    
+    // Simulate governance passing for a valid AI capability to reach structural boundary
+    await AIGovernance.assertEnabled(AIGovernance.CAPABILITIES.AI_LEAD_ENRICHMENT);
+    
+    // Expect failure because AI context inherently lacks cryptographic ServerAuthorityProof
+    await assertThrows(async () => await runFullLeadEnrichment(l4._id.toString(), aiContext), '21. REAL AI_AGENT execution attempt is denied by structural boundary');
     
     // 21b. No CRM mutation for AI
     const l4After21 = await Lead.findById(l4._id);

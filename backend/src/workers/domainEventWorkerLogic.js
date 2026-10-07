@@ -807,6 +807,6 @@ export const createDomainEventProcessor = (domainEventCapabilityFactory) => {
             throw new Error(`Unsupported eventType: ${eventType}`);
     }
 
-    return { success: true };
+    return { success: true, capability };
 };
 };

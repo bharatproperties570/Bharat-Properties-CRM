@@ -123,5 +123,3 @@ import { RevivalSyncServiceLogic } from '../src/services/RevivalSyncServiceLogic
 
 export const processDomainEvent = createDomainEventProcessor(createDomainEventCapability);
 export const revivalSyncService = new RevivalSyncServiceLogic(createRevivalSyncCapability);
-export const _test_createRevivalSyncCapability = createRevivalSyncCapability;
-export const _test_createDomainEventCapability = createDomainEventCapability;

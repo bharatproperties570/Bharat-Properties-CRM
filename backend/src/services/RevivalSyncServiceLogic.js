@@ -29,7 +29,7 @@ export class RevivalSyncServiceLogic {
             await this._sendInternalAlerts(lead, triggeredByUserId);
 
             // 3. Trigger Automatic Enrichment
-            await this._triggerAutoEnrichment(leadId);
+            const capability = await this._triggerAutoEnrichment(leadId);
 
             // 4. Log Audit Event
             await AuditLog.logEntityUpdate(
@@ -42,6 +42,7 @@ export class RevivalSyncServiceLogic {
                 `Automated re-engagement notifications sent for revived lead.`
             );
 
+            return { capability };
         } catch (error) {
             console.error('[RevivalSync] Failed to process revival actions:', error.message);
         }
@@ -112,6 +113,7 @@ export class RevivalSyncServiceLogic {
             console.log(`[RevivalSync] Triggering auto-enrichment for Lead: ${leadId}`);
             const capability = this.revivalSyncCapabilityFactory ? this.revivalSyncCapabilityFactory(leadId) : null;
             if (capability) await capability.requestSystemEnrichment();
+            return capability;
         } catch (err) {
             console.warn('[RevivalSync] Enrichment failed:', err.message);
         }
