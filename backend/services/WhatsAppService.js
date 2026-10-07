@@ -173,7 +173,10 @@ class WhatsAppService {
         const toNumber = this._normalizeTarget(mobile);
         if (!toNumber) return { success: false, error: 'Invalid phone number format' };
 
-        const { type = 'text', mediaUrl, filename, caption } = options;
+        let { type = 'text', mediaUrl, filename, caption } = options;
+        if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('/')) {
+            mediaUrl = 'https://api.bharatproperties.co' + mediaUrl;
+        }
 
         try {
             const url = `${META_GRAPH_BASE}/${config.phoneId}/messages`;
@@ -355,11 +358,18 @@ class WhatsAppService {
                     
                     // Resolve absolute path
                     let localPath = '';
+                    let relativePart = '';
                     if (mediaUrl.startsWith('/uploads/')) {
-                        localPath = path.resolve(mediaUrl.substring(1)); // remove leading slash
+                        relativePart = mediaUrl.substring(9);
                     } else if (mediaUrl.includes('/uploads/')) {
-                        const parts = mediaUrl.split('/uploads/');
-                        localPath = path.resolve('uploads', parts[1]);
+                        relativePart = mediaUrl.split('/uploads/')[1];
+                    }
+                    
+                    if (relativePart) {
+                        const p1 = path.resolve(process.cwd(), 'uploads', relativePart.split('?')[0]);
+                        const p2 = path.resolve(process.cwd(), 'backend', 'uploads', relativePart.split('?')[0]);
+                        const p3 = path.resolve(process.cwd(), '../uploads', relativePart.split('?')[0]);
+                        localPath = fs.existsSync(p1) ? p1 : fs.existsSync(p2) ? p2 : fs.existsSync(p3) ? p3 : p1;
                     }
 
                     if (localPath && fs.existsSync(localPath)) {

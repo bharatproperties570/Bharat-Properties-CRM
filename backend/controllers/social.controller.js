@@ -317,7 +317,11 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                         if (finalMediaUrl.includes('/uploads/')) {
                             const parts = finalMediaUrl.split('/uploads/');
                             // Use absolute path logic similar to WhatsAppService
-                            localPath = path.resolve(process.cwd(), 'uploads', parts[1].split('?')[0]);
+                            const relativePath = parts[1].split('?')[0];
+                            const path1 = path.resolve(process.cwd(), 'uploads', relativePath);
+                            const path2 = path.resolve(process.cwd(), 'backend', 'uploads', relativePath);
+                            const path3 = path.resolve(process.cwd(), '../uploads', relativePath);
+                            localPath = fs.existsSync(path1) ? path1 : fs.existsSync(path2) ? path2 : fs.existsSync(path3) ? path3 : path1;
                         } else if (finalMediaUrl.startsWith('/')) {
                             localPath = path.resolve(process.cwd(), finalMediaUrl.substring(1));
                         }
@@ -339,7 +343,11 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                     }
                 }
 
-                const mediaObject = mediaId ? { id: mediaId } : { link: finalMediaUrl };
+                let fallbackLink = finalMediaUrl;
+                if (fallbackLink.startsWith('/')) {
+                    fallbackLink = 'https://api.bharatproperties.co' + fallbackLink;
+                }
+                const mediaObject = mediaId ? { id: mediaId } : { link: fallbackLink };
                 if (hType === 'document' && !mediaId) {
                     mediaObject.filename = filename || 'Huda_Map_Book_KKR.pdf';
                 }
