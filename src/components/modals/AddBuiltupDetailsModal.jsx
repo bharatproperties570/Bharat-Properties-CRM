@@ -87,36 +87,14 @@ export default function AddBuiltupDetailsModal({
     const builtUpTypes = (() => {
         if (!subCategory) return [];
         const subCatConfig = (currentCategoryConfig.subCategories || []).find(sc => sc.name === subCategory);
-        if (!subCatConfig) return [];
+        if (!subCatConfig || !Array.isArray(subCatConfig.builtupTypes)) return [];
 
-        const allBuiltUpTypes = new Set();
-        
-        // Try finding types config matching sizeType
-        const typeConfig = (subCatConfig.types || []).find(t => t.name === sizeType);
-        if (typeConfig && Array.isArray(typeConfig.builtupTypes)) {
-            typeConfig.builtupTypes.forEach(bt => {
-                if (typeof bt === 'object' && bt !== null) {
-                    allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
-                } else {
-                    allBuiltUpTypes.add(JSON.stringify({ name: bt }));
-                }
-            });
-        } else {
-            // Fallback: load all builtupTypes across all types in the subcategory
-            (subCatConfig.types || []).forEach(t => {
-                if (Array.isArray(t.builtupTypes)) {
-                    t.builtupTypes.forEach(bt => {
-                        if (typeof bt === 'object' && bt !== null) {
-                            allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
-                        } else {
-                            allBuiltUpTypes.add(JSON.stringify({ name: bt }));
-                        }
-                    });
-                }
-            });
-        }
-
-        return Array.from(allBuiltUpTypes).map(s => JSON.parse(s));
+        return subCatConfig.builtupTypes.map(bt => {
+            if (typeof bt === 'object' && bt !== null) {
+                return { _id: bt._id || bt.id, name: bt.name };
+            }
+            return { name: bt };
+        });
     })();
 
     // Handlers for Builtup details
