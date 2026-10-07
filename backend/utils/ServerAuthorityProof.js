@@ -34,7 +34,28 @@ export class AuthorityProofIssuer {
     /**
      * TRUSTED DOMAIN OPERATION: Requests SYSTEM enrichment.
      */
-    static async requestSystemEnrichment(leadId) {
+    static async requestSystemEnrichment(leadId, context) {
+        if (!context || !context.trustedSource || !context.authorizedOperation || !context.actorType) {
+            throw new Error("SECURITY_VIOLATION: SYSTEM enrichment request requires strict execution context");
+        }
+        
+        // Strict allow-list of authorized domain triggers
+        const AUTHORIZED_SOURCES = [
+            'LEAD_CREATION',
+            'DOMAIN_EVENT',
+            'REVIVAL_SYNC',
+            'MANUAL_ENRICHMENT_REQUEST',
+            'SYSTEM_TEST'
+        ];
+        
+        if (!AUTHORIZED_SOURCES.includes(context.trustedSource)) {
+            throw new Error(`SECURITY_VIOLATION: Unrecognized trusted source ${context.trustedSource}`);
+        }
+        
+        if (context.actorType === 'AI_AGENT') {
+            throw new Error("SECURITY_VIOLATION: AI_AGENT cannot arbitrarily request SYSTEM enrichment");
+        }
+
         const Lead = mongoose.models.Lead || mongoose.model('Lead');
         // Only allow request if it is not already requested or running
         const lead = await Lead.findOneAndUpdate(

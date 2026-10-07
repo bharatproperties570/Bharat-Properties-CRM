@@ -106,7 +106,7 @@ class RevivalSyncService {
     async _triggerAutoEnrichment(leadId) {
         try {
             console.log(`[RevivalSync] Triggering auto-enrichment for Lead: ${leadId}`);
-            await runFullLeadEnrichment(leadId);
+            await AuthorityProofIssuer.requestSystemEnrichment(leadId, { actorType: 'SYSTEM', trustedSource: 'REVIVAL_SYNC', authorizedOperation: 'ENRICHMENT_SYNC' });
         } catch (err) {
             console.warn('[RevivalSync] Enrichment failed:', err.message);
         }

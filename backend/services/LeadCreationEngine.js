@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import { resolveContactIdentity } from './contactIdentity.service.js';
-import { runFullLeadEnrichment } from '../src/utils/enrichmentEngine.js';
 import LeadScoringService from '../src/services/LeadScoringService.js';
 
 import OutboxEvent from '../models/OutboxEvent.js';

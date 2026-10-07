@@ -15,7 +15,7 @@ export const processDomainEvent = async (job) => {
 
     switch (eventType) {
         case 'LeadCreated': {
-            const { runFullLeadEnrichment } = await import('../utils/enrichmentEngine.js');
+            const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
             const LeadScoringService = (await import('../services/LeadScoringService.js')).default;
             const { distributeEntity } = await import('../utils/distributionEngine.js');
             const { leadPopulateFields } = await import('../../controllers/lead.controller.js');
@@ -24,7 +24,7 @@ export const processDomainEvent = async (job) => {
 
             await executeEffect(eventId, 'enrichment', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead) await runFullLeadEnrichment(freshLead);
+                if (freshLead) await AuthorityProofIssuer.requestSystemEnrichment(freshLead, { actorType: 'SYSTEM', trustedSource: 'DOMAIN_EVENT', authorizedOperation: 'ENRICHMENT_SYNC' });
             });
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {

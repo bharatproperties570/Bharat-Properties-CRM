@@ -11,7 +11,7 @@ import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+import { AuthorityProofIssuer } from "../utils/ServerAuthorityProof.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
@@ -1176,7 +1176,7 @@ export const updateLead = async (req, res, next) => {
             }
             // Auto-run Enrichment & Scoring (wrapped in try-catch)
             try {
-                await runFullLeadEnrichment(finalLead._id);
+                await AuthorityProofIssuer.requestSystemEnrichment(finalLead._id, { actorType: 'SYSTEM', trustedSource: 'LEAD_CREATION', authorizedOperation: 'ENRICHMENT_SYNC' });
                 await LeadScoringService.computeAndSave(finalLead._id);
             } catch (enrichError) {
                 console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);

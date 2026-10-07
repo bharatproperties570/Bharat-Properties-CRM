@@ -4,6 +4,7 @@ import EnrichmentLog from "../../../models/EnrichmentLog.js";
 import AuditLog from "../../../models/AuditLog.js";
 import Lead from "../../../models/Lead.js";
 import { scanKeywords, calculateIntentIndex, classifyLead, detectMarginOpportunity } from "../../utils/enrichmentEngine.js";
+import { AuthorityProofIssuer } from "../../../utils/ServerAuthorityProof.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 
 /**
@@ -110,9 +111,7 @@ export const runEnrichment = async (req, res, next) => {
     try {
         const { leadId } = req.params;
 
-        await scanKeywords(leadId);
-        await calculateIntentIndex(leadId);
-        await classifyLead(leadId);
+        await AuthorityProofIssuer.requestSystemEnrichment(leadId, { actorType: 'SYSTEM', trustedSource: 'MANUAL_ENRICHMENT_REQUEST', authorizedOperation: 'ENRICHMENT_SYNC' });
 
         const updatedLead = await Lead.findById(leadId);
 
