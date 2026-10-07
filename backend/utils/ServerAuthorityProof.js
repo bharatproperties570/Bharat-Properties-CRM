@@ -1,7 +1,5 @@
-/**
- * PRIVATE CAPABILITY SECRET
- * Not exported. Cannot be imported or forged by external modules or payloads.
- */
+import mongoose from 'mongoose';
+
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 
 export class ServerAuthorityProof {
@@ -19,30 +17,35 @@ export class ServerAuthorityProof {
     }
 }
 
-/**
- * Trusted Ingress Issuance Boundaries
- * These factory methods are the EXCLUSIVE way to generate proofs.
- * They represent the trusted system boundary.
- */
-
 export class AuthorityProofIssuer {
     /**
-     * Issues a Webhook Authority Proof for a target Deal.
-     * MUST ONLY be called by webhook.controller.js AFTER verifying the Meta signature
-     * and securely looking up the Deal by the verified phone number.
+     * Resolves pending verification deals for a given mobile number.
+     * This independently verifies the CRM relationship (Conversation -> verificationDealIds)
+     * preventing callers from arbitrarily injecting deal IDs.
      */
-    static issueWebhookDealProof(dealId) {
-        if (!dealId) throw new Error("dealId required for webhook proof issuance");
-        return new ServerAuthorityProof(dealId, 'WEBHOOK', AUTHORITY_SECRET);
+    static async resolveWebhookProofs(mobile) {
+        if (!mobile) throw new Error("mobile required for webhook proof resolution");
+        
+        const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
+        const Conversation = mongoose.models.Conversation || mongoose.model('Conversation');
+        const conv = await Conversation.findOne({ phoneNumber: cleanMobile }).lean();
+        
+        if (!conv || !conv.verificationDealIds || conv.verificationDealIds.length === 0) {
+            return [];
+        }
+        
+        return conv.verificationDealIds.map(dealId => 
+            new ServerAuthorityProof(dealId, 'WEBHOOK', AUTHORITY_SECRET)
+        );
     }
 
     /**
-     * Issues a System Authority Proof for a target Lead.
-     * MUST ONLY be called by trusted internal crons/schedulers (e.g. enrichmentEngine)
-     * executing predefined server tasks.
+     * Attempts to resolve system authority for Lead enrichment.
+     * Forensic audit concluded that enrichmentEngine currently processes arbitrary caller-supplied lead IDs
+     * rather than performing independent server-side target resolution.
+     * Therefore, System authority CANNOT be safely certified in this gate.
      */
-    static issueSystemLeadProof(leadId) {
-        if (!leadId) throw new Error("leadId required for system proof issuance");
-        return new ServerAuthorityProof(leadId, 'SYSTEM', AUTHORITY_SECRET);
+    static async resolveSystemProof(leadId) {
+        throw new Error("P16_RUNTIME_SECURITY_R4B1R4_BLOCKED_NO_TRUSTED_SYSTEM_TARGET_SOURCE");
     }
 }
