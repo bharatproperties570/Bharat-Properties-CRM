@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
+const validProofs = new WeakSet();
 
 export class ServerAuthorityProof {
     constructor(targetId, actorType, secret, provenance = {}) {
@@ -15,10 +16,46 @@ export class ServerAuthorityProof {
         this.issuedAt = Date.now();
         this.provenance = provenance;
         this._isServerProof = true;
+        Object.freeze(this.provenance);
+        Object.freeze(this);
+        
+        validProofs.add(this);
+    }
+    
+    static verify(proof) {
+        if (!proof || !validProofs.has(proof)) {
+            throw new Error("SECURITY_VIOLATION: Forged or invalid ServerAuthorityProof");
+        }
+        return true;
     }
 }
 
 export class AuthorityProofIssuer {
+    /**
+     * TRUSTED DOMAIN OPERATION: Requests SYSTEM enrichment.
+     */
+    static async requestSystemEnrichment(leadId) {
+        const Lead = mongoose.models.Lead || mongoose.model('Lead');
+        // Only allow request if it is not already requested or running
+        const lead = await Lead.findOneAndUpdate(
+            { _id: leadId, 'enrichmentState.status': { $in: ['NONE', 'COMPLETED', 'FAILED'] } },
+            { 
+                $set: { 
+                    'enrichmentState.status': 'REQUESTED',
+                    'enrichmentState.requestedAt': new Date()
+                } 
+            },
+            { new: true }
+        );
+        
+        if (lead) {
+            const QueueManager = await import('../src/queues/queueManager.js');
+            const job = await QueueManager.enrichmentQueue.add('enrichLead', { leadId: lead._id });
+            return { success: true, jobId: job?.id || 'mock', status: 'REQUESTED' };
+        }
+        return { success: false, reason: 'ALREADY_REQUESTED_OR_CLAIMED' };
+    }
+
     static async resolveWebhookProofs(mobile) {
         if (!mobile) throw new Error("mobile required for webhook proof resolution");
         
@@ -36,13 +73,11 @@ export class AuthorityProofIssuer {
     }
 
     /**
-     * Atomically claims a Lead for SYSTEM enrichment based on its trusted status.
-     * Revalidates execution-time eligibility and rejects stale or replayed requests.
+     * Atomically claims a Lead for SYSTEM enrichment.
      */
     static async resolveSystemProof(leadId, jobId = 'sync') {
         const Lead = mongoose.models.Lead || mongoose.model('Lead');
         
-        // Atomic claim: only succeed if the lead is currently REQUESTED
         const lead = await Lead.findOneAndUpdate(
             { _id: leadId, 'enrichmentState.status': 'REQUESTED' },
             { 
@@ -56,7 +91,6 @@ export class AuthorityProofIssuer {
         );
 
         if (!lead) {
-            // Determine failure reason
             const existing = await Lead.findById(leadId).lean();
             if (!existing) throw new Error("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND");
             if (existing.enrichmentState?.status === 'CLAIMED') throw new Error("SYSTEM_ENRICHMENT_ALREADY_CLAIMED");

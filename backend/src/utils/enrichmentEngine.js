@@ -1,3 +1,4 @@
+import { ServerAuthorityProof } from '../../utils/ServerAuthorityProof.js';
 import Lead from "../../models/Lead.js";
 
 import IntentKeywordRule from "../../models/IntentKeywordRule.js";
@@ -8,13 +9,27 @@ import LeadScoringService from "../services/LeadScoringService.js";
 import Activity from "../../models/Activity.js";
 import unifiedAIService from "../../services/UnifiedAIService.js";
 
+const validateContext = (targetId, executionContext, requiredActor = 'SYSTEM') => {
+    if (!executionContext || !executionContext.authorizationProof) {
+        throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
+    }
+    ServerAuthorityProof.verify(executionContext.authorizationProof);
+    const proof = executionContext.authorizationProof;
+    if (proof.targetId !== targetId.toString() || proof.actorType !== requiredActor) {
+        throw new Error("SECURITY_VIOLATION: Proof mismatch for target or actor type");
+    }
+    return proof;
+};
+
+
 /**
  * STEP 1: Calculate formula-based Intent Index from STATIC signals only.
  * Static signals = requirement depth, timeline, budget, isContacted.
  * Does NOT count activities (those are counted separately by leadScoring.js to avoid double-counting).
  * Returns the computed score (0-100) and saves it to lead.enrichment_score (separate field).
  */
-export const calculateIntentIndex = async (leadId) => {
+export const calculateIntentIndex = async (leadId, executionContext = null) => {
+    validateContext(leadId, executionContext);
     const lead = await Lead.findById(leadId);
     if (!lead) return 0;
 
@@ -92,7 +107,8 @@ export const calculateIntentIndex = async (leadId) => {
  * ADDS keyword impact ON TOP of the formula score (does not overwrite it).
  * Saves the combined result to intent_index.
  */
-export const scanKeywords = async (leadId) => {
+export const scanKeywords = async (leadId, executionContext = null) => {
+    validateContext(leadId, executionContext);
     const lead = await Lead.findById(leadId);
     if (!lead) return;
 
@@ -168,7 +184,8 @@ export const scanKeywords = async (leadId) => {
  * STEP 3: Classify Lead based on intent_index and tags.
  * Reads the final combined intent_index (formula + keywords).
  */
-export const classifyLead = async (leadId) => {
+export const classifyLead = async (leadId, executionContext = null) => {
+    validateContext(leadId, executionContext);
     const lead = await Lead.findById(leadId);
     if (!lead) return;
 
@@ -212,7 +229,8 @@ export const classifyLead = async (leadId) => {
 /**
  * Margin Opportunity Detection (for Deals — unchanged)
  */
-export const detectMarginOpportunity = async (dealId) => {
+export const detectMarginOpportunity = async (dealId, executionContext = null) => {
+    validateContext(dealId, executionContext, 'WEBHOOK');
     const Deal = (await import("../../models/Deal.js")).default;
     const deal = await Deal.findById(dealId);
     if (!deal) return false;
@@ -240,7 +258,8 @@ export const detectMarginOpportunity = async (dealId) => {
  * STEP 4: AI Deep Intent Analysis (LLM-based)
  * Analyzes activity history and notes to provide a human-like summary and probability.
  */
-export const generateAIDeepIntent = async (leadId) => {
+export const generateAIDeepIntent = async (leadId, executionContext = null) => {
+    validateContext(leadId, executionContext);
     const lead = await Lead.findById(leadId);
     if (!lead) return;
 
@@ -294,6 +313,7 @@ export const generateAIDeepIntent = async (leadId) => {
         }
     } catch (err) {
         console.error(`[AI_INTENT_ERROR] Lead ${leadId}:`, err.message);
+        throw err;
     }
     return null;
 };
@@ -307,14 +327,15 @@ export const generateAIDeepIntent = async (leadId) => {
  *
  * This eliminates the double-counting bug where Step 2 overwrote Step 1.
  */
-export const runFullLeadEnrichment = async (leadId) => {
+export const runFullLeadEnrichment = async (leadId, executionContext = null) => {
+    validateContext(leadId, executionContext);
     try {
-        await calculateIntentIndex(leadId);  // Step 1: static formula → enrichment_formula_score
-        await scanKeywords(leadId);           // Step 2: keyword boost → intent_index (formula + keywords)
-        await classifyLead(leadId);           // Step 3: classify using final intent_index
+        await calculateIntentIndex(leadId, executionContext);  // Step 1: static formula → enrichment_formula_score
+        await scanKeywords(leadId, executionContext);           // Step 2: keyword boost → intent_index (formula + keywords)
+        await classifyLead(leadId, executionContext);           // Step 3: classify using final intent_index
         
         // Step 4: [NEW] AI Deep Intent Analysis (LLM-based)
-        await generateAIDeepIntent(leadId);
+        await generateAIDeepIntent(leadId, executionContext);
         
         // Step 5: Final Unified Scoring Recalculation (Backend v3 Engine)
         await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'enrichment_completion' });

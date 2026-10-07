@@ -863,6 +863,13 @@ export const addLead = async (req, res, next) => {
     try {
         console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
         const data = { ...req.body };
+        // R4-B1-R8 Security: Prevent client from tampering with enrichmentState (including dot-notation paths)
+        for (const key of Object.keys(data)) {
+            if (key === 'enrichmentState' || key.startsWith('enrichmentState.')) {
+                return res.status(403).json({ success: false, message: 'SECURITY_VIOLATION: Cannot manually mutate enrichmentState' });
+            }
+        }
+
 
         // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
         await resolveAllReferenceFields(data);
@@ -945,6 +952,14 @@ export const updateLead = async (req, res, next) => {
         delete updateData.activities;
         delete updateData.activity;
         delete updateData.lastAct;
+        
+        // R4-B1-R8 Security: Prevent client from tampering with enrichmentState (including dot-notation paths)
+        for (const key of Object.keys(updateData)) {
+            if (key === 'enrichmentState' || key.startsWith('enrichmentState.')) {
+                return res.status(403).json({ success: false, message: 'SECURITY_VIOLATION: Cannot manually mutate enrichmentState' });
+            }
+        }
+
 
         // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const visibilityFilter = await getVisibilityFilter(req.user);
