@@ -27,7 +27,7 @@ export const processDomainEvent = async (job) => {
 
             await executeEffect(eventId, 'enrichment', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead) await AuthorityProofIssuer.requestFromDomainEvent(freshLead._id, 'LeadCreated');
+                if (freshLead) await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, freshLead._id, eventType);
             });
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {
@@ -633,7 +633,7 @@ export const processDomainEvent = async (job) => {
                 key: 'enrichment',
                 fn: async () => {
                     const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
-                    await AuthorityProofIssuer.requestFromDomainEvent(aggregateId, 'LeadUpdated');
+                    await domainEventCapability.requestSystemEnrichment(domainEventCapability.token, eventId, aggregateType, aggregateId, eventType);
                 }
             });
 
