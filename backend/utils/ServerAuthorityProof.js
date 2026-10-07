@@ -96,7 +96,7 @@ export class AuthorityProofIssuer {
 // ServerAuthorityProof securely evaluates these intents and applies
 // the privately held capability, ensuring zero public API surface.
 
-import { Worker } from 'bullmq';
+import { Worker } from '../src/config/redis.js';
 import redisConnection from '../src/config/redis.js';
 import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js';
 import * as StageTransitionEngineLogic from '../src/services/StageTransitionEngineLogic.js';
@@ -126,7 +126,7 @@ const revivalSyncIssuer = (leadId) => {
 };
 
 // 1. Compose DomainEventWorker
-export const domainEventWorker = new Worker('domainEventQueue', async (job) => {
+const _domainEventWorker = new Worker('domainEventQueue', async (job) => {
     if (!job || !job.data) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
     
     // Evaluate the business logic which returns an intent
@@ -139,10 +139,16 @@ export const domainEventWorker = new Worker('domainEventQueue', async (job) => {
     }
 }, { connection: redisConnection });
 
-domainEventWorker.on('failed', async (job, err) => {
+_domainEventWorker.on('failed', async (job, err) => {
     console.error(`[DomainEventWorker] Job ${job?.id} failed:`, err.message);
 });
-domainEventWorker.on('error', err => {});
+_domainEventWorker.on('error', err => {});
+
+export const domainEventWorker = {
+    close: async () => await _domainEventWorker.close(),
+    on: (event, cb) => _domainEventWorker.on(event, cb),
+    removeListener: (event, cb) => _domainEventWorker.removeListener(event, cb)
+};
 
 // 2. Compose StageTransitionEngine
 export const StageTransitionEngine = {
