@@ -288,7 +288,13 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             // Header Media override
             // Priority: headerImageUrl (from frontend) > mediaUrl (manual) > DB-configured default > hardcoded fallback
             if (headerImageUrl || mediaUrl || requiredHeaderFormat) {
-                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : 'video');
+                
+                let guessedType = 'image';
+                const testUrl = headerImageUrl || mediaUrl || dbDefaultImage || '';
+                if (testUrl.toLowerCase().endsWith('.pdf')) guessedType = 'document';
+                else if (testUrl.toLowerCase().endsWith('.mp4')) guessedType = 'video';
+
+                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : type === 'video' ? 'video' : guessedType);
                 
                 // Try to load configured default image from SystemSettings
                 let dbDefaultImage = null;
