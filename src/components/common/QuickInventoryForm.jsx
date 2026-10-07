@@ -9,7 +9,7 @@ const selectStyle = { ...inputStyle, appearance: 'none', background: '#fff', cur
 const disabledStyle = { ...selectStyle, background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' };
 
 const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
-    const { projects: contextProjects, sizes } = usePropertyConfig();
+    const { projects: contextProjects, sizes, getSizesByProjectBlock } = usePropertyConfig();
     const [dynamicProjects, setDynamicProjects] = useState([]);
     const [dynamicBlocks, setDynamicBlocks] = useState([]);
     const [dynamicUnits, setDynamicUnits] = useState([]);
@@ -196,14 +196,11 @@ const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
                     >
                         <option value="">Select Size</option>
                         {(() => {
-                            // Filter Sizes based on Context + User Added
-                            const relevantSizes = sizes.filter(s => s.project === formData.projectName && s.block === formData.block);
-                            // Fallback to legacy masterFields if no sizing in new structure? For now, assume 'sizes' in context is source.
-                            // Previously: masterFields.projectSizes?.[formData.projectName]?.[formData.block]
+                            const relevantSizes = getSizesByProjectBlock(formData.projectName, formData.block);
 
                             return (
                                 <>
-                                    {relevantSizes.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                    {relevantSizes.map(s => <option key={s.id || s._id} value={s.name}>{s.name}</option>)}
                                     {formData.projectName && formData.block && <option value="ADD_NEW" style={{ fontWeight: 'bold', color: '#2563eb' }}>+ Add New Size</option>}
                                 </>
                             );

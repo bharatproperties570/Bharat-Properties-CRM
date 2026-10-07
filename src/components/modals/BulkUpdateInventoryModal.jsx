@@ -5,7 +5,7 @@ import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 
 const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProperties = [], onUpdateSuccess }) => {
-    const { propertyConfig, masterFields, sizes, getLookupValue, getLookupId } = usePropertyConfig();
+    const { propertyConfig, masterFields, sizes, getLookupValue, getLookupId, getSizesByProjectBlock } = usePropertyConfig();
     const { teams, users } = useUserContext();
 
     const [isSaving, setIsSaving] = useState(false);
@@ -138,6 +138,11 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                 } else if (['country', 'state', 'city', 'tehsil', 'location', 'postOffice', 'zip'].includes(field)) {
                     if (!updates.address) updates.address = {};
                     updates.address[field === 'zip' ? 'pincode' : field] = val || null;
+                } else if (field === 'size') {
+                    updates.size = val || null;
+                    updates.sizeLabel = val || null;
+                    const matchedSizeLookupId = getLookupId('Size', val);
+                    if (matchedSizeLookupId) updates.sizeConfig = matchedSizeLookupId;
                 } else {
                     updates[field] = val || null;
                 }
@@ -223,7 +228,7 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                     <h4 style={{ fontSize: '1rem', marginBottom: '16px', color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px' }}>Unit Details</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginBottom: '32px' }}>
                         {renderField('block', 'Block', availableBlocks, false, !isSingleProject, !isSingleProject ? 'Disabled: Multiple projects selected' : null)}
-                        {renderField('size', 'Size Label', sizes || [], true)}
+                        {renderField('size', 'Size Label', isSingleProject ? getSizesByProjectBlock(uniqueProjects[0], formData.block).map(s => s.name) : [], true, !isSingleProject, !isSingleProject ? 'Disabled: Multiple projects selected' : null)}
                         {renderField('category', 'Category', Object.keys(propertyConfig || {}), false)}
                         {renderField('subCategory', 'Sub Category', (() => {
                             if (formData.category && propertyConfig[formData.category]) {

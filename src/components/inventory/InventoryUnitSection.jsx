@@ -1,5 +1,6 @@
 import React from 'react';
 import { renderValue } from '../../utils/renderUtils';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 const InventoryUnitSection = ({
     formData,
@@ -30,6 +31,8 @@ const InventoryUnitSection = ({
     labelStyle,
     sectionStyle
 }) => {
+    const { getSizesByProjectBlock } = usePropertyConfig();
+
     return (
         <div className="tab-content fade-in">
             {/* Basic Unit Details */}
@@ -182,40 +185,8 @@ const InventoryUnitSection = ({
                                 disabled={!formData.projectName || !formData.block}
                                 onChange={e => {
                                     const selectedSizeName = e.target.value;
-                                    const availableSizes = sizes || [];
-                                    const targetProj = String(formData.projectName || '').trim().toLowerCase();
-                                    const targetProjId = String(formData.projectId || '').trim();
-                                    const targetBlk = String(formData.block || '').trim().toLowerCase();
-
-                                    const isMatch = (s) => {
-                                        if (!s) return false;
-                                        const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-                                        if (mappings.length > 0) {
-                                            return mappings.some(m => {
-                                                if (!m) return false;
-                                                const mProj = String(m.project || '').trim().toLowerCase();
-                                                const mProjId = String(m.projectId || '').trim();
-                                                const projOk = (targetProj && mProj === targetProj) || (targetProjId && mProjId === targetProjId);
-                                                if (!projOk) return false;
-                                                const mBlk = String(m.block || '').trim().toLowerCase();
-                                                if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
-                                                return !targetBlk || mBlk === targetBlk;
-                                            });
-                                        }
-                                        if (s.project || s.projectId) {
-                                            const sProj = String(s.project || '').trim().toLowerCase();
-                                            const sProjId = String(s.projectId || '').trim();
-                                            const projOk = (targetProj && sProj === targetProj) || (targetProjId && sProjId === targetProjId);
-                                            if (!projOk) return false;
-                                            const sBlk = String(s.block || '').trim().toLowerCase();
-                                            if (!sBlk || sBlk === 'all' || sBlk === 'all blocks') return true;
-                                            return !targetBlk || sBlk === targetBlk;
-                                        }
-                                        return true;
-                                    };
-
-                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName && isMatch(s))
-                                        || availableSizes.find(s => s.name === selectedSizeName);
+                                    const availableSizes = getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block);
+                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName);
                                     
                                     setFormData(prev => ({ 
                                         ...prev, 
@@ -230,37 +201,7 @@ const InventoryUnitSection = ({
                                 </option>
                                 {(() => {
                                     if (!formData.projectName || !formData.block) return null;
-                                    const availableSizes = sizes || [];
-                                    const targetProj = String(formData.projectName || '').trim().toLowerCase();
-                                    const targetProjId = String(formData.projectId || '').trim();
-                                    const targetBlk = String(formData.block || '').trim().toLowerCase();
-
-                                    const filteredSizes = availableSizes.filter(s => {
-                                        if (!s) return false;
-                                        const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-                                        if (mappings.length > 0) {
-                                            return mappings.some(m => {
-                                                if (!m) return false;
-                                                const mProj = String(m.project || '').trim().toLowerCase();
-                                                const mProjId = String(m.projectId || '').trim();
-                                                const projOk = (targetProj && mProj === targetProj) || (targetProjId && mProjId === targetProjId);
-                                                if (!projOk) return false;
-                                                const mBlk = String(m.block || '').trim().toLowerCase();
-                                                if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
-                                                return !targetBlk || mBlk === targetBlk;
-                                            });
-                                        }
-                                        if (s.project || s.projectId) {
-                                            const sProj = String(s.project || '').trim().toLowerCase();
-                                            const sProjId = String(s.projectId || '').trim();
-                                            const projOk = (targetProj && sProj === targetProj) || (targetProjId && sProjId === targetProjId);
-                                            if (!projOk) return false;
-                                            const sBlk = String(s.block || '').trim().toLowerCase();
-                                            if (!sBlk || sBlk === 'all' || sBlk === 'all blocks') return true;
-                                            return !targetBlk || sBlk === targetBlk;
-                                        }
-                                        return true;
-                                    });
+                                    const filteredSizes = getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block);
 
                                     const currentSizeInList = filteredSizes.some(sz => sz.name === formData.size);
                                     return (

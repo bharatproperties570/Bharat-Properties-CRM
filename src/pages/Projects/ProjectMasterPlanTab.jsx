@@ -136,7 +136,7 @@ const incrementUnitNumber = (unitNo) => {
 };
 
 const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
-    const { propertyConfig, sizes, masterFields } = usePropertyConfig();
+    const { propertyConfig, sizes, masterFields, getSizesByProjectBlock } = usePropertyConfig();
     const mapRef = useRef(null);
     const googleMapRef = useRef(null);
     const overlayRef = useRef(null);
@@ -645,10 +645,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                             <label style={labelStyle}>Size / Config</label>
                             <select style={selectStyle} value={plotConfig.sizeConfig} onChange={e => setPlotConfig({...plotConfig, sizeConfig: e.target.value, builtupType: ''})}>
                                 <option value="">Select Size (Optional)</option>
-                                {sizes?.filter(s => 
-                                    (s.project === project?.name || s.projectId === project?._id) && 
-                                    s.block === plotConfig.block
-                                ).map(s => (
+                                {getSizesByProjectBlock(project?.name || project?._id, plotConfig.block).map(s => (
                                     <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
                                 ))}
                             </select>

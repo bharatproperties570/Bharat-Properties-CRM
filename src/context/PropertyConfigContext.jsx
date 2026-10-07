@@ -2562,55 +2562,99 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // ✅ ENTERPRISE: Add a project-block mapping to an existing size
     const addSizeProjectMapping = async (sizeId, project, block) => {
-        const size = sizes.find(s => s.id === sizeId);
+        const size = sizes.find(s => (s.id === sizeId || s._id === sizeId));
         if (!size) return null;
         const existingMappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
         const alreadyMapped = existingMappings.some(m => m.project === project && m.block === (block || ''));
         if (alreadyMapped) return size;
         const newMappings = [...existingMappings, { project, block: block || '' }];
-        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
+        return updateSize({ ...size, id: size.id || size._id, projectMappings: newMappings });
     };
 
     // ✅ ENTERPRISE: Remove a project-block mapping from a size
     const removeSizeProjectMapping = async (sizeId, project, block) => {
-        const size = sizes.find(s => s.id === sizeId);
+        const size = sizes.find(s => (s.id === sizeId || s._id === sizeId));
         if (!size) return null;
         const newMappings = (Array.isArray(size.projectMappings) ? size.projectMappings : []).filter(
             m => !(m.project === project && m.block === (block || ''))
         );
-        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
+        return updateSize({ ...size, id: size.id || size._id, projectMappings: newMappings });
     };
 
     // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block)
+    // STRICT: Only returns sizes strictly mapped to the project & block.
+    // NEVER leaks unassigned sizes or sizes mapped to other projects.
     const getSizesByProjectBlock = useCallback((project, block) => {
-        if (!project) return sizes;
-        const targetProj = String(project || '').trim().toLowerCase();
-        const targetBlk = String(block || '').trim().toLowerCase();
+        if (!project) return [];
+
+        let targetProjName = '';
+        let targetProjId = '';
+
+        if (typeof project === 'object' && project !== null) {
+            targetProjName = String(project.name || project.projectName || '').trim().toLowerCase();
+            targetProjId = String(project.id || project._id || project.projectId || '').trim();
+        } else {
+            const pStr = String(project).trim();
+            const foundProj = (projects || []).find(p => 
+                (p.name && p.name.trim().toLowerCase() === pStr.toLowerCase()) ||
+                String(p.id || p._id || '').trim() === pStr
+            );
+            if (foundProj) {
+                targetProjName = String(foundProj.name || '').trim().toLowerCase();
+                targetProjId = String(foundProj.id || foundProj._id || '').trim();
+            } else {
+                targetProjName = pStr.toLowerCase();
+                targetProjId = pStr;
+            }
+        }
+
+        if (!targetProjName && !targetProjId) return [];
+
+        let targetBlk = '';
+        if (block && typeof block === 'object') {
+            targetBlk = String(block.name || block.block || '').trim().toLowerCase();
+        } else if (block) {
+            targetBlk = String(block).trim().toLowerCase();
+        }
+        if (targetBlk === 'all' || targetBlk === 'all blocks') {
+            targetBlk = '';
+        }
 
         return (sizes || []).filter(s => {
+            if (!s) return false;
             const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+
+            const checkMapping = (m) => {
+                if (!m) return false;
+                const mProj = String(m.project || m.projectName || '').trim().toLowerCase();
+                const mProjId = String(m.projectId || m.id || '').trim();
+
+                const projMatches = (targetProjName && mProj === targetProjName) ||
+                                    (targetProjId && mProjId && mProjId === targetProjId);
+                if (!projMatches) return false;
+
+                const mBlk = String(m.block || '').trim().toLowerCase();
+                if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
+                if (targetBlk) return mBlk === targetBlk;
+                return true;
+            };
+
             if (mappings.length > 0) {
-                return mappings.some(m => {
-                    if (!m || !m.project) return false;
-                    const mProj = String(m.project).trim().toLowerCase();
-                    if (mProj !== targetProj) return false;
-                    const mBlk = String(m.block || '').trim().toLowerCase();
-                    if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
-                    if (targetBlk) return mBlk === targetBlk;
-                    return true;
+                return mappings.some(checkMapping);
+            }
+
+            if (s.project || s.projectId) {
+                return checkMapping({
+                    project: s.project,
+                    projectId: s.projectId,
+                    block: s.block
                 });
             }
-            if (s.project) {
-                const sProj = String(s.project).trim().toLowerCase();
-                if (sProj !== targetProj) return false;
-                const sBlk = String(s.block || '').trim().toLowerCase();
-                if (!sBlk || sBlk === 'all' || sBlk === 'all blocks') return true;
-                if (targetBlk) return sBlk === targetBlk;
-                return true;
-            }
+
+            // STRICT: Never leak unassigned sizes to any project
             return false;
         });
-    }, [sizes]);
+    }, [sizes, projects]);
 
     const value = {
         propertyConfig,

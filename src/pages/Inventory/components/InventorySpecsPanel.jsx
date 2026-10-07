@@ -140,7 +140,7 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                                         : (item.sizeConfig || item.sizeId);
 
                                     if (sizeRefId && Array.isArray(sizes)) {
-                                        const matchedSize = sizes.find(s => String(s.id || s._id) === String(sizeRefId));
+                                        const matchedSize = sizes.find(s => String(s.id || s._id) === String(sizeRefId) || s.name === String(sizeRefId));
                                         if (matchedSize) {
                                             return matchedSize.name || `${matchedSize.unitType || ''} ${matchedSize.totalArea ? matchedSize.totalArea + ' ' + (matchedSize.resultMetric || 'Sq Yd') : ''}`.trim();
                                         }

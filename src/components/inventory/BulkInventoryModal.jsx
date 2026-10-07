@@ -10,7 +10,7 @@ const selectStyle = { ...inputStyle, appearance: 'none', background: '#fff', cur
 const disabledStyle = { ...selectStyle, background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' };
 
 const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjectId, onAddSuccess }) => {
-    const { sizes, masterFields, propertyConfig } = usePropertyConfig();
+    const { sizes, masterFields, propertyConfig, getSizesByProjectBlock } = usePropertyConfig();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
@@ -293,10 +293,9 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 <label style={labelStyle}>Size / Config</label>
                                 <select style={selectStyle} value={formData.sizeConfig} onChange={e => {
                                     const selectedValue = e.target.value;
-                                    const selectedSize = sizes.find(s => 
-                                        (s.value === selectedValue || s.name === selectedValue || s.id === selectedValue || s._id === selectedValue) && 
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                        s.block === formData.block
+                                    const relevantSizes = getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block);
+                                    const selectedSize = relevantSizes.find(s => 
+                                        (s.value === selectedValue || s.name === selectedValue || s.id === selectedValue || s._id === selectedValue)
                                     );
                                     let width = selectedSize?.width || selectedSize?.metadata?.width || '';
                                     if (!width && selectedSize?.label) {
@@ -310,10 +309,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     });
                                 }}>
                                     <option value="">Select Size (Optional)</option>
-                                    {sizes.filter(s => 
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                        s.block === formData.block
-                                    ).map(s => (
+                                    {getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block).map(s => (
                                         <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
                                     ))}
                                 </select>
