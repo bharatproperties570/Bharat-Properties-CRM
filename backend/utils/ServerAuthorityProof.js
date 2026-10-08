@@ -78,6 +78,56 @@ export class AuthorityProofIssuer {
         return new ServerAuthorityProof(AUTHORITY_SECRET, leadId, jobId, 'SYSTEM', enrichmentExecutionId, companyId);
     }
 
+
+    static async transitionToRunning(proof) {
+        if (!proof || !AuthorityProofIssuer.verify(proof)) {
+            throw new Error("SECURITY_VIOLATION: Invalid or forged proof");
+        }
+        
+        const mongoose = (await import('mongoose')).default;
+        const Lead = mongoose.model('Lead');
+        
+        const predicate = {
+            _id: proof.targetId,
+            'enrichmentState.enrichmentExecutionId': proof.enrichmentExecutionId,
+            'enrichmentState.lastJobId': proof.jobId,
+            'enrichmentState.status': 'CLAIMED'
+        };
+        if (proof.companyId) {
+            predicate.companyId = proof.companyId;
+        } else {
+            predicate.companyId = { $exists: false };
+        }
+        
+        const updated = await Lead.findOneAndUpdate(
+            predicate,
+            { $set: { 'enrichmentState.status': 'RUNNING' } },
+            { new: true }
+        );
+        if (!updated) {
+            throw new Error("SECURITY_VIOLATION: Cannot transition to RUNNING. State mismatch or missing.");
+        }
+        return updated;
+    }
+
+    static getMutationPredicate(proof) {
+        if (!proof || !AuthorityProofIssuer.verify(proof)) {
+            throw new Error("SECURITY_VIOLATION: Invalid or forged proof");
+        }
+        const predicate = {
+            _id: proof.targetId,
+            'enrichmentState.enrichmentExecutionId': proof.enrichmentExecutionId,
+            'enrichmentState.lastJobId': proof.jobId,
+            'enrichmentState.status': 'RUNNING'
+        };
+        if (proof.companyId) {
+            predicate.companyId = proof.companyId;
+        } else {
+            predicate.companyId = { $exists: false };
+        }
+        return predicate;
+    }
+
     static async finalizeSystemProof(proof, success = true) {
         if (!proof || !AuthorityProofIssuer.verify(proof)) {
             throw new Error("SECURITY_VIOLATION: Invalid or forged proof");
@@ -99,7 +149,7 @@ export class AuthorityProofIssuer {
         const updated = await Lead.findOneAndUpdate(
             { 
                 _id: leadId, 
-                "enrichmentState.status": "CLAIMED",
+                "enrichmentState.status": { $in: ["CLAIMED", "RUNNING"] },
                 "enrichmentState.lastJobId": jobId,
                 ...execIdQuery
             },

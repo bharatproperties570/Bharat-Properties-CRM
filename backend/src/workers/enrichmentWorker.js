@@ -27,6 +27,7 @@ export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
 
     const start = Date.now();
     try {
+        await AuthorityProofIssuer.transitionToRunning(proof);
         const result = await runFullLeadEnrichment(leadId, { authorizationProof: proof });
         
         if (result && result.success === false) {
