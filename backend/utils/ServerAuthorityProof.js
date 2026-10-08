@@ -133,7 +133,7 @@ import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js'
 import * as StageTransitionEngineLogic from '../src/services/StageTransitionEngineLogic.js';
 import RevivalSyncService from '../src/services/RevivalSyncService.js';
 
-const domainEventIssuer = (jobData) => {
+const domainEventIssuer = async (jobData) => {
     if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
     const { eventId, aggregateId, aggregateType, eventType, payload } = jobData;
     if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
@@ -142,8 +142,10 @@ const domainEventIssuer = (jobData) => {
     if (aggregateType === 'Lead') {
         targetLeadId = aggregateId;
     } else if (aggregateType === 'Activity') {
-        if (payload?.entityType === 'Lead' && payload?.entityId) {
-            targetLeadId = payload.entityId;
+        const Activity = mongoose.models.Activity || mongoose.model('Activity');
+        const activity = await Activity.findById(aggregateId).select('entityType entityId').lean();
+        if (activity?.entityType?.toLowerCase() === 'lead' && activity?.entityId) {
+            targetLeadId = activity.entityId;
         } else {
             throw new Error("SECURITY_VIOLATION: Activity event missing valid Lead enrichment target");
         }
@@ -179,7 +181,7 @@ const _domainEventWorker = new Worker('domainEventQueue', async (job) => {
     
     // Process intent using the private capability
     if (intent?.action === 'REQUEST_SYSTEM_ENRICHMENT') {
-        const capability = domainEventIssuer(job.data);
+        const capability = await domainEventIssuer(job.data);
         await capability.requestSystemEnrichment();
     }
 }, { connection: redisConnection });

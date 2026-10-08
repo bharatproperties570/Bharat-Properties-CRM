@@ -1,6 +1,8 @@
 import Activity from "../models/Activity.js";
 import User from "../models/User.js";
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import { DomainEventPublisher } from '../utils/DomainEventPublisher.js';
+import { authorizeTargetEntity } from '../utils/authorization.js';
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
@@ -1340,14 +1342,22 @@ export const addActivity = async (req, res) => {
         }
 
         
+        
+        if (activityData.entityType && activityData.entityId) {
+            await authorizeTargetEntity(req.user, activityData.entityType, activityData.entityId);
+        }
+
+        if (activityData.entityType && activityData.entityId) {
+            await authorizeTargetEntity(req.user, activityData.entityType, activityData.entityId);
+        }
         let activity = null;
-        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
         const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
         
         await withMongoTransaction(async (session) => {
             activity = (await Activity.create([activityData], { session }))[0];
 
-            await OutboxEvent.create([{
+            await DomainEventPublisher.publishFromMobile(req, session, {
                 eventType: 'ActivityCreated',
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
@@ -1355,7 +1365,7 @@ export const addActivity = async (req, res) => {
                     ...activity.toJSON(),
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            });
         });
 
         
@@ -1476,15 +1486,15 @@ export const updateActivity = async (req, res) => {
             );
 
             if (activity) {
-                await OutboxEvent.create([{
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: activity._id,
-                    payload: {
+                await DomainEventPublisher.publishFromMobile(req, session, {
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
                         ...activity.toJSON(),
                         actorId: req.user?.id || req.user?._id || null
                     }
-                }], { session });
+            });
             }
         });
 
@@ -1596,6 +1606,13 @@ export const syncMobileCalls = async (req, res) => {
             if (!call || !call.number) continue;
 
             const match = await findEntity(call.number);
+            if (match && match.entity) {
+                try {
+                    await authorizeTargetEntity(req.user, match.type, match.entity._id);
+                } catch (err) {
+                    continue;
+                }
+            }
             const participantName = match ? match.name : (call.name || 'Unknown');
 
             const activityData = {
@@ -1645,7 +1662,7 @@ export const syncMobileCalls = async (req, res) => {
         await withMongoTransaction(async (session) => {
             activity = (await Activity.create([activityData], { session }))[0];
 
-            await OutboxEvent.create([{
+            await DomainEventPublisher.publishFromMobile(req, session, {
                 eventType: 'ActivityCreated',
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
@@ -1653,7 +1670,7 @@ export const syncMobileCalls = async (req, res) => {
                     ...activity.toJSON(),
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            });
         });
 
                 googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
@@ -1749,7 +1766,7 @@ export const syncMobileCalls = async (req, res) => {
         await withMongoTransaction(async (session) => {
             activity = (await Activity.create([activityData], { session }))[0];
 
-            await OutboxEvent.create([{
+            await DomainEventPublisher.publishFromMobile(req, session, {
                 eventType: 'ActivityCreated',
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
@@ -1757,7 +1774,7 @@ export const syncMobileCalls = async (req, res) => {
                     ...activity.toJSON(),
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            });
         });
 
                 syncedActivities.push(activity);

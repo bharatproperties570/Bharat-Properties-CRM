@@ -111,15 +111,39 @@ export const runEnrichment = async (req, res, next) => {
     try {
         const { leadId } = req.params;
 
-        const { default: OutboxEvent } = await import('../../../models/OutboxEvent.js');
-        const { v4 } = await import('uuid');
-        await OutboxEvent.create([{
-            eventId: v4(),
-            eventType: 'ManualEnrichmentRequested',
-            aggregateType: 'Lead',
-            aggregateId: leadId,
-            payload: { requestedBy: req.user?._id }
-        }]);
+        const { authorizeTargetEntity } = await import('../../../utils/authorization.js');
+        await authorizeTargetEntity(req.user, 'lead', leadId);
+
+        const { withMongoTransaction } = await import('../../../utils/withMongoTransaction.js');
+        const { DomainEventPublisher } = await import('../../../utils/DomainEventPublisher.js');
+        const Lead = (await import('../../../models/Lead.js')).default;
+        
+        const existingLead = await Lead.findById(leadId).lean();
+        const currentStatus = existingLead?.enrichmentState?.status;
+        
+        if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED') {
+            return res.status(409).json({
+                success: false,
+                message: 'Enrichment is already in progress.'
+            });
+        }
+
+        await withMongoTransaction(async (session) => {
+            if (currentStatus === 'COMPLETED') {
+                await Lead.updateOne(
+                    { _id: leadId }, 
+                    { $set: { "enrichmentState.status": "NONE" } }, 
+                    { session }
+                );
+            }
+
+            await DomainEventPublisher.publishFromHttp(req, session, {
+                eventType: 'ManualEnrichmentRequested',
+                aggregateType: 'Lead',
+                aggregateId: leadId,
+                payload: { requestedBy: req.user?._id }
+            });
+        });
 
         const updatedLead = await Lead.findById(leadId);
 

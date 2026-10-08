@@ -177,18 +177,20 @@ export const submitForm = async (req, res) => {
         let staticFallbackUsed = false;
         
         if (leadId) {
-            lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
-            console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
-            const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
-            await OutboxEvent.create([{
-                eventType: 'LeadUpdated',
-                aggregateType: 'Lead',
-                aggregateId: lead._id,
-                payload: {
-                    actorId: null,
-                    triggerEvent: 'onWebCapture'
-                }
-            }]);
+            const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+            const { DomainEventPublisher } = await import('../utils/DomainEventPublisher.js');
+            
+            await withMongoTransaction(async (session) => {
+                lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true, session });
+                console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
+                
+                await DomainEventPublisher.publishFromPublicForm(req, session, {
+                    eventType: 'LeadUpdated',
+                    aggregateType: 'Lead',
+                    aggregateId: lead._id,
+                    payload: { triggerEvent: 'onWebCapture' }
+                });
+            });
         } else {
             const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
             const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });

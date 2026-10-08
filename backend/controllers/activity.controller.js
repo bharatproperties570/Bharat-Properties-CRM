@@ -2,7 +2,9 @@ import Activity from "../models/Activity.js";
 import OutboxEvent from "../models/OutboxEvent.js";
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import User from "../models/User.js";
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import { DomainEventPublisher } from '../utils/DomainEventPublisher.js';
+import { authorizeTargetEntity } from '../utils/authorization.js';
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
@@ -921,12 +923,16 @@ export const addActivity = async (req, res) => {
             activityData.department = req.user.department;
         }
 
+        
+        if (activityData.entityType && activityData.entityId) {
+            await authorizeTargetEntity(req.user, activityData.entityType, activityData.entityId);
+        }
         let activity = null;
         let transition = null;
         await withMongoTransaction(async (session) => {
             activity = (await Activity.create([activityData], { session }))[0];
 
-            await OutboxEvent.create([{
+            await DomainEventPublisher.publishFromHttp(req, session, {
                 eventType: 'ActivityCreated',
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
@@ -934,7 +940,7 @@ export const addActivity = async (req, res) => {
                     ...activity.toJSON(),
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            });
 
         // 🚀 Detect Mentions in Note/Description
         if (activity.description) {
@@ -1067,6 +1073,18 @@ export const updateActivity = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        if (!existingAct) {
+            return res.status(404).json({ success: false, error: "Activity not found" });
+        }
+        
+        if (existingAct.entityType && existingAct.entityId) {
+            await authorizeTargetEntity(req.user, existingAct.entityType, existingAct.entityId);
+        }
+        
+        if (updateData.entityType && updateData.entityId && 
+            (existingAct.entityType !== updateData.entityType || String(existingAct.entityId) !== String(updateData.entityId))) {
+            await authorizeTargetEntity(req.user, updateData.entityType, updateData.entityId);
+        }
 
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
@@ -1150,11 +1168,11 @@ export const updateActivity = async (req, res) => {
             const descriptionChanged = existingAct.description !== activity.description;
 
             if (statusChanged || assignmentChanged || dateChanged || outcomeChanged || descriptionChanged) {
-                await OutboxEvent.create([{
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: activity._id,
-                    payload: {
+                await DomainEventPublisher.publishFromHttp(req, session, {
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
                         ...activity.toJSON(),
                         statusChanged,
                         previousStatus: existingAct.status,
@@ -1167,7 +1185,7 @@ export const updateActivity = async (req, res) => {
                         descriptionChanged,
                         actorId: req.user?.id || req.user?._id || null
                     }
-                }], { session });
+            });
             }
         }); // end tx
 
@@ -1191,11 +1209,11 @@ export const deleteActivity = async (req, res) => {
             const act = await Activity.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id, session });
 
             if (act) {
-                await OutboxEvent.create([{
-                    eventType: 'ActivityDeleted',
-                    aggregateType: 'Activity',
-                    aggregateId: act._id,
-                    payload: {
+                await DomainEventPublisher.publishFromHttp(req, session, {
+                eventType: 'ActivityDeleted',
+                aggregateType: 'Activity',
+                aggregateId: act._id,
+                payload: {
                         activityId: act._id,
                         googleEventId: act.googleEventId,
                         entityType: act.entityType,
@@ -1203,7 +1221,7 @@ export const deleteActivity = async (req, res) => {
                         deletedAt: act.deletedAt || new Date(),
                         actorId: req.user?.id || req.user?._id || null
                     }
-                }], { session });
+            });
             }
 
             return act;
