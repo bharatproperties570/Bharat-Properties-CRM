@@ -129,12 +129,15 @@ export const runEnrichment = async (req, res, next) => {
         }
 
         await withMongoTransaction(async (session) => {
-            if (currentStatus === 'COMPLETED') {
-                await Lead.updateOne(
-                    { _id: leadId }, 
-                    { $set: { "enrichmentState.status": "NONE" } }, 
-                    { session }
-                );
+            // Atomic conditional transition inside transaction
+            const result = await Lead.updateOne(
+                { _id: leadId, "enrichmentState.status": { $in: ["COMPLETED", "NONE", "FAILED", null] } }, 
+                { $set: { "enrichmentState.status": "NONE" } }, 
+                { session }
+            );
+
+            if (result.matchedCount === 0 && currentStatus === 'COMPLETED') {
+                throw new Error("Concurrency conflict: Lead enrichment state changed before atomic transition.");
             }
 
             await DomainEventPublisher.publishFromHttp(req, session, {
@@ -152,6 +155,12 @@ export const runEnrichment = async (req, res, next) => {
             data: updatedLead
         });
     } catch (error) {
+        if (error.message.includes("Concurrency conflict")) {
+            return res.status(409).json({
+                success: false,
+                message: 'Enrichment is already in progress.'
+            });
+        }
         next(error);
     }
 };

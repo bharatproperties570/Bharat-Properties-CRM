@@ -1458,6 +1458,22 @@ export const updateActivity = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        if (!existingAct) {
+            return res.status(404).json({ success: false, error: "Activity not found" });
+        }
+        
+        const { authorizeTargetEntity } = await import('../utils/authorization.js');
+        if (existingAct.entityType && existingAct.entityId) {
+            await authorizeTargetEntity(req.user, existingAct.entityType, existingAct.entityId);
+        }
+        
+        if (updateData.entityType && updateData.entityId && 
+            (existingAct.entityType !== updateData.entityType || String(existingAct.entityId) !== String(updateData.entityId))) {
+            await authorizeTargetEntity(req.user, updateData.entityType, updateData.entityId);
+        }
+
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
             const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).select('assignedTo subject type').lean();

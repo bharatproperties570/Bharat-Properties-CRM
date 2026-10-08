@@ -1,24 +1,33 @@
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
-const ALLOWED_EVENTS = [
-    'LeadUpdated',
-    'ActivityCreated',
-    'ActivityUpdated',
-    'ManualEnrichmentRequested'
-];
+const ALLOWED_EVENTS = {
+    'LeadUpdated': 'Lead',
+    'ManualEnrichmentRequested': 'Lead',
+    'ActivityCreated': 'Activity',
+    'ActivityUpdated': 'Activity'
+};
 
 async function _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance) {
     if (!session) throw new Error("SECURITY_VIOLATION: Transaction session is required for domain event publishing");
-    if (!ALLOWED_EVENTS.includes(eventType)) {
+    
+    if (!ALLOWED_EVENTS[eventType]) {
         throw new Error(`SECURITY_VIOLATION: Unauthorized event type: ${eventType}`);
     }
     
-    if (['LeadUpdated', 'ManualEnrichmentRequested'].includes(eventType) && aggregateType !== 'Lead') {
-        throw new Error(`SECURITY_VIOLATION: aggregateType must be Lead for ${eventType}`);
+    if (ALLOWED_EVENTS[eventType] !== aggregateType) {
+        throw new Error(`SECURITY_VIOLATION: aggregateType must be ${ALLOWED_EVENTS[eventType]} for ${eventType}`);
     }
-    if (['ActivityCreated', 'ActivityUpdated'].includes(eventType) && aggregateType !== 'Activity') {
-        throw new Error(`SECURITY_VIOLATION: aggregateType must be Activity for ${eventType}`);
+
+    if (!mongoose.Types.ObjectId.isValid(aggregateId)) {
+        throw new Error("SECURITY_VIOLATION: Invalid aggregateId format");
+    }
+
+    const ModelName = aggregateType === 'Lead' ? 'Lead' : 'Activity';
+    const Model = mongoose.models[ModelName] || mongoose.model(ModelName);
+    const aggregateExists = await Model.exists({ _id: aggregateId }).session(session);
+    if (!aggregateExists) {
+        throw new Error(`SECURITY_VIOLATION: Target aggregate ${aggregateType} ${aggregateId} does not exist`);
     }
 
     const OutboxEvent = mongoose.models.OutboxEvent || mongoose.model('OutboxEvent');
@@ -38,7 +47,7 @@ export class DomainEventPublisher {
             source: 'HTTP',
             actorType: 'HUMAN',
             actorId: req.user?.id || req.user?._id || null,
-            correlationId: global.getCorrelationId ? global.getCorrelationId() : null
+            correlationId: global.getCorrelationId ? global.getCorrelationId() : uuidv4()
         };
         await _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance);
     }
@@ -48,7 +57,7 @@ export class DomainEventPublisher {
             source: 'MOBILE',
             actorType: 'HUMAN',
             actorId: req.user?.id || req.user?._id || null,
-            correlationId: global.getCorrelationId ? global.getCorrelationId() : null
+            correlationId: global.getCorrelationId ? global.getCorrelationId() : uuidv4()
         };
         await _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance);
     }
@@ -58,7 +67,7 @@ export class DomainEventPublisher {
             source: 'PUBLIC_FORM',
             actorType: 'EXTERNAL',
             actorId: null,
-            correlationId: global.getCorrelationId ? global.getCorrelationId() : null
+            correlationId: global.getCorrelationId ? global.getCorrelationId() : uuidv4()
         };
         await _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance);
     }
@@ -68,7 +77,7 @@ export class DomainEventPublisher {
             source: 'WEBHOOK',
             actorType: 'WEBHOOK',
             actorId: null,
-            correlationId: global.getCorrelationId ? global.getCorrelationId() : null
+            correlationId: global.getCorrelationId ? global.getCorrelationId() : uuidv4()
         };
         await _publishInternal(session, eventType, aggregateType, aggregateId, payload, provenance);
     }
