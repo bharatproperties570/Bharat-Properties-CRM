@@ -1475,7 +1475,7 @@ export const updateActivity = async (req, res) => {
 
         
         let activity = null;
-        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
         const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
         
         await withMongoTransaction(async (session) => {
@@ -1656,7 +1656,7 @@ export const syncMobileCalls = async (req, res) => {
             if (!existing) {
                 
         let activity = null;
-        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
         const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
         
         await withMongoTransaction(async (session) => {
@@ -1760,7 +1760,7 @@ export const syncMobileCalls = async (req, res) => {
             if (!existing) {
                 
         let activity = null;
-        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
         const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
         
         await withMongoTransaction(async (session) => {
