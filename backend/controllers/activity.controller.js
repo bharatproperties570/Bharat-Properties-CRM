@@ -8,7 +8,7 @@ import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Conversation from "../models/Conversation.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
+import { googleSyncQueue } from "../src/queues/queueManager.js";
 
 import * as StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
