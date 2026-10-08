@@ -6,25 +6,37 @@ const validProofs = new WeakSet();
 
 async function _enqueueSystemEnrichment(leadId) {
     if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
+    
+    const claimToken = crypto.randomBytes(32).toString('hex');
+    const claimTokenHash = crypto.createHash('sha256').update(claimToken).digest('hex');
+
     const Lead = mongoose.model("Lead");
     const updated = await Lead.findOneAndUpdate(
         { _id: leadId, "enrichmentState.status": { $nin: ["REQUESTED", "COMPLETED", "IN_PROGRESS", "FAILED_PERMANENTLY"] } },
-        { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.requestedAt": new Date() } },
+        { 
+            $set: { 
+                "enrichmentState.status": "REQUESTED", 
+                "enrichmentState.requestedAt": new Date(),
+                "enrichmentState.claimTokenHash": claimTokenHash
+            } 
+        },
         { new: true }
     );
     if (!updated) {
         throw new Error("SECURITY_VIOLATION: Lead not found or already requested");
     }
     const queues = await import('../src/queues/queueManager.js');
-    await queues.enrichmentQueue.add('enrichLead', { leadId });
+    await queues.enrichmentQueue.add('enrichLead', { leadId, claimToken });
 }
 
 export class ServerAuthorityProof {
-    constructor(secret, targetId, actorType = 'SYSTEM') {
+    constructor(secret, targetId, jobId, actorType = 'SYSTEM') {
         if (secret !== AUTHORITY_SECRET) {
             throw new Error("SECURITY_VIOLATION: Cannot directly construct ServerAuthorityProof");
         }
+        if (!jobId) throw new Error("SECURITY_VIOLATION: Missing execution identity (jobId)");
         this.targetId = targetId.toString();
+        this.jobId = jobId.toString();
         this.actorType = actorType;
         Object.freeze(this);
         validProofs.add(this);
@@ -49,21 +61,29 @@ export class AuthorityProofIssuer {
         if (!updated) {
             throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
         }
-        return new ServerAuthorityProof(AUTHORITY_SECRET, leadId);
+        return new ServerAuthorityProof(AUTHORITY_SECRET, leadId, jobId);
     }
 
     static async finalizeSystemProof(proof, success = true) {
         if (!proof || !AuthorityProofIssuer.verify(proof)) {
             throw new Error("SECURITY_VIOLATION: Invalid or forged proof");
         }
+        if (proof.actorType !== 'SYSTEM' || !proof.targetId || !proof.jobId) {
+            throw new Error("SECURITY_VIOLATION: Invalid execution identity");
+        }
         const leadId = proof.targetId;
+        const jobId = proof.jobId;
         const Lead = mongoose.model("Lead");
         const update = success 
             ? { $set: { "enrichmentState.status": "COMPLETED", "enrichmentState.completedAt": new Date() }, $unset: { "enrichmentState.claimTokenHash": 1 } }
             : { $set: { "enrichmentState.status": "FAILED", "enrichmentState.failedAt": new Date() } };
 
         const updated = await Lead.findOneAndUpdate(
-            { _id: leadId, "enrichmentState.status": "CLAIMED" },
+            { 
+                _id: leadId, 
+                "enrichmentState.status": "CLAIMED",
+                "enrichmentState.lastJobId": jobId
+            },
             update,
             { new: true }
         );
