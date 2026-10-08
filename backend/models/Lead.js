@@ -10,7 +10,7 @@ const escapeRegExp = (string) => {
 };
 
 const LeadSchema = new mongoose.Schema({
-
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', index: true },
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
@@ -154,7 +154,8 @@ const LeadSchema = new mongoose.Schema({
         failedAt: { type: Date },
         jobId: { type: String },
         lastJobId: { type: String },
-        claimTokenHash: { type: String, select: false }
+        claimTokenHash: { type: String, select: false },
+        enrichmentExecutionId: { type: String }
     }, // Static intent based on enrichment & keywords
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)

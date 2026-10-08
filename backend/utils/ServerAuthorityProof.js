@@ -30,7 +30,7 @@ async function _enqueueSystemEnrichment(leadId) {
 }
 
 export class ServerAuthorityProof {
-    constructor(secret, targetId, jobId, actorType = 'SYSTEM') {
+    constructor(secret, targetId, jobId, actorType = 'SYSTEM', enrichmentExecutionId = null, companyId = null) {
         if (secret !== AUTHORITY_SECRET) {
             throw new Error("SECURITY_VIOLATION: Cannot directly construct ServerAuthorityProof");
         }
@@ -38,6 +38,8 @@ export class ServerAuthorityProof {
         this.targetId = targetId.toString();
         this.jobId = jobId.toString();
         this.actorType = actorType;
+        this.enrichmentExecutionId = enrichmentExecutionId;
+        this.companyId = companyId ? companyId.toString() : null;
         Object.freeze(this);
         validProofs.add(this);
     }
@@ -48,6 +50,10 @@ export class AuthorityProofIssuer {
     static async resolveSystemProof(leadId, jobId = 'sync', claimToken) {
         if (!claimToken) throw new Error("SECURITY_VIOLATION: Missing claim token");
         const claimTokenHash = crypto.createHash('sha256').update(claimToken).digest('hex');
+        
+        // Generate Canonical Execution Identity
+        const enrichmentExecutionId = `exec_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+
         const Lead = mongoose.model("Lead");
         const updated = await Lead.findOneAndUpdate(
             { 
@@ -55,13 +61,21 @@ export class AuthorityProofIssuer {
                 "enrichmentState.claimTokenHash": claimTokenHash,
                 "enrichmentState.status": { $in: ["REQUESTED", "FAILED"] }
             },
-            { $set: { "enrichmentState.status": "CLAIMED", "enrichmentState.lastJobId": jobId, "enrichmentState.claimedAt": new Date() } },
+            { $set: { 
+                "enrichmentState.status": "CLAIMED", 
+                "enrichmentState.lastJobId": jobId, 
+                "enrichmentState.claimedAt": new Date(),
+                "enrichmentState.enrichmentExecutionId": enrichmentExecutionId
+            } },
             { new: true }
         );
         if (!updated) {
             throw new Error("SECURITY_VIOLATION: Missing execution context/authority proof");
         }
-        return new ServerAuthorityProof(AUTHORITY_SECRET, leadId, jobId);
+        
+        const companyId = updated.companyId ? updated.companyId.toString() : null;
+        
+        return new ServerAuthorityProof(AUTHORITY_SECRET, leadId, jobId, 'SYSTEM', enrichmentExecutionId, companyId);
     }
 
     static async finalizeSystemProof(proof, success = true) {
@@ -71,6 +85,10 @@ export class AuthorityProofIssuer {
         if (proof.actorType !== 'SYSTEM' || !proof.targetId || !proof.jobId) {
             throw new Error("SECURITY_VIOLATION: Invalid execution identity");
         }
+        
+        // R4-B6-R2 requires full mutation protection. For R1, we ensure finalization binds to the execution ID.
+        const execIdQuery = proof.enrichmentExecutionId ? { "enrichmentState.enrichmentExecutionId": proof.enrichmentExecutionId } : {};
+        
         const leadId = proof.targetId;
         const jobId = proof.jobId;
         const Lead = mongoose.model("Lead");
@@ -82,7 +100,8 @@ export class AuthorityProofIssuer {
             { 
                 _id: leadId, 
                 "enrichmentState.status": "CLAIMED",
-                "enrichmentState.lastJobId": jobId
+                "enrichmentState.lastJobId": jobId,
+                ...execIdQuery
             },
             update,
             { new: true }
