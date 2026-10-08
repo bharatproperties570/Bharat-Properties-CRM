@@ -118,8 +118,10 @@ export const runEnrichment = async (req, res, next) => {
         const { DomainEventPublisher } = await import('../../../utils/DomainEventPublisher.js');
         const Lead = (await import('../../../models/Lead.js')).default;
         
+        // Read state and OCC version marker BEFORE transaction
         const existingLead = await Lead.findById(leadId).lean();
         const currentStatus = existingLead?.enrichmentState?.status;
+        const currentV = existingLead?.__v || 0;
         
         if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED') {
             return res.status(409).json({
@@ -129,14 +131,24 @@ export const runEnrichment = async (req, res, next) => {
         }
 
         await withMongoTransaction(async (session) => {
-            // Atomic conditional transition inside transaction
+            // Atomic OCC-based transition inside transaction
+            // Binds __v to prevent concurrent request retries from succeeding
             const result = await Lead.updateOne(
-                { _id: leadId, "enrichmentState.status": { $in: ["COMPLETED", "NONE", "FAILED", null] } }, 
-                { $set: { "enrichmentState.status": "NONE" } }, 
+                { 
+                    _id: leadId, 
+                    "enrichmentState.status": { $in: ["COMPLETED", "NONE", "FAILED", null] },
+                    __v: currentV
+                }, 
+                { 
+                    $set: { "enrichmentState.status": "NONE" },
+                    $inc: { __v: 1 }
+                }, 
                 { session }
             );
 
-            if (result.matchedCount === 0 && currentStatus === 'COMPLETED') {
+            if (result.matchedCount === 0) {
+                // If 0, either another manual enrichment won the race, 
+                // or a concurrent Lead update occurred. Fail safely.
                 throw new Error("Concurrency conflict: Lead enrichment state changed before atomic transition.");
             }
 
@@ -158,7 +170,7 @@ export const runEnrichment = async (req, res, next) => {
         if (error.message.includes("Concurrency conflict")) {
             return res.status(409).json({
                 success: false,
-                message: 'Enrichment is already in progress.'
+                message: 'Enrichment is already in progress or state changed concurrently.'
             });
         }
         next(error);
