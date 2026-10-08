@@ -83,16 +83,25 @@ async function runTests() {
             "Human requests lacking valid DB token should fail"
         );
 
-        console.log("\n--- T-R1-06: WEBHOOK cannot manufacture SYSTEM execution identity ---");
-        await assertThrows(
-            () => AuthorityProofIssuer.resolveWebhookProofs("+19999990003"),
-            /SECURITY_VIOLATION/,
-            "Webhook proof should throw or not give enrichmentExecutionId"
-        );
+        console.log("\n--- R1-A (T-R1-06): WEBHOOK cannot manufacture SYSTEM execution identity ---");
+        const webhookMobile = "+19999990003";
+        const Conversation = (await import('./models/Conversation.js')).default;
+        const ServerAuthorityProof = (await import('./utils/ServerAuthorityProof.js')).ServerAuthorityProof;
+        
+        await Conversation.collection.insertOne({
+            userPhone: webhookMobile,
+            status: 'open'
+        });
+        
+        const webhookProof = await AuthorityProofIssuer.resolveWebhookProofs(webhookMobile);
+        assertCondition(webhookProof !== null, "Webhook proof should resolve successfully without throwing");
+        assertCondition(webhookProof.enrichmentExecutionId === undefined, "Webhook proof MUST NOT contain enrichmentExecutionId");
+        assertCondition(webhookProof.actorType !== 'SYSTEM', "Webhook proof MUST NOT contain SYSTEM actorType");
+        assertCondition(!(webhookProof instanceof ServerAuthorityProof), "Webhook proof MUST NOT be a ServerAuthorityProof capability object");
 
-        console.log("\n--- T-R1-07: Duplicate/concurrent claim cannot produce two active owners ---");
+        console.log("\n--- R1-B (T-R1-07): True Concurrent Claim Race ---");
         const lead3 = await Lead.create({
-            firstName: "Concurrent Test Lead",
+            firstName: "True Concurrent Race Lead",
             mobile: "+19999990004",
             enrichmentState: { status: 'REQUESTED' }
         });
@@ -100,14 +109,34 @@ async function runTests() {
         lead3.enrichmentState.claimTokenHash = hashToken(token3);
         await lead3.save();
 
-        const proof3a = await AuthorityProofIssuer.resolveSystemProof(lead3._id, "concurrent-job-1", token3);
-        assertCondition(proof3a.enrichmentExecutionId !== null, "Job 1 claims successfully");
+        const claimA = AuthorityProofIssuer.resolveSystemProof(lead3._id, "concurrent-job-A", token3);
+        const claimB = AuthorityProofIssuer.resolveSystemProof(lead3._id, "concurrent-job-B", token3);
 
-        await assertThrows(
-            () => AuthorityProofIssuer.resolveSystemProof(lead3._id, "concurrent-job-2", token3),
-            /Missing execution context/,
-            "Job 2 should not be able to claim a CLAIMED lead"
-        );
+        const results = await Promise.allSettled([claimA, claimB]);
+
+        const successes = results.filter(r => r.status === 'fulfilled');
+        const rejections = results.filter(r => r.status === 'rejected');
+
+        assertCondition(successes.length === 1, "Exactly ONE claim attempt succeeds");
+        assertCondition(rejections.length === 1, "Exactly ONE claim attempt fails");
+        
+        if (rejections.length === 1) {
+            assertCondition(
+                rejections[0].reason.message.includes("execution context") || rejections[0].reason.message.includes("SECURITY_VIOLATION"),
+                "Failing attempt must reject with Missing execution context / SECURITY_VIOLATION"
+            );
+        }
+
+        const dbLead3 = await Lead.findById(lead3._id).select('+enrichmentState.claimTokenHash');
+        assertCondition(dbLead3.enrichmentState.status === 'CLAIMED', "Lead status must be CLAIMED");
+        
+        if (successes.length === 1) {
+            const winningProof = successes[0].value;
+            assertCondition(dbLead3.enrichmentState.lastJobId === winningProof.jobId, "Lead.lastJobId must equal the winning job");
+            assertCondition(dbLead3.enrichmentState.enrichmentExecutionId !== null, "Lead.enrichmentExecutionId must be present");
+            assertCondition(dbLead3.enrichmentState.enrichmentExecutionId === winningProof.enrichmentExecutionId, "Stored execution ID corresponds to the winning proof");
+            assertCondition(dbLead3.enrichmentState.claimTokenHash === hashToken(token3), "claimTokenHash remains protected");
+        }
 
         console.log("\n--- T-R1-08: Existing claimTokenHash protection remains intact ---");
         const lead4 = await Lead.create({
