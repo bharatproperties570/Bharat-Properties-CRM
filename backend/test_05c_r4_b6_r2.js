@@ -97,6 +97,36 @@ async function runTests() {
     assert(finalLead.enrichmentState.status === 'FAILED', 'T-R2-12: Lead status is FAILED');
     assert(!finalLead.intent_tags || finalLead.intent_tags.length === 0, 'T-R2-12: Loser writes ZERO protected state');
 
+    // 3b. T-R2-12B: COMPETING EXECUTIONS
+    const tRace = await createLead(companyId);
+    const claimTokenA = tRace.claimToken;
+    const proofA = await AuthorityProofIssuer.resolveSystemProof(tRace.lead._id, 'job-A', claimTokenA);
+    // Simulate execution A taking too long, getting stuck in RUNNING
+    await AuthorityProofIssuer.transitionToRunning(proofA);
+
+    // Simulate system retry: forcefully requesting it again after timeout
+    const newClaimTokenB = (await import('crypto')).default.randomBytes(32).toString('hex');
+    const claimTokenHashB = (await import('crypto')).default.createHash('sha256').update(newClaimTokenB).digest('hex');
+    await Lead.findByIdAndUpdate(tRace.lead._id, {
+        'enrichmentState.status': 'REQUESTED',
+        'enrichmentState.claimTokenHash': claimTokenHashB
+    });
+
+    const proofB = await AuthorityProofIssuer.resolveSystemProof(tRace.lead._id, 'job-B', newClaimTokenB);
+    await AuthorityProofIssuer.transitionToRunning(proofB);
+    
+    // Now B is RUNNING. A and B attempt to persist concurrently.
+    const attemptRaceA = runFullLeadEnrichment(tRace.lead._id, { authorizationProof: proofA });
+    const attemptRaceB = runFullLeadEnrichment(tRace.lead._id, { authorizationProof: proofB });
+    const resultsRace = await Promise.allSettled([attemptRaceA, attemptRaceB]);
+    
+    assert(resultsRace[0].status === 'fulfilled' && resultsRace[0].value.success === false && resultsRace[0].value.error.includes('SECURITY_VIOLATION'), 'T-R2-12B: Execution A rejected via canonical predicate');
+    assert(resultsRace[1].status === 'fulfilled' && resultsRace[1].value.success === true, 'T-R2-12B: Execution B succeeds');
+    
+    const leadRace = await Lead.findById(tRace.lead._id);
+    assert(leadRace.enrichmentState.lastJobId === 'job-B', 'T-R2-12B: Winning execution state is preserved');
+
+
     // 4. Scoring bypass (T-R2-13, 14, 15)
     try {
         await LeadScoringService.computeAndSave(t1.lead._id, { triggeredBy: 'SYSTEM_ENRICHMENT' }, null);
@@ -161,7 +191,21 @@ async function runTests() {
     assert(leadFailB.intent_index === 0, 'T-R2-FailureB: Lead mutation was rolled back');
     OutboxEvent.create = origOutboxCreate;
 
-    // 10. T-R2-FailureC: Predicate invalidation (already covered by T-R2-12)
+    // 10. T-R2-FailureC: Scoring failure
+    const tFailC = await createLead(companyId);
+    const proofFailC = await AuthorityProofIssuer.resolveSystemProof(tFailC.lead._id, 'job-fail-C', tFailC.claimToken);
+    await AuthorityProofIssuer.transitionToRunning(proofFailC);
+    
+    const origScoring = LeadScoringService.computeAndSave;
+    LeadScoringService.computeAndSave = async () => { throw new Error("Mock Scoring Failure"); };
+    
+    const resultFailC = await runFullLeadEnrichment(tFailC.lead._id, { authorizationProof: proofFailC });
+    assert(resultFailC.success === false && resultFailC.error.includes("Mock Scoring Failure"), 'T-R2-FailureC: Scoring failure rolls back transaction');
+    const leadFailC = await Lead.findById(tFailC.lead._id);
+    assert(leadFailC.intent_index === 0, 'T-R2-FailureC: Lead mutation was rolled back');
+    assert(!leadFailC.enrichment_formula_score, 'T-R2-FailureC: Lead score fields rolled back');
+    
+    LeadScoringService.computeAndSave = origScoring;
 
     
     console.log(`\n=========================\nREAL_ASSERTIONS: ${passed}\n=========================`);

@@ -271,9 +271,10 @@ export const runFullLeadEnrichment = async (leadId, executionContext = null) => 
                     userAgent: 'SYSTEM_ENRICHMENT'
                 }], { session });
             }
+
+            await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'SYSTEM_ENRICHMENT' }, executionContext, { session });
         });
 
-        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'SYSTEM_ENRICHMENT' }, executionContext);
         return { success: true };
     } catch (error) {
         console.error(`[ENRICHMENT ERROR] Failed for lead ${leadId}:`, error);

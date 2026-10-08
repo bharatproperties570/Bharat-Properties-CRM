@@ -439,7 +439,7 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
  * @param {string} [options.triggeredBy] - 'activity'|'manual'|'cron'|'import'
  * @returns {Promise<{leadId, score, activityScore, temperature, intent}>}
  */
-export const computeAndSave = async (leadId, options = {}, authContext = null) => {
+export const computeAndSave = async (leadId, options = {}, authContext = null, txContext = {}) => {
     const { triggeredBy = 'system' } = options;
 
     if (triggeredBy === 'SYSTEM_ENRICHMENT') {
@@ -502,34 +502,51 @@ export const computeAndSave = async (leadId, options = {}, authContext = null) =
         dealHealthStatus: dealHealth.status
     };
 
+    const session = txContext.session || null;
     if (triggeredBy === 'SYSTEM_ENRICHMENT') {
         const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
         const predicate = AuthorityProofIssuer.getMutationPredicate(authContext.authorizationProof);
-        const updated = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true });
+        const updated = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true, session });
         if (!updated) {
             throw new Error("SECURITY_VIOLATION: LeadScoringService mutation rejected (superseded or state mismatch)");
         }
     } else {
-        await Lead.findByIdAndUpdate(leadId, { $set: updatePayload });
+        await Lead.findByIdAndUpdate(leadId, { $set: updatePayload }, { session });
     }
 
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
-            await AuditLog.logEntityUpdate(
-                'score_changed',
-                'lead',
-                leadId,
-                `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-                null,
-                { before: prevScore, after: result.total },
-                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
-            );
+            if (session) {
+                const AuditLogModel = (await import('../../models/AuditLog.js')).default;
+                await AuditLogModel.create([{
+                    eventType: 'score_changed',
+                    targetType: 'lead',
+                    targetId: leadId,
+                    targetName: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                    userId: null,
+                    changes: { before: prevScore, after: result.total },
+                    description: `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+                }], { session });
+            } else {
+                await AuditLog.logEntityUpdate(
+                    'score_changed',
+                    'lead',
+                    leadId,
+                    `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                    null,
+                    { before: prevScore, after: result.total },
+                    `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+                );
+            }
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
-            const eventBus = (await import('../../services/EventBus.js')).default;
-            const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
-            eventBus.emit('LEAD_UPDATED', updatedLead);
+            // Do NOT emit directly if running inside a transaction, to prevent pre-commit side effects.
+            if (!session) {
+                const eventBus = (await import('../../services/EventBus.js')).default;
+                const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
+                eventBus.emit('LEAD_UPDATED', updatedLead);
+            }
             
         } catch (_) { /* Non-critical — don't let audit failure break scoring */ }
     }
