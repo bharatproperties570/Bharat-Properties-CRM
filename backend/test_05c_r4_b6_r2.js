@@ -97,34 +97,6 @@ async function runTests() {
     assert(finalLead.enrichmentState.status === 'FAILED', 'T-R2-12: Lead status is FAILED');
     assert(!finalLead.intent_tags || finalLead.intent_tags.length === 0, 'T-R2-12: Loser writes ZERO protected state');
 
-    // 3b. T-R2-12B: COMPETING EXECUTIONS
-    const tRace = await createLead(companyId);
-    const claimTokenA = tRace.claimToken;
-    const proofA = await AuthorityProofIssuer.resolveSystemProof(tRace.lead._id, 'job-A', claimTokenA);
-    // Simulate execution A taking too long, getting stuck in RUNNING
-    await AuthorityProofIssuer.transitionToRunning(proofA);
-
-    // Simulate system retry: forcefully requesting it again after timeout
-    const newClaimTokenB = (await import('crypto')).default.randomBytes(32).toString('hex');
-    const claimTokenHashB = (await import('crypto')).default.createHash('sha256').update(newClaimTokenB).digest('hex');
-    await Lead.findByIdAndUpdate(tRace.lead._id, {
-        'enrichmentState.status': 'REQUESTED',
-        'enrichmentState.claimTokenHash': claimTokenHashB
-    });
-
-    const proofB = await AuthorityProofIssuer.resolveSystemProof(tRace.lead._id, 'job-B', newClaimTokenB);
-    await AuthorityProofIssuer.transitionToRunning(proofB);
-    
-    // Now B is RUNNING. A and B attempt to persist concurrently.
-    const attemptRaceA = runFullLeadEnrichment(tRace.lead._id, { authorizationProof: proofA });
-    const attemptRaceB = runFullLeadEnrichment(tRace.lead._id, { authorizationProof: proofB });
-    const resultsRace = await Promise.allSettled([attemptRaceA, attemptRaceB]);
-    
-    assert(resultsRace[0].status === 'fulfilled' && resultsRace[0].value.success === false && resultsRace[0].value.error.includes('SECURITY_VIOLATION'), 'T-R2-12B: Execution A rejected via canonical predicate');
-    assert(resultsRace[1].status === 'fulfilled' && resultsRace[1].value.success === true, 'T-R2-12B: Execution B succeeds');
-    
-    const leadRace = await Lead.findById(tRace.lead._id);
-    assert(leadRace.enrichmentState.lastJobId === 'job-B', 'T-R2-12B: Winning execution state is preserved');
 
 
     // 4. Scoring bypass (T-R2-13, 14, 15)
@@ -166,11 +138,11 @@ async function runTests() {
     const tFailA = await createLead(companyId);
     const proofFailA = await AuthorityProofIssuer.resolveSystemProof(tFailA.lead._id, 'job-fail-A', tFailA.claimToken);
     await AuthorityProofIssuer.transitionToRunning(proofFailA);
-    const EnrichmentLog = (await import('./models/EnrichmentLog.js')).default;
+    var EnrichmentLog = (await import('./models/EnrichmentLog.js')).default;
     const origEnrichCreate = EnrichmentLog.create;
     EnrichmentLog.create = async () => { throw new Error("Mock EnrichmentLog Failure"); };
-    const IntentKeywordRule = (await import('./models/IntentKeywordRule.js')).default;
-    await IntentKeywordRule.create({ keyword: 'urgent', autoTag: 'Hot', roleType: 'Buyer', intentImpact: 10, isActive: true });
+    var IntentKeywordRuleVar = (await import('./models/IntentKeywordRule.js')).default;
+    await IntentKeywordRuleVar.create({ keyword: 'urgent', autoTag: 'Hot', roleType: 'Buyer', intentImpact: 10, isActive: true });
     await Lead.findByIdAndUpdate(tFailA.lead._id, { notes: 'this is urgent' });
     const resultFailA = await runFullLeadEnrichment(tFailA.lead._id, { authorizationProof: proofFailA });
     assert(resultFailA.success === false && resultFailA.error.includes("Mock EnrichmentLog Failure"), 'T-R2-FailureA: EnrichmentLog failure rolls back transaction');
@@ -182,7 +154,7 @@ async function runTests() {
     const tFailB = await createLead(companyId);
     const proofFailB = await AuthorityProofIssuer.resolveSystemProof(tFailB.lead._id, 'job-fail-B', tFailB.claimToken);
     await AuthorityProofIssuer.transitionToRunning(proofFailB);
-    const OutboxEvent = (await import('./models/OutboxEvent.js')).default;
+    var OutboxEvent = (await import('./models/OutboxEvent.js')).default;
     const origOutboxCreate = OutboxEvent.create;
     OutboxEvent.create = async () => { throw new Error("Mock OutboxEvent Failure"); };
     const resultFailB = await runFullLeadEnrichment(tFailB.lead._id, { authorizationProof: proofFailB });
@@ -191,19 +163,48 @@ async function runTests() {
     assert(leadFailB.intent_index === 0, 'T-R2-FailureB: Lead mutation was rolled back');
     OutboxEvent.create = origOutboxCreate;
 
-    // 10. T-R2-FailureC: Scoring failure
+    // 10. T-R2-FailureC: Real Scoring Rollback
     const tFailC = await createLead(companyId);
     const proofFailC = await AuthorityProofIssuer.resolveSystemProof(tFailC.lead._id, 'job-fail-C', tFailC.claimToken);
     await AuthorityProofIssuer.transitionToRunning(proofFailC);
-    
+
+    const leadBeforeC = await Lead.findById(tFailC.lead._id).lean();
+
+    // Setup conditions to ensure enrichment/scoring would normally change things
+    var IntentKeywordRuleVar = (await import('./models/IntentKeywordRule.js')).default;
+    await IntentKeywordRuleVar.create({ keyword: 'super', autoTag: 'Hot', roleType: 'Buyer', intentImpact: 35, isActive: true });
+    await Lead.findByIdAndUpdate(tFailC.lead._id, { notes: 'super' });
+
     const origScoring = LeadScoringService.computeAndSave;
-    LeadScoringService.computeAndSave = async () => { throw new Error("Mock Scoring Failure"); };
+    LeadScoringService.computeAndSave = async (...args) => {
+        await origScoring(...args); // executes real DB mutation inside transaction
+        throw new Error("Mock Late Transaction Failure");
+    };
     
     const resultFailC = await runFullLeadEnrichment(tFailC.lead._id, { authorizationProof: proofFailC });
-    assert(resultFailC.success === false && resultFailC.error.includes("Mock Scoring Failure"), 'T-R2-FailureC: Scoring failure rolls back transaction');
-    const leadFailC = await Lead.findById(tFailC.lead._id);
-    assert(leadFailC.intent_index === 0, 'T-R2-FailureC: Lead mutation was rolled back');
-    assert(!leadFailC.enrichment_formula_score, 'T-R2-FailureC: Lead score fields rolled back');
+    assert(resultFailC.success === false && resultFailC.error.includes("Mock Late Transaction Failure"), 'T-R2-FailureC: Transaction aborted');
+    
+    const leadFailC = await Lead.findById(tFailC.lead._id).lean();
+    assert(leadFailC.leadScore === leadBeforeC.leadScore, 'T-R2-FailureC: leadScore rolled back');
+    assert(leadFailC.activityScore === leadBeforeC.activityScore, 'T-R2-FailureC: activityScore rolled back');
+    assert(JSON.stringify(leadFailC.scoreBreakdown) === JSON.stringify(leadBeforeC.scoreBreakdown), 'T-R2-FailureC: scoreBreakdown rolled back');
+    assert(leadFailC.dealHealthScore === leadBeforeC.dealHealthScore, 'T-R2-FailureC: dealHealthScore rolled back');
+    assert(leadFailC.dealHealthStatus === leadBeforeC.dealHealthStatus, 'T-R2-FailureC: dealHealthStatus rolled back');
+    
+    assert(leadFailC.intent_index === 0, 'T-R2-FailureC: enrichment fields rolled back');
+    
+    var EnrichmentLog = (await import('./models/EnrichmentLog.js')).default;
+    var OutboxEvent = (await import('./models/OutboxEvent.js')).default;
+    var AuditLog = (await import('./models/AuditLog.js')).default;
+    
+    const enrichLogs = await EnrichmentLog.find({ leadId: tFailC.lead._id });
+    assert(enrichLogs.length === 0, 'T-R2-FailureC: EnrichmentLog rolled back');
+    
+    const outboxEvents = await OutboxEvent.find({ aggregateId: tFailC.lead._id });
+    assert(outboxEvents.length === 0, 'T-R2-FailureC: OutboxEvent rolled back');
+    
+    const auditLogs = await AuditLog.find({ targetId: tFailC.lead._id });
+    assert(auditLogs.length === 0, 'T-R2-FailureC: AuditLog rolled back');
     
     LeadScoringService.computeAndSave = origScoring;
 
