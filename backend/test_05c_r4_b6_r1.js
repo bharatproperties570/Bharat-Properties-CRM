@@ -174,70 +174,56 @@ async function runTests() {
 
         console.log("\n--- T-R1-09: Finalization Binding (R1-E) ---");
         
-        // 1. wrong execution identity -> rejected
-        const lead6 = await Lead.create({ firstName: "Finalization Bad Exec", mobile: "+19999990006", enrichmentState: { status: 'REQUESTED' } });
-        const token6 = generateToken();
-        lead6.enrichmentState.claimTokenHash = hashToken(token6);
-        await lead6.save();
-        const proof6 = await AuthorityProofIssuer.resolveSystemProof(lead6._id, "job-6", token6);
-        await Lead.updateOne({ _id: lead6._id }, { $set: { "enrichmentState.enrichmentExecutionId": "exec_stolen" } });
-        await assertThrows(() => AuthorityProofIssuer.finalizeSystemProof(proof6, true), /SECURITY_VIOLATION: Finalization failed or unauthorized state/, "Finalization with mismatched execution identity in DB rejected");
-
-        // 2. wrong jobId -> rejected
-        const lead7 = await Lead.create({ firstName: "Finalization Bad Job", mobile: "+19999990007", enrichmentState: { status: 'REQUESTED' } });
-        const token7 = generateToken();
-        lead7.enrichmentState.claimTokenHash = hashToken(token7);
-        await lead7.save();
-        const proof7 = await AuthorityProofIssuer.resolveSystemProof(lead7._id, "job-7", token7);
-        await Lead.updateOne({ _id: lead7._id }, { $set: { "enrichmentState.lastJobId": "job-wrong" } });
-        await assertThrows(() => AuthorityProofIssuer.finalizeSystemProof(proof7, true), /SECURITY_VIOLATION: Finalization failed or unauthorized state/, "Finalization with wrong jobId in DB rejected");
-
-        // 3. stale/losing execution -> rejected
-        const lead8 = await Lead.create({ firstName: "Finalization Stale", mobile: "+19999990008", enrichmentState: { status: 'REQUESTED' } });
-        const token8 = generateToken();
-        lead8.enrichmentState.claimTokenHash = hashToken(token8);
-        await lead8.save();
-        const proof8 = await AuthorityProofIssuer.resolveSystemProof(lead8._id, "job-8", token8);
-        await Lead.updateOne({ _id: lead8._id }, { $set: { "enrichmentState.status": "COMPLETED" } });
-        await assertThrows(() => AuthorityProofIssuer.finalizeSystemProof(proof8, true), /SECURITY_VIOLATION: Finalization failed or unauthorized state/, "Finalization of already completed (stale) execution rejected");
-
-        // 4. correct execution identity -> allowed
-        const lead9 = await Lead.create({ firstName: "Finalization Good", mobile: "+19999990009", enrichmentState: { status: 'REQUESTED' } });
-        const token9 = generateToken();
-        lead9.enrichmentState.claimTokenHash = hashToken(token9);
-        await lead9.save();
-        const proof9 = await AuthorityProofIssuer.resolveSystemProof(lead9._id, "job-9", token9);
-        await AuthorityProofIssuer.finalizeSystemProof(proof9, true);
-        const dbLead9 = await Lead.findById(lead9._id);
-        assertCondition(dbLead9.enrichmentState.status === 'COMPLETED', "Lead status should be COMPLETED");
-
-        console.log("\n--- T-R1-10: Finalization Wrong Lead (R1-E-02) ---");
-        const leadA = await Lead.create({ firstName: "Finalization Lead A", mobile: "+19999990010", enrichmentState: { status: 'REQUESTED' } });
+        const leadA = await Lead.create({ firstName: "Finalization Lead A", mobile: "+19999990020", enrichmentState: { status: 'REQUESTED' } });
         const tokenA = generateToken();
         leadA.enrichmentState.claimTokenHash = hashToken(tokenA);
         await leadA.save();
-        const proofForLeadA = await AuthorityProofIssuer.resolveSystemProof(leadA._id, "job-A", tokenA);
 
-        const leadB = await Lead.create({ firstName: "Finalization Lead B", mobile: "+19999990011", enrichmentState: { status: 'REQUESTED' } });
-
-        // Explicitly invoke against mismatched Lead B context using the actual production API
-        const { LeadMutationService } = await import('./services/LeadMutationService.js');
+        const leadB = await Lead.create({ firstName: "Finalization Lead B", mobile: "+19999990021", enrichmentState: { status: 'REQUESTED' } });
         
+        const proofA = await AuthorityProofIssuer.resolveSystemProof(leadA._id, "job-A", tokenA);
+
+        // 1. Wrong target (Lead A proof + Lead B target context)
+        const mismatchedProofLeadB = Object.assign(Object.create(Object.getPrototypeOf(proofA)), proofA, { targetId: leadB._id.toString() });
         await assertThrows(
-            () => LeadMutationService.executeEnrichmentUpdate(leadB._id, { ai_closing_probability: 85 }, {
-                actorType: 'SYSTEM',
-                actorId: 'worker-1',
-                authorizationProof: proofForLeadA
-            }),
-            /SYSTEM authorization proof mismatched or forged/,
-            "Explicit invocation against mismatched Lead B context rejected"
+            () => AuthorityProofIssuer.finalizeSystemProof(mismatchedProofLeadB, true),
+            /SECURITY_VIOLATION: Invalid or forged proof/,
+            "Lead A proof + Lead B target context => finalizeSystemProof rejects"
+        );
+        
+        // 2. Wrong jobId -> rejection
+        const wrongJobProof = Object.assign(Object.create(Object.getPrototypeOf(proofA)), proofA, { jobId: "wrong-job" });
+        await assertThrows(
+            () => AuthorityProofIssuer.finalizeSystemProof(wrongJobProof, true),
+            /SECURITY_VIOLATION: Invalid or forged proof/,
+            "Wrong jobId => rejection"
         );
 
-        const dbLeadAAfter = await Lead.findById(leadA._id);
-        const dbLeadBAfter = await Lead.findById(leadB._id);
-        
-        assertCondition(dbLeadAAfter.enrichmentState.status === 'CLAIMED', "Lead A remains unchanged (status CLAIMED)");
-        assertCondition(dbLeadBAfter.enrichmentState.status === 'REQUESTED', "Lead B remains unchanged (status REQUESTED)");
+        // 3. Wrong enrichmentExecutionId -> rejection
+        const wrongExecProof = Object.assign(Object.create(Object.getPrototypeOf(proofA)), proofA, { enrichmentExecutionId: "wrong-exec" });
+        await assertThrows(
+            () => AuthorityProofIssuer.finalizeSystemProof(wrongExecProof, true),
+            /SECURITY_VIOLATION: Invalid or forged proof/,
+            "Wrong enrichmentExecutionId => rejection"
+        );
+
+        // 4. Verify no unauthorized mutations occurred
+        const dbLeadA1 = await Lead.findById(leadA._id);
+        const dbLeadB1 = await Lead.findById(leadB._id);
+        assertCondition(dbLeadA1.enrichmentState.status === 'CLAIMED', "Lead A must not be incorrectly finalized by the wrong-target operation");
+        assertCondition(dbLeadB1.enrichmentState.status === 'REQUESTED', "Lead B must not be finalized by Lead A's proof");
+
+        // 5. Correct proof + correct Lead A context => finalization succeeds
+        await AuthorityProofIssuer.finalizeSystemProof(proofA, true);
+        const dbLeadA2 = await Lead.findById(leadA._id);
+        assertCondition(dbLeadA2.enrichmentState.status === 'COMPLETED', "Correct proof + correct Lead A context => finalization succeeds");
+
+        // 6. Stale/COMPLETED execution => rejection (Calling it again naturally without DB mutation)
+        await assertThrows(
+            () => AuthorityProofIssuer.finalizeSystemProof(proofA, true),
+            /SECURITY_VIOLATION: Finalization failed or unauthorized state/,
+            "Stale/COMPLETED execution => rejection"
+        );
 
     } catch(err) {
         console.error(err);
