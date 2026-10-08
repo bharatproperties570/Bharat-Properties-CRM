@@ -150,7 +150,11 @@ const LeadSchema = new mongoose.Schema({
         status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'COMPLETED', 'FAILED'], default: 'NONE' },
         requestedAt: { type: Date },
         claimedAt: { type: Date },
-        jobId: { type: String }
+        completedAt: { type: Date },
+        failedAt: { type: Date },
+        jobId: { type: String },
+        lastJobId: { type: String },
+        claimTokenHash: { type: String, select: false }
     }, // Static intent based on enrichment & keywords
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)

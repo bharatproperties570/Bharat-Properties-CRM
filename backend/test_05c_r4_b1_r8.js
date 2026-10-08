@@ -1,5 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -92,6 +93,10 @@ const assertThrows = async (fn, description) => {
 };
 
 async function runTests() {
+const testToken = 'test-token-123456';
+const testTokenHash = await import('crypto').then(m => m.createHash('sha256').update(testToken).digest('hex'));
+//('sha256').update(testToken).digest('hex');
+
     const smsServiceMock = (await import('./src/modules/sms/sms.service.js')).default;
     smsServiceMock.sendSMSWithTemplate = async () => true;
     const mongoServer = await MongoMemoryServer.create();
@@ -111,8 +116,8 @@ async function runTests() {
     assertCondition(!AuthorityProofIssuer.verify(forgedProof), '2. forged POJO blocked');
     
     // 3. prototype clone blocked
-    await Lead.updateOne({ _id: l1._id }, { $set: { "enrichmentState.status": "REQUESTED" } });
-    const validProof = await AuthorityProofIssuer.resolveSystemProof(l1._id.toString());
+    await Lead.updateOne({ _id: l1._id }, { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.claimTokenHash": testTokenHash } });
+    const validProof = await AuthorityProofIssuer.resolveSystemProof(l1._id.toString(), "sync", testToken);
     const cloned = Object.create(validProof);
     assertCondition(!AuthorityProofIssuer.verify(cloned), '3. prototype clone blocked');
     
@@ -229,25 +234,26 @@ async function runTests() {
     await assertThrows(async () => await processDomainEvent({ data: { payload: {}, eventId: 'ev3', eventType: 'ManualEnrichmentRequested', aggregateType: 'Lead', aggregateId: l3._id.toString() } }), '23. duplicate REQUESTED blocked');
 
     // 24. REQUESTED → CLAIMED
-    const proof3 = await AuthorityProofIssuer.resolveSystemProof(l3._id.toString());
+    await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.claimTokenHash": testTokenHash } });
+    const proof3 = await AuthorityProofIssuer.resolveSystemProof(l3._id.toString(), "sync", testToken);
     const l3_claim = await Lead.findById(l3._id);
     assertCondition(l3_claim.enrichmentState.status === 'CLAIMED', '24. REQUESTED → CLAIMED');
 
     // 25. true concurrent claim race: exactly one winner
-    await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "REQUESTED" } });
-    const p1 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString());
-    const p2 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString());
+    await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.claimTokenHash": testTokenHash } });
+    const p1 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken);
+    const p2 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken);
     const results = await Promise.allSettled([p1, p2]);
     const fulfilled = results.filter(r => r.status === 'fulfilled');
     const rejected = results.filter(r => r.status === 'rejected');
     assertCondition(fulfilled.length === 1 && rejected.length === 1, '25. concurrent claim exactly one winner');
 
     // 26. replay blocked with independent replay attempt
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), '26. replay blocked with independent replay attempt');
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), '26. replay blocked with independent replay attempt');
 
     // 27. stale/non-eligible claim independently blocked
     await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "COMPLETED" } });
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), '27. stale/non-eligible claim independently blocked');
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), '27. stale/non-eligible claim independently blocked');
 
     // 28. execution without proof blocked
     await assertThrows(async () => await runFullLeadEnrichment(l4._id.toString(), null), '28. execution without proof blocked');
@@ -267,19 +273,20 @@ async function runTests() {
         unifiedAIService.generate = origGenerate;
 
     // 32. failure → FAILED
-    await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), false);
+    await AuthorityProofIssuer.finalizeSystemProof(proof3, false);
     const l3_fail = await Lead.findById(l3._id);
     assertCondition(l3_fail.enrichmentState.status === 'FAILED', '32. failure → FAILED');
 
     // 33. FAILED → REQUESTED retry
     await processDomainEvent({ data: { payload: {}, eventId: 'ev4', eventType: 'ManualEnrichmentRequested', aggregateType: 'Lead', aggregateId: l3._id.toString() } });
+    await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.claimTokenHash": testTokenHash } });
     const l3_retry = await Lead.findById(l3._id);
     assertCondition(l3_retry.enrichmentState.status === 'REQUESTED', '33. FAILED → REQUESTED retry');
 
     // 34. failed execution cannot subsequently be finalized as successful
-    await AuthorityProofIssuer.resolveSystemProof(l3._id.toString());
-    await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), false);
-    await assertThrows(async () => await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), true), '34. failed execution cannot subsequently be finalized as successful');
+    await AuthorityProofIssuer.resolveSystemProof(l3._id.toString(), "sync", testToken);
+    await AuthorityProofIssuer.finalizeSystemProof(proof3, false);
+    await assertThrows(async () => await AuthorityProofIssuer.finalizeSystemProof(proof3, true), '34. failed execution cannot subsequently be finalized as successful');
 
     // 35-38. Manual Controller Outbox
     await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.status": "NONE" } });

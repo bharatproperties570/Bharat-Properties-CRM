@@ -1,5 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -42,6 +43,10 @@ const processDomainEvent = async (job) => {
 };
 
 async function runTests() {
+const testToken = 'test-token-123456';
+const testTokenHash = await import('crypto').then(m => m.createHash('sha256').update(testToken).digest('hex'));
+//('sha256').update(testToken).digest('hex');
+
     console.log("[R4-B2] Setting up MongoMemoryServer...");
     const mongoServer = await MongoMemoryServer.create();
     await mongoose.connect(mongoServer.getUri());
@@ -162,16 +167,16 @@ async function runTests() {
 
     // 6. Arbitrary Lead ID without REQUESTED state cannot obtain authority.
     const l3 = await Lead.create({ firstName: 'Lead3', mobile: '9999999993', enrichmentState: { status: 'NONE' } });
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l3._id.toString()), "6. Arbitrary Lead ID without REQUESTED state cannot obtain authority.");
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l3._id.toString(), "sync", testToken), "6. Arbitrary Lead ID without REQUESTED state cannot obtain authority.");
 
     // 7. REQUESTED Lead can be claimed exactly once.
-    const l4 = await Lead.create({ firstName: 'Lead4', mobile: '9999999994', enrichmentState: { status: 'REQUESTED' } });
-    const proof1 = await AuthorityProofIssuer.resolveSystemProof(l4._id.toString());
+    const l4 = await Lead.create({ firstName: 'Lead4', mobile: '9999999994', enrichmentState: { status: 'REQUESTED', claimTokenHash: crypto.createHash('sha256').update('test-token-123456').digest('hex') } });
+    const proof1 = await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken);
     assertCondition(proof1 && proof1.targetId, "7a. REQUESTED Lead can be claimed exactly once (part 1).");
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), "7b. REQUESTED Lead can be claimed exactly once.");
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), "7b. REQUESTED Lead can be claimed exactly once.");
 
     // 8. Replayed/claimed request cannot obtain second authority.
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), "8. Replayed/claimed request cannot obtain second authority.");
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), "8. Replayed/claimed request cannot obtain second authority.");
 
     console.log("=========================");
     console.log(`REAL_ASSERTIONS: ${passedAssertions + failedAssertions}`);

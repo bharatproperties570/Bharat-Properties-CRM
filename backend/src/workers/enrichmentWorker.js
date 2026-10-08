@@ -8,16 +8,17 @@ import { writeFailedJobLog } from '../utils/failedJobLogger.js';
 const workerOptions = { connection: redisConnection };
 
 export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
-    const { leadId } = job.data;
+    const { leadId, claimToken } = job.data;
     if (!leadId) throw new Error('leadId is required in enrichmentQueue job payload');
+    if (!claimToken) throw new Error('claimToken is required in enrichmentQueue job payload');
 
     console.log(`[Enrichment Worker] Processing lead ${leadId}...`);
 
     let proof;
     try {
-        proof = await AuthorityProofIssuer.resolveSystemProof(leadId, job.id);
+        proof = await AuthorityProofIssuer.resolveSystemProof(leadId, job.id, claimToken);
     } catch (e) {
-        if (e.message.includes("SYSTEM_ENRICHMENT_NOT_ELIGIBLE") || e.message.includes("SYSTEM_ENRICHMENT_ALREADY_CLAIMED") || e.message.includes("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND")) {
+        if (e.message.includes("SYSTEM_ENRICHMENT_NOT_ELIGIBLE") || e.message.includes("SYSTEM_ENRICHMENT_ALREADY_CLAIMED") || e.message.includes("SYSTEM_ENRICHMENT_TARGET_NOT_FOUND") || e.message.includes("SECURITY_VIOLATION")) {
             console.log(`[Enrichment Worker] Skipping lead ${leadId}: ${e.message}`);
             return { success: false, reason: e.message };
         }
@@ -28,27 +29,23 @@ export const enrichmentWorker = new Worker('enrichmentQueue', async (job) => {
     try {
         const result = await runFullLeadEnrichment(leadId, { authorizationProof: proof });
         
-        // Ensure success: false maps to FAILED
         if (result && result.success === false) {
-            await AuthorityProofIssuer.finalizeSystemProof(leadId, false);
+            await AuthorityProofIssuer.finalizeSystemProof(proof, false);
             return { success: false, reason: 'Enrichment engine returned failure' };
         }
         
-        await AuthorityProofIssuer.finalizeSystemProof(leadId, true);
+        await AuthorityProofIssuer.finalizeSystemProof(proof, true);
         const duration = Date.now() - start;
         console.log(`[Enrichment Worker] Finished lead ${leadId} in ${duration}ms`);
         return { success: true, duration };
     } catch (err) {
-        await AuthorityProofIssuer.finalizeSystemProof(leadId, false);
+        await AuthorityProofIssuer.finalizeSystemProof(proof, false);
         throw err;
     }
 }, workerOptions);
 
 enrichmentWorker.on('failed', async (job, err) => {
     console.error(`[Enrichment Worker] Job ${job?.id} failed with error ${err.message}`);
-    if (job?.data?.leadId) {
-        await AuthorityProofIssuer.finalizeSystemProof(job.data.leadId, false).catch(() => {});
-    }
     await writeFailedJobLog(job, err);
 });
 

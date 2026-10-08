@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 const validProofs = new WeakSet();
@@ -32,10 +33,16 @@ export class ServerAuthorityProof {
 
 export class AuthorityProofIssuer {
     
-    static async resolveSystemProof(leadId, jobId = 'sync') {
+    static async resolveSystemProof(leadId, jobId = 'sync', claimToken) {
+        if (!claimToken) throw new Error("SECURITY_VIOLATION: Missing claim token");
+        const claimTokenHash = crypto.createHash('sha256').update(claimToken).digest('hex');
         const Lead = mongoose.model("Lead");
         const updated = await Lead.findOneAndUpdate(
-            { _id: leadId, "enrichmentState.status": "REQUESTED" },
+            { 
+                _id: leadId, 
+                "enrichmentState.claimTokenHash": claimTokenHash,
+                "enrichmentState.status": { $in: ["REQUESTED", "FAILED"] }
+            },
             { $set: { "enrichmentState.status": "CLAIMED", "enrichmentState.lastJobId": jobId, "enrichmentState.claimedAt": new Date() } },
             { new: true }
         );
@@ -45,11 +52,15 @@ export class AuthorityProofIssuer {
         return new ServerAuthorityProof(AUTHORITY_SECRET, leadId);
     }
 
-    static async finalizeSystemProof(leadId, success = true) {
+    static async finalizeSystemProof(proof, success = true) {
+        if (!proof || !AuthorityProofIssuer.verify(proof)) {
+            throw new Error("SECURITY_VIOLATION: Invalid or forged proof");
+        }
+        const leadId = proof.targetId;
         const Lead = mongoose.model("Lead");
         const update = success 
-            ? { $set: { "enrichmentState.status": "COMPLETED", "enrichmentState.completedAt": new Date() } }
-            : { $set: { "enrichmentState.status": "FAILED" } };
+            ? { $set: { "enrichmentState.status": "COMPLETED", "enrichmentState.completedAt": new Date() }, $unset: { "enrichmentState.claimTokenHash": 1 } }
+            : { $set: { "enrichmentState.status": "FAILED", "enrichmentState.failedAt": new Date() } };
 
         const updated = await Lead.findOneAndUpdate(
             { _id: leadId, "enrichmentState.status": "CLAIMED" },
