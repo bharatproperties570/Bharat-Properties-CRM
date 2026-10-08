@@ -133,7 +133,7 @@ import { processDomainEventJob } from '../src/workers/domainEventWorkerLogic.js'
 import * as StageTransitionEngineLogic from '../src/services/StageTransitionEngineLogic.js';
 import RevivalSyncService from '../src/services/RevivalSyncService.js';
 
-export const domainEventIssuer = async (jobData) => {
+const domainEventIssuer = async (jobData) => {
     if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
     const { eventId, aggregateId, aggregateType, eventType, payload } = jobData;
     if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
