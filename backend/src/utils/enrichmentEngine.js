@@ -206,6 +206,9 @@ export const runFullLeadEnrichment = async (leadId, executionContext = null) => 
 
     // PERSISTENCE PHASE (Short Mongo Transaction)
     try {
+        const { withMongoTransaction } = await import('../../utils/withMongoTransaction.js');
+        const OutboxEvent = (await import('../../models/OutboxEvent.js')).default;
+        
         const predicate = proofModule.AuthorityProofIssuer.getMutationPredicate(proof);
         
         const updatePayload = {
@@ -221,38 +224,58 @@ export const runFullLeadEnrichment = async (leadId, executionContext = null) => 
             updatePayload.ai_closing_probability = aiData.probability;
         }
 
-        const updatedLead = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true });
-        if (!updatedLead) {
-            throw new Error("SECURITY_VIOLATION: Mutation rejected (superseded or state mismatch)");
-        }
+        await withMongoTransaction(async (session) => {
+            const updatedLead = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true, session });
+            if (!updatedLead) {
+                throw new Error("SECURITY_VIOLATION: Mutation rejected (superseded or state mismatch)");
+            }
 
-        for (const log of logs) {
-            await EnrichmentLog.create([{
+            const enrichmentLogs = logs.map(log => ({
                 leadId,
                 enrichmentExecutionId: proof.enrichmentExecutionId,
                 companyId: proof.companyId,
                 ...log
-            }]);
-        }
+            }));
+            
+            if (enrichmentLogs.length > 0) {
+                await EnrichmentLog.create(enrichmentLogs, { session });
+            }
 
-        
-        
-        if (lead.intent_index !== finalIntentIndex) {
-            await AuditLog.logEntityUpdate(
-                'score_changed',
-                'lead',
-                leadId,
-                `${lead.firstName} ${lead.lastName}`,
-                null,
-                { before: lead.intent_index || 0, after: finalIntentIndex },
-                `Enrichment engine recalculated intent_index: formula(${formulaScore}) + keyword_boost(...) = ${finalIntentIndex}`
-            );
-        }
+                        // Create OutboxEvent for downstream
+            await OutboxEvent.create([{
+                aggregateType: 'Lead',
+                aggregateId: leadId,
+                eventType: 'LeadUpdated',
+                payload: {
+                    enrichmentExecutionId: proof.enrichmentExecutionId,
+                    jobId: proof.jobId,
+                    intent_index: finalIntentIndex,
+                    lead_classification: classification
+                }
+            }], { session });
+
+            if (lead.intent_index !== finalIntentIndex) {
+                // Inline AuditLog creation to bind it transactionally (userId is null for System)
+                const AuditLog = (await import('../../models/AuditLog.js')).default;
+                await AuditLog.create([{
+                    eventType: 'score_changed',
+                    userId: null,
+                    userName: 'System',
+                    userEmail: 'system@crm.local',
+                    targetType: 'lead',
+                    targetId: leadId,
+                    targetName: `${lead.firstName} ${lead.lastName}`,
+                    description: `Enrichment engine recalculated intent_index: formula(${formulaScore}) + keyword_boost(...) = ${finalIntentIndex}`,
+                    changes: { before: lead.intent_index || 0, after: finalIntentIndex },
+                    ipAddress: '127.0.0.1',
+                    userAgent: 'SYSTEM_ENRICHMENT'
+                }], { session });
+            }
+        });
 
         await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'SYSTEM_ENRICHMENT' }, executionContext);
         return { success: true };
     } catch (error) {
-        
         console.error(`[ENRICHMENT ERROR] Failed for lead ${leadId}:`, error);
         return { success: false, error: error.message };
     }

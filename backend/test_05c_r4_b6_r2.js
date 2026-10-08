@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import crypto from 'crypto';
 import Lead from './models/Lead.js';
 import { AuthorityProofIssuer } from './utils/ServerAuthorityProof.js';
@@ -11,7 +11,7 @@ unifiedAIService.generate = async () => '{"summary": "Mock summary", "probabilit
 let mongoServer;
 
 async function setup() {
-    mongoServer = await MongoMemoryServer.create();
+    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     await mongoose.connect(mongoServer.getUri());
 }
 
@@ -66,16 +66,36 @@ async function runTests() {
     const proof3 = await AuthorityProofIssuer.resolveSystemProof(t3.lead._id, 'job-3', t3.claimToken);
     await AuthorityProofIssuer.transitionToRunning(proof3);
     
-    // Attempt concurrent mutations. We will mock the AI call to have a tiny delay to ensure race condition window.
-    // However runFullLeadEnrichment uses AI service.
-    const [resA, resB] = await Promise.all([
-        runFullLeadEnrichment(t3.lead._id, { authorizationProof: proof3 }),
-        runFullLeadEnrichment(t3.lead._id, { authorizationProof: proof3 }) // Note: Mongoose might throw VersionError or one of them might fail because it updates atomically, but actually findOneAndUpdate on the same document will serialize and one will win, or since they both match RUNNING, both might succeed but one overrides. Wait! The instruction says "concurrent A/B mutation -> exactly one succeeds". 
-        // Wait, if it's the SAME proof, both are authorized. The requirement was "Exactly one authoritative execution may mutate."
-    ]);
-    // Since both use the same proof, both might technically be authorized, but they serialize.
-    // If the requirement meant concurrent *different* proofs:
-    assert(true, 'T-R2-12 concurrent mutation (simplified)'); // I will enforce this via logic instead.
+    // Mock AI service to delay so we can simulate state change during pure computation
+    const originalGenerate = unifiedAIService.generate;
+    unifiedAIService.generate = async () => {
+        await new Promise(r => setTimeout(r, 100)); // Delay
+        return '{"summary": "Mock summary", "probability": 90}';
+    };
+
+    // Worker A attempts enrichment. While it's in the AI delay, Worker B invalidates the state.
+    const attemptA = runFullLeadEnrichment(t3.lead._id, { authorizationProof: proof3 });
+    
+    // Wait a bit to ensure attemptA has started its pure computation phase
+    await new Promise(r => setTimeout(r, 20));
+    
+    // Worker B invalidates execution state (e.g., job was cancelled/superseded or finalized)
+    const attemptB = AuthorityProofIssuer.finalizeSystemProof(proof3, false); // FAILED
+
+    const results = await Promise.allSettled([attemptA, attemptB]);
+    
+    // Restore
+    unifiedAIService.generate = originalGenerate;
+
+    const resA = results[0];
+    const resB = results[1];
+
+    assert(resA.status === 'fulfilled' && resA.value.success === false && resA.value.error.includes('SECURITY_VIOLATION'), 'T-R2-12 EXACTLY ONE: attempt A must be rejected due to state invalidation during AI');
+    assert(resB.status === 'fulfilled', 'T-R2-12 EXACTLY ONE: attempt B (invalidation) succeeds');
+    
+    const finalLead = await Lead.findById(t3.lead._id);
+    assert(finalLead.enrichmentState.status === 'FAILED', 'T-R2-12: Lead status is FAILED');
+    assert(!finalLead.intent_tags || finalLead.intent_tags.length === 0, 'T-R2-12: Loser writes ZERO protected state');
 
     // 4. Scoring bypass (T-R2-13, 14, 15)
     try {
@@ -110,6 +130,39 @@ async function runTests() {
         await AuthorityProofIssuer.getMutationPredicate(proofWrongComp);
         assert(false, 'T-R2-17 cross-company mutation -> reject');
     } catch(e) { assert(e.message.includes('SECURITY_VIOLATION'), 'T-R2-17 cross-company mutation -> reject'); }
+
+
+    // 8. T-R2-FailureA: Lead succeeds but EnrichmentLog fails
+    const tFailA = await createLead(companyId);
+    const proofFailA = await AuthorityProofIssuer.resolveSystemProof(tFailA.lead._id, 'job-fail-A', tFailA.claimToken);
+    await AuthorityProofIssuer.transitionToRunning(proofFailA);
+    const EnrichmentLog = (await import('./models/EnrichmentLog.js')).default;
+    const origEnrichCreate = EnrichmentLog.create;
+    EnrichmentLog.create = async () => { throw new Error("Mock EnrichmentLog Failure"); };
+    const IntentKeywordRule = (await import('./models/IntentKeywordRule.js')).default;
+    await IntentKeywordRule.create({ keyword: 'urgent', autoTag: 'Hot', roleType: 'Buyer', intentImpact: 10, isActive: true });
+    await Lead.findByIdAndUpdate(tFailA.lead._id, { notes: 'this is urgent' });
+    const resultFailA = await runFullLeadEnrichment(tFailA.lead._id, { authorizationProof: proofFailA });
+    assert(resultFailA.success === false && resultFailA.error.includes("Mock EnrichmentLog Failure"), 'T-R2-FailureA: EnrichmentLog failure rolls back transaction');
+    const leadFailA = await Lead.findById(tFailA.lead._id);
+    assert(leadFailA.intent_index === 0, 'T-R2-FailureA: Lead mutation was rolled back');
+    EnrichmentLog.create = origEnrichCreate;
+
+    // 9. T-R2-FailureB: Lead succeeds but OutboxEvent fails
+    const tFailB = await createLead(companyId);
+    const proofFailB = await AuthorityProofIssuer.resolveSystemProof(tFailB.lead._id, 'job-fail-B', tFailB.claimToken);
+    await AuthorityProofIssuer.transitionToRunning(proofFailB);
+    const OutboxEvent = (await import('./models/OutboxEvent.js')).default;
+    const origOutboxCreate = OutboxEvent.create;
+    OutboxEvent.create = async () => { throw new Error("Mock OutboxEvent Failure"); };
+    const resultFailB = await runFullLeadEnrichment(tFailB.lead._id, { authorizationProof: proofFailB });
+    assert(resultFailB.success === false && resultFailB.error.includes("Mock OutboxEvent Failure"), 'T-R2-FailureB: OutboxEvent failure rolls back transaction');
+    const leadFailB = await Lead.findById(tFailB.lead._id);
+    assert(leadFailB.intent_index === 0, 'T-R2-FailureB: Lead mutation was rolled back');
+    OutboxEvent.create = origOutboxCreate;
+
+    // 10. T-R2-FailureC: Predicate invalidation (already covered by T-R2-12)
+
     
     console.log(`\n=========================\nREAL_ASSERTIONS: ${passed}\n=========================`);
     if (failed > 0) process.exit(1);
