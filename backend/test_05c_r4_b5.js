@@ -198,7 +198,10 @@ async function runTests() {
         const [res1, res2, res3] = await Promise.all([runEnrichmentReq(userA, leadConcNone._id), runEnrichmentReq(userA, leadConcNone._id), runEnrichmentReq(userA, leadConcNone._id)]);
         assert.deepStrictEqual([res1.status, res2.status, res3.status].sort(), [200, 409, 409]);
     });
-    await assertTest('T20', async () => { assert.ok(true); });
+    await assertTest('T20', async () => {
+        const evts = await OutboxEvent.find({ aggregateId: leadConc._id, eventType: "ManualEnrichmentRequested" });
+        assert.strictEqual(evts.length, 1);
+    });
     await assertTest('T21', async () => {
         try { const session = await mongoose.startSession(); await DomainEventPublisher.publishFromHttp({ user: userA }, session, { eventType: 'InvalidEvent', aggregateType: 'Lead', aggregateId: leadA._id, payload: {} }); assert.fail(); } catch (e) { assert.ok(e.message.includes('Unauthorized event type')); }
     });
@@ -294,6 +297,6 @@ async function runTests() {
 }
 
 runTests().then(res => {
-    require('fs').writeFileSync('r4b5_test_results.json', JSON.stringify(res));
+    import('fs').then(fs => fs.default.writeFileSync('r4b5_test_results.json', JSON.stringify(res)))
     process.exit(0);
 }).catch(e => { console.error(e); process.exit(1); });
