@@ -180,6 +180,16 @@ export const submitForm = async (req, res) => {
         if (leadId) {
             lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
             console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
+            const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+            await OutboxEvent.create([{
+                eventType: 'LeadUpdated',
+                aggregateType: 'Lead',
+                aggregateId: lead._id,
+                payload: {
+                    actorId: null,
+                    triggerEvent: 'onWebCapture'
+                }
+            }]);
         } else {
             const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
             const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
@@ -240,9 +250,6 @@ export const submitForm = async (req, res) => {
                 console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
 
-            // 4. Trigger Engines -> Moved to Background Event Queue
-            enrichmentQueue.add('enrichLead', { leadId: lead._id })
-                .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
         }
 
         // 3. Update Analytics

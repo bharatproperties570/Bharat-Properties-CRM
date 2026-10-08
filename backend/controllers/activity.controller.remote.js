@@ -1339,7 +1339,25 @@ export const addActivity = async (req, res) => {
             activityData.department = req.user.department;
         }
 
-        const activity = await Activity.create(activityData);
+        
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await OutboxEvent.create([{
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            }], { session });
+        });
+
         
         // 🚀 Detect Mentions in Note/Description
         if (activity.description) {
@@ -1353,7 +1371,7 @@ export const addActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Removed direct enqueue to preserve R4-B2 capability boundary
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1445,11 +1463,31 @@ export const updateActivity = async (req, res) => {
             }
         }
 
-        const activity = await Activity.findOneAndUpdate(
-            { _id: req.params.id, ...visibilityFilter },
-            updateData,
-            { new: true, runValidators: true }
-        );
+        
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = await Activity.findOneAndUpdate(
+                { _id: req.params.id, ...visibilityFilter },
+                updateData,
+                { new: true, runValidators: true, session }
+            );
+
+            if (activity) {
+                await OutboxEvent.create([{
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: activity._id,
+                    payload: {
+                        ...activity.toJSON(),
+                        actorId: req.user?.id || req.user?._id || null
+                    }
+                }], { session });
+            }
+        });
+
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
@@ -1457,7 +1495,7 @@ export const updateActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Removed direct enqueue to preserve R4-B2 capability boundary
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1599,7 +1637,25 @@ export const syncMobileCalls = async (req, res) => {
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
-                const activity = await Activity.create(activityData);
+                
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await OutboxEvent.create([{
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            }], { session });
+        });
+
                 googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
                 syncedActivities.push(activity);
 
@@ -1685,7 +1741,25 @@ export const syncMobileCalls = async (req, res) => {
             });
 
             if (!existing) {
-                const activity = await Activity.create(activityData);
+                
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/transactions.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await OutboxEvent.create([{
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            }], { session });
+        });
+
                 syncedActivities.push(activity);
 
                 // Trigger Notification

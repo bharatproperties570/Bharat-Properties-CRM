@@ -948,7 +948,6 @@ export const addActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1098,7 +1097,6 @@ export const updateActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));

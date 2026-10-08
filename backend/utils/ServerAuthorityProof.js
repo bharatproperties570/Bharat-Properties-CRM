@@ -104,14 +104,20 @@ import RevivalSyncService from '../src/services/RevivalSyncService.js';
 
 const domainEventIssuer = (jobData) => {
     if (!jobData) throw new Error("SECURITY_VIOLATION: Invalid job provenance");
-    const { eventId, aggregateId, aggregateType, eventType } = jobData;
+    const { eventId, aggregateId, aggregateType, eventType, payload } = jobData;
     if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
+    
+    let targetLeadId = aggregateId;
+    if (aggregateType === 'Activity' && payload?.entityId) {
+        targetLeadId = payload.entityId;
+    }
+
     const capability = {
         eventId,
         aggregateId,
         aggregateType,
         eventType,
-        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(aggregateId)
+        requestSystemEnrichment: async () => await _enqueueSystemEnrichment(targetLeadId)
     };
     return Object.freeze(capability);
 };

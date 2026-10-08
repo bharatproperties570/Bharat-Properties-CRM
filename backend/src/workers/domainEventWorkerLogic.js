@@ -326,10 +326,10 @@ export const processDomainEventJob = async (job) => {
 
 
         case 'ActivityCreated':
+            let intentEnrichment = false;
             if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
                 await executeEffect(eventId, 'activity_enrichment', aggregateType, aggregateId, async () => {
-                    const QueueManager = await import('../queues/queueManager.js');
-                    await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.entityId });
+                    intentEnrichment = true;
                 });
                 await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
                     const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
@@ -441,6 +441,7 @@ export const processDomainEventJob = async (job) => {
                     }
                 }
             });
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
 
                 case 'ActivityUpdated':
