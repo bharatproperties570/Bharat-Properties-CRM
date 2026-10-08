@@ -97,6 +97,38 @@ async function runTests() {
     assert(finalLead.enrichmentState.status === 'FAILED', 'T-R2-12: Lead status is FAILED');
     assert(!finalLead.intent_tags || finalLead.intent_tags.length === 0, 'T-R2-12: Loser writes ZERO protected state');
 
+    // 3c. T-R2-12C: ATOMIC COMPETING CLAIM
+    const tRaceC = await createLead(companyId);
+    
+    // Both jobs receive the same valid claim token (e.g. queue duplicate delivery)
+    const tokenC = tRaceC.claimToken;
+
+    const resultsRaceC = await Promise.allSettled([
+        AuthorityProofIssuer.resolveSystemProof(tRaceC.lead._id, 'job-A', tokenC),
+        AuthorityProofIssuer.resolveSystemProof(tRaceC.lead._id, 'job-B', tokenC)
+    ]);
+
+    const fulfilled = resultsRaceC.filter(r => r.status === 'fulfilled');
+    const rejected = resultsRaceC.filter(r => r.status === 'rejected');
+
+    assert(fulfilled.length === 1, 'T-R2-12C: exactly one Promise fulfills with a valid proof');
+    assert(rejected.length === 1, 'T-R2-12C: exactly one Promise rejects');
+
+    const winningProofC = fulfilled[0].value;
+    const losingJobId = winningProofC.jobId === 'job-A' ? 'job-B' : 'job-A';
+
+    const leadRaceC = await Lead.findById(tRaceC.lead._id);
+    assert(leadRaceC.enrichmentState.status === 'CLAIMED', 'T-R2-12C: final Lead enrichmentState.status === CLAIMED');
+    assert(leadRaceC.enrichmentState.lastJobId === winningProofC.jobId, 'T-R2-12C: final enrichmentState.lastJobId is either job-A or job-B');
+    
+    try {
+        await AuthorityProofIssuer.resolveSystemProof(tRaceC.lead._id, losingJobId, tokenC);
+        assert(false, 'T-R2-12C: Losing job should not acquire authority');
+    } catch (e) {
+        assert(e.message.includes('SECURITY_VIOLATION'), 'T-R2-12C: losing execution cannot obtain mutation authority');
+    }
+
+
 
 
     // 4. Scoring bypass (T-R2-13, 14, 15)
