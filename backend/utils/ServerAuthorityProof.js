@@ -107,9 +107,17 @@ const domainEventIssuer = (jobData) => {
     const { eventId, aggregateId, aggregateType, eventType, payload } = jobData;
     if (!eventId || !aggregateId || !aggregateType || !eventType) throw new Error("SECURITY_VIOLATION: Missing event provenance");
     
-    let targetLeadId = aggregateId;
-    if (aggregateType === 'Activity' && payload?.entityId) {
-        targetLeadId = payload.entityId;
+    let targetLeadId;
+    if (aggregateType === 'Lead') {
+        targetLeadId = aggregateId;
+    } else if (aggregateType === 'Activity') {
+        if (payload?.entityType === 'Lead' && payload?.entityId) {
+            targetLeadId = payload.entityId;
+        } else {
+            throw new Error("SECURITY_VIOLATION: Activity event missing valid Lead enrichment target");
+        }
+    } else {
+        throw new Error("SECURITY_VIOLATION: Unsupported aggregateType for DomainEvent enrichment target");
     }
 
     const capability = {

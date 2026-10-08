@@ -57,6 +57,33 @@ async function runTests() {
     smsServiceMock.sendSMSWithTemplate = async () => true;
     smsServiceMock.sendSMS = async () => true;
 
+    
+    // STRUCTURAL TEST: enrichmentQueue.add count
+    console.log("[R4-B2] Running structural tests...");
+    const { execSync } = await import('child_process');
+    try {
+        const grepOutput = execSync('find backend -type f -name "*.js" -not -name "test_*.js" -not -name "verify_enrichment.js" -not -path "*/node_modules/*" -exec grep -Hn "enrichmentQueue\\.add(" {} + || true', { encoding: 'utf8' }).trim();
+        const lines = grepOutput.split('\n').filter(l => l.length > 0);
+        
+        let validOccurrences = 0;
+        let invalidOccurrences = 0;
+        
+        for (const line of lines) {
+            if (line.includes('ServerAuthorityProof.js') && line.includes('_enqueueSystemEnrichment') || line.includes('queues.enrichmentQueue.add(')) {
+                validOccurrences++;
+            } else {
+                invalidOccurrences++;
+                console.error("INVALID ENQUEUE:", line);
+            }
+        }
+        
+        assertCondition(lines.length === 1, "Structural 1: Exactly ONE occurrence of enrichmentQueue.add( repository-wide");
+        assertCondition(validOccurrences === 1, "Structural 2: Occurrence is inside ServerAuthorityProof.js _enqueueSystemEnrichment()");
+        assertCondition(invalidOccurrences === 0, "Structural 3: Zero controller direct enqueue occurrences");
+    } catch (err) {
+        console.error("Grep failed:", err);
+    }
+
     console.log("[R4-B2] Running specific tests...");
 
     // 1. ActivityCreated returns { action: 'REQUEST_SYSTEM_ENRICHMENT' }
@@ -79,6 +106,47 @@ async function runTests() {
     const l1_after = await Lead.findById(l1._id);
     assertCondition(l1_after.enrichmentState.status === 'REQUESTED', "2. ActivityCreated targets TARGET_LEAD_ID, NOT aggregateId");
 
+    
+    // D. ActivityUpdated targeting Lead -> REQUEST_SYSTEM_ENRICHMENT
+    const mockJobD = {
+        data: {
+            eventId: 'test-event-d',
+            aggregateId: a1._id.toString(),
+            aggregateType: 'Activity',
+            eventType: 'ActivityUpdated',
+            payload: { entityType: 'Lead', entityId: l1._id.toString() }
+        }
+    };
+    const intentD = await processDomainEventJob(mockJobD);
+    assertCondition(intentD?.action === 'REQUEST_SYSTEM_ENRICHMENT', "D. ActivityUpdated targeting Lead -> REQUEST_SYSTEM_ENRICHMENT");
+
+    // E. ActivityUpdated targeting non-Lead -> NO enrichment intent
+    const mockJobE = {
+        data: {
+            eventId: 'test-event-e',
+            aggregateId: a1._id.toString(),
+            aggregateType: 'Activity',
+            eventType: 'ActivityUpdated',
+            payload: { entityType: 'Deal', entityId: 'some-deal-id' }
+        }
+    };
+    const intentE = await processDomainEventJob(mockJobE);
+    assertCondition(intentE?.action !== 'REQUEST_SYSTEM_ENRICHMENT', "E. ActivityUpdated targeting non-Lead -> NO enrichment intent");
+
+    // F. ActivityUpdated missing entityId -> NO enrichment intent / safe rejection
+    const mockJobF = {
+        data: {
+            eventId: 'test-event-f',
+            aggregateId: a1._id.toString(),
+            aggregateType: 'Activity',
+            eventType: 'ActivityUpdated',
+            payload: { entityType: 'Lead' }
+        }
+    };
+    const intentF = await processDomainEventJob(mockJobF);
+    assertCondition(intentF?.action !== 'REQUEST_SYSTEM_ENRICHMENT', "F. ActivityUpdated missing entityId -> NO enrichment intent / safe rejection");
+
+    
     // 3. LeadCreated uses aggregateId as the enrichment target.
     const l2 = await Lead.create({ firstName: 'Lead2', mobile: '9999999992', enrichmentState: { status: 'NONE' } });
     await processDomainEvent({ data: { eventId: 'test-event-3', aggregateId: l2._id.toString(), aggregateType: 'Lead', eventType: 'LeadCreated', payload: {} } });

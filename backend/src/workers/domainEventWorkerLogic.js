@@ -444,7 +444,11 @@ export const processDomainEventJob = async (job) => {
             if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
 
-                case 'ActivityUpdated':
+                case 'ActivityUpdated': {
+            let intentEnrichment = false;
+            if (payload && payload.entityType === 'Lead' && payload.entityId) {
+                intentEnrichment = true;
+            }
             if (payload.statusChanged && payload.newStatus?.toLowerCase() === 'completed') {
                 await executeEffect(eventId, 'activity_whatsapp_trigger_completed', aggregateType, aggregateId, async () => {
                     const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
@@ -476,7 +480,9 @@ export const processDomainEventJob = async (job) => {
                 const QueueManager = await import('../queues/queueManager.js');
                 await QueueManager.googleSyncQueue.add('syncEvent', { activityId: aggregateId });
             });
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
+        }
 
         case 'ActivityDeleted':
             await executeEffect(eventId, 'activity_google_sync_deleted', aggregateType, aggregateId, async () => {
