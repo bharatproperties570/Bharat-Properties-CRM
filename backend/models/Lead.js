@@ -505,21 +505,28 @@ LeadSchema.pre('save', function(next) {
 
 LeadSchema.post('save', function(doc) {
     const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    const hasSession = !!(this.$session && this.$session());
     if (isNew) {
-        eventBus.emit('LEAD_CREATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
     } else {
-        eventBus.emit('LEAD_UPDATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_UPDATED', doc);
     }
 });
 
 LeadSchema.post('insertMany', function(docs) {
     if (Array.isArray(docs)) {
-        docs.forEach(doc => eventBus.emit('LEAD_CREATED', doc));
+        // insertMany doesn't easily expose session on the hook without this.options.session
+        // but we'll try to check this.options just in case
+        const hasSession = !!(this && this.options && this.options.session);
+        docs.forEach(doc => {
+            if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
+        });
     }
 });
 
 LeadSchema.post('findOneAndUpdate', async function(doc) {
-    if (doc) {
+    const hasSession = !!(this.options && this.options.session);
+    if (doc && !hasSession) {
         eventBus.emit('LEAD_UPDATED', doc);
     }
 });

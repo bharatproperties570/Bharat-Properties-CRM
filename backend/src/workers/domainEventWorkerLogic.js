@@ -721,6 +721,14 @@ export const processDomainEventJob = async (job) => {
                 }
             });
 
+            effects.push({
+                key: 'automation',
+                fn: async () => {
+                    const eventBus = (await import('../../services/EventBus.js')).default;
+                    eventBus.emit('LEAD_UPDATED', lead);
+                }
+            });
+
             const failures = [];
             for (const effect of effects) {
                 try {
