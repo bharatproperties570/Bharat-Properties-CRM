@@ -1,5 +1,89 @@
 import mongoose from "mongoose";
 
+
+
+
+const sensitivePathPatterns = [
+    /(\/reset-password\/)([^/?#]+)/i,
+    /(\/resolve-token\/)([^/?#]+)/i,
+    /(\/portfolios\/public\/)([^/?#]+)/i,
+    /(\/public\/matches\/)([^/?#]+)/i
+];
+
+function normalizeUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) return 'unknown';
+    try {
+        const parsed = new URL(String(rawUrl).trim().replace(/\\/g, '/'), 'http://dummy-base.local').pathname;
+        let normalized = parsed.replace(/\/+/g, '/');
+        sensitivePathPatterns.forEach(regex => {
+            normalized = normalized.replace(regex, '$1[REDACTED_TOKEN]');
+        });
+        return normalized;
+    } catch (err) {
+        return 'unknown';
+    }
+}
+
+
+function maskScalarPII(text) {
+    if (!text || typeof text !== 'string') return text;
+    // Mask emails: leave first char, mask middle, keep domain
+    let masked = text.replace(/([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '$1***$2');
+
+    // Mask phones: leave last 4 digits
+    masked = masked.replace(/(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?){1,2}\d{4}/g, (match) => {
+        const digitsOnly = match.replace(/\D/g, '');
+        if (digitsOnly.length >= 10 && digitsOnly.length <= 15) {
+            return '[PHONE_MINIMIZED]';
+        }
+        return match;
+    });
+
+    // Strip stack traces
+    if (masked.includes(' at ')) {
+        const stackIndex = masked.indexOf('\n    at ');
+        if (stackIndex !== -1) {
+            masked = masked.substring(0, stackIndex) + ' [STACK_STRIPPED]';
+        }
+    }
+
+    return masked;
+}
+
+function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'function' || typeof obj === 'symbol' || Buffer.isBuffer(obj)) return '[UNSUPPORTED_TYPE]';
+
+    // Preserve MongoDB ObjectIds and Dates safely
+    if (obj instanceof Date) return new Date(obj.getTime());
+    if (obj && typeof obj.toHexString === 'function' && typeof obj.equals === 'function') return obj;
+
+    if (typeof obj !== 'object') return obj;
+
+    if (currentDepth >= 5) return '[MAX_DEPTH_EXCEEDED]';
+    if (seen.has(obj)) return '[CIRCULAR_REFERENCE]';
+    seen.add(obj);
+
+    const sensitiveKeys = /password|token|credential|secret|authorization[_-]?proof/i;
+    const piiKeys = /email|phone|mobile|contactNumber/i;
+
+    if (Array.isArray(obj)) {
+        return obj.map(item => redactSensitive(item, currentDepth + 1, seen));
+    }
+
+    const redactedObj = {};
+    for (const key of Object.keys(obj)) {
+        if (sensitiveKeys.test(key)) {
+            redactedObj[key] = '[REDACTED]';
+        } else if (piiKeys.test(key)) {
+            redactedObj[key] = '[PII_MINIMIZED]';
+        } else {
+            redactedObj[key] = redactSensitive(obj[key], currentDepth + 1, seen);
+        }
+    }
+    return redactedObj;
+}
+
 const AuditLogSchema = new mongoose.Schema({
     // ========== Event Info ==========
     eventType: {
@@ -134,6 +218,12 @@ const AuditLogSchema = new mongoose.Schema({
     // Error details if failed
     errorMessage: String,
 
+    // ========== Correlation ==========
+    correlationId: {
+        type: String,
+        required: false
+    },
+
     // ========== Timestamp ==========
     timestamp: {
         type: Date,
@@ -144,7 +234,16 @@ const AuditLogSchema = new mongoose.Schema({
     timestamps: false // We use custom timestamp field
 });
 
+
+AuditLogSchema.pre('save', function (next) {
+    if (this.errorMessage) {
+        this.errorMessage = maskScalarPII(this.errorMessage);
+    }
+    next();
+});
+
 // ========== Indexes ==========
+
 AuditLogSchema.index({ userId: 1, timestamp: -1 });
 AuditLogSchema.index({ eventType: 1, timestamp: -1 });
 AuditLogSchema.index({ actorId: 1, timestamp: -1 });
@@ -189,13 +288,23 @@ AuditLogSchema.statics.getFailedLogins = function (userId, hours = 24) {
 };
 
 // Log user event
-AuditLogSchema.statics.logUserEvent = async function (eventType, userId, actorId, description, metadata = {}) {
+AuditLogSchema.statics.logUserEvent = async function (eventType, userId, actorId, description, metadata = {}, options = {}) {
+    const mongooseOptions = options?.session ? { session: options.session } : {};
     const User = mongoose.model('User');
 
     const user = await User.findById(userId).select('fullName email');
     const actor = actorId ? await User.findById(actorId).select('fullName email') : null;
 
-    return this.create({
+    let redactedMetadata;
+    try {
+        redactedMetadata = redactSensitive(metadata);
+        if (redactedMetadata?.requestInfo && 'url' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.url = normalizeUrl(redactedMetadata.requestInfo.url);
+        if (redactedMetadata?.requestInfo && 'rawUrl' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.rawUrl = normalizeUrl(redactedMetadata.requestInfo.rawUrl);
+    } catch (err) {
+        redactedMetadata = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
+    }
+
+    return this.create([{
         eventType,
         userId,
         userName: user?.fullName,
@@ -203,14 +312,15 @@ AuditLogSchema.statics.logUserEvent = async function (eventType, userId, actorId
         actorId,
         actorName: actor?.fullName,
         actorEmail: actor?.email,
-        description,
-        metadata,
-        status: 'success'
-    });
+        description: maskScalarPII(description),
+        metadata: redactedMetadata,
+        status: 'success',
+        correlationId: options.correlationId
+    }], mongooseOptions).then(docs => docs[0]);
 };
 
 // Log permission change
-AuditLogSchema.statics.logPermissionChange = async function (userId, actorId, changeType, before, after, description) {
+AuditLogSchema.statics.logPermissionChange = async function (userId, actorId, changeType, before, after, description, options = {}) {
     return this.logUserEvent(
         changeType,
         userId,
@@ -218,28 +328,23 @@ AuditLogSchema.statics.logPermissionChange = async function (userId, actorId, ch
         description,
         {
             changes: { before, after }
-        }
+        },
+        options
     );
 };
 
 // Log data transfer
-AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, actorId, dataType, count, description) {
+AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, actorId, dataType, count, description, options = {}) {
+    const mongooseOptions = options?.session ? { session: options.session } : {};
     const User = mongoose.model('User');
 
     const fromUser = await User.findById(fromUserId).select('fullName email');
     const toUser = await User.findById(toUserId).select('fullName email');
     const actor = await User.findById(actorId).select('fullName email');
 
-    return this.create({
-        eventType: 'data_transferred',
-        userId: fromUserId,
-        userName: fromUser?.fullName,
-        userEmail: fromUser?.email,
-        actorId,
-        actorName: actor?.fullName,
-        actorEmail: actor?.email,
-        description,
-        metadata: {
+    let redactedMetadata;
+    try {
+        redactedMetadata = redactSensitive({
             fromUser: {
                 id: fromUserId,
                 name: fromUser?.fullName
@@ -250,14 +355,30 @@ AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, a
             },
             dataType,
             count
-        },
-        status: 'success'
-    });
+        });
+    } catch (err) {
+        redactedMetadata = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
+    }
+
+    return this.create([{
+        eventType: 'data_transferred',
+        userId: fromUserId,
+        userName: fromUser?.fullName,
+        userEmail: fromUser?.email,
+        actorId,
+        actorName: actor?.fullName,
+        actorEmail: actor?.email,
+        description: maskScalarPII(description),
+        metadata: redactedMetadata,
+        status: 'success',
+        correlationId: options.correlationId
+    }], mongooseOptions).then(docs => docs[0]);
 };
 
 // Log generic entity update (tracking previous and new values)
 // ✅ [BUG FIX] Uses mongoose.model('User') to avoid undefined User reference (was causing silent ReferenceError)
-AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, targetId, targetName, userId, changes, description) {
+AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, targetId, targetName, userId, changes, description, options = {}) {
+    const mongooseOptions = options?.session ? { session: options.session } : {};
     let user = null;
     if (userId) {
         try {
@@ -267,7 +388,14 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
     }
     const department = user?.department;
 
-    return this.create({
+    let redactedChanges;
+    try {
+        redactedChanges = redactSensitive(changes);
+    } catch (err) {
+        redactedChanges = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
+    }
+
+    return this.create([{
         eventType,
         userId,
         userName: user?.fullName || 'System',
@@ -275,11 +403,42 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
         department,
         targetType,
         targetId,
-        targetName,
-        description,
-        changes,
-        status: 'success'
-    });
+        targetName: maskScalarPII(targetName),
+        description: maskScalarPII(description),
+        changes: redactedChanges,
+        status: 'success',
+        correlationId: options.correlationId
+    }], mongooseOptions).then(docs => docs[0]);
+};
+
+
+// Log AI event
+AuditLogSchema.statics.logAIEvent = async function (eventType, targetId, capability, policyVersion, decision, metadata = {}, options = {}) {
+    const mongooseOptions = options?.session ? { session: options.session } : {};
+
+    let redactedMetadata;
+    try {
+        redactedMetadata = redactSensitive(metadata);
+        if (redactedMetadata?.requestInfo && 'url' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.url = normalizeUrl(redactedMetadata.requestInfo.url);
+        if (redactedMetadata?.requestInfo && 'rawUrl' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.rawUrl = normalizeUrl(redactedMetadata.requestInfo.rawUrl);
+    } catch (err) {
+        redactedMetadata = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
+    }
+
+    return this.create([{
+        eventType,
+        targetType: 'other',
+        targetId,
+        description: maskScalarPII(`AI Policy Decision: ${decision}`),
+        metadata: {
+            capability,
+            policyVersion,
+            decision,
+            ...redactedMetadata
+        },
+        status: decision === 'ALLOWED' ? 'success' : 'warning',
+        correlationId: options.correlationId
+    }], mongooseOptions).then(docs => docs[0]);
 };
 
 export default mongoose.model("AuditLog", AuditLogSchema);

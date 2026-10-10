@@ -517,28 +517,17 @@ export const computeAndSave = async (leadId, options = {}, authContext = null, t
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
-            if (session) {
-                const AuditLogModel = (await import('../../models/AuditLog.js')).default;
-                await AuditLogModel.create([{
-                    eventType: 'score_changed',
-                    targetType: 'lead',
-                    targetId: leadId,
-                    targetName: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-                    userId: null,
-                    changes: { before: prevScore, after: result.total },
-                    description: `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
-                }], { session });
-            } else {
-                await AuditLog.logEntityUpdate(
-                    'score_changed',
-                    'lead',
-                    leadId,
-                    `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-                    null,
-                    { before: prevScore, after: result.total },
-                    `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
-                );
-            }
+            // [R5 UPDATE] Piped options (including session and optional correlationId)
+            await AuditLog.logEntityUpdate(
+                'score_changed',
+                'lead',
+                leadId,
+                `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                null,
+                { before: prevScore, after: result.total },
+                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`,
+                { session, correlationId: authContext?.correlationId }
+            );
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
             // Do NOT emit directly if running inside a transaction, to prevent pre-commit side effects.
