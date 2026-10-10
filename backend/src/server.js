@@ -48,7 +48,7 @@ async function startServer() {
             logStartup(msg);
             
             // Initialize WhatsApp Connections
-            const { BaileysConnectionManager } = await import("./services/baileysQueue/BaileysConnectionManager.js");
+            const { BaileysConnectionManager } = await import("../services/baileysQueue/BaileysConnectionManager.js");
             BaileysConnectionManager.initializeAll();
 
             if (config.disableBackgroundTasks) {
