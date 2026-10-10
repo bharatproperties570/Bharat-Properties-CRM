@@ -210,35 +210,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setTimeout(() => setToastMessage(null), 3000);
     };
 
-    // --- Professional Match Fetching ---
-    useEffect(() => {
-        if (!activeMatchPopover) {
-            setPreviewMatches([]);
-            return;
-        }
 
-        const fetchMatches = async () => {
-            setLoadingMatches(true);
-            try {
-                const lead = leads.find(l => l.name === activeMatchPopover.name);
-                if (!lead) return;
-                const res = await api.get('deals/match', { params: { leadId: lead._id } });
-                if (res.data && res.data.success) {
-                    setPreviewMatches((res.data.data || []).slice(0, 5).map(m => ({
-                        ...m,
-                        matchPercentage: m.score,
-                        thumbnail: m.inventoryId?.images?.[0] || `https://picsum.photos/seed/${m._id}/200/150`
-                    })));
-                }
-            } catch (err) {
-                console.error("Match fetch error:", err);
-            } finally {
-                setLoadingMatches(false);
-            }
-        };
-
-        fetchMatches();
-    }, [activeMatchPopover, leads]);
 
 
     // --- TANSTACK SERVER STATE ---
@@ -435,6 +407,36 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             totalPages: leadsData.totalPages || 0
         };
     }, [leadsData, getLookupValue]);
+
+    // --- Professional Match Fetching ---
+    useEffect(() => {
+        if (!activeMatchPopover) {
+            setPreviewMatches([]);
+            return;
+        }
+
+        const fetchMatches = async () => {
+            setLoadingMatches(true);
+            try {
+                const lead = leads.find(l => l.name === activeMatchPopover.name);
+                if (!lead) return;
+                const res = await api.get('deals/match', { params: { leadId: lead._id } });
+                if (res.data && res.data.success) {
+                    setPreviewMatches((res.data.data || []).slice(0, 5).map(m => ({
+                        ...m,
+                        matchPercentage: m.score,
+                        thumbnail: m.inventoryId?.images?.[0] || `https://picsum.photos/seed/${m._id}/200/150`
+                    })));
+                }
+            } catch (err) {
+                console.error("Match fetch error:", err);
+            } finally {
+                setLoadingMatches(false);
+            }
+        };
+
+        fetchMatches();
+    }, [activeMatchPopover, leads]);
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
