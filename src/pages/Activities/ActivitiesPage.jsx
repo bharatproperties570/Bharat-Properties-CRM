@@ -239,9 +239,9 @@ function ActivitiesPage() {
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
-    const { data: activities = [] } = useActivities({ sortBy: sortConfig.by, sortOrder: sortConfig.order, search: searchTerm, ...filters });
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ label: 'Recently Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+    const { data: activities = [] } = useActivities({ sortBy: sortConfig.by, sortOrder: sortConfig.order, search: searchTerm, ...filters });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
     // Handlers
