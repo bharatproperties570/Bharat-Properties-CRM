@@ -1,4 +1,16 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Revenue Engine
+ *
+ * This module serves as a display and calculation helper for financial forecasting.
+ * Production financial orchestration and forecasting remain exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - Do not introduce autonomous production automation here.
+ * - Do not execute queue/outbox/domain-event side effects.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Enterprise Real Estate Revenue Forecasting Engine
  * Calculates dynamic commissions, tax deductions, and net realizable revenue.
  */

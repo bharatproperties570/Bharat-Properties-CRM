@@ -182,6 +182,9 @@ export const socialAPI = {
     replyToComment: (commentId, message) => api.post('/social/comment/reply', { commentId, message }).then(res => res.data),
     likeComment: (commentId) => api.post('/social/comment/like', { commentId }).then(res => res.data),
     testConnection: () => api.post('/social/test-connection').then(res => res.data),
+    
+    startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
+    getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),
 };
 
 export const automationAPI = {
@@ -430,6 +433,12 @@ const apiRequest = async (endpoint, options = {}) => {
 
 // Lookups API
 export const lookupsAPI = {
+    getMultiple: (typesArray) => {
+        if (!typesArray || !typesArray.length) return Promise.resolve({ status: 'success', data: [] });
+        const uniqueTypes = [...new Set(typesArray)].filter(Boolean);
+        const typesStr = uniqueTypes.join(',');
+        return apiRequest(`/lookups?lookup_type=${encodeURIComponent(typesStr)}&_t=${Date.now()}`);
+    },
     getAll: (type = null) => {
         let url = '/lookups';
         if (type) {

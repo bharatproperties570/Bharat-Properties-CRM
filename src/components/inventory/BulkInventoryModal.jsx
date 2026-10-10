@@ -43,23 +43,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
     });
 
     const [previewUnits, setPreviewUnits] = useState([]);
-    const [existingUnits, setExistingUnits] = useState([]);
-
-    useEffect(() => {
-        const fetchExistingUnits = async () => {
-            if (!formData.projectId) return;
-            try {
-                const res = await api.get(`/inventory?projectId=${formData.projectId}&limit=5000`);
-                if (res.data?.success && res.data.data) {
-                    const units = res.data.data.map(u => ({ block: u.block, unitNo: String(u.unitNo || u.unitNumber).toLowerCase() }));
-                    setExistingUnits(units);
-                }
-            } catch (err) {
-                console.error("Error fetching existing units for validation", err);
-            }
-        };
-        if (isOpen) fetchExistingUnits();
-    }, [formData.projectId, isOpen]);
+    // Phase 10.5: removed existingUnits preload
 
     useEffect(() => {
         if (!isOpen) {
@@ -154,7 +138,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         };
     };
 
-    const handleGeneratePreview = () => {
+    const handleGeneratePreview = async () => {
         let units = [];
         if (formData.unitGenMethod === 'range') {
             const start = parseInt(formData.rangeStart);
@@ -173,11 +157,24 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         if (units.length === 0) return toast.error("No units generated.");
 
         const currentBlock = formData.block || '';
-        const currentExisting = existingUnits.filter(u => u.block === currentBlock).map(u => u.unitNo);
-        const duplicates = units.filter(u => currentExisting.includes(String(u).toLowerCase()));
         
-        if (duplicates.length > 0) {
-            return toast.error(`Duplicate units exist in this block: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? '...' : ''}. Please adjust your input.`);
+        // Phase 10.5 Compatibility: Server-side validation replacing 5000-record fetch
+        try {
+            const checkPayload = {
+                items: units.map(u => ({
+                    unitNo: String(u),
+                    projectId: formData.projectId,
+                    block: currentBlock
+                }))
+            };
+            const dupRes = await api.post('/inventory/check-duplicates', checkPayload);
+            if (dupRes.data?.success && dupRes.data.duplicates && dupRes.data.duplicates.length > 0) {
+                const dupUnits = dupRes.data.duplicates.map(d => d.unitNo);
+                return toast.error(`Duplicate units exist in this block: ${dupUnits.slice(0, 5).join(', ')}${dupUnits.length > 5 ? '...' : ''}. Please adjust your input.`);
+            }
+        } catch (err) {
+            console.error("Duplicate check failed", err);
+            return toast.error("Validation failed. Please try again.");
         }
 
         const preview = units.map((u, index) => {

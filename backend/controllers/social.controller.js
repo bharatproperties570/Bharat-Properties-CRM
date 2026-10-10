@@ -1186,3 +1186,71 @@ export const getWhatsAppAccounts = async (req, res) => {
     }
 };
 
+/**
+ * POST /api/social/whatsapp/baileys/start
+ * Initialize a Baileys QR connection
+ */
+export const startBaileysConnection = async (req, res) => {
+    try {
+        const { displayPhoneNumber, accountLabel } = req.body;
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        
+        // Find if one already exists for this phone number, or create new
+        let integration = await WhatsAppIntegration.findOne({ 
+            provider: 'BAILEYS', 
+            phoneNumberId: displayPhoneNumber || 'temp_baileys'
+        });
+
+        if (!integration) {
+            integration = await WhatsAppIntegration.create({
+                provider: 'BAILEYS',
+                phoneNumberId: displayPhoneNumber || `baileys_${Date.now()}`,
+                displayPhoneNumber,
+                accountLabel: accountLabel || 'QR WhatsApp Web',
+                connectionType: 'QR_SCANNER',
+                onboardingStatus: 'INITIATED',
+                status: 'PENDING_ONBOARDING',
+                connectedBy: req.user._id
+            });
+        } else {
+            integration.onboardingStatus = 'INITIATED';
+            integration.status = 'PENDING_ONBOARDING';
+            integration.failureReason = null;
+            await integration.save();
+        }
+
+        const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+        // This will asynchronously generate the QR and store it in failureReason
+        BaileysConnectionManager.connect(integration._id.toString());
+
+        res.json({ success: true, integrationId: integration._id });
+    } catch (error) {
+        console.error('[SocialController] startBaileysConnection error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/social/whatsapp/baileys/status/:id
+ * Get the Baileys connection status and QR code
+ */
+export const getBaileysStatus = async (req, res) => {
+    try {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        const integration = await WhatsAppIntegration.findById(req.params.id);
+        
+        if (!integration) {
+            return res.status(404).json({ success: false, error: 'Integration not found' });
+        }
+
+        res.json({ 
+            success: true, 
+            status: integration.status,
+            onboardingStatus: integration.onboardingStatus,
+            qrDataUrl: integration.onboardingStatus === 'QR_PENDING' ? integration.failureReason : null 
+        });
+    } catch (error) {
+        console.error('[SocialController] getBaileysStatus error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

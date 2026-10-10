@@ -1,28 +1,16 @@
+import { useParams } from 'react-router-dom';
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import { useProject } from '../../utils/crmHooks';
 import ProjectMasterPlanTab from './ProjectMasterPlanTab';
 
-const ProjectMasterPlanPage = ({ projectId, onBack }) => {
-    const [project, setProject] = useState(null);
-    const [loading, setLoading] = useState(true);
+const ProjectMasterPlanPage = ({ onBack }) => {
+    const { id: projectId } = useParams();
+    const { data: projectQuery, isFetching: loading, refetch: fetchProjectDetails } = useProject(projectId);
+    const project = projectQuery?.data || null;
 
-    const fetchProjectDetails = useCallback(async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(`projects/${projectId}`);
-            if (response.data && response.data.success) {
-                setProject(response.data.data);
-            } else {
-                toast.error("Failed to load project details");
-            }
-        } catch (error) {
-            console.error("Error fetching project:", error);
-            toast.error("Error loading project");
-        } finally {
-            setLoading(false);
-        }
-    }, [projectId]);
+    // fetchProjectDetails replaced by useProject refetch mapping
 
     useEffect(() => {
         fetchProjectDetails();

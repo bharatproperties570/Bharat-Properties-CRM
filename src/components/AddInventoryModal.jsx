@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTeams, useActiveUsers, useProjects } from '../utils/crmHooks';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { useFieldRules } from '../context/FieldRulesContext';
@@ -17,14 +18,19 @@ import { useInventoryForm } from '../hooks/useInventoryForm';
 
 const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, property = null, initialTab = 'Unit' }) => {
     const {
-        projects: allProjects,
         masterFields = {},
         propertyConfig,
         sizes,
         getLookupId,
         getLookupValue
     } = usePropertyConfig();
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    // Canonical Project State
+    const { data: projectQueryData } = useProjects({ limit: 1000 });
+    const allProjects = projectQueryData?.data || [];
+    
+    const { data: teams = [] } = useTeams();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();

@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useCallback, useMemo } from 'react';
 import { renderValue } from '../../utils/renderUtils';
@@ -10,8 +11,12 @@ import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
 
 // Custom Hooks
-import { useInventoryDetails } from '../../hooks/useInventoryDetails';
 import { useInventoryActions } from '../../hooks/useInventoryActions';
+
+import { useQueryClient } from '@tanstack/react-query';
+import { useInventory, useInventoryMatches } from '../../utils/crmHooks';
+import { queryKeys } from '../../utils/queryClient';
+
 
 // Inventory Components
 import InventoryDetailHeader from './components/InventoryDetailHeader';
@@ -35,7 +40,8 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AddBuiltupDetailsModal from '../../components/modals/AddBuiltupDetailsModal';
 
-export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity, onAddDeal, onNavigate }) {
+export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, onNavigate }) {
+    const { id: inventoryId } = useParams();
     useUserContext();
     useTriggers();
     const { user } = useUserContext();
@@ -43,14 +49,41 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
     const { getLookupValue } = usePropertyConfig();
 
     // -- Data Hook --
-    const {
-        inventory,
-        setInventory,
-        loading,
-        matchingLeads,
-        activeLeadsCount,
-        refresh
-    } = useInventoryDetails(inventoryId);
+    const queryClient = useQueryClient();
+    
+    const { 
+        data: inventory, 
+        isLoading: isInventoryLoading 
+    } = useInventory(inventoryId);
+
+    const { mutateAsync: updateInventory } = useUpdateInventoryMutation();
+
+    const { 
+        data: matchResponse, 
+        isLoading: isMatchesLoading 
+    } = useInventoryMatches(inventoryId);
+
+    const matchingLeads = matchResponse?.data || [];
+    const activeLeadsCount = matchResponse?.count || 0;
+    
+    const loading = isInventoryLoading || isMatchesLoading;
+
+    
+    const refresh = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventory.detail(inventoryId) });
+    }, [queryClient, inventoryId]);
+
+    // -- Cross-Domain & Legacy Events --
+    React.useEffect(() => {
+        if (!inventoryId) return;
+        const handleEventRefresh = () => refresh();
+        window.addEventListener('deal-updated', handleEventRefresh);
+        window.addEventListener('inventory-updated', handleEventRefresh);
+        return () => {
+            window.removeEventListener('deal-updated', handleEventRefresh);
+            window.removeEventListener('inventory-updated', handleEventRefresh);
+        };
+    }, [inventoryId, refresh]);
 
     // -- Actions Hook --
     const {
@@ -59,7 +92,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
         handleCopyDetails,
         handleCreateDeal,
         handleToggleIntent
-    } = useInventoryActions(inventory, setInventory, null, onAddDeal);
+    } = useInventoryActions(inventory, null, onAddDeal);
 
     // -- Local UI State --
     // const [activeTab, setActiveTab] = useState('details');
@@ -131,7 +164,6 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
             const targetStatus = isInactive ? 'Inactive' : 'Active';
 
             toast.success(`Feedback recorded - Property is now ${targetStatus}`);
-            refresh();
             setIsFeedbackModalOpen(false);
 
             // 1. Automated Deal Trigger (If high intent)
@@ -335,7 +367,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
                 property={inventory}
-                onSave={refresh}
+                onSave={() => {}}
                 initialTab={modalTab}
             />
 
@@ -367,12 +399,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                                 ...(inventory.inventoryDocuments || inventory.documents || [])
                             ]
                         };
-                        const response = await api.put(`inventory/${inventoryId}`, updates);
-                        if (response.data?.success) {
-                            toast.success("Documents archived");
-                            refresh();
-                            setIsDocumentModalOpen(false);
-                        }
+                        await updateInventory({ id: inventoryId, data: updates });
+                        toast.success("Documents archived");
+                        setIsDocumentModalOpen(false);
                     } catch (error) {
                         console.error("Error saving documents", error);
                         toast.error("Cloud storage sync failed");
@@ -404,14 +433,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                             ownerSources,
                         };
 
-                        const res = await api.put(`inventory/${inventoryId}`, updates);
-                        if (res.data?.success) {
-                            toast.success("Contacts updated successfully");
-                            refresh();
-                            setIsOwnerModalOpen(false);
-                        } else {
-                            toast.error(res.data?.message || "Failed to update contacts");
-                        }
+                        await updateInventory({ id: inventoryId, data: updates });
+                        toast.success("Contacts updated successfully");
+                        setIsOwnerModalOpen(false);
                     } catch (error) {
                         console.error("Error updating owners:", error);
                         toast.error(error.response?.data?.message || "Internal server error during save");
@@ -448,12 +472,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 onClose={() => setIsTagsModalOpen(false)}
                 selectedContacts={[{ id: inventory._id, tags: inventory.tags || '-' }]}
                 onUpdateTags={async (data) => {
-                    const res = await api.put(`inventory/${inventoryId}`, { tags: data.tags.join(', ') });
-                    if (res.data?.success) {
-                        toast.success("Tags updated");
-                        refresh();
-                        setIsTagsModalOpen(false);
-                    }
+                    await updateInventory({ id: inventoryId, data: { tags: data.tags.join(', ') } });
+                    toast.success("Tags updated");
+                    setIsTagsModalOpen(false);
                 }}
             />
 
@@ -464,7 +485,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                     entityType="Inventory"
                     entityId={inventoryId}
                     entityData={inventory}
-                    onSave={refresh}
+                    onSave={() => {}}
                 />
             )}
 

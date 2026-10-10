@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { lookupsAPI } from '../utils/api';
+import { useLookups } from '../utils/crmHooks';
 
 const LiveClock = () => {
     const [time, setTime] = useState(new Date());
@@ -21,6 +21,7 @@ const LiveClock = () => {
 };
 
 const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, saving }) => {
+    const { data: allLookups = [] } = useLookups(['State']);
     const [config, setConfig] = useState({
         configName: '',
         state: '',
@@ -40,16 +41,10 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
 
     const [states, setStates] = useState([]);
 
-    // Fetch States for dropdown
+    // Populate States from TanStack cache
     useEffect(() => {
-        const fetchStates = async () => {
-            try {
-                const data = await lookupsAPI.getStates();
-                if (data.status === 'success') setStates(data.data);
-            } catch (e) { console.error(e); }
-        };
-        fetchStates();
-    }, []);
+        setStates(allLookups.filter(l => l.lookup_type === 'State'));
+    }, [allLookups]);
 
     // Update internal state when initialConfig changes
     useEffect(() => {

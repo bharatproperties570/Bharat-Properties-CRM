@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import {  useTeams , useActiveUsers } from '../../utils/crmHooks';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
@@ -6,7 +7,9 @@ import toast from 'react-hot-toast';
 
 const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProperties = [], onUpdateSuccess }) => {
     const { propertyConfig, masterFields, sizes, getLookupValue, getLookupId } = usePropertyConfig();
-    const { teams, users } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
 
     const [isSaving, setIsSaving] = useState(false);
     const [selectedFields, setSelectedFields] = useState({});

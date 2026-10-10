@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useActiveUsers } from '../utils/crmHooks';
 import { useUserContext } from '../context/UserContext';
 
 const CreateTeamModal = ({ isOpen, onClose, onSave, team, isEdit }) => {
-    const { users, addTeam, updateTeam } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    const { addTeam, updateTeam } = useUserContext();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [manager, setManager] = useState('');

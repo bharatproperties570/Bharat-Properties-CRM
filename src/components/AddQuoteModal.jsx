@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Calculator, FileText, User, CheckCircle2, Mail, MessageSquare, MessageCircle, Smartphone } from 'lucide-react';
 import { api } from '../utils/api';
+import { useUpdateDealMutation } from '../utils/crmHooks';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency, formatFullIndianAmount, numberToIndianWords } from '../utils/numberToWords';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
@@ -250,13 +251,13 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             }
 
             // 3. Save Quote to Deal (Only if send or if we want to track every generation)
-            const res = await api.put(`deals/${deal._id}`, {
+            const res = { data: await updateDealMutation.mutateAsync({ id: deal._id, payload: {
                 stage: 'Quote',
                 associatedContact: selectedLead?._id,
                 quotePrice: quoteCalculations.basePrice || 0,
                 calculations: quoteCalculations,
                 quoteUrl: pdfUrl
-            });
+            }}) };
 
             if (res.data?.success) {
                 // 4. Send via selected Medium

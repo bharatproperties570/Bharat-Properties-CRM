@@ -1,5 +1,7 @@
 import { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { api, safeStorage } from '../utils/api';
+import { useLookups, useLookupMutations } from '../utils/crmHooks';
+import { useQueryClient } from '@tanstack/react-query';
 
 const ContactConfigContext = createContext();
 
@@ -18,6 +20,11 @@ export const ContactConfigProvider = ({ children }) => {
     const [profileConfig, setProfileConfig] = useState({});
     const [documentConfig, setDocumentConfig] = useState({});
     const [loading, setLoading] = useState(true);
+
+    const REQUIRED_CONTACT_TYPES = ['Professional', 'Address', 'Profile', 'Document-Category', 'DocumentCategory', 'Document-Type', 'DocumentType'];
+    const { data: rawLookups } = useLookups(REQUIRED_CONTACT_TYPES);
+    const { createLookup, updateLookup: apiUpdate, deleteLookup: apiDelete } = useLookupMutations();
+    const queryClient = useQueryClient();
 
     const buildHierarchy = useCallback((flatList, rootType) => {
         const rootItems = flatList.filter(item => item.lookup_type === rootType && !item.parent_lookup_value);
@@ -97,76 +104,52 @@ export const ContactConfigProvider = ({ children }) => {
         return hierarchy;
     }, []);
 
-    const fetchLookups = useCallback(async () => {
-        const token = safeStorage.getItem('authToken');
-        if (!token) {
+    useEffect(() => {
+        if (!rawLookups || rawLookups.length === 0) {
             setLoading(false);
             return;
         }
-        try {
-            setLoading(true);
 
-            // 🚀 SENIOR OPTIMIZATION: Request specific types to avoid massive payloads (Prevents 502s)
-            const targetTypes = ['Professional', 'Address', 'Profile', 'Document-Category', 'DocumentCategory', 'Document-Type', 'DocumentType'];
-            const response = await api.get(`/lookups?lookup_type=${targetTypes.join(',')}`);
+        const grouped = {};
+        rawLookups.forEach(item => {
+            const type = item.lookup_type;
+            if (!grouped[type]) grouped[type] = [];
+            grouped[type].push(item);
+        });
 
-            let allLookups = [];
-            // Axios response stores the server's JSON in response.data
-            const serverData = response.data;
-            if (serverData && serverData.status === 'success' && Array.isArray(serverData.data)) {
-                allLookups = serverData.data;
-            } else if (Array.isArray(serverData)) {
-                // Fallback if the backend returns the array directly
-                allLookups = serverData;
-            }
-            // Group by lookup_type
-            const grouped = {};
-            allLookups.forEach(item => {
-                const type = item.lookup_type;
-                if (!grouped[type]) grouped[type] = [];
-                grouped[type].push(item);
-            });
-
-            if (grouped['Professional']) {
-                setProfessionalConfig(buildHierarchy(grouped['Professional'], 'Professional'));
-            }
-            if (grouped['Address']) {
-                setAddressConfig(buildHierarchy(grouped['Address'], 'Address'));
-            }
-            if (grouped['Profile']) {
-                setProfileConfig(buildHierarchy(grouped['Profile'], 'Profile'));
-            }
-
-            // Combine Document-Category and Document-Type for hierarchy
-            // Supporting both hyphenated and non-hyphenated keys as they appear in the database
-            const combinedDocs = [
-                ...(grouped['Document-Category'] || []),
-                ...(grouped['DocumentCategory'] || []),
-                ...(grouped['Document-Type'] || []),
-                ...(grouped['DocumentType'] || [])
-            ];
-            setDocumentConfig(buildDocHierarchy(combinedDocs));
-
-        } catch (error) {
-            console.error("Failed to fetch lookups", error);
-        } finally {
-            setLoading(false);
+        if (grouped['Professional']) {
+            setProfessionalConfig(buildHierarchy(grouped['Professional'], 'Professional'));
         }
-    }, [buildHierarchy, buildDocHierarchy]);
+        if (grouped['Address']) {
+            setAddressConfig(buildHierarchy(grouped['Address'], 'Address'));
+        }
+        if (grouped['Profile']) {
+            setProfileConfig(buildHierarchy(grouped['Profile'], 'Profile'));
+        }
 
-    useEffect(() => {
-        fetchLookups();
-    }, [fetchLookups]);
+        const combinedDocs = [
+            ...(grouped['Document-Category'] || []),
+            ...(grouped['DocumentCategory'] || []),
+            ...(grouped['Document-Type'] || []),
+            ...(grouped['DocumentType'] || [])
+        ];
+        setDocumentConfig(buildDocHierarchy(combinedDocs));
 
+        setLoading(false);
+    }, [rawLookups, buildHierarchy, buildDocHierarchy]);
+
+    const fetchLookups = useCallback(async () => {
+        await queryClient.invalidateQueries({ queryKey: ['lookups'] });
+    }, [queryClient]);
 
     const addLookup = async (type, value, parentValue) => {
         try {
-            await api.post('/lookups', {
+            await createLookup.mutateAsync({
                 lookup_type: type,
                 lookup_value: value,
                 parent_lookup_value: parentValue
             });
-            await fetchLookups(); // Refresh
+            await fetchLookups();
             return true;
         } catch (error) {
             console.error("Failed to add lookup", error);
@@ -176,13 +159,15 @@ export const ContactConfigProvider = ({ children }) => {
 
     const updateLookup = async (id, value, type, parentValue) => {
         try {
-            // Backend uses SaveLookup for update if lookup_id is present
-            await api.put(`/lookups/${id}`, {
-                lookup_value: value,
-                lookup_type: type,
-                parent_lookup_value: parentValue
+            await apiUpdate.mutateAsync({
+                id,
+                data: {
+                    lookup_value: value,
+                    lookup_type: type,
+                    parent_lookup_value: parentValue
+                }
             });
-            await fetchLookups(); // Refresh
+            await fetchLookups();
             return true;
         } catch (error) {
             console.error("Failed to update lookup", error);
@@ -192,9 +177,8 @@ export const ContactConfigProvider = ({ children }) => {
 
     const deleteLookup = async (id) => {
         try {
-            // Using params object for cleaner query string construction
-            await api.delete(`/lookups/${id}`);
-            await fetchLookups(); // Refresh
+            await apiDelete.mutateAsync(id);
+            await fetchLookups();
             return true;
         } catch (error) {
             console.error("Failed to delete lookup", error);

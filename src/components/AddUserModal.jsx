@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import { useUserContext } from '../context/UserContext';
+import { useAddUserMutation, useUpdateUserMutation } from '../utils/crmHooks';
 
 const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) => {
     const isEdit = isEditProp !== undefined ? isEditProp : !!userData;
-    const { users, roles, teams, addUser, updateUser } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    const { roles } = useUserContext();
+    const { mutateAsync: addUser } = useAddUserMutation();
+    const { mutateAsync: updateUser } = useUpdateUserMutation();
+    const { data: teams = [] } = useTeams();
     const [formData, setFormData] = useState({
         fullName: '',
         email: '',
@@ -185,7 +191,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                 if (payload.password === '●●●●●●●●') {
                     delete payload.password;
                 }
-                result = await updateUser(userData._id, payload);
+                result = await updateUser({ id: userData._id, userData: payload });
             } else {
                 result = await addUser(payload);
             }

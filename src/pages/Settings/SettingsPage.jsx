@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import {  useTeams , useUsers } from '../../utils/crmHooks';
 import { API_BASE_URL, api } from '../../utils/api';
 import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
@@ -708,7 +709,11 @@ const EmptyState = ({ title }) => (
 // --- Main Settings Hub Component ---
 
 const SettingsPage = () => {
-    const { users, roles, teams, loading, error, deleteUser, deleteRole, deleteTeam, refreshData, toggleUserStatus, currentUser } = useUserContext();
+    const { data: users = [] } = useUsers();
+    const { roles, loading, error, deleteRole, deleteTeam, refreshData, currentUser } = useUserContext();
+    const { mutateAsync: deleteUser } = useDeleteUserMutation();
+    const { mutateAsync: toggleUserStatus } = useToggleUserStatusMutation();
+    const { data: teams = [] } = useTeams();
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
     const [searchTerm, setSearchTerm] = useState('');
@@ -767,8 +772,6 @@ const SettingsPage = () => {
     };
 
     const handleAddUser = async () => {
-        // The modal now handles the API call, so we just refresh
-        refreshData();
         showToast(editingUser ? 'User updated successfully' : 'User created successfully');
         setIsAddUserModalOpen(false);
     };
@@ -812,7 +815,6 @@ const SettingsPage = () => {
     };
 
     const handleSaveTeam = () => {
-        refreshData();
         showToast(editingTeam ? 'Team updated successfully' : 'Team created successfully');
         setIsCreateTeamModalOpen(false);
         setEditingTeam(null);
@@ -891,7 +893,7 @@ const SettingsPage = () => {
         } else {
             // Activating
             if (window.confirm(`Are you sure you want to activate ${user.fullName}?`)) {
-                const result = await toggleUserStatus(user._id, 'active');
+                const result = await toggleUserStatus({ id: user._id, status: 'active' });
                 if (result.success) {
                     showToast('User activated successfully');
                 } else {
@@ -903,7 +905,7 @@ const SettingsPage = () => {
 
     const confirmInactivation = async (data) => {
         if (!userToInactivate) return;
-        const result = await toggleUserStatus(userToInactivate._id, 'inactive', data.reason, data.duration, data.customDate);
+        const result = await toggleUserStatus({ id: userToInactivate._id, status: 'inactive', reason: data.reason, duration: data.duration, customDate: data.customDate });
         if (result.success) {
             showToast('User deactivated successfully');
         } else {
@@ -1224,7 +1226,6 @@ const SettingsPage = () => {
                 managerId={managerContext.id}
                 onAssign={() => {
                     showToast('Team member assigned successfully');
-                    refreshData();
                 }}
             />
 

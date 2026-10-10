@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, lookupsAPI } from '../../../utils/api';
+import { api } from '../../../utils/api';
+import { useLookups } from '../../../utils/crmHooks';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
 import { PROPERTY_CATEGORIES, ROAD_WIDTH_OPTIONS } from '../../../constants/propertyConstants';
@@ -27,6 +28,9 @@ const LiveClock = () => {
 const DealSettingsPage = () => {
     // Modes: 'list', 'add'
     const [viewMode, setViewMode] = useState('list');
+    
+    // --- Server State ---
+    const { data: allLookups = [] } = useLookups(['State', 'City', 'Location', 'Tehsil']);
 
     // --- State ---
 
@@ -164,15 +168,11 @@ const DealSettingsPage = () => {
     // Initial Load & States
     useEffect(() => {
         fetchData();
-        fetchStates();
     }, [fetchData]);
 
-    const fetchStates = async () => {
-        try {
-            const res = await lookupsAPI.getStates();
-            if (res.status === 'success') setStates(res.data);
-        } catch (e) { console.error(e); }
-    };
+    useEffect(() => {
+        setStates(allLookups.filter(item => item.lookup_type === 'State'));
+    }, [allLookups]);
 
     // Dependent Lookups for Form & Filters
     useEffect(() => {
@@ -184,7 +184,7 @@ const DealSettingsPage = () => {
             setTehsils([]);
             setLocations([]);
         }
-    }, [rateForm.state, collectorFilters.state]);
+    }, [rateForm.state, collectorFilters.state, allLookups]);
 
     useEffect(() => {
         const districtId = rateForm.district || collectorFilters.district;
@@ -194,7 +194,7 @@ const DealSettingsPage = () => {
             setTehsils([]);
             setLocations([]);
         }
-    }, [rateForm.district, collectorFilters.district]);
+    }, [rateForm.district, collectorFilters.district, allLookups]);
 
     // Search & Pagination Logic
     useEffect(() => {
@@ -235,22 +235,14 @@ const DealSettingsPage = () => {
         setRegistrationPagination(prev => ({ ...prev, page: 1 })); // Renamed from setGlobalPagination
     }, [registrationSearch]); // Renamed from globalSearch
 
-    const fetchDistricts = async (stateId) => {
-        try {
-            const res = await lookupsAPI.getCities(stateId);
-            if (res.status === 'success') setDistricts(res.data);
-        } catch (e) { console.error(e); }
+    const fetchDistricts = (stateId) => {
+        setDistricts(allLookups.filter(item => item.lookup_type === 'City' && (item.parent_lookup_id === stateId || item.parent_lookup_id?._id === stateId)));
     };
 
-    const fetchTehsilsAndLocations = async (cityId) => {
-        try {
-            const res = await lookupsAPI.getLocations(cityId);
-            if (res.status === 'success') {
-                const fetched = res.data || [];
-                setTehsils(fetched.filter(i => i.lookup_type === 'Tehsil'));
-                setLocations(fetched.filter(i => i.lookup_type === 'Location'));
-            }
-        } catch (e) { console.error(e); }
+    const fetchTehsilsAndLocations = (cityId) => {
+        const children = allLookups.filter(item => item.parent_lookup_id === cityId || item.parent_lookup_id?._id === cityId);
+        setTehsils(children.filter(i => i.lookup_type === 'Tehsil'));
+        setLocations(children.filter(i => i.lookup_type === 'Location'));
     };
 
     // --- Handlers ---

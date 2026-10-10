@@ -1,38 +1,32 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { api } from '../utils/api';
+import { useState, useMemo } from 'react';
+import { useTeams, useUsers, useDashboardStats } from '../utils/crmHooks';
 import { useUserContext } from '../context/UserContext';
 
 export const useDashboardData = () => {
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useUsers();
+    const { data: teams = [] } = useTeams();
     const [selectedFilter, setSelectedFilter] = useState('all');
-    const [dashboardData, setDashboardData] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [lastRefresh, setLastRefresh] = useState(null);
 
-    const fetchData = useCallback(async () => {
-        try {
-            setLoading(true);
-            const params = {};
-            if (selectedFilter !== 'all') {
-                const isTeam = teams?.some(t => t.id === selectedFilter || t._id === selectedFilter);
-                if (isTeam) params.teamId = selectedFilter;
-                else params.userId = selectedFilter;
-            }
-            const response = await api.get('/dashboard/stats', { params });
-            if (response.data.success) {
-                setDashboardData(response.data.data);
-                setLastRefresh(new Date());
-            }
-        } catch (error) {
-            console.error('Dashboard fetch error:', error);
-        } finally {
-            setLoading(false);
+    // Normalize UI filter state to query params
+    const params = useMemo(() => {
+        const p = {};
+        if (selectedFilter !== 'all') {
+            const isTeam = teams?.some(t => t.id === selectedFilter || t._id === selectedFilter);
+            if (isTeam) p.teamId = selectedFilter;
+            else p.userId = selectedFilter;
         }
+        return p;
     }, [selectedFilter, teams]);
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+    // Use canonical Dashboard Stats contract
+    const { 
+        data: dashboardData, 
+        isFetching: loading, 
+        refetch: fetchData,
+        dataUpdatedAt
+    } = useDashboardStats(params);
+
+    const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
     // Formatters
     const fmtCr = (v) => {

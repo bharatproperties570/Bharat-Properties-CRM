@@ -2,8 +2,19 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { parseShareToMarlas, formatMarlas } from '../utils/landCalculations';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { useContacts, useLookups, useUpdateInventoryMutation, useAddInventoryMutation } from '../utils/crmHooks';
 
 export const useInventoryForm = (isOpen, initialProject, property, allProjects, sizes, getLookupId, getLookupValue, executeDistribution, fireEvent, evaluateAndEnroll, validateAsync, onClose, onSave, activeTab) => {
+    // Canonical Lookups Cache for Geocoding & Project Resolution
+    const { data: countries = [] } = useLookups('Country');
+    const { data: states = [] } = useLookups('State');
+    const { data: cities = [] } = useLookups('City');
+    const { data: locations = [] } = useLookups('Location');
+
+    const updateMutation = useUpdateInventoryMutation();
+    const addMutation = useAddInventoryMutation();
+
+    const initialFormData = useRef(null);
     const [formData, setFormData] = useState({
         // Unit Details
         projectName: initialProject || '',
@@ -142,11 +153,12 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 return '';
             };
 
-            setFormData(prev => ({
-                ...prev,
-                ...property,
-                projectName: property.project?.name || property.projectName || (typeof property.project === 'string' ? property.project : ''),
-                projectId: property.project?._id || property.projectId || '',
+            setFormData(prev => {
+                const newFormData = {
+                    ...prev,
+                    ...property,
+                    projectName: property.project?.name || property.projectName || (typeof property.project === 'string' ? property.project : ''),
+                    projectId: property.project?._id || property.projectId || '',
                 unitNo: property.unitNo || property.unitNumber || '',
                 unitType: resolveField(property.unitType, 'UnitType').toLowerCase(),
                 category: resolveField(property.category, 'Category') || 'Residential',
@@ -197,7 +209,10 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                     street: property.address?.street || '',
                     area: property.address?.area || ''
                 }
-            }));
+                };
+                initialFormData.current = JSON.parse(JSON.stringify(newFormData));
+                return newFormData;
+            });
         } else if (isOpen) {
              // Reset form for new entry if needed (or keep defaults)
         }
@@ -253,24 +268,27 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
     }, [formData, property]);
 
     // Debounced Search for Contacts
+    const [debouncedOwnerSearch, setDebouncedOwnerSearch] = useState('');
+    
     useEffect(() => {
-        const timer = setTimeout(async () => {
-            if (ownerSearch.length > 1) {
-                try {
-                    const response = await api.get(`/contacts?search=${ownerSearch}&limit=10`);
-                    if (response.data && response.data.success) {
-                        setSearchResults(response.data.records || []);
-                    }
-                } catch (error) {
-                    console.error("Contact search error:", error);
-                }
-            } else {
-                setSearchResults([]);
-            }
+        const timer = setTimeout(() => {
+            setDebouncedOwnerSearch(ownerSearch);
         }, 500);
-
         return () => clearTimeout(timer);
     }, [ownerSearch]);
+
+    const { data: contactsData } = useContacts({
+        search: debouncedOwnerSearch,
+        limit: 10
+    });
+
+    useEffect(() => {
+        if (debouncedOwnerSearch.length > 1) {
+            setSearchResults(contactsData?.records || []);
+        } else {
+            setSearchResults([]);
+        }
+    }, [debouncedOwnerSearch, contactsData]);
 
     // Google Maps Integration
     useEffect(() => {
@@ -299,26 +317,22 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                     let resolvedLocId = '';
 
                     try {
-                        const countryRes = await api.get("/lookups?lookup_type=Country&limit=10");
-                        const countryObj = (countryRes.data.data || []).find(c => c.lookup_value === 'India');
+                        const countryObj = countries.find(c => c.lookup_value === 'India');
                         if (countryObj) {
                             resolvedCountryId = countryObj._id;
                             
                             if (newStateName) {
-                                const stateRes = await api.get(`/lookups?lookup_type=State&parent_lookup_id=${resolvedCountryId}&limit=100`);
-                                const stateObj = (stateRes.data.data || []).find(s => s.lookup_value.toLowerCase() === newStateName.toLowerCase());
+                                const stateObj = states.find(s => s.lookup_value.toLowerCase() === newStateName.toLowerCase() && s.parent_lookup_id === resolvedCountryId);
                                 if (stateObj) {
                                     resolvedStateId = stateObj._id;
 
                                     if (newCityName) {
-                                        const cityRes = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${resolvedStateId}&limit=100`);
-                                        const cityObj = (cityRes.data.data || []).find(c => c.lookup_value.toLowerCase() === newCityName.toLowerCase());
+                                        const cityObj = cities.find(c => c.lookup_value.toLowerCase() === newCityName.toLowerCase() && c.parent_lookup_id === resolvedStateId);
                                         if (cityObj) {
                                             resolvedCityId = cityObj._id;
 
                                             if (newLocationName) {
-                                                const locRes = await api.get(`/lookups?lookup_type=Location&parent_lookup_id=${resolvedCityId}&limit=200`);
-                                                const locObj = (locRes.data.data || []).find(l => l.lookup_value.toLowerCase() === newLocationName.toLowerCase() || newLocationName.toLowerCase().includes(l.lookup_value.toLowerCase()));
+                                                const locObj = locations.find(l => (l.lookup_value.toLowerCase() === newLocationName.toLowerCase() || newLocationName.toLowerCase().includes(l.lookup_value.toLowerCase())) && l.parent_lookup_id === resolvedCityId);
                                                 if (locObj) {
                                                     resolvedLocId = locObj._id;
                                                 }
@@ -501,16 +515,13 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
 
             if (targetState && targetCity) {
                 try {
-                    const countryRes = await api.get("/lookups?lookup_type=Country&limit=10");
-                    const countryObj = (countryRes.data.data || []).find(c => c.lookup_value === 'India');
+                    const countryObj = countries.find(c => c.lookup_value === 'India');
 
                     if (countryObj) {
-                        const stateRes = await api.get(`/lookups?lookup_type=State&parent_lookup_id=${countryObj._id}&limit=100`);
-                        const stateObj = (stateRes.data.data || []).find(s => s.lookup_value.toLowerCase() === targetState.toLowerCase());
+                        const stateObj = states.find(s => s.lookup_value.toLowerCase() === targetState.toLowerCase() && s.parent_lookup_id === countryObj._id);
 
                         if (stateObj) {
-                            const cityRes = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${stateObj._id}&limit=100`);
-                            const cityObj = (cityRes.data.data || []).find(c => c.lookup_value.toLowerCase() === targetCity.toLowerCase());
+                            const cityObj = cities.find(c => c.lookup_value.toLowerCase() === targetCity.toLowerCase() && c.parent_lookup_id === stateObj._id);
 
                             if (cityObj) {
                                 let newAddress = {
@@ -523,9 +534,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                                 let disabled = ['country', 'state', 'city'];
 
                                 if (project.name) {
-                                    const locRes = await api.get(`/lookups?lookup_type=Location&parent_lookup_id=${cityObj._id}&limit=200`);
-                                    const locations = locRes.data.data || [];
-                                    const matchedLoc = locations.find(l => project.name.toLowerCase().includes(l.lookup_value.toLowerCase()));
+                                    const matchedLoc = locations.find(l => project.name.toLowerCase().includes(l.lookup_value.toLowerCase()) && l.parent_lookup_id === cityObj._id);
                                     if (matchedLoc) {
                                         newAddress.location = matchedLoc._id;
                                         setFormData(prev => ({
@@ -698,18 +707,50 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 }))
             };
 
-            let response;
+            let responseData;
             if (property && property._id) {
-                response = await api.put(`/inventory/${property._id}`, transformedData);
+                const computeDirtyKeys = (initial, current) => {
+                    const normalize = (val) => (val === null || val === undefined) ? "" : val;
+                    const dirtyKeys = new Set();
+                    Object.keys(current).forEach(key => {
+                        const initVal = initial[key];
+                        const currVal = current[key];
+                        if (typeof currVal === 'object' && currVal !== null) {
+                            if (JSON.stringify(initVal) !== JSON.stringify(currVal)) {
+                                dirtyKeys.add(key);
+                            }
+                        } else {
+                            if (normalize(initVal) !== normalize(currVal)) {
+                                dirtyKeys.add(key);
+                            }
+                        }
+                    });
+                    return dirtyKeys;
+                };
+
+                const dirtyFormKeys = computeDirtyKeys(initialFormData.current, formData);
+                const formToPayloadKeys = { size: ['size', 'sizeLabel', 'sizeConfig'], kmlFile: ['kmlFileUrl'], kmlFileUrl: ['kmlFileUrl'] };
+                const partialPayload = {};
+                
+                dirtyFormKeys.forEach(formKey => {
+                    const payloadKeys = formToPayloadKeys[formKey] || [formKey];
+                    payloadKeys.forEach(pk => {
+                        if (transformedData[pk] !== undefined) {
+                            partialPayload[pk] = transformedData[pk];
+                        }
+                    });
+                });
+
+                responseData = await updateMutation.mutateAsync({ id: property._id, data: partialPayload });
             } else {
-                response = await api.post('/inventory', transformedData);
+                responseData = await addMutation.mutateAsync(transformedData);
             }
 
-            if (!response.data || !response.data.success) {
-                throw new Error(response.data?.error || 'Failed to save inventory');
+            if (!responseData || !responseData.success) {
+                throw new Error(responseData?.error || 'Failed to save inventory');
             }
 
-            const savedData = response.data.data;
+            const savedData = responseData.data;
             toast.success('Inventory Saved!', { id: toastId });
 
             if (property) {

@@ -28,8 +28,8 @@ const ExportDataPage = () => {
                 let endpoint = module;
                 if (module === 'propertyOwners') endpoint = 'contacts'; // Special case
                 
-                // Fetch all records for export (usually higher limit or specialized endpoint)
-                const response = await api.get(`${endpoint}?limit=5000`);
+                // Phase 10.5: Dedicated Export Contract
+                const response = await api.get(`${endpoint}/export`);
                 if (response.data && response.data.success) {
                     setExportData(response.data.records || response.data.data || []);
                 } else {
@@ -37,7 +37,12 @@ const ExportDataPage = () => {
                 }
             } catch (err) {
                 console.error(`Failed to fetch ${module} data:`, err);
-                toast.error(`Could not load ${module} data for export.`);
+                // Handle Phase 10.5 PROVISIONAL synchronous capacity limits
+                if (err.response?.status === 400 && err.response?.data?.error?.includes('synchronous limit')) {
+                    toast.error(err.response.data.error || "Dataset too large for synchronous export. Please apply filters.");
+                } else {
+                    toast.error(`Could not load ${module} data for export.`);
+                }
                 setExportData([]);
             } finally {
                 setIsFetching(false);

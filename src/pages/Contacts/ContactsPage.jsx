@@ -1,4 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
+import {  useTeams , useUsers } from '../../utils/crmHooks';
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import toast from "react-hot-toast";
@@ -382,9 +383,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const { isDark } = useTheme();
   const { startCall } = useCall();
   const { executeDistribution } = useDistribution();
-  const [contacts, setContacts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [totalRecords, setTotalRecords] = useState(0);
+  
   const [stats, setStats] = useState({
     total: 0,
     prospects: 0,
@@ -396,26 +395,71 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   });
 
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const searchTerm = searchParams.get('search') || "";
+  const currentPage = parseInt(searchParams.get('page')) || 1;
+  const recordsPerPage = parseInt(searchParams.get('limit')) || 25;
+  const viewMode = searchParams.get('view') || "list";
+  const sortBy = searchParams.get('sortBy') || "createdAt";
+  const sortOrder = parseInt(searchParams.get('sortOrder')) || -1;
+  const sortConfig = { by: sortBy, order: sortOrder, label: sortBy === 'createdAt' ? 'Newest First' : sortBy };
+
+  const setSearchTerm = (term) => {
+      const params = new URLSearchParams(searchParams);
+      if (term) params.set('search', term);
+      else params.delete('search');
+      params.set('page', '1');
+      setSearchParams(params, { replace: true });
+  };
+  
+  const setCurrentPage = (page) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('page', page);
+      setSearchParams(params);
+  };
+
+  const setRecordsPerPage = (limit) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('limit', limit);
+      params.set('page', '1');
+      setSearchParams(params);
+  };
+
+  const setViewMode = (mode) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('view', mode);
+      setSearchParams(params);
+  };
+
+  const setSortConfig = (config) => {
+      const params = new URLSearchParams(searchParams);
+      params.set('sortBy', config.by);
+      params.set('sortOrder', config.order);
+      setSearchParams(params);
+  };
+
   const [filters, setFilters] = useState({});
   const [selectedIds, setSelectedIds] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [recordsPerPage, setRecordsPerPage] = useState(25);
-  const [viewMode, setViewMode] = useState("list");
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false });
+
   const [depModalOpen, setDepModalOpen] = useState(false);
   const [depContactId, setDepContactId] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
-  const [sortConfig, setSortConfig] = useState({ label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+  
 
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
   const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   
-  const { teams, users } = useUserContext();
+  const { data: users = [] } = useUsers();
+    
+    const { data: teams = [] } = useTeams();
   const { getLookupValue } = usePropertyConfig();
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -431,46 +475,38 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     }
   }, []);
 
-  const fetchContacts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const queryParams = new URLSearchParams({
-        page: currentPage,
-        limit: recordsPerPage,
-        search: debouncedSearchTerm,
-        sortBy: sortConfig.by,
-        sortOrder: sortConfig.order
-      });
-
-      // Append backend filters
+  
+  const queryParams = useMemo(() => {
+      const params = {
+          page: currentPage,
+          limit: recordsPerPage,
+          search: debouncedSearchTerm,
+          sortBy: sortConfig.by,
+          sortOrder: sortConfig.order
+      };
+      const flatParams = { ...params };
       Object.entries(filters).forEach(([key, value]) => {
-        if (Array.isArray(value) && value.length > 0) {
-          value.forEach(v => queryParams.append(key, v));
-        } else if (value && !Array.isArray(value)) {
-          queryParams.append(key, value);
-        }
+          if (Array.isArray(value) && value.length > 0) {
+              flatParams[key] = value;
+          } else if (value && !Array.isArray(value)) {
+              flatParams[key] = value;
+          }
       });
+      return flatParams;
+  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig.by, sortConfig.order, filters]);
 
-      console.log("[Contacts Audit] Fetching contacts with params:", queryParams.toString());
-      const response = await api.get(`contacts?${queryParams.toString()}`);
-      if (response.data && response.data.success) {
-        console.log("[Contacts Debug] Data loaded:", response.data.records?.length, "Total:", response.data.totalCount);
-        setContacts(response.data.records || []);
-        setTotalRecords(response.data.totalCount || 0);
-        // Refresh stats whenever contacts are fetched/updated
-        fetchStats();
-      } else {
-        console.warn("[Contacts Debug] API Error or no data:", response.data);
-        toast.error("Failed to fetch contacts: Invalid API response");
-        setContacts([]);
-      }
-    } catch (error) {
-      console.error("Error fetching contacts:", error);
-      toast.error(error.message || "Error loading contacts");
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, fetchStats, filters]);
+  const { data: contactsData, isLoading: loading, prefetchNextPage } = useContacts(queryParams);
+  const contacts = contactsData?.records || [];
+  const totalRecords = contactsData?.totalCount || 0;
+
+  const deleteMutation = useDeleteContactMutation();
+  const bulkDeleteMutation = useBulkDeleteContactsMutation();
+  
+  const queryClient = useQueryClient();
+  const fetchContacts = useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+  }, [queryClient]);
+
 
   useEffect(() => {
     const handleSync = () => fetchContacts();
@@ -479,7 +515,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     return () => events.forEach(evt => window.removeEventListener(evt, handleSync));
   }, [fetchContacts]);
 
-  useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
   const getTeamName = useCallback((teamValue) => {
     if (!teamValue) return "-";
@@ -512,15 +547,12 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Bulk Actions
   const handleConfirmedDelete = async (id) => {
     try {
-      setLoading(true);
-      await api.delete(`contacts/${id}`);
+      await deleteMutation.mutateAsync(id);
       toast.success('Contact deleted successfully');
       setSelectedIds(prev => prev.filter(pid => pid !== id));
-      fetchContacts();
+      setDeleteConfirm({ isOpen: false });
     } catch (error) {
       toast.error('Failed to delete contact');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -543,15 +575,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     });
     if (!result.isConfirmed) return;
     try {
-      setLoading(true);
-      await api.delete('contacts/bulk', { data: { ids: selectedIds } });
+      await bulkDeleteMutation.mutateAsync(selectedIds);
       toast.success("Contacts deleted successfully");
       setSelectedIds([]);
-      fetchContacts();
     } catch (error) {
       toast.error("Failed to delete contacts");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -772,7 +800,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                     <span>Show:</span>
                     <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid var(--input-border)", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-main)", background: "var(--input-bg)", outline: "none", cursor: "pointer" }}>
-                      {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                      {[10, 25, 50, 100, 300, 500].map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                   {/* Pagination Controls */}

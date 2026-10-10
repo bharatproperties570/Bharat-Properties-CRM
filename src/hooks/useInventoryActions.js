@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { useUpdateInventoryMutation } from '../utils/crmHooks';
 
-export const useInventoryActions = (inventory, setInventory, onNavigate, onAddDeal) => {
+export const useInventoryActions = (inventory, onNavigate, onAddDeal) => {
     const [isCopying, setIsCopying] = useState(false);
+    const { mutateAsync: updateInventory } = useUpdateInventoryMutation();
 
     const handleWhatsAppShare = useCallback(() => {
         if (!inventory) return;
@@ -48,39 +49,19 @@ export const useInventoryActions = (inventory, setInventory, onNavigate, onAddDe
                 ? currentIntents.filter(i => i !== type)
                 : [...currentIntents, type];
 
-            const response = await api.put(`inventory/${inventory._id}`, { intent: newIntents });
-            if (response.data && response.data.success) {
-                setInventory(response.data.data);
-                toast.success(`${type} transaction type ${currentIntents.includes(type) ? 'disabled' : 'enabled'}`);
-                window.dispatchEvent(new CustomEvent('inventory-updated'));
-            }
+            await updateInventory({ id: inventory._id, data: { intent: newIntents } });
+            toast.success(`${type} transaction type ${currentIntents.includes(type) ? 'disabled' : 'enabled'}`);
         } catch (error) {
             console.error("Error toggling intent:", error);
             toast.error("Failed to update transaction type");
         }
-    }, [inventory, setInventory]);
-
-    const updateInventoryField = useCallback(async (fieldName, value) => {
-        if (!inventory) return;
-        try {
-            const response = await api.put(`inventory/${inventory._id}`, { [fieldName]: value });
-            if (response.data && response.data.success) {
-                setInventory(response.data.data);
-                toast.success('Inventory updated');
-                window.dispatchEvent(new CustomEvent('inventory-updated'));
-            }
-        } catch (error) {
-            console.error(`Error updating ${fieldName}:`, error);
-            toast.error('Update failed');
-        }
-    }, [inventory, setInventory]);
+    }, [inventory, updateInventory]);
 
     return {
         isCopying,
         handleWhatsAppShare,
         handleCopyDetails,
         handleCreateDeal,
-        handleToggleIntent,
-        updateInventoryField
+        handleToggleIntent
     };
 };

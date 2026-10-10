@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import toast from "react-hot-toast";
 
 import { api } from "../utils/api";
@@ -275,7 +276,9 @@ const AddContactModal = ({
     profileConfig = {},
   } = useContactConfig();
 
-  const { users, teams } = useUserContext();
+  const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
 
   const prevCategoryRef = useRef(null);
   const prevSubCategoryRef = useRef(null);

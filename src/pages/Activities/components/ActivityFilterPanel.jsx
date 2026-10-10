@@ -1,3 +1,4 @@
+import { useUsers } from '../../../utils/crmHooks';
 import { useTheme } from '../../../context/ThemeContext';
 import { useUserContext } from '../../../context/UserContext';
 import { ACTIVITY_TYPES, ACTIVITY_STATUSES, PRIORITIES } from '../../../utils/activityFilterLogic';
@@ -5,7 +6,8 @@ import { ACTIVITY_TYPES, ACTIVITY_STATUSES, PRIORITIES } from '../../../utils/ac
 
 const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset }) => {
     const { isDark } = useTheme();
-    const { users = [] } = useUserContext();
+    const { data: users = [] } = useUsers();
+    
     // Local state for temporary filter changes before applying (if we wanted "Apply" button)
     // But we are doing real-time, so we might pass changes directly. 
     // However, for consistency with other panels, we often use local state + Apply, 

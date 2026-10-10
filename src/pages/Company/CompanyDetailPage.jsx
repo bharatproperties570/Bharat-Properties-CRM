@@ -1,14 +1,18 @@
+import { useParams } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { api } from "../../utils/api";
+import { useCompany } from '../../utils/crmHooks';
+
 import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import { getInitials } from '../../utils/helpers';
 import Chart from 'react-apexcharts';
 
-const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddInventory, onAddDeal, onAddContact }) => {
-    const [company, setCompany] = useState(null);
-    const [loading, setLoading] = useState(true);
+const CompanyDetailPage = ({ onBack, onNavigate, onAddProject, onAddInventory, onAddDeal, onAddContact }) => {
+    const { id: companyId } = useParams();
+    
+    
     const [activeTab, setActiveTab] = useState('activity');
     const [projectsData, setProjectsData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
@@ -97,31 +101,15 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddI
         }
     }, [companyId]);
 
-    const fetchCompanyDetails = useCallback(async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(`companies/${companyId}`);
-            if (response.data && response.data.success) {
-                const data = response.data.data;
-                setCompany(data);
-
-                // Fetch associated data in parallel
-                fetchAssociatedData(data);
-            } else {
-                toast.error("Failed to load company details");
-            }
-        } catch (error) {
-            console.error("Error fetching company:", error);
-            toast.error("Error loading company profile");
-        } finally {
-            setLoading(false);
-        }
-    }, [companyId, fetchAssociatedData]);
-
+    
+    const { data: company, isLoading: loading } = useCompany(companyId);
 
     useEffect(() => {
-        fetchCompanyDetails();
-    }, [fetchCompanyDetails]);
+        if (company) {
+            fetchAssociatedData(company);
+        }
+    }, [company, fetchAssociatedData]);
+
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>

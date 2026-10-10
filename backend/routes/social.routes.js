@@ -21,7 +21,9 @@ import {
     getWhatsAppTemplates,
     postSocialMedia,
     getSocialAnalytics,
-    testSocialConnection
+    testSocialConnection,
+    startBaileysConnection,
+    getBaileysStatus
 } from '../controllers/social.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -37,6 +39,10 @@ router.get('/whatsapp/templates',  getWhatsAppTemplates);
 
 // Apply authentication to all following routes
 router.use(authenticate);
+
+// ── Baileys QR Integration ────────────────────────────────────────────────────
+router.post('/whatsapp/baileys/start', startBaileysConnection);
+router.get('/whatsapp/baileys/status/:id', getBaileysStatus);
 
 // ── Status ────────────────────────────────────────────────────────────────────
 router.get('/status',         getSocialStatus);

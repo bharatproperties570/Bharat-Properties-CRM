@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import {  useTeams , useActiveUsers } from '../../../utils/crmHooks';
 import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, generateSuccessReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { useUserContext } from '../../../context/UserContext';
@@ -10,7 +11,9 @@ import MergeContactsModal from '../../../components/modals/MergeContactsModal';
 const ImportDataPage = () => {
     const { startBackgroundImport } = useImport();
     const { projects, refreshSizes } = usePropertyConfig();
-    const { users, teams, refreshData } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    const { refreshData } = useUserContext();
+    const { data: teams = [] } = useTeams();
     const [step, setStep] = useState(1);
     const [module, setModule] = useState('contacts'); // Default module
     const [file, setFile] = useState(null);

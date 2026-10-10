@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useActiveUsers } from '../utils/crmHooks';
 import { useDistribution } from '../context/DistributionContext';
 import { useUserContext } from '../context/UserContext';
 
 const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) => {
     const { addDistributionRule, updateDistributionRule } = useDistribution();
-    const { users } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
 
     const [activeTab, setActiveTab] = useState('basic');
     const [formData, setFormData] = useState({

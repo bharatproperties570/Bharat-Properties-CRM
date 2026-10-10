@@ -3,6 +3,7 @@ import { useTheme } from '../../context/ThemeContext';
 import React, { useState } from 'react';
 import RevivalModal from '../RevivalModal';
 import { api, activitiesAPI } from '../../utils/api';
+import { useAddActivityMutation, useUpdateLeadMutation } from '../../utils/crmHooks';
 import { useUserContext } from '../../context/UserContext';
 
 const ContactDetailHeader = React.memo(function ContactDetailHeader({
@@ -29,6 +30,8 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
     getLookupId
 }) {
     const { isDark } = useTheme();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
+    const updateLeadMutation = useUpdateLeadMutation();
     const { currentUser } = useUserContext();
     const [isRevivalModalOpen, setIsRevivalModalOpen] = useState(false);
     const [isMarkLostModalOpen, setIsMarkLostModalOpen] = useState(false);
@@ -50,11 +53,11 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
             
             // Update Lead Stage
             const payload = { stage: lostStageId };
-            await api.put(`/leads/${contactId}`, payload);
+            await updateLeadMutation.mutateAsync({ id: contactId, payload, isPartial: true });
             
             // Log Activity
             const finalReason = lostReasonPreset ? (lostReasonText ? `${lostReasonPreset} - ${lostReasonText}` : lostReasonPreset) : lostReasonText;
-            await activitiesAPI.create({
+            await addActivity({
                 type: 'Status Change',
                 subject: 'Lead Marked as Closed (Lost)',
                 status: 'Completed',
@@ -239,7 +242,7 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                             if (window.confirm("Are you sure you want to revive this lead? It will be moved to the Incoming stage.")) {
                                 try {
                                     const incomingStageId = getLookupId('Stage', 'Incoming');
-                                    await api.put(`/leads/${contactId}`, { stage: incomingStageId });
+                                    await updateLeadMutation.mutateAsync({ id: contactId, payload: { stage: incomingStageId }, isPartial: true });
                                     showNotification('Lead successfully revived to Incoming.');
                                     setTimeout(() => window.location.reload(), 1000);
                                 } catch (e) {

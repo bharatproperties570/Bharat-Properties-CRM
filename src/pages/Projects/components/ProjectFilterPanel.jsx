@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTeams } from '../../../utils/crmHooks';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { useUserContext } from '../../../context/UserContext';
@@ -142,7 +143,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { isDark } = useTheme();
     const { projectMasterFields, projectAmenities } = usePropertyConfig();
-    const { teams } = useUserContext();
+    const { data: teams = [] } = useTeams();
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {

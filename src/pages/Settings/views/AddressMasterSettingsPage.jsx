@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { lookupsAPI } from '../../../utils/api';
+import { useLookups, useLookupMutations } from '../../../utils/crmHooks';
 import Swal from 'sweetalert2';
 import './AddressMasterSettings.css';
 
+const GEOGRAPHY_TYPES = ['Country', 'State', 'City', 'Location', 'Tehsil', 'PostOffice', 'Pincode'];
+
 const AddressMasterSettingsPage = () => {
+    const { data: allLookups = [] } = useLookups(GEOGRAPHY_TYPES);
+    const { createLookup, updateLookup, deleteLookup, mergeOrMoveLookup } = useLookupMutations();
     // Columns data
     const [countries, setCountries] = useState([]);
     const [states, setStates] = useState([]);
@@ -73,17 +77,12 @@ const AddressMasterSettingsPage = () => {
             if (item) {
                 const targetType = targetParentMap[activeTab];
                 if (targetType) {
-                    lookupsAPI.getByCategory(targetType).then(res => {
-                        if (res.data && res.data.status === 'success') {
-                            setMoveTargetCandidates(res.data.data || []);
-                        }
-                    }).catch(err => {
-                        console.error('Error fetching target candidates', err);
-                    });
+                    const candidates = allLookups.filter(l => l.lookup_type === targetType);
+                    setMoveTargetCandidates(candidates);
                 }
             }
         }
-    }, [showMoveModal, selectedIds]);
+    }, [showMoveModal, selectedIds, activeTab, allLookups]);
 
     const [streamEta, setStreamEta] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
@@ -132,7 +131,7 @@ const AddressMasterSettingsPage = () => {
                 lookup_value: name,
                 parent_lookup_id: parentId
             };
-            const res = await lookupsAPI.create(payload);
+            const res = await createLookup.mutateAsync(payload);
             if (res.status === "success") {
                 showMessage("Added Successfully");
                 const setter = getStateSetter(lookupType);
@@ -164,10 +163,13 @@ const AddressMasterSettingsPage = () => {
         if (!name) return;
 
         try {
-            const res = await lookupsAPI.update(item._id, {
-                lookup_type: item.lookup_type,
-                lookup_value: name,
-                parent_lookup_id: item.parent_lookup_id
+            const res = await updateLookup.mutateAsync({
+                id: item._id,
+                data: {
+                    lookup_type: item.lookup_type,
+                    lookup_value: name,
+                    parent_lookup_id: item.parent_lookup_id
+                }
             });
             if (res.status === "success") {
                 showMessage("Updated Successfully");
@@ -200,7 +202,7 @@ const AddressMasterSettingsPage = () => {
         if (!result.isConfirmed) return;
 
         try {
-            const res = await lookupsAPI.delete(item._id);
+            const res = await deleteLookup.mutateAsync(item._id);
             if (res.status === "success") {
                 showMessage("Deleted Successfully");
                 
@@ -261,52 +263,31 @@ const AddressMasterSettingsPage = () => {
 
     // Load Initial Data
     useEffect(() => {
-        const init = async () => {
-            await loadCountries();
-            await loadAllStates();
-        };
-        init();
-    }, []);
-
-    const loadCountries = async () => {
-        try {
-            const res = await lookupsAPI.getByCategory('Country');
-            if (res.status === 'success') {
-                let countryList = res.data;
-                if (countryList.length === 0) {
-                    // Seed a default India country lookup if empty
-                    const seedRes = await lookupsAPI.create({ lookup_type: 'Country', lookup_value: 'India' });
-                    if (seedRes.status === 'success') {
-                        countryList = [seedRes.data];
-                    }
+        const countryList = allLookups.filter(item => item.lookup_type === 'Country');
+        if (countryList.length === 0 && allLookups.length > 0) {
+            // Wait, if there are no countries in allLookups, should we seed one?
+            // Since it's a mutation, maybe do it synchronously? Let's check.
+            const seedIndia = async () => {
+                const seedRes = await createLookup.mutateAsync({ lookup_type: 'Country', lookup_value: 'India' });
+                if (seedRes.status === 'success') {
+                    setCountries([seedRes.data]);
+                    if (!selectedCountryId) setSelectedCountryId(seedRes.data._id);
                 }
-                setCountries(countryList);
-                if (countryList.length > 0) {
-                    setSelectedCountryId(countryList[0]._id);
-                }
+            };
+            seedIndia();
+        } else {
+            setCountries(countryList);
+            if (countryList.length > 0 && !selectedCountryId) {
+                setSelectedCountryId(countryList[0]._id);
             }
-        } catch (err) {
-            console.error('Failed to load countries:', err);
         }
-    };
+    }, [allLookups, selectedCountryId, createLookup]);
 
-    const loadAllStates = async () => {
-        try {
-            setLoading(true);
-            const res = await lookupsAPI.getStates();
-            if (res.status === 'success') {
-                setStates(res.data);
-            }
-        } catch (err) {
-            console.error('Failed to load states:', err);
-            showMessage('Failed to load states', 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
+    useEffect(() => {
+        setStates(allLookups.filter(item => item.lookup_type === 'State'));
+    }, [allLookups]);
 
-    // Handle State change and fetch its cities
-    const handleStateClick = async (stateId) => {
+    const handleStateClick = (stateId) => {
         setSelectedStateId(stateId);
         setSelectedCityId('');
         setCities([]);
@@ -314,25 +295,17 @@ const AddressMasterSettingsPage = () => {
         setTehsils([]);
         setPostOffices([]);
         setPincodes([]);
-        
-        if (!stateId) return;
-
-        try {
-            setLoading(true);
-            const res = await lookupsAPI.getCities(stateId);
-            if (res.status === 'success') {
-                setCities(res.data);
-            }
-        } catch (err) {
-            console.error('Failed to load cities:', err);
-            showMessage('Failed to load cities', 'error');
-        } finally {
-            setLoading(false);
-        }
     };
 
-    // Handle City Click and fetch children
-    const handleCityClick = async (cityId) => {
+    useEffect(() => {
+        if (!selectedStateId) {
+            setCities([]);
+            return;
+        }
+        setCities(allLookups.filter(item => item.lookup_type === 'City' && (item.parent_lookup_id === selectedStateId || item.parent_lookup_id?._id === selectedStateId)));
+    }, [allLookups, selectedStateId]);
+
+    const handleCityClick = (cityId) => {
         setSelectedCityId(cityId);
         setSelectedPostOfficeId('unassigned');
         setLocations([]);
@@ -340,74 +313,31 @@ const AddressMasterSettingsPage = () => {
         setPostOffices([]);
         setPincodes([]);
         setChildSearchQuery('');
-
-        if (!cityId) return;
-        await loadCityChildren(cityId);
     };
 
-    const loadCityChildren = async (cityId) => {
-        try {
-            setChildLoading(true);
-            const res = await lookupsAPI.getLocations(cityId);
-            if (res.status === 'success') {
-                const fetched = res.data;
-                
-                // Segregate children
-                const locs = fetched.filter(item => item.lookup_type === 'Location');
-                const tehs = fetched.filter(item => item.lookup_type === 'Tehsil');
-                const pos = fetched.filter(item => item.lookup_type === 'PostOffice');
-                const pins = fetched.filter(item => item.lookup_type === 'Pincode'); // Direct parent=City pins
-                
-                setLocations(locs);
-                setTehsils(tehs);
-                setPostOffices(pos);
-                
-                if (selectedPostOfficeId === 'unassigned') {
-                    setPincodes(pins);
-                } else {
-                    await loadPincodesForPostOffice(selectedPostOfficeId);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to load children:', err);
-            showMessage('Failed to load child elements', 'error');
-        } finally {
-            setChildLoading(false);
-        }
-    };
-
-    // Load Pincodes for specific Post Office
-    const loadPincodesForPostOffice = async (poId) => {
-        if (poId === 'unassigned') {
-            if (selectedCityId) {
-                // Fetch child lookups of the city again to extract direct pincodes
-                const res = await lookupsAPI.getLocations(selectedCityId);
-                if (res.status === 'success') {
-                    setPincodes(res.data.filter(item => item.lookup_type === 'Pincode'));
-                }
-            }
+    useEffect(() => {
+        if (!selectedCityId) {
+            setLocations([]);
+            setTehsils([]);
+            setPostOffices([]);
+            if (selectedPostOfficeId === 'unassigned') setPincodes([]);
             return;
         }
-
-        try {
-            setChildLoading(true);
-            const res = await lookupsAPI.getLocations(poId);
-            if (res.status === 'success') {
-                setPincodes(res.data.filter(item => item.lookup_type === 'Pincode'));
-            }
-        } catch (err) {
-            console.error('Failed to load pincodes:', err);
-        } finally {
-            setChildLoading(false);
+        const children = allLookups.filter(item => item.parent_lookup_id === selectedCityId || item.parent_lookup_id?._id === selectedCityId);
+        setLocations(children.filter(item => item.lookup_type === 'Location'));
+        setTehsils(children.filter(item => item.lookup_type === 'Tehsil'));
+        setPostOffices(children.filter(item => item.lookup_type === 'PostOffice'));
+        
+        if (selectedPostOfficeId === 'unassigned') {
+            setPincodes(children.filter(item => item.lookup_type === 'Pincode'));
         }
-    };
+    }, [allLookups, selectedCityId, selectedPostOfficeId]);
 
-    // Watcher to reload pincodes if PO changes
     useEffect(() => {
-        if (selectedCityId && activeTab === 'Pincode') {
-            loadPincodesForPostOffice(selectedPostOfficeId);
+        if (selectedPostOfficeId && selectedPostOfficeId !== 'unassigned') {
+            setPincodes(allLookups.filter(item => item.lookup_type === 'Pincode' && (item.parent_lookup_id === selectedPostOfficeId || item.parent_lookup_id?._id === selectedPostOfficeId)));
         }
-    }, [selectedPostOfficeId, activeTab]);
+    }, [allLookups, selectedPostOfficeId]);
 
     // HTML5 Drag & Drop handlers
     const handleDragStart = (e, item) => {
@@ -600,7 +530,7 @@ const AddressMasterSettingsPage = () => {
                 targetId: dropTargetItem._id,
                 newType: newType
             };
-            const res = await lookupsAPI.mergeOrMove(payload);
+            const res = await mergeOrMoveLookup.mutateAsync(payload);
             if (res.status === 'success') {
                 showMessage(`Successfully converted "${selectedItem.lookup_value}" to ${newType} under "${dropTargetItem.lookup_value}"`);
                 setShowActionChoiceModal(false);
@@ -645,7 +575,7 @@ const AddressMasterSettingsPage = () => {
                     targetId: moveTargetParentId
                 };
                 try {
-                    const res = await lookupsAPI.mergeOrMove(payload);
+                    const res = await mergeOrMoveLookup.mutateAsync(payload);
                     if (res.status === 'success') successCount++;
                     else errorCount++;
                 } catch (err) {
@@ -720,7 +650,7 @@ const AddressMasterSettingsPage = () => {
                 const chunkWeight = 100 / totalItems;
 
                 try {
-                    const res = await lookupsAPI.mergeOrMoveStream(payload, (chunk) => {
+                    const res = await mergeOrMoveStreamLookup.mutateAsync({ payload, onProgress: (chunk) => {
                         if (chunk.type === 'progress') {
                             const currentTotalProgress = baseProgress + (chunk.progress / 100 * chunkWeight);
                             setStreamProgress(currentTotalProgress);
@@ -733,7 +663,7 @@ const AddressMasterSettingsPage = () => {
                                 setStreamEta(remaining > 0 ? `${Math.ceil(remaining / 1000)}s remaining` : 'Almost done...');
                             }
                         }
-                    });
+                    }});
                     
                     if (res.status === 'success') successCount++;
                     else errorCount++;

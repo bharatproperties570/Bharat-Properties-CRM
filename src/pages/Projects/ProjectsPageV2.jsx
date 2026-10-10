@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTeams } from '../../utils/crmHooks';
 import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
@@ -19,10 +20,11 @@ import { renderValue } from '../../utils/renderUtils';
 import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 import PremiumSearchBar from '../../components/PremiumSearchBar';
 import { useProjectList } from '../../hooks/useProjectList';
+import { useDeleteProjectMutation, useUpdateProjectMutation } from '../../utils/crmHooks';
 
 function ProjectsPage({ onNavigate }) {
     const { isDark } = useTheme();
-    const { teams } = useUserContext();
+    const { data: teams = [] } = useTeams();
     const { getLookupValue } = usePropertyConfig();
     const [selectedIds, setSelectedIds] = useState([]);
     const [isSortOpen, setIsSortOpen] = useState(false);
@@ -47,6 +49,9 @@ function ProjectsPage({ onNavigate }) {
         setProjects: setProjectsData,
         refresh: fetchProjects
     } = useProjectList();
+    
+    const deleteMutation = useDeleteProjectMutation();
+    const updateMutation = useUpdateProjectMutation();
     
     const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
     const goToPreviousPage = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
@@ -141,95 +146,93 @@ function ProjectsPage({ onNavigate }) {
         }
     };
 
-    const handleSavePrice = (updatedProjectData) => {
-        console.log("Saving Price Data:", updatedProjectData);
-        setProjectsData(prev => prev.map(p => p._id === updatedProjectData._id ? updatedProjectData : p));
-        setIsPriceModalOpen(false);
+    const handleSavePrice = async (updatedProjectData) => {
+        try {
+            const response = await updateMutation.mutateAsync({
+                id: updatedProjectData._id,
+                data: { pricing: updatedProjectData.pricing }
+            });
+
+            if (response && response.success) {
+                toast.success("Project pricing saved successfully");
+            } else {
+                toast.error("Failed to save project pricing");
+            }
+        } catch (error) {
+            console.error("Error saving pricing:", error);
+            toast.error("Error saving project pricing");
+        } finally {
+            setIsPriceModalOpen(false);
+            setEditProjectData(null);
+        }
     };
 
     const [isSaving, setIsSaving] = useState(false);
 
-    const handleSaveProject = async (projectData) => {
-        setIsSaving(true);
-        try {
-            if (projectData._id) {
-                const response = await api.put(`projects/${projectData._id}`, projectData);
-                if (response.data.success) {
-                    setProjectsData(prev => prev.map(p => p._id === projectData._id ? response.data.data : p));
-                }
-            } else {
-                const response = await api.post('projects', projectData);
-                if (response.data.success) {
-                    setProjectsData(prev => [response.data.data, ...prev]);
-                }
-            }
-            setIsAddModalOpen(false);
-            setEditProjectData(null);
-            toast.success(projectData._id ? "Project updated successfully" : "Project created successfully");
-        } catch (error) {
-            console.error("Error saving project:", error);
-            toast.error("Failed to save project. Please check backend.");
-        } finally {
-            setIsSaving(false);
-            // Re-fetch to be safe and update counts
-            fetchProjects();
-        }
+    const handleSaveProject = () => {
+        setIsAddModalOpen(false);
+        setEditProjectData(null);
     };
 
     const handleDeleteProject = async (id) => {
         if (!window.confirm("Are you sure you want to delete this project?")) return;
         try {
-            const response = await api.delete(`projects/${id}`);
-                if (response.data.success) {
-                    setProjectsData(prev => prev.filter(p => p._id !== id));
-                    setSelectedIds([]);
-                    toast.success("Project deleted successfully");
-                }
-            } catch (error) {
-                console.error("Error deleting project:", error);
-                toast.error("Failed to delete project");
+            const response = await deleteMutation.mutateAsync(id);
+            if (response && response.success) {
+                setProjectsData(prev => prev.filter(p => p._id !== id)); // Local UI state update for immediate feedback, though TanStack refetches
+                setSelectedIds([]);
+                toast.success("Project deleted successfully");
             }
-        };
+        } catch (error) {
+            console.error("Error deleting project:", error);
+            toast.error("Failed to delete project");
+        }
+    };
 
         const handleSaveUploads = async (mediaData) => {
-            try {
-                const projectId = selectedIds[0];
-                const response = await api.put(`projects/${projectId}`, {
+        try {
+            const projectId = selectedIds[0];
+            const response = await updateMutation.mutateAsync({
+                id: projectId,
+                data: {
                     projectImages: mediaData.images,
                     projectVideos: mediaData.videos
-                });
-
-                if (response.data.success) {
-                    toast.success("Files uploaded and saved successfully");
-                    fetchProjects();
-                } else {
-                    toast.error("Failed to save file links to project");
                 }
-            } catch (error) {
-                console.error("Error saving uploads:", error);
-                toast.error("Error saving uploaded files");
-            } finally {
-                setIsUploadModalOpen(false);
-                setSelectedIds([]);
+            });
+
+            if (response && response.success) {
+                toast.success("Files uploaded and saved successfully");
+                // fetchProjects(); // handled by mutation invalidation
+            } else {
+                toast.error("Failed to save file links to project");
             }
-        };
+        } catch (error) {
+            console.error("Error saving uploads:", error);
+            toast.error("Error saving uploaded files");
+        } finally {
+            setIsUploadModalOpen(false);
+            setSelectedIds([]);
+        }
+    };
 
         const handleSaveDocuments = async (documents) => {
             try {
                 const projectId = selectedIds[0];
-                const response = await api.put(`projects/${projectId}`, {
-                    projectDocuments: documents.map(doc => ({
-                        documentName: doc.documentName,
-                        approvalAuthority: doc.approvalAuthority,
-                        registrationNo: doc.registrationNo,
-                        date: doc.date,
-                        url: doc.url
-                    }))
+                const response = await updateMutation.mutateAsync({
+                    id: projectId,
+                    data: {
+                        projectDocuments: documents.map(doc => ({
+                            documentName: doc.documentName,
+                            approvalAuthority: doc.approvalAuthority,
+                            registrationNo: doc.registrationNo,
+                            date: doc.date,
+                            url: doc.url
+                        }))
+                    }
                 });
 
-                if (response.data.success) {
+                if (response && response.success) {
                     toast.success("Documents saved successfully");
-                    fetchProjects();
                 } else {
                     toast.error("Failed to save documents to project");
                 }

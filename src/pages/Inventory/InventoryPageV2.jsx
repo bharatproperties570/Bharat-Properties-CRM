@@ -1,4 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
+import {  useTeams , useUsers } from '../../utils/crmHooks';
 import { useState, useCallback, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { useUserContext } from '../../context/UserContext';
@@ -8,8 +9,10 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
 
-// Custom Hooks
-import { useInventoryList } from '../../hooks/useInventoryList';
+import { useInventories } from '../../utils/crmHooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../utils/queryClient';
+import useDebounce from '../../hooks/useDebounce';
 
 // Modular Components
 import InventoryPageHeader from './components/InventoryPageHeader';
@@ -34,32 +37,63 @@ import SocialPostModal from '../../components/SocialPostModal';
 import BulkUpdateInventoryModal from '../../components/modals/BulkUpdateInventoryModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
-    const { teams, users } = useUserContext();
+    const { data: users = [] } = useUsers();
+    
+    const { data: teams = [] } = useTeams();
     const { fireEvent } = useTriggers();
     useCall();
     const { getLookupValue } = usePropertyConfig();
+    const { mutateAsync: updateInventory } = useUpdateInventoryMutation();
+    const { mutateAsync: deleteInventory } = useDeleteInventoryMutation();
+    const { mutateAsync: bulkDeleteInventory } = useBulkDeleteInventoryMutation();
 
-    // -- Data Hook --
-    const {
-        inventoryItems,
-        loading,
-        totalRecords,
-        totalPages,
-        currentPage,
-        setCurrentPage,
-        recordsPerPage,
-        setRecordsPerPage,
-        searchTerm,
-        setSearchTerm,
-        statusFilter,
-        setStatusFilter,
-        filters,
-        setFilters,
-        stats,
-        sortConfig,
-        setSortConfig,
-        refresh
-    } = useInventoryList();
+    const queryClient = useQueryClient();
+
+    // -- Hoisted UI State --
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [filters, setFilters] = useState({});
+    const [sortConfig, setSortConfig] = useState({ label: 'Unit Sequence', by: 'unitNo', order: 1, icon: 'fa-sort-numeric-down' });
+
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+    // -- Pagination Reset Logic --
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [debouncedSearchTerm, statusFilter, filters, recordsPerPage, sortConfig]);
+
+    // -- TanStack Canonical Query --
+    const queryParams = {
+        page: currentPage,
+        limit: recordsPerPage,
+        search: debouncedSearchTerm.length >= 2 ? debouncedSearchTerm : undefined,
+        statusCategory: statusFilter,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order,
+        ...filters
+    };
+
+    const isSearchValid = !debouncedSearchTerm || debouncedSearchTerm.length >= 2;
+
+    const { data: inventoryData, isLoading: loading } = useInventories(queryParams, {
+        enabled: isSearchValid
+    });
+
+    // -- Response Mapping --
+    const inventoryItems = inventoryData?.records || [];
+    const totalRecords = inventoryData?.totalCount || 0;
+    const totalPages = Math.max(inventoryData?.totalPages || 1, 1);
+    const stats = {
+        active: inventoryData?.activeCount || 0,
+        inactive: inventoryData?.inactiveCount || 0,
+        categories: inventoryData?.categoryStats || []
+    };
+
+    const refresh = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventory.lists() });
+    }, [queryClient]);
 
     // -- Local UI State --
     const [viewMode, setViewMode] = useState('list');
@@ -134,10 +168,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const handleDelete = async () => {
         if (!window.confirm(`Delete ${selectedIds.length} properties?`)) return;
         try {
-            await api.post(`inventory/bulk-delete`, { ids: selectedIds });
+            await bulkDeleteInventory({ ids: selectedIds });
             toast.success("Deleted successfully");
             setSelectedIds([]);
-            refresh();
         } catch (error) {
             toast.error("Failed to delete");
         }
@@ -211,9 +244,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         } else if (type === 'delete') {
             if (window.confirm(`Are you sure you want to delete this property?`)) {
                 try {
-                    await api.delete(`inventory/${item._id}`);
+                    await deleteInventory(item._id);
                     toast.success("Property deleted successfully");
-                    refresh();
                 } catch (error) {
                     toast.error("Failed to delete property");
                 }
@@ -427,12 +459,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 relationship: o.relationship 
                             }))
                         };
-                        const res = await api.put(`inventory/${selectedProperty._id}`, updates);
-                        if (res.data?.success) {
-                            toast.success("Owners updated successfully");
-                            refresh();
-                            setIsOwnerModalOpen(false);
-                        }
+                        await updateInventory({ id: selectedProperty._id, data: updates });
+                        toast.success("Owners updated successfully");
+                        setIsOwnerModalOpen(false);
                     } catch (error) {
                         console.error("Error updating owners:", error);
                         toast.error("Failed to update owners");

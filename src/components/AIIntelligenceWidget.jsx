@@ -1,24 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../utils/api';
+import React from 'react';
+import { useAIIntelligence } from '../utils/crmHooks';
 import { renderValue } from '../utils/renderUtils';
 
 const AIIntelligenceWidget = () => {
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const res = await api.get('dashboard/ai-intelligence');
-                if (res.data?.success) setStats(res.data.data);
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchStats();
-    }, []);
+    const { data: stats, isLoading: loading } = useAIIntelligence();
 
     if (loading) return <div style={{ height: '300px', background: '#fff', borderRadius: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading AI Insights...</div>;
     if (!stats) return null;

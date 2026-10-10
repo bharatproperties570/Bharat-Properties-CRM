@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import { useUserContext } from '../context/UserContext';
 // import { users } from '../data/mockData'; // Removed mock data
 
 const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, entityName = 'Contact' }) => {
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
     const isBulk = selectedContacts.length > 1;
 
     // Filter users based on team selection if team is selected

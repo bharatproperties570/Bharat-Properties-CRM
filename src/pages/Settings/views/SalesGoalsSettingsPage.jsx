@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useActiveUsers } from '../../../utils/crmHooks';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import { useUserContext } from '../../../context/UserContext';
@@ -190,7 +191,8 @@ const UnifiedGoalModal = ({ isOpen, onClose, users, onSave, loading }) => {
 };
 
 const SalesGoalsSettings = () => {
-    const { users: contextUsers, loading: contextLoading, refreshData: refreshContextUsers, logout } = useUserContext();
+    const { data: contextUsers = [] } = useActiveUsers();
+    const { loading: contextLoading, logout } = useUserContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [goals, setGoals] = useState([]);
@@ -212,10 +214,7 @@ const SalesGoalsSettings = () => {
                 setGoals(goalsRes.data.data);
             }
 
-            // Also trigger refresh of context users if they are empty
-            if (contextUsers.length === 0) {
-                refreshContextUsers();
-            }
+            
         } catch (error) {
             console.error('Failed to fetch data:', error);
             if (error.response?.status === 401 || error.message?.includes('401')) {
@@ -228,7 +227,7 @@ const SalesGoalsSettings = () => {
         } finally {
             setLoading(false);
         }
-    }, [contextUsers.length, refreshContextUsers, logout]);
+    }, [contextUsers.length, logout]);
 
     useEffect(() => {
         fetchInitialData();

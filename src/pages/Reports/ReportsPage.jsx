@@ -1,32 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import Chart from 'react-apexcharts';
-import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import { useDashboardStats } from '../../utils/crmHooks';
 import { pricingAPI, POSITIONING_CONFIG, TREND_CONFIG, formatINRFull } from '../../utils/pricingAPI';
 
 const ReportsPage = () => {
     const [activeTab, setActiveTab] = useState('insights');
-    const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState(null);
 
-    useEffect(() => {
-        fetchStats();
-    }, []);
-
-    const fetchStats = async () => {
-        try {
-            setLoading(true);
-            const response = await api.get('/dashboard/stats');
-            if (response.data && response.data.success) {
-                setStats(response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching reports data:', error);
-            toast.error('Failed to load report data');
-        } finally {
-            setLoading(false);
-        }
-    };
+    // Consume canonical server state
+    const { data: stats, isLoading: loading } = useDashboardStats({});
 
 
     // Mapping live stats to expected reportsData structure

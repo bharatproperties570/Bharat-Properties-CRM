@@ -1,15 +1,39 @@
 import { useState } from 'react';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useUpdateProjectMutation } from '../../utils/crmHooks';
 import toast from 'react-hot-toast';
 
 const AddBlockModal = ({ isOpen, onClose, onSave, projectName }) => {
-    const { addBlock } = usePropertyConfig();
+    const { projects } = usePropertyConfig();
+    const updateMutation = useUpdateProjectMutation();
     const [name, setName] = useState('');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!name.trim()) return toast.error('Block Name is required');
 
-        addBlock(projectName, name);
+        const targetProject = projects.find(p => (p.name === projectName || p._id === projectName) && p._id);
+        
+        if (targetProject) {
+            try {
+                const existingBlocks = targetProject.blocks || [];
+                const blockExists = existingBlocks.some(b => 
+                    (typeof b === 'string' ? b : b.name) === name
+                );
+                
+                if (!blockExists) {
+                    await updateMutation.mutateAsync({
+                        id: targetProject._id,
+                        data: { blocks: [...existingBlocks, { name }] }
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to add block:", error);
+                return toast.error("Failed to add block to canonical project");
+            }
+        } else {
+            console.warn("Could not find canonical project with _id for block insertion.");
+        }
+
         if (onSave) onSave(name);
 
         toast.success(`Block "${name}" added to ${projectName}!`);

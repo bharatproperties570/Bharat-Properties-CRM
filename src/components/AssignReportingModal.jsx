@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { useActiveUsers } from '../utils/crmHooks';
 import { useUserContext } from '../context/UserContext';
+import { useUpdateUserMutation } from '../utils/crmHooks';
 import { getInitials } from '../utils/helpers';
 import { renderValue } from '../utils/renderUtils';
 
 const AssignReportingModal = ({ isOpen, onClose, managerName, managerId, onAssign }) => {
-    const { users, updateUser } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    const { mutateAsync: updateUser } = useUpdateUserMutation();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedUserId, setSelectedUserId] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -30,7 +33,7 @@ const AssignReportingModal = ({ isOpen, onClose, managerName, managerId, onAssig
         setError('');
 
         try {
-            const result = await updateUser(selectedUserId, { reportingTo: managerId });
+            const result = await updateUser({ id: selectedUserId, userData: { reportingTo: managerId } });
             if (result.success) {
                 if (onAssign) onAssign(result.data);
                 onClose();

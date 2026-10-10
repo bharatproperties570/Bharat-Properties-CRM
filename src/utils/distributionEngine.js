@@ -1,3 +1,16 @@
+/**
+ * FRONTEND AUTOMATION BOUNDARY — Distribution Engine
+ *
+ * This module provides frontend preview, computation, and display helper logic for lead assignment.
+ * Production lead distribution and round-robin authority remain exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - Do not replace backend durable distribution infrastructure.
+ * - Do not create a second production distribution worker here.
+ * - Do not execute queue/outbox/domain-event side effects.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
 // Distribution Engine - Core Logic for Work Assignment
 // This engine controls WHO gets WHAT work, WHEN, and WHY
 

@@ -53,7 +53,10 @@ const DealIntakePage = () => {
 
     const [leadData, setLeadData] = useState([]);
     const [inventoryData, setInventoryData] = useState([]);
-    const [dealData, setDealData] = useState([]);
+    const { data: dealsPayload } = useDeals({ limit: 1000 });
+    const addDealMutation = useAddDealMutation();
+    const dealsList = dealsPayload?.records || [];
+
     const [isProcessing, setIsProcessing] = useState(false);
     const [intakeLoadError, setIntakeLoadError] = useState(null);
     // const [contactData, setContactData] = useState([]);
@@ -61,15 +64,13 @@ const DealIntakePage = () => {
     useEffect(() => {
         const fetchSupportData = async () => {
             try {
-                const [leads, inv, deals, contacts] = await Promise.all([
+                const [leads, inv, contacts] = await Promise.all([
                     api.get('/leads'),
                     api.get('/inventory'),
-                    api.get('/deals'),
                     api.get('/contacts')
                 ]);
                 if (leads.data && leads.data.success) setLeadData(leads.data.data || []);
                 if (inv.data && inv.data.success) setInventoryData(inv.data.data || []);
-                if (deals.data && deals.data.success) setDealData(deals.data.data || []);
                 if (contacts.data && contacts.data.success) {
                     // setContactData(contacts.data.data || []);
                 }
@@ -372,7 +373,7 @@ const DealIntakePage = () => {
         // Check if we have an open deal for similar specs
         // This is harder without strict IDs, but we can check if a deal exists with same unit
         if (parsedData.address?.unitNumber) {
-            const dealMatch = dealData.find(d => d.title.includes(parsedData.address.unitNumber)); // simplistic check on title
+            const dealMatch = dealsList.find(d => d?.title?.includes(parsedData.address.unitNumber)); // simplistic check on title
             if (dealMatch) {
                 return { isDuplicate: true, type: 'DEAL', match: dealMatch, message: `Active Deal found for Unit ${parsedData.address.unitNumber}` };
             }
@@ -746,40 +747,40 @@ const DealIntakePage = () => {
     };
 
     // --- QUICK DEAL HANDLERS ---
-    const handleQuickDealCreate = async (dealData) => {
+    const handleQuickDealCreate = async (quickDealData) => {
         setIsProcessing(true);
         const toastId = toast.loading("Creating Deal & Updating Intake...");
 
         try {
             // 1. Prepare Deal Payload
-            const price = parseFloat(dealData.price?.toString().replace(/[^0-9.]/g, '')) || 0;
+            const price = parseFloat(quickDealData.price?.toString().replace(/[^0-9.]/g, '')) || 0;
             const dealPayload = {
-                owner: dealData.owner?._id || dealData.owner?.id,
-                inventoryId: dealData.property?._id || dealData.property?.id,
-                projectName: dealData.property?.projectName || dealData.property?.area?.split(',')[0],
-                block: dealData.property?.block || dealData.property?.location,
-                unitNo: dealData.property?.unitNo,
-                intent: dealData.type,
+                owner: quickDealData.owner?._id || quickDealData.owner?.id,
+                inventoryId: quickDealData.property?._id || quickDealData.property?.id,
+                projectName: quickDealData.property?.projectName || quickDealData.property?.area?.split(',')[0],
+                block: quickDealData.property?.block || quickDealData.property?.location,
+                unitNo: quickDealData.property?.unitNo,
+                intent: quickDealData.type,
                 price: price,
                 status: 'Open',
-                source: dealData.source || 'Manual',
-                verificationStatus: dealData.verificationStatus || 'unverified'
+                source: quickDealData.source || 'Manual',
+                verificationStatus: quickDealData.verificationStatus || 'unverified'
             };
 
             // 2. Create the Deal in Backend
-            const dealResponse = await api.post('/deals', dealPayload);
-            if (!dealResponse.data?.success) {
+            const dealResponse = { data: await addDealMutation.mutateAsync(dealPayload) };
+            if (!dealResponse.data?.success && dealResponse.data?.status !== 'success') {
                 throw new Error("Failed to persist deal to database");
             }
 
             // 3. Update Local State (Legacy UI logic)
-            setSelectedOwner(dealData.owner);
-            setSelectedInventory(dealData.property);
+            setSelectedOwner(quickDealData.owner);
+            setSelectedInventory(quickDealData.property);
             setDealForm({
-                intent: dealData.type,
-                price: dealData.price,
+                intent: quickDealData.type,
+                price: quickDealData.price,
                 status: 'Open',
-                verificationStatus: dealData.verificationStatus
+                verificationStatus: quickDealData.verificationStatus
             });
 
             // 4. Mark Intake as Processed in Backend
@@ -792,8 +793,8 @@ const DealIntakePage = () => {
                 }
             }
 
-            const verificationBadge = dealData.verificationStatus === 'confirmed' ? '✓ Verified' :
-                dealData.verificationStatus === 'unverified' ? '⚠️ Unverified' : '';
+            const verificationBadge = quickDealData.verificationStatus === 'confirmed' ? '✓ Verified' :
+                quickDealData.verificationStatus === 'unverified' ? '⚠️ Unverified' : '';
             toast.success(`Deal Created Successfully ${verificationBadge}`, { id: toastId });
 
             // 5. Move to buyer matching stage
@@ -848,7 +849,7 @@ const DealIntakePage = () => {
                 const searchType = req.type || null;
 
                 // PERFORMANCE: Limit search
-                const searchData = dealData.length > 2000 ? dealData.slice(0, 2000) : dealData;
+                const searchData = dealsList.length > 2000 ? dealsList.slice(0, 2000) : dealsList;
 
                 let matches = searchData.map(deal => {
                     let score = 0;

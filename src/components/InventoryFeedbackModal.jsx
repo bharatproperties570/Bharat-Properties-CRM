@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
-import { useActivities } from '../context/ActivityContext';
+import { useAddActivityMutation, useUpdateInventoryMutation } from '../utils/crmHooks';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 import { useWhatsAppTemplates } from '../context/WhatsAppTemplateContext';
@@ -12,7 +12,8 @@ import toast from 'react-hot-toast';
 
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
     const { masterFields } = usePropertyConfig();
-    const { addActivity } = useActivities(); 
+    const { mutateAsync: addActivity } = useAddActivityMutation();
+    const { mutateAsync: updateInventory } = useUpdateInventoryMutation(); 
     const { fireEvent, triggers } = useTriggers();
     const { currentUser } = useUserContext();
     const { getFeedbackFormTemplate } = useWhatsAppTemplates();
@@ -459,9 +460,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 updatePayload.status = 'Active';
             }
 
-            const response = await api.put(`inventory/${inventory._id}`, updatePayload);
-
-            if (response.data && response.data.success) {
+            await updateInventory({ id: inventory._id, data: updatePayload });
+            if (true) {
                 window.dispatchEvent(new CustomEvent('wa_dispatch_start', { detail: { total: 1 } }));
                 setTimeout(() => window.dispatchEvent(new CustomEvent('wa_dispatch_end', { detail: { success: true } })), 800);
                 
@@ -568,8 +568,6 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
 
                 onSave && onSave(formData);
                 onClose();
-            } else {
-                toast.error(response.data?.error || "Failed to save feedback in database");
             }
         } catch (err) {
             console.error("Feedback Save Error:", err);

@@ -10,10 +10,10 @@ function AddDocumentModal({ isOpen, onClose, onSave, project }) {
 
     useEffect(() => {
         if (isOpen) {
-            if (project && project.documents && project.documents.length > 0) {
+            if (project && project.projectDocuments && project.projectDocuments.length > 0) {
                 // If editing an existing project with documents, load them
                 // Deep copy to avoid mutating props directly
-                setDocuments(JSON.parse(JSON.stringify(project.documents)));
+                setDocuments(JSON.parse(JSON.stringify(project.projectDocuments)));
             } else {
                 // Default clean state
                 setDocuments([{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }]);

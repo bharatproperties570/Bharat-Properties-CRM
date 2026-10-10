@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
@@ -5,19 +6,25 @@ import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
-import { useActivities } from '../../../context/ActivityContext';
+import { useAddActivityMutation, useInventory, useInventoryMatches } from '../../../utils/crmHooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../../utils/queryClient';
 import { fixDriveUrl } from '../../../utils/helpers';
 import { renderValue } from '../../../utils/renderUtils';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
-const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
+const InventoryMatchingPage = ({ onNavigate}) => {
+    const { id: inventoryId } = useParams();
     const { isDark } = useTheme();
-    const { addActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
-    const [inventory, setInventory] = useState(null);
-    const [leads, setLeads] = useState([]);
-    const [loading, setLoading] = useState(true);
+    // Data Hooks
+    const queryClient = useQueryClient();
+    const { data: inventory, isLoading: isInventoryLoading } = useInventory(inventoryId);
+    const { data: matchResponse, isLoading: isMatchesLoading } = useInventoryMatches(inventoryId);
+    const leads = matchResponse?.data || [];
+    const loading = isInventoryLoading || isMatchesLoading;
 
     // Matching Refinement State
     const [budgetFlexibility, setBudgetFlexibility] = useState(10);
@@ -40,59 +47,15 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
             const res = await api.put(`leads/interest/${inventoryId}`, { leadId: lead._id });
             if (res.data && res.data.success) {
                 toast.success(res.data.message);
-                // Update local state
-                setLeads(prevLeads => prevLeads.map(l =>
-                    l._id === lead._id
-                        ? {
-                            ...l, interestedInventory: res.data.isInterested
-                                ? [...(l.interestedInventory || []), inventoryId]
-                                : (l.interestedInventory || []).filter(id => id !== inventoryId)
-                        }
-                        : l
-                ));
+                queryClient.invalidateQueries({ queryKey: queryKeys.inventory.matches(inventoryId) });
             }
         } catch (error) {
             console.error("Error toggling interest:", error);
             toast.error("Failed to update interest");
         }
-    }, [inventoryId]);
+    }, [inventoryId, queryClient]);
 
-    const fetchMatches = useCallback(async () => {
-        if (!inventoryId) return;
-        setLoading(true);
-        try {
-            const res = await api.get(`inventory/match?inventoryId=${inventoryId}`);
-            if (res.data && res.data.success) {
-                setLeads(res.data.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching matches:", error);
-            toast.error("Failed to fetch matching leads");
-        } finally {
-            setLoading(false);
-        }
-    }, [inventoryId]);
 
-    useEffect(() => {
-        if (!inventoryId) return;
-
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const invRes = await api.get(`inventory/${inventoryId}`);
-                if (invRes.data && invRes.data.success) {
-                    setInventory(invRes.data.data);
-                }
-                await fetchMatches();
-            } catch (error) {
-                console.error("Error fetching data:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [inventoryId, fetchMatches]);
 
     // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Matching
     const resolveLookup = useCallback((val, type) => {

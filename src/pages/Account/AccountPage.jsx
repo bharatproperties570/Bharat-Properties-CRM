@@ -2,31 +2,14 @@ import { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { renderValue } from '../../utils/renderUtils';
+import { useBookings } from '../../utils/crmHooks';
 
 const AccountPage = ({ onNavigate, initialContextId }) => {
-    const [bookings, setBookings] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('All');
     const [searchTerm, setSearchTerm] = useState(initialContextId || '');
 
-    useEffect(() => {
-        fetchAccounts();
-    }, []);
-
-    const fetchAccounts = async () => {
-        try {
-            setLoading(true);
-            const response = await api.get('/bookings');
-            if (response.data && response.data.success) {
-                setBookings(response.data.data);
-            }
-        } catch (error) {
-            console.error('Error fetching accounts:', error);
-            toast.error('Failed to load financial records');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { data: bookingsRes, isLoading: loading, error } = useBookings({ limit: 500 });
+    const bookings = bookingsRes?.data || [];
 
     // Calculate aggregated stats from live bookings
     const stats = {

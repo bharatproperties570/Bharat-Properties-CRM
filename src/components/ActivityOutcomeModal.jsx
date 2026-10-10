@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
-import { useActivities } from '../context/ActivityContext';
+import { useUpdateActivityMutation } from '../utils/crmHooks';
 import { useTriggers } from '../context/TriggersContext';
 import StageTransitionModal from './StageTransitionModal';
 import { activitiesAPI } from '../utils/api';
@@ -22,7 +22,7 @@ import confetti from 'canvas-confetti';
  */
 const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     const { activityMasterFields } = usePropertyConfig();
-    const { updateActivity } = useActivities();
+    const { mutateAsync: updateActivity } = useUpdateActivityMutation();
     const { fireEvent } = useTriggers();
 
     const [formData, setFormData] = useState({

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../utils/api';
 import { formatIndianCurrency } from '../utils/numberToWords';
+import { useDeals } from '../utils/crmHooks';
 
 const getStageBadgeStyle = (stage) => {
     const s = String(stage || 'Open').toLowerCase();
@@ -29,25 +30,9 @@ const getStageLeftBarColor = (stage) => {
 };
 
 const EngagedDealsCard = ({ leadId, activities = [], onNavigate }) => {
-    const [deals, setDeals] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const { data, isLoading: loading } = useDeals({ leadId, limit: 10 }, { enabled: !!leadId });
+    const deals = data?.records || data?.data || [];
 
-    useEffect(() => {
-        if (!leadId) return;
-        const fetchDeals = async () => {
-            try {
-                const res = await api.get(`/deals?leadId=${leadId}&limit=10`);
-                if (res.data?.success) {
-                    setDeals(res.data.data || []);
-                }
-            } catch (err) {
-                console.error('Failed to fetch engaged deals', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchDeals();
-    }, [leadId]);
 
     const cardStyle = {
         background: '#fff',

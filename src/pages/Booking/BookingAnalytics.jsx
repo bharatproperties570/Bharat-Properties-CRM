@@ -1,31 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import ReactApexChart from 'react-apexcharts';
-import { api } from '../../utils/api';
+import { useBookingDashboardStats } from '../../utils/crmHooks';
 
 const fmt = (n) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n || 0);
 const fmtCurr = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function BookingAnalytics() {
     const { isDark } = useTheme();
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const res = await api.get('/bookings/dashboard/stats');
-                if (res.data.success) {
-                    setStats(res.data.data);
-                }
-            } catch (e) {
-                console.error("Failed to load analytics", e);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchStats();
-    }, []);
+    const { data: stats, isLoading: loading, error } = useBookingDashboardStats();
 
     if (loading) {
         return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading analytics...</div>;
