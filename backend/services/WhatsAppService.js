@@ -177,33 +177,41 @@ class WhatsAppService {
     async _sendViaBaileys(mobile, message, config, options = {}) {
         const { type = 'text', mediaUrl } = options;
         try {
-            const { Queue } = await import('bullmq');
-            const IORedis = (await import('ioredis')).default;
-            const envConfig = (await import('../config/env.js')).default;
+            const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
+            const sock = BaileysConnectionManager.getSocket(config.integrationId.toString());
             
-            const connection = new IORedis(envConfig.redisUri || 'redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
-            const baileysQueue = new Queue('whatsapp_baileys_outbound', { connection });
+            if (!sock) {
+                return { success: false, error: 'WhatsApp socket not connected or still pairing', provider: 'baileys' };
+            }
 
-            const job = await baileysQueue.add('send', {
-                integrationId: config.integrationId.toString(),
-                to: mobile,
-                text: message,
-                mediaUrl: type !== 'text' ? mediaUrl : null
-            }, {
-                attempts: 3,
-                backoff: { type: 'exponential', delay: 2000 }
-            });
+            let jid = mobile;
+            if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us')) {
+                jid = `${mobile.replace(/\D/g, '')}@s.whatsapp.net`;
+            }
+            
+            let content = { text: message || '' };
+            if (type !== 'text' && mediaUrl) {
+                let mimetype = 'image/jpeg';
+                if (type === 'video') mimetype = 'video/mp4';
+                else if (type === 'document') mimetype = 'application/pdf';
+                
+                content = {
+                    [type === 'image' ? 'image' : type === 'document' ? 'document' : 'video']: { url: mediaUrl },
+                    caption: message || ''
+                };
+                if (type === 'document') content.mimetype = mimetype;
+            }
 
-            console.log(`[WhatsAppService/Baileys] Enqueued job ${job.id} for ${mobile}`);
+            const sentMsg = await sock.sendMessage(jid, content);
 
             return { 
                 success: true, 
                 provider: 'baileys', 
-                messageId: `baileys-job-${job.id}`,
-                messages: [{ id: `baileys-job-${job.id}` }] 
+                messageId: sentMsg?.key?.id || 'baileys-unknown-id',
+                messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }] 
             };
         } catch (error) {
-            console.error(`[WhatsAppService/Baileys] Queue error:`, error);
+            console.error(`[WhatsAppService/Baileys] Send error:`, error);
             return { success: false, error: error.message, provider: 'baileys' };
         }
     }
