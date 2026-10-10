@@ -9,6 +9,7 @@ const redis = cacheService.redis;
 let replset;
 
 async function run() {
+    const originalLog = AuditLog.create;
     try {
         replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
         await mongoose.connect(replset.getUri()); await Role.init(); await AuditLog.init();
@@ -19,7 +20,6 @@ async function run() {
             permissions: [], department: 'sales'
         });
 
-        
         if (redis) {
             redis.keys = async () => [];
             redis.del = async () => {};
@@ -27,7 +27,6 @@ async function run() {
             redis.get = async () => null;
         }
 
-        const originalLog = AuditLog.create;
         AuditLog.create = async function() { throw new Error('Simulated Audit Failure'); };
 
         const req = {
@@ -51,21 +50,24 @@ async function run() {
         
         if (resStatus !== 500) {
             console.error('AC-2 FAIL: Expected HTTP 500, got', resStatus);
-            process.exit(1);
+            process.exitCode = 1;
+            return;
         }
         
         const dbRole = await Role.findById(role._id);
         if (dbRole.description !== 'Before Transaction') {
             console.error('AC-2 FAIL: Role was mutated! Transaction did not rollback!');
-            process.exit(1);
+            process.exitCode = 1;
+            return;
         }
         
         console.log('AC-2 PASS: Transaction successfully rolled back on AuditLog failure.');
-        process.exit(0);
+        process.exitCode = 0;
     } catch (e) {
         console.error('Test harness error:', e);
-        process.exit(1);
+        process.exitCode = 1;
     } finally {
+        AuditLog.create = originalLog;
         await mongoose.disconnect();
         if (replset) await replset.stop();
     }

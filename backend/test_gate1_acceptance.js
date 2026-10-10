@@ -12,6 +12,7 @@ function check(condition, msg) {
 }
 
 async function runTests() {
+    const originalCreate = AuditLog.create;
     try {
         replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
         await mongoose.connect(replset.getUri());
@@ -21,7 +22,6 @@ async function runTests() {
         }));
 
         console.log('Running AC-1 (Asynchronous error propagation)');
-        const originalCreate = AuditLog.create;
         AuditLog.create = async function() { throw new Error('Mocked DuplicateKey'); };
         
         let ac1Passed = false;
@@ -98,15 +98,16 @@ async function runTests() {
 
         if (failures.length > 0) {
             console.error('FAILURES:', failures);
-            process.exit(1);
+            process.exitCode = 1;
         } else {
             console.log(`ALL ${passed} ACCEPTANCE TESTS PASSED`);
-            process.exit(0);
+            process.exitCode = 0;
         }
     } catch (err) {
         console.error('Test harness error:', err);
-        process.exit(1);
+        process.exitCode = 1;
     } finally {
+        AuditLog.create = originalCreate; // ensure it's restored even if an error throws
         await mongoose.disconnect();
         if (replset) await replset.stop();
     }
