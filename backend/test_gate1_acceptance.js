@@ -108,8 +108,11 @@ async function runTests() {
         process.exitCode = 1;
     } finally {
         AuditLog.create = originalCreate; // ensure it's restored even if an error throws
-        await mongoose.disconnect();
-        if (replset) await replset.stop();
+        try {
+            await mongoose.disconnect();
+        } finally {
+            if (replset) await replset.stop();
+        }
     }
 }
 runTests();

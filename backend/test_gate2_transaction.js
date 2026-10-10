@@ -10,6 +10,8 @@ let replset;
 
 async function run() {
     const originalLog = AuditLog.create;
+    let originalRedisKeys, originalRedisDel, originalRedisSetex, originalRedisGet;
+
     try {
         replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
         await mongoose.connect(replset.getUri()); await Role.init(); await AuditLog.init();
@@ -21,6 +23,11 @@ async function run() {
         });
 
         if (redis) {
+            originalRedisKeys = redis.keys;
+            originalRedisDel = redis.del;
+            originalRedisSetex = redis.setex;
+            originalRedisGet = redis.get;
+
             redis.keys = async () => [];
             redis.del = async () => {};
             redis.setex = async () => {};
@@ -68,8 +75,17 @@ async function run() {
         process.exitCode = 1;
     } finally {
         AuditLog.create = originalLog;
-        await mongoose.disconnect();
-        if (replset) await replset.stop();
+        if (redis) {
+            redis.keys = originalRedisKeys;
+            redis.del = originalRedisDel;
+            redis.setex = originalRedisSetex;
+            redis.get = originalRedisGet;
+        }
+        try {
+            await mongoose.disconnect();
+        } finally {
+            if (replset) await replset.stop();
+        }
     }
 }
 run();
