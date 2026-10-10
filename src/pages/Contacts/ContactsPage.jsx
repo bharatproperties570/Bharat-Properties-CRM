@@ -1,5 +1,6 @@
 import { useTheme } from '../../context/ThemeContext';
-import {  useTeams , useUsers } from '../../utils/crmHooks';
+import { useTeams, useUsers, useContacts, useDeleteContactMutation, useBulkDeleteContactsMutation } from '../../utils/crmHooks';
+import { useQueryClient } from '@tanstack/react-query';
 
 import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import { useSearchParams } from 'react-router-dom';
