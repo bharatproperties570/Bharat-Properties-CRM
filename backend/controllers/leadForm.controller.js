@@ -3,7 +3,6 @@ import DynamicForm from "../models/DynamicForm.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import mongoose from "mongoose";
-import { enrichmentQueue } from "../src/queues/queueManager.js";
 import jwt from "jsonwebtoken";
 
 // Helper to resolve lookup (Find or Create)
@@ -178,8 +177,20 @@ export const submitForm = async (req, res) => {
         let staticFallbackUsed = false;
         
         if (leadId) {
-            lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
-            console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
+            const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+            const { DomainEventPublisher } = await import('../utils/DomainEventPublisher.js');
+            
+            await withMongoTransaction(async (session) => {
+                lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true, session });
+                console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
+                
+                await DomainEventPublisher.publishFromPublicForm(req, session, {
+                    eventType: 'LeadUpdated',
+                    aggregateType: 'Lead',
+                    aggregateId: lead._id,
+                    payload: { triggerEvent: 'onWebCapture' }
+                });
+            });
         } else {
             const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
             const result = await createStandardizedLead(leadData, { triggerEvent: 'onWebCapture' });
@@ -240,9 +251,6 @@ export const submitForm = async (req, res) => {
                 console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
             }
 
-            // 4. Trigger Engines -> Moved to Background Event Queue
-            enrichmentQueue.add('enrichLead', { leadId: lead._id })
-                .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
         }
 
         // 3. Update Analytics

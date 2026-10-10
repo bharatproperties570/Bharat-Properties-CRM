@@ -326,10 +326,10 @@ export const processDomainEventJob = async (job) => {
 
 
         case 'ActivityCreated':
+            let intentEnrichment = false;
             if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
                 await executeEffect(eventId, 'activity_enrichment', aggregateType, aggregateId, async () => {
-                    const QueueManager = await import('../queues/queueManager.js');
-                    await QueueManager.enrichmentQueue.add('enrichLead', { leadId: payload.entityId });
+                    intentEnrichment = true;
                 });
                 await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
                     const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
@@ -441,9 +441,14 @@ export const processDomainEventJob = async (job) => {
                     }
                 }
             });
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
 
-                case 'ActivityUpdated':
+                case 'ActivityUpdated': {
+            let intentEnrichment = false;
+            if (payload && payload.entityType === 'Lead' && payload.entityId) {
+                intentEnrichment = true;
+            }
             if (payload.statusChanged && payload.newStatus?.toLowerCase() === 'completed') {
                 await executeEffect(eventId, 'activity_whatsapp_trigger_completed', aggregateType, aggregateId, async () => {
                     const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
@@ -475,7 +480,9 @@ export const processDomainEventJob = async (job) => {
                 const QueueManager = await import('../queues/queueManager.js');
                 await QueueManager.googleSyncQueue.add('syncEvent', { activityId: aggregateId });
             });
+            if (intentEnrichment) return { action: 'REQUEST_SYSTEM_ENRICHMENT' };
             break;
+        }
 
         case 'ActivityDeleted':
             await executeEffect(eventId, 'activity_google_sync_deleted', aggregateType, aggregateId, async () => {
@@ -711,6 +718,14 @@ export const processDomainEventJob = async (job) => {
                     if (payload.scoreChanged === true) {
                         await WorkflowEngine.fireEvent('leads', 'lead_score_changed', lead, lead.companyId);
                     }
+                }
+            });
+
+            effects.push({
+                key: 'automation',
+                fn: async () => {
+                    const eventBus = (await import('../../services/EventBus.js')).default;
+                    eventBus.emit('LEAD_UPDATED', lead);
                 }
             });
 

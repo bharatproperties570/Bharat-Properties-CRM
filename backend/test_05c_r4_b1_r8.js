@@ -1,5 +1,6 @@
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -9,8 +10,30 @@ import revivalSyncServiceLib from './src/services/RevivalSyncService.js';
 
 // Real production execution paths
 const processDomainEvent = async (job) => {
+    const { domainEventQueue } = await import('./src/queues/queueManager.js');
     const { domainEventWorker } = await import('./src/workers/domainEventWorker.js');
-    return await domainEventWorker.processFn(job);
+    
+    return new Promise(async (resolve, reject) => {
+        const addedJob = await domainEventQueue.add('event', job.data);
+        
+        const onCompleted = (j) => {
+            if (j.id === addedJob.id) {
+                cleanup(); resolve({ success: true });
+            }
+        };
+        const onFailed = (j, err) => {
+            if (j.id === addedJob.id) {
+                cleanup(); reject(err);
+            }
+        };
+        const cleanup = () => {
+            domainEventWorker.removeListener('completed', onCompleted);
+            domainEventWorker.removeListener('failed', onFailed);
+        };
+        
+        domainEventWorker.on('completed', onCompleted);
+        domainEventWorker.on('failed', onFailed);
+    });
 };
 
 const revivalSyncService = {
@@ -70,9 +93,15 @@ const assertThrows = async (fn, description) => {
 };
 
 async function runTests() {
+    let mongoServer;
+    try {
+const testToken = 'test-token-123456';
+const testTokenHash = await import('crypto').then(m => m.createHash('sha256').update(testToken).digest('hex'));
+//('sha256').update(testToken).digest('hex');
+
     const smsServiceMock = (await import('./src/modules/sms/sms.service.js')).default;
     smsServiceMock.sendSMSWithTemplate = async () => true;
-    const mongoServer = await MongoMemoryServer.create();
+    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     await mongoose.connect(mongoServer.getUri());
     
     // Setup leads
@@ -89,8 +118,8 @@ async function runTests() {
     assertCondition(!AuthorityProofIssuer.verify(forgedProof), '2. forged POJO blocked');
     
     // 3. prototype clone blocked
-    await Lead.updateOne({ _id: l1._id }, { $set: { "enrichmentState.status": "REQUESTED" } });
-    const validProof = await AuthorityProofIssuer.resolveSystemProof(l1._id.toString());
+    await Lead.updateOne({ _id: l1._id }, { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.claimTokenHash": testTokenHash } });
+    const validProof = await AuthorityProofIssuer.resolveSystemProof(l1._id.toString(), "sync", testToken);
     const cloned = Object.create(validProof);
     assertCondition(!AuthorityProofIssuer.verify(cloned), '3. prototype clone blocked');
     
@@ -153,6 +182,9 @@ async function runTests() {
     assertCondition(typeof DomainEventWorkerExports.setDomainEventIssuer === 'undefined', '17. setDomainEventIssuer injection setter completely removed');
     assertCondition(typeof StageTransitionEngineExports.setRevivalSyncIssuer === 'undefined', '18. setRevivalSyncIssuer injection setter completely removed');
 
+    // Attack C - Verify that direct invocation of processFn is impossible
+    assertCondition(typeof DomainEventWorkerExports.domainEventWorker.processFn === 'undefined', '18b. Attack C - Direct trusted worker invocation impossible');
+
     // 19. RevivalSync Lead A capability works
     await revivalSyncService.processRevivalActions(l2._id.toString());
     const l2_after = await Lead.findById(l2._id);
@@ -204,25 +236,26 @@ async function runTests() {
     await assertThrows(async () => await processDomainEvent({ data: { payload: {}, eventId: 'ev3', eventType: 'ManualEnrichmentRequested', aggregateType: 'Lead', aggregateId: l3._id.toString() } }), '23. duplicate REQUESTED blocked');
 
     // 24. REQUESTED → CLAIMED
-    const proof3 = await AuthorityProofIssuer.resolveSystemProof(l3._id.toString());
+    await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.claimTokenHash": testTokenHash } });
+    const proof3 = await AuthorityProofIssuer.resolveSystemProof(l3._id.toString(), "sync", testToken);
     const l3_claim = await Lead.findById(l3._id);
     assertCondition(l3_claim.enrichmentState.status === 'CLAIMED', '24. REQUESTED → CLAIMED');
 
     // 25. true concurrent claim race: exactly one winner
-    await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "REQUESTED" } });
-    const p1 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString());
-    const p2 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString());
+    await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "REQUESTED", "enrichmentState.claimTokenHash": testTokenHash } });
+    const p1 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken);
+    const p2 = AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken);
     const results = await Promise.allSettled([p1, p2]);
     const fulfilled = results.filter(r => r.status === 'fulfilled');
     const rejected = results.filter(r => r.status === 'rejected');
     assertCondition(fulfilled.length === 1 && rejected.length === 1, '25. concurrent claim exactly one winner');
 
     // 26. replay blocked with independent replay attempt
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), '26. replay blocked with independent replay attempt');
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), '26. replay blocked with independent replay attempt');
 
     // 27. stale/non-eligible claim independently blocked
     await Lead.updateOne({ _id: l4._id }, { $set: { "enrichmentState.status": "COMPLETED" } });
-    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString()), '27. stale/non-eligible claim independently blocked');
+    await assertThrows(async () => await AuthorityProofIssuer.resolveSystemProof(l4._id.toString(), "sync", testToken), '27. stale/non-eligible claim independently blocked');
 
     // 28. execution without proof blocked
     await assertThrows(async () => await runFullLeadEnrichment(l4._id.toString(), null), '28. execution without proof blocked');
@@ -235,30 +268,37 @@ async function runTests() {
 
     // 31. valid proof actually reaches authorized execution path
     const origGenerate = unifiedAIService.generate;
-    unifiedAIService.generate = async () => '[0.99] fake';
-    const res31 = await runFullLeadEnrichment(l3._id.toString(), { authorizationProof: proof3 });
-    assertCondition(res31 && res31.success === true, '31. valid proof actually reaches authorized execution path');
-    const l3_enriched = await Lead.findById(l3._id);
+    try {
+        unifiedAIService.generate = async () => '{"summary":"Mocked Intent","probability":90}';
+        await AuthorityProofIssuer.transitionToRunning(proof3);
+        const res31 = await runFullLeadEnrichment(l3._id.toString(), { authorizationProof: proof3 });
+        assertCondition(res31 && res31.success === true, '31. valid proof actually reaches authorized execution path');
+        const l3_enriched = await Lead.findById(l3._id);
+        assertCondition(l3_enriched && l3_enriched.ai_intent_summary === 'Mocked Intent', '31b. persisted ai_intent_summary matches mock');
+        assertCondition(l3_enriched && l3_enriched.ai_closing_probability === 90, '31c. persisted ai_closing_probability matches mock');
+    } finally {
         unifiedAIService.generate = origGenerate;
+    }
 
     // 32. failure → FAILED
-    await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), false);
+    await AuthorityProofIssuer.finalizeSystemProof(proof3, false);
     const l3_fail = await Lead.findById(l3._id);
     assertCondition(l3_fail.enrichmentState.status === 'FAILED', '32. failure → FAILED');
 
     // 33. FAILED → REQUESTED retry
     await processDomainEvent({ data: { payload: {}, eventId: 'ev4', eventType: 'ManualEnrichmentRequested', aggregateType: 'Lead', aggregateId: l3._id.toString() } });
+    await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.claimTokenHash": testTokenHash } });
     const l3_retry = await Lead.findById(l3._id);
     assertCondition(l3_retry.enrichmentState.status === 'REQUESTED', '33. FAILED → REQUESTED retry');
 
     // 34. failed execution cannot subsequently be finalized as successful
-    await AuthorityProofIssuer.resolveSystemProof(l3._id.toString());
-    await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), false);
-    await assertThrows(async () => await AuthorityProofIssuer.finalizeSystemProof(l3._id.toString(), true), '34. failed execution cannot subsequently be finalized as successful');
+    const proof4 = await AuthorityProofIssuer.resolveSystemProof(l3._id.toString(), "sync", testToken);
+    await AuthorityProofIssuer.finalizeSystemProof(proof4, false);
+    await assertThrows(async () => await AuthorityProofIssuer.finalizeSystemProof(proof4, true), '34. failed execution cannot subsequently be finalized as successful');
 
     // 35-38. Manual Controller Outbox
     await Lead.updateOne({ _id: l3._id }, { $set: { "enrichmentState.status": "NONE" } });
-    let reqObj = { user: { _id: new mongoose.Types.ObjectId() }, params: { leadId: l3._id.toString() }, body: {} };
+    let adminReqObj = { user: { _id: new mongoose.Types.ObjectId(), dataScope: 'all' }, params: { leadId: l3._id.toString() }, body: {} };
     let resObj = { json: () => {}, status: () => resObj };
     
     const { default: OutboxEvent } = await import('./models/OutboxEvent.js');
@@ -271,7 +311,7 @@ async function runTests() {
         return origCreate.apply(this, args);
     };
 
-    await runEnrichment(reqObj, resObj, (err) => { if(err) throw err; });
+    await runEnrichment(adminReqObj, resObj, (err) => { if(err) throw err; });
     OutboxEvent.create = origCreate;
     
     assertCondition(outboxCreated, '35. Manual Outbox persisted');
@@ -281,19 +321,29 @@ async function runTests() {
     const l3_manual = await Lead.findById(l3._id);
     assertCondition(l3_manual.enrichmentState.status === 'NONE', '38. manual controller cannot directly perform SYSTEM enrichment');
 
+    // 38b. negative target-authorization test
+    let restrictedReq = { user: { _id: new mongoose.Types.ObjectId(), dataScope: 'assigned' }, params: { leadId: l3._id.toString() }, body: {} };
+    let restrictedResStatus = 200;
+    let restrictedRes = { json: () => {}, status: (s) => { restrictedResStatus = s; return restrictedRes; } };
+    let authError = null;
+    await runEnrichment(restrictedReq, restrictedRes, (err) => { authError = err; });
+    assertCondition(authError && authError.statusCode === 403, '38b. restricted principal cannot access unauthorized target');
+    const l3_unauth = await Lead.findById(l3._id);
+    assertCondition(l3_unauth.enrichmentState.status === 'NONE', '38c. unauthorized target state remains unchanged');
+
     // 39. enrichmentState object injection actually returns/verifies 403
-    reqObj.body = { enrichmentState: { status: 'COMPLETED' } };
+    let injReq1 = { user: { _id: new mongoose.Types.ObjectId() }, body: { enrichmentState: { status: 'COMPLETED' } } };
     const { addLead } = await import('./controllers/lead.controller.js');
     let resStatus39 = 200;
     let resObj39 = { json: () => {}, status: (s) => { resStatus39 = s; return resObj39; } };
-    await addLead(reqObj, resObj39, () => {});
+    await addLead(injReq1, resObj39, () => {});
     assertCondition(resStatus39 === 403, '39. enrichmentState object injection actually returns/verifies 403');
 
     // 40. enrichmentState dot-notation injection actually returns/verifies 403
-    reqObj.body = { 'enrichmentState.status': 'COMPLETED' };
+    let injReq2 = { user: { _id: new mongoose.Types.ObjectId() }, body: { 'enrichmentState.status': 'COMPLETED' } };
     let resStatus40 = 200;
     let resObj40 = { json: () => {}, status: (s) => { resStatus40 = s; return resObj40; } };
-    await addLead(reqObj, resObj40, () => {});
+    await addLead(injReq2, resObj40, () => {});
     assertCondition(resStatus40 === 403, '40. enrichmentState dot-notation injection actually returns/verifies 403');
 
     // 41. unauthorized margin detection actually rejected
@@ -334,13 +384,29 @@ async function runTests() {
     console.log("=========================");
     
     if (failedAssertions > 0) {
-        process.exit(1);
-    } else {
-        process.exit(0);
+        process.exitCode = 1;
+    }
+    } finally {
+        try {
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.disconnect();
+            }
+        } catch (err) {
+            console.error("Cleanup error (mongoose):", err);
+            process.exitCode = 1;
+        }
+        try {
+            if (mongoServer) {
+                await mongoServer.stop();
+            }
+        } catch (err) {
+            console.error("Cleanup error (mongoServer):", err);
+            process.exitCode = 1;
+        }
     }
 }
 
 runTests().catch(e => {
     console.error(e);
-    process.exit(1);
+    process.exitCode = 1;
 });

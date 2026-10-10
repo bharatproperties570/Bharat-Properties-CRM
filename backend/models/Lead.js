@@ -10,7 +10,7 @@ const escapeRegExp = (string) => {
 };
 
 const LeadSchema = new mongoose.Schema({
-
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', index: true },
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
@@ -150,7 +150,12 @@ const LeadSchema = new mongoose.Schema({
         status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'COMPLETED', 'FAILED'], default: 'NONE' },
         requestedAt: { type: Date },
         claimedAt: { type: Date },
-        jobId: { type: String }
+        completedAt: { type: Date },
+        failedAt: { type: Date },
+        jobId: { type: String },
+        lastJobId: { type: String },
+        claimTokenHash: { type: String, select: false },
+        enrichmentExecutionId: { type: String }
     }, // Static intent based on enrichment & keywords
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
     dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)
@@ -500,21 +505,28 @@ LeadSchema.pre('save', function(next) {
 
 LeadSchema.post('save', function(doc) {
     const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
+    const hasSession = !!(this.$session && this.$session());
     if (isNew) {
-        eventBus.emit('LEAD_CREATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
     } else {
-        eventBus.emit('LEAD_UPDATED', doc);
+        if (!hasSession) eventBus.emit('LEAD_UPDATED', doc);
     }
 });
 
 LeadSchema.post('insertMany', function(docs) {
     if (Array.isArray(docs)) {
-        docs.forEach(doc => eventBus.emit('LEAD_CREATED', doc));
+        // insertMany doesn't easily expose session on the hook without this.options.session
+        // but we'll try to check this.options just in case
+        const hasSession = !!(this && this.options && this.options.session);
+        docs.forEach(doc => {
+            if (!hasSession) eventBus.emit('LEAD_CREATED', doc);
+        });
     }
 });
 
 LeadSchema.post('findOneAndUpdate', async function(doc) {
-    if (doc) {
+    const hasSession = !!(this.options && this.options.session);
+    if (doc && !hasSession) {
         eventBus.emit('LEAD_UPDATED', doc);
     }
 });

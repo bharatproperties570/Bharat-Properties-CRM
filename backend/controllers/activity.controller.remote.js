@@ -1,12 +1,14 @@
 import Activity from "../models/Activity.js";
 import User from "../models/User.js";
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
+import { DomainEventPublisher } from '../utils/DomainEventPublisher.js';
+import { authorizeTargetEntity } from '../utils/authorization.js';
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Conversation from "../models/Conversation.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
+import { googleSyncQueue } from "../src/queues/queueManager.js";
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
@@ -405,401 +407,7 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
                         targetStatus = 'Contacted'; // First touch
                     }
                     
-                    const statusLookup = await (await import('../models/Lookup.js')).default.findOne({ lookup_type: 'Status', lookup_value: { $regex: new RegExp(`^${targetStatus}import Activity from "../models/Activity.js";
-import User from "../models/User.js";
-import mongoose from "mongoose";
-import AuditLog from "../models/AuditLog.js";
-import Lead from "../models/Lead.js";
-import Deal from "../models/Deal.js";
-import Conversation from "../models/Conversation.js";
-import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
-
-import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
-import LeadScoringService from "../src/services/LeadScoringService.js";
-import { createNotification } from "./notification.controller.js";
-import { getVisibilityFilter } from "../utils/visibility.js";
-import { normalizePhone } from "../utils/normalization.js";
-import Contact from "../models/Contact.js";
-import Lookup from "../models/Lookup.js";
-import Project from "../models/Project.js";
-import Inventory from "../models/Inventory.js";
-
-/**
- * Enterprise Enrichment Layer:
- * Heals activities by auto-populating missing contact/lead metadata (name, mobile, email).
- * This ensures "Unknown Client" and missing phone/email labels are eliminated even if 
- * the activity was saved with partial data (e.g. from mobile sync or legacy imports).
- */
-const populateParticipantsAndRelatedData = async (activities) => {
-    if (!activities || activities.length === 0) return activities;
-
-    const leadIds = new Set();
-    const contactIds = new Set();
-    const inventoryIds = new Set();
-    const namesForSearch = new Set();
-
-    activities.forEach(a => {
-        // Build ID sets from top-level and relatedTo
-        const potentialEntityIds = [a.entityId];
-        if (Array.isArray(a.relatedTo)) {
-            a.relatedTo.forEach(r => {
-                potentialEntityIds.push(r.id);
-                if (r.name && r.name !== 'Unknown') namesForSearch.add(r.name);
-            });
-        }
-
-        potentialEntityIds.forEach(id => {
-            if (!id) return;
-            const sId = String(id).trim();
-            // We use strings for the set to ensure unique resolution before database hits
-            const eType = String(a.entityType || '').toLowerCase();
-            if (eType === 'lead') leadIds.add(sId);
-            else if (eType === 'contact') contactIds.add(sId);
-            else {
-                // If top-level type is missing, peek into relatedTo if available for this specific ID
-                if (Array.isArray(a.relatedTo)) {
-                    const rel = a.relatedTo.find(r => String(r.id) === sId);
-                    if (rel) {
-                        const mType = String(rel.model || '').toLowerCase();
-                        if (mType === 'lead') leadIds.add(sId);
-                        else if (mType === 'contact') contactIds.add(sId);
-                    }
-                }
-            }
-        });
-        
-        // Also look for Inventory IDs to attach Project and Block for legacy records
-        if (String(a.entityType || '').toLowerCase() === 'inventory' && a.entityId) {
-            inventoryIds.add(String(a.entityId).trim());
-        } else if (Array.isArray(a.relatedTo)) {
-            a.relatedTo.forEach(r => {
-                if (String(r.model || '').toLowerCase() === 'inventory' && r.id) {
-                    inventoryIds.add(String(r.id).trim());
-                }
-            });
-        }
-    });
-
-    const leadIdArray = Array.from(leadIds);
-    const contactIdArray = Array.from(contactIds);
-    const inventoryIdArray = Array.from(inventoryIds);
-
-    // Filter to valid object IDs for primary lookup
-    const validLeadObjIds = leadIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
-    const validContactObjIds = contactIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
-    const validInventoryObjIds = inventoryIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
-
-    // Advance Name Parsing for Lead resolution (Split firstName/lastName)
-    const leadNameQueries = Array.from(namesForSearch).map(name => {
-        const parts = name.trim().split(/\s+/);
-        if (parts.length > 1) {
-            return { $and: [
-                { firstName: { $regex: new RegExp(`^${parts[0]}$`, 'i') } },
-                { lastName: { $regex: new RegExp(`^${parts.slice(1).join(' ')}$`, 'i') } }
-            ]};
-        }
-        return { firstName: { $regex: new RegExp(`^${name}$`, 'i') } };
-    });
-
-    // Advance Name Parsing for Contact resolution (Split name/surname)
-    const contactNameQueries = Array.from(namesForSearch).map(name => {
-        const parts = name.trim().split(/\s+/);
-        if (parts.length > 1) {
-            return { $and: [
-                { name: { $regex: new RegExp(`^${parts[0]}$`, 'i') } },
-                { surname: { $regex: new RegExp(`^${parts.slice(1).join(' ')}$`, 'i') } }
-            ]};
-        }
-        return { name: { $regex: new RegExp(`^${name}$`, 'i') } };
-    });
-
-    // Parallel lookup across both ID types AND names as an ultimate fallback for deep data healing
-    const [leads, contacts, inventories] = await Promise.all([
-        Lead.find({ 
-            $or: [
-                { _id: { $in: validLeadObjIds } },
-                ...leadNameQueries
-            ]
-        }).select('firstName lastName mobile email salutation').lean(),
-        Contact.find({ 
-            $or: [
-                { _id: { $in: validContactObjIds } },
-                ...contactNameQueries
-            ]
-        }).select('name surname phones emails title').populate('title').lean(),
-        Inventory.find({
-            _id: { $in: validInventoryObjIds }
-        }).select('projectName block').lean()
-    ]);
-
-    // Build optimized lookup maps for O(1) row processing
-    const leadMap = new Map();
-    const leadNameMap = new Map();
-    leads.forEach(l => {
-        const fullName = `${l.firstName || ''} ${l.lastName || ''}`.trim();
-        const data = { ...l, fullName, primaryPhone: l.mobile, primaryEmail: l.email };
-        leadMap.set(String(l._id), data);
-        leadNameMap.set(fullName, data);
-    });
-
-    const contactMap = new Map();
-    const contactNameMap = new Map();
-    contacts.forEach(c => {
-        const titleLabel = (c.title && typeof c.title === 'object') ? c.title.lookup_value : (c.title || '');
-        const fullName = `${titleLabel} ${c.name} ${c.surname || ''}`.trim();
-        const data = { ...c, fullName, primaryPhone: c.phones?.[0]?.number, primaryEmail: c.emails?.[0]?.address };
-        contactMap.set(String(c._id), data);
-        contactNameMap.set(fullName, data);
-    });
-
-    const inventoryMap = new Map();
-    inventories.forEach(inv => {
-        inventoryMap.set(String(inv._id), { project: inv.projectName, block: inv.block });
-    });
-
-    return activities.map(a => {
-        const act = { ...a };
-        
-        // Identity Resolution Logic (Multi-Path)
-        let entityMatch = null;
-        let inventoryMatch = null;
-        
-        // Path A: Primary Pointer
-        const eId = String(act.entityId || '');
-        const eType = String(act.entityType || '').toLowerCase();
-        entityMatch = eType === 'lead' ? leadMap.get(eId) : contactMap.get(eId);
-        if (eType === 'inventory') inventoryMatch = inventoryMap.get(eId);
-
-        // Path B: Related Array Discovery
-        if (!entityMatch && Array.isArray(act.relatedTo)) {
-            for (const r of act.relatedTo) {
-                const id = String(r.id);
-                const model = String(r.model || '').toLowerCase();
-                const match = model === 'lead' ? leadMap.get(id) : contactMap.get(id);
-                if (match) {
-                    entityMatch = match;
-                    break;
-                }
-                // Path C: Name Fallback (Ultimate Data Healing)
-                const nameMatch = model === 'lead' ? leadNameMap.get(r.name) : contactNameMap.get(r.name);
-                if (nameMatch) {
-                    entityMatch = nameMatch;
-                    break;
-                }
-            }
-        }
-        
-        if (!inventoryMatch && Array.isArray(act.relatedTo)) {
-            for (const r of act.relatedTo) {
-                if (String(r.model || '').toLowerCase() === 'inventory') {
-                    inventoryMatch = inventoryMap.get(String(r.id));
-                    if (inventoryMatch) break;
-                }
-            }
-        }
-
-        // Attach Inventory fields if found (for legacy records missing them in details)
-        if (inventoryMatch) {
-            act.details = { ...act.details, project: inventoryMatch.project, block: inventoryMatch.block };
-        }
-
-        // Apply Discovered Identity to heal the record
-        if (entityMatch) {
-            // Restore missing primary pointers
-            if (!act.entityId) {
-                act.entityId = entityMatch._id;
-                act.entityType = leadMap.has(String(entityMatch._id)) ? 'Lead' : 'Contact';
-            }
-
-            // Sync participants - ensure mobile and email are present
-            if (!Array.isArray(act.participants) || act.participants.length === 0) {
-                act.participants = [{
-                    name: entityMatch.fullName || entityMatch.name,
-                    mobile: entityMatch.primaryPhone || '--',
-                    email: entityMatch.primaryEmail || ''
-                }];
-            } else {
-                act.participants = act.participants.map(p => {
-                    const refreshed = { ...p };
-                    if (!refreshed.name || refreshed.name === 'Unknown') refreshed.name = entityMatch.fullName;
-                    if (!refreshed.mobile || refreshed.mobile === '--' || refreshed.mobile === '') refreshed.mobile = entityMatch.primaryPhone;
-                    if (!refreshed.email || refreshed.email === '') refreshed.email = entityMatch.primaryEmail;
-                    return refreshed;
-                });
-            }
-
-            // Top-level conveniences for UI
-            if (!act.contactEmail) act.contactEmail = entityMatch.primaryEmail;
-            if (!act.contactPhone) act.contactPhone = entityMatch.primaryPhone;
-        }
-
-        return act;
-    });
-};
-
-/**
- * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
- * Looks up the mapped stage from activityMasterFields settings, then calls updateLeadStage.
- * This makes stage auto-computation truly automatic without requiring the frontend hook.
- */
-/**
- * Professionals Fix: Auto-trigger stage change and recalculate score.
- * Delegates to StageTransitionEngine for stage logic and LeadScoringService for scoring.
- */
-
-// ━━ PIPELINE HEALTH: Outcome Classification ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// HubSpot/Pipedrive style — classify each outcome as POSITIVE, NEGATIVE, or NEUTRAL
-const NEGATIVE_OUTCOMES = new Set([
-    'no answer', 'no-answer', 'busy', 'not connected', 'missed', 'switched off',
-    'not reachable', 'unreachable', 'voicemail left', 'failed',
-    'no show', 'visit cancelled', 'meeting cancelled', 'rescheduled', 'visit rescheduled',
-    'no reply', 'bounced', 'blocked'
-]);
-
-const POSITIVE_OUTCOMES = new Set([
-    'connected', 'interested', 'very interested', 'somewhat interested', 'shortlisted',
-    'conducted', 'meeting done', 'deal likely', 'deal agreed', 'booking done',
-    'replied - interested', 'replied', 'picked up', 'answered',
-    'second visit', 'second visit requested', 'will think', 'callback requested'
-]);
-
-// AT-RISK THRESHOLD: N consecutive failures trigger the "At Risk" flag
-const AT_RISK_THRESHOLD = 3;
-
-/**
- * Track consecutive failed contacts — enterprise pipeline health tracker
- * Mirrors HubSpot "Deal Rotting" + Pipedrive inactivity pattern detection
- */
-const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
-    try {
-        const outcomeNorm = (resolvedOutcome || '').toLowerCase().trim();
-        const isNegative = NEGATIVE_OUTCOMES.has(outcomeNorm) ||
-            [...NEGATIVE_OUTCOMES].some(n => outcomeNorm.includes(n));
-        const isPositive = POSITIVE_OUTCOMES.has(outcomeNorm) ||
-            [...POSITIVE_OUTCOMES].some(p => outcomeNorm.includes(p));
-
-        if (isNegative) {
-            // Increment consecutive fail counter
-            const lead = await Lead.findByIdAndUpdate(
-                leadId,
-                {
-                    $inc: { consecutiveFailedContacts: 1 },
-                    $set: { lastFailedContactAt: new Date() }
-                },
-                { new: true }
-            ).select('consecutiveFailedContacts isAtRisk stage').populate('stage', 'lookup_value');
-
-            const count = lead?.consecutiveFailedContacts || 0;
-            const stageName = (lead?.stage?.lookup_value || '').toLowerCase();
-            // Skip At-Risk flagging for already Closed/Booked leads
-            const isTerminal = ['closed', 'booked'].some(s => stageName.includes(s));
-
-            if (count >= AT_RISK_THRESHOLD && !lead?.isAtRisk && !isTerminal) {
-                const reason = `${count} consecutive failed contacts (${actType}: ${resolvedOutcome}). Last failed: ${new Date().toLocaleDateString('en-IN')}`;
-                await Lead.findByIdAndUpdate(leadId, {
-                    $set: {
-                        isAtRisk: true,
-                        atRiskSince: new Date(),
-                        atRiskReason: reason
-                    }
-                });
-
-                // 🔔 Notify agent
-                try {
-                    const { createNotification } = await import('./notification.controller.js');
-                    const fullLead = await Lead.findById(leadId).populate('assignment.assignedTo', '_id').lean();
-                    if (fullLead?.assignment?.assignedTo?._id) {
-                        await createNotification({
-                            userId: fullLead.assignment.assignedTo._id,
-                            title: '⚠️ Lead At Risk',
-                            message: reason,
-                            type: 'warning',
-                            link: `/leads/${leadId}`
-                        });
-                    }
-                } catch (_) {}
-
-                console.log(`[PipelineHealth] 🔴 Lead ${leadId} flagged AT RISK: ${reason}`);
-            }
-        } else if (isPositive) {
-            // Reset on any positive signal — Pipedrive style automatic recovery
-            await Lead.findByIdAndUpdate(leadId, {
-                $set: {
-                    consecutiveFailedContacts: 0,
-                    isAtRisk: false,
-                    atRiskSince: null,
-                    atRiskReason: null
-                }
-            });
-        }
-    } catch (err) {
-        console.error('[PipelineHealth] updatePipelineHealth error:', err.message);
-    }
-};
-
-export const autoTriggerStageChange = async (activity, userId = null) => {
-    try {
-        if (activity.entityType?.toLowerCase() !== 'lead') return;
-        if (activity.status?.toLowerCase() !== 'completed') return;
-        if (!activity.entityId) return;
-
-        const leadId = activity.entityId;
-        const actType = activity.type;
-        const outcome = activity.details?.completionResult ||
-                        activity.details?.meetingOutcomeStatus ||
-                        activity.details?.callOutcome ||
-                        activity.details?.outcome ||
-                        activity.completionResult || '';
-        const reason = activity.details?.outcomeReason || activity.details?.reason || '';
-        const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
-
-        // Site Visit & Meeting special outcome resolution
-        let resolvedOutcome = outcome;
-        const actTypeLower = actType?.toLowerCase();
-        if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
-            const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
-            resolvedOutcome = activity.details.visitedProperties
-                .map(p => (p.result || '').toLowerCase())
-                .filter(Boolean)
-                .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
-        }
-
-        // 🏥 PIPELINE HEALTH: Track consecutive failures (runs in parallel, non-blocking)
-        updatePipelineHealth(leadId, resolvedOutcome, actType).catch(() => {});
-
-        // 1. Evaluate Stage Transition (backend rule engine)
-        const transition = await StageTransitionEngine.evaluateAndTransition(
-            leadId,
-            actType,
-            resolvedOutcome,
-            reason,
-            {}, // stageFormData already synced in previous steps if any
-            {
-                activityId: activity._id,
-                triggeredByUser: userId,
-                purpose,
-                status: activity.status,
-                visitedProperties: activity.details?.visitedProperties || []
-            }
-        );
-
-        // 2. Recalculate Lead Score (unified scoring engine)
-        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId });
-
-        // 🚀 OMNICHANNEL AUTOMATION TRIGGER
-        // Trigger professional workflow (WhatsApp/SMS/Email) based on the specific outcome
-        if (resolvedOutcome) {
-            const NurtureBot = (await import("../services/NurtureBot.js")).default;
-            const lead = await Lead.findById(leadId).lean();
-            if (lead) {
-                // Determine triggerId from outcome (e.g., 'Interested', 'Visit Scheduled')
-                // The Automation Engine rules are mapped to these outcome names
-                await NurtureBot.executeAutomation(resolvedOutcome, lead);
-            }
-        }
-
-, 'i') } }).lean();
+                    const statusLookup = await (await import('../models/Lookup.js')).default.findOne({ lookup_type: 'Status', lookup_value: { $regex: new RegExp(`^${targetStatus}$`, 'i') } });
                     if (statusLookup) {
                         await Lead.findByIdAndUpdate(leadId, { status: statusLookup._id });
                         console.log(`[StatusSync] Lead ${leadId} status auto-updated from '${currentStatus || 'None'}' to '${targetStatus}'`);
@@ -1339,7 +947,33 @@ export const addActivity = async (req, res) => {
             activityData.department = req.user.department;
         }
 
-        const activity = await Activity.create(activityData);
+        
+        
+        if (activityData.entityType && activityData.entityId) {
+            await authorizeTargetEntity(req.user, activityData.entityType, activityData.entityId);
+        }
+
+        if (activityData.entityType && activityData.entityId) {
+            await authorizeTargetEntity(req.user, activityData.entityType, activityData.entityId);
+        }
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await DomainEventPublisher.publishFromMobile(req, session, {
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            });
+        });
+
         
         // 🚀 Detect Mentions in Note/Description
         if (activity.description) {
@@ -1353,7 +987,7 @@ export const addActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Removed direct enqueue to preserve R4-B2 capability boundary
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1430,6 +1064,22 @@ export const updateActivity = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        if (!existingAct) {
+            return res.status(404).json({ success: false, error: "Activity not found" });
+        }
+        
+        const { authorizeTargetEntity } = await import('../utils/authorization.js');
+        if (existingAct.entityType && existingAct.entityId) {
+            await authorizeTargetEntity(req.user, existingAct.entityType, existingAct.entityId);
+        }
+        
+        if (updateData.entityType && updateData.entityId && 
+            (existingAct.entityType !== updateData.entityType || String(existingAct.entityId) !== String(updateData.entityId))) {
+            await authorizeTargetEntity(req.user, updateData.entityType, updateData.entityId);
+        }
+
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
             const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).select('assignedTo subject type').lean();
@@ -1445,11 +1095,31 @@ export const updateActivity = async (req, res) => {
             }
         }
 
-        const activity = await Activity.findOneAndUpdate(
-            { _id: req.params.id, ...visibilityFilter },
-            updateData,
-            { new: true, runValidators: true }
-        );
+        
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = await Activity.findOneAndUpdate(
+                { _id: req.params.id, ...visibilityFilter },
+                updateData,
+                { new: true, runValidators: true, session }
+            );
+
+            if (activity) {
+                await DomainEventPublisher.publishFromMobile(req, session, {
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                        ...activity.toJSON(),
+                        actorId: req.user?.id || req.user?._id || null
+                    }
+            });
+            }
+        });
+
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
@@ -1457,7 +1127,7 @@ export const updateActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Removed direct enqueue to preserve R4-B2 capability boundary
             // Update lastActivityAt if not missed
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
@@ -1558,6 +1228,13 @@ export const syncMobileCalls = async (req, res) => {
             if (!call || !call.number) continue;
 
             const match = await findEntity(call.number);
+            if (match && match.entity) {
+                try {
+                    await authorizeTargetEntity(req.user, match.type, match.entity._id);
+                } catch (err) {
+                    continue;
+                }
+            }
             const participantName = match ? match.name : (call.name || 'Unknown');
 
             const activityData = {
@@ -1599,7 +1276,25 @@ export const syncMobileCalls = async (req, res) => {
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
-                const activity = await Activity.create(activityData);
+                
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await DomainEventPublisher.publishFromMobile(req, session, {
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            });
+        });
+
                 googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
                 syncedActivities.push(activity);
 
@@ -1685,7 +1380,25 @@ export const syncMobileCalls = async (req, res) => {
             });
 
             if (!existing) {
-                const activity = await Activity.create(activityData);
+                
+        let activity = null;
+        const { withMongoTransaction } = await import('../utils/withMongoTransaction.js');
+        const OutboxEvent = (await import('../models/OutboxEvent.js')).default;
+        
+        await withMongoTransaction(async (session) => {
+            activity = (await Activity.create([activityData], { session }))[0];
+
+            await DomainEventPublisher.publishFromMobile(req, session, {
+                eventType: 'ActivityCreated',
+                aggregateType: 'Activity',
+                aggregateId: activity._id,
+                payload: {
+                    ...activity.toJSON(),
+                    actorId: req.user?.id || req.user?._id || null
+                }
+            });
+        });
+
                 syncedActivities.push(activity);
 
                 // Trigger Notification
