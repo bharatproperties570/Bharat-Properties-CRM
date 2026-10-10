@@ -8,6 +8,7 @@ import AgingCronService from "./services/AgingCronService.js";
 import { startNightlyPricingCron } from "./jobs/nightlyPricingCron.js";
 import { startDispatchCron } from "./jobs/dispatchCron.js";
 import { startArchivalCron } from "./cron/archivalWorker.js";
+import { BaileysConnectionManager } from "./services/baileysQueue/BaileysConnectionManager.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
 import "./src/workers/marketingWorker.js";
@@ -20,6 +21,9 @@ connectDB().then(() => {
     app.listen(PORT, () => {
         console.log(`🚀 CRM Backend running on port ${PORT}`);
         
+        // Initialize WhatsApp Scanner Connections
+        BaileysConnectionManager.initializeAll();
+
         // Initialize Auto-Aging Engine
         AgingCronService.init();
         
