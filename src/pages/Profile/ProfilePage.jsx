@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import Swal from 'sweetalert2';
+import WhatsAppQRConnect from '../../components/whatsapp/WhatsAppQRConnect';
+import toast from 'react-hot-toast';
 
 const ProfilePage = () => {
     const { currentUser, updateProfile, logout } = useUserContext();
@@ -418,6 +420,9 @@ const ProfilePage = () => {
                             <button className="btn-outline" style={{ padding: '6px 10px' }}><i className="fas fa-external-link-alt"></i></button>
                         </div>
                     </div>
+                    
+                    {/* Secondary WhatsApp Scanner */}
+                    <WhatsAppQRConnect onComplete={() => toast.success("WhatsApp QR successfully linked.")} />
                 </div>
 
             </div>

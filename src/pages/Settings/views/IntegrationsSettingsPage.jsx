@@ -4,7 +4,6 @@ import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI, BASE_BAC
 import toast from 'react-hot-toast';
 
 import WhatsAppCoexistenceConnect from "../../../components/whatsapp/WhatsAppCoexistenceConnect";
-import WhatsAppQRConnect from "../../../components/whatsapp/WhatsAppQRConnect";
 
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
@@ -966,7 +965,6 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 )}
 
                                 <WhatsAppCoexistenceConnect onComplete={(data) => { loadWaAccounts(); }} />
-                                <WhatsAppQRConnect onComplete={() => { loadWaAccounts(); }} />
 
                                 <div style={{ margin: "30px 0", borderTop: "1px dashed var(--border-color)", position: "relative" }}>
                                     <span style={{ position: "absolute", top: "-10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "0 10px", fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold" }}>OR MANUAL SETUP (ADVANCED)</span>
