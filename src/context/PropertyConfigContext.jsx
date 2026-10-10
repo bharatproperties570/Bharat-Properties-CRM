@@ -1,4 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { useProjects, useLookups, useLookupMutations } from '../utils/crmHooks';
+import { useQueryClient } from '@tanstack/react-query';
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { PROJECTS_LIST } from '../constants/projectConstants';
 
@@ -49,18 +51,28 @@ const defaultProjectMasterFields = {
 };
 
 export const PropertyConfigProvider = ({ children }) => {
+    // TanStack Canonical Project State
+    const { data: queryData } = useProjects({ limit: 1000 });
+    const apiProjects = queryData?.data || [];
+
     // Professional Hook for MongoDB Sync + Local Persistence (Moved to Top for hoisting)
     const useScoringRuleSetting = (key, initialValue) => {
         const [value, setValue] = useState(initialValue);
         const [docId, setDocId] = useState(null);
+        const docIdRef = React.useRef(null);
+
+        React.useEffect(() => {
+            docIdRef.current = docId;
+        }, [docId]);
 
         // Fetch on mount handled centrally in fetchAll to prevent waterfall
         
         const setConfigValue = useCallback((newValue, skipSync = false) => {
             setValue(newValue);
             if (!skipSync) {
-                if (docId) {
-                    api.put(`/scoring-rules/${docId}`, { name: key, type: 'global_config', configuration: newValue, module: 'global' })
+                const currentDocId = docIdRef.current;
+                if (currentDocId) {
+                    api.put(`/scoring-rules/${currentDocId}`, { name: key, type: 'global_config', configuration: newValue, module: 'global' })
                         .catch(err => console.error(`[ScoringRule] Push failed for ${key}:`, err));
                 } else {
                     api.post(`/scoring-rules`, { name: key, type: 'global_config', configuration: newValue, module: 'global' })
@@ -68,7 +80,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         .catch(err => console.error(`[ScoringRule] Create failed for ${key}:`, err));
                 }
             }
-        }, [key, docId]);
+        }, [key]); // docId removed, using ref
 
         return [value, setConfigValue, setDocId];
     };
@@ -115,6 +127,21 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // Initialize Projects State (Dynamic)
     const [projects, setProjects] = useState([]);
+
+    // Bridge TanStack cache into Context state
+    useEffect(() => {
+        if (apiProjects.length > 0) {
+            setProjects(prev => {
+                const projectMap = new Map();
+                // 1. Keep any legacy dynamic projects currently in state
+                prev.forEach(p => projectMap.set((p.name || '').toLowerCase(), p));
+                // 2. Overwrite with canonical API projects
+                apiProjects.forEach(p => projectMap.set((p.name || '').toLowerCase(), p));
+                return Array.from(projectMap.values());
+            });
+        }
+    }, [apiProjects]);
+
 
     // --- LOOKUPS STATE ---
     const [lookups, setLookups] = useState({}); // { type: [lookupObjects] }
@@ -1310,25 +1337,8 @@ export const PropertyConfigProvider = ({ children }) => {
                 map.set(type.replace(/\s+/g, ''), valToId);
             }
         });
-
-        // ✅ ENTERPRISE: Populate 'Size' category in typeValueMap from sizes array
-        if (Array.isArray(sizes) && sizes.length > 0) {
-            let sizeMap = map.get('Size');
-            if (!sizeMap) {
-                sizeMap = new Map();
-                map.set('Size', sizeMap);
-            }
-            sizes.forEach(s => {
-                const id = s._id || s.id;
-                const name = s.name || s.lookup_value || '';
-                if (id && name) {
-                    sizeMap.set(name.trim().toLowerCase(), id.toString());
-                }
-            });
-        }
-
         return map;
-    }, [lookups, sizes]);
+    }, [lookups]);
 
     // --- PROFESSIONAL DATA MIGRATION ---
     const migrateConfigToIds = useCallback((config, currentLookups) => {
@@ -1559,111 +1569,111 @@ export const PropertyConfigProvider = ({ children }) => {
         });
     }, [lookups]);
 
+    const queryClient = useQueryClient();
+    const { createLookup, updateLookup, deleteLookup } = useLookupMutations();
+
+    const REQUIRED_LOOKUP_TYPES = [
+        'UnitType', 'Category', 'SubCategory', 'PropertyType', 'BuiltupType', 'Facing', 'RoadWidth', 
+        'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
+        'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country',
+        'Source', 'Stage', 'Title', 'Requirement', 'SubRequirement', 'Budget', 'Campaign', 'SubSource',
+        'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline', 'PossessionStatus',
+        'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type',
+        'WaterSource', 'WaterLevel', 'WaterPumpType', 'FrontOnRoad', 'NumberOfOwner', 'ZoneName', 'FloorLevel', 'FloorPlan',
+        'SoilType', 'CurrentCrop'
+    ];
+
+    const { data: rawLookups } = useLookups(REQUIRED_LOOKUP_TYPES);
+
+    useEffect(() => {
+        if (!rawLookups || rawLookups.length === 0) return;
+
+        console.log('[PropertyConfigContext] Processing raw lookups from TanStack cache...');
+        
+        const newLookups = {};
+        const helperGet = (obj, key) => {
+            const normalized = key.toLowerCase().replace(/\s+/g, '');
+            const foundKey = Object.keys(obj).find(k => k.toLowerCase() === normalized);
+            return foundKey ? obj[foundKey] : undefined;
+        };
+
+        rawLookups.forEach(item => {
+            let type = item.lookup_type || item.type || '';
+            const key = type.replace(/\s+/g, '');
+            if (!newLookups[key]) newLookups[key] = [];
+            newLookups[key].push(item);
+        });
+
+        console.log('[PropertyConfigContext] Grouped Lookups:', Object.keys(newLookups));
+        setLookups(newLookups);
+
+        const getValues = (type) => helperGet(newLookups, type)?.map(l => l.lookup_value) || [];
+
+        setMasterFields(prev => ({
+            ...prev,
+            facings: getValues('Facing'),
+            directions: getValues('Direction'),
+            roadWidths: getValues('RoadWidth'),
+            waterSources: getValues('WaterSource'),
+            waterLevels: getValues('WaterLevel'),
+            waterPumpTypes: getValues('WaterPumpType'),
+            frontOnRoads: getValues('FrontOnRoad'),
+            numberOfOwners: getValues('NumberOfOwner'),
+            unitTypes: getValues('UnitType'),
+            zoneNames: getValues('ZoneName'),
+            soilTypes: getValues('SoilType'),
+            currentCrops: getValues('CurrentCrop'),
+            ownerships: getValues('Ownership'),
+            pincodes: getValues('Pincode'),
+            titles: helperGet(newLookups, 'Title') || [],
+            relations: helperGet(newLookups, 'Relation')?.map(l => ({
+                id: l._id,
+                name: l.lookup_value
+            })) || []
+        }), true);
+
+        setLeadMasterFields(prev => {
+            const transactionTypes = getValues('TransactionType');
+            const fundingTypes = getValues('FundingType');
+            const furnishingStatuses = getValues('FurnishingStatus');
+            const timelines = getValues('Timeline');
+
+            return {
+                ...prev,
+                transactionTypes: transactionTypes.length > 0 ? transactionTypes : prev.transactionTypes,
+                fundingTypes: fundingTypes.length > 0 ? fundingTypes : prev.fundingTypes,
+                furnishingStatuses: furnishingStatuses.length > 0 ? furnishingStatuses : prev.furnishingStatuses,
+                timelines: timelines.length > 0 ? timelines : prev.timelines
+            };
+        }, true);
+
+        setCompanyMasterFields({
+            companyTypes: helperGet(newLookups, 'CompanyType') || [],
+            industries: helperGet(newLookups, 'Industry') || []
+        });
+
+        const sizesList = helperGet(newLookups, 'Size');
+        if (sizesList) {
+            const normalizedSizes = sizesList.map(l => ({
+                id: l._id,
+                name: l.lookup_value,
+                ...l.metadata
+            }));
+            setSizesWithCache(normalizedSizes);
+        }
+    }, [rawLookups, setMasterFields, setLeadMasterFields, setCompanyMasterFields, setSizesWithCache]);
+
+    // Legacy compat stub bridging to TanStack cache invalidation
     const refreshLookups = useCallback(async () => {
         try {
-            console.log('[PropertyConfigContext] Refreshing targeted lookups...');
-            // 🚀 SENIOR OPTIMIZATION: Specify required types to avoid 502 timeouts
-            const requiredTypes = [
-                'UnitType', 'Category', 'SubCategory', 'PropertyType', 'BuiltupType', 'Facing', 'RoadWidth', 
-                'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
-                'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country',
-                'Source', 'Stage', 'Title', 'Requirement', 'SubRequirement', 'Budget', 'Campaign', 'SubSource',
-                'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline', 'PossessionStatus',
-                'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type',
-                'WaterSource', 'WaterLevel', 'WaterPumpType', 'FrontOnRoad', 'NumberOfOwner', 'ZoneName', 'FloorLevel', 'FloorPlan',
-                'SoilType', 'CurrentCrop'
-            ];
-            const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
-            const resBody = response.data;
-
-            let allLookups = [];
-            if (resBody && (resBody.status === "success" || resBody.success === true) && Array.isArray(resBody.data)) {
-                allLookups = resBody.data;
-            } else if (Array.isArray(resBody)) {
-                allLookups = resBody;
-            }
-
-            const newLookups = {};
-            const helperGet = (obj, key) => {
-                const normalized = key.toLowerCase().replace(/\s+/g, '');
-                const foundKey = Object.keys(obj).find(k => k.toLowerCase() === normalized);
-                return foundKey ? obj[foundKey] : undefined;
-            };
-
-            allLookups.forEach(item => {
-                let type = item.lookup_type || item.type || '';
-                // Normalize keys by removing spaces and preserving PascalCase as a hint, 
-                // but we'll use helperGet for robust access.
-                const key = type.replace(/\s+/g, '');
-
-                if (!newLookups[key]) newLookups[key] = [];
-                newLookups[key].push(item);
-            });
-
-            console.log('[PropertyConfigContext] Grouped Lookups:', Object.keys(newLookups));
-            setLookups(newLookups);
-
-            // Populate masterFields from Lookups (Facing, Direction, etc.)
-            // We use Case-Insensitive keys for robustness
-            const getValues = (type) => helperGet(newLookups, type)?.map(l => l.lookup_value) || [];
-
-            setMasterFields(prev => ({
-                ...prev,
-                facings: getValues('Facing'),
-                directions: getValues('Direction'),
-                roadWidths: getValues('RoadWidth'),
-                waterSources: getValues('WaterSource'),
-                waterLevels: getValues('WaterLevel'),
-                waterPumpTypes: getValues('WaterPumpType'),
-                frontOnRoads: getValues('FrontOnRoad'),
-                numberOfOwners: getValues('NumberOfOwner'),
-                unitTypes: getValues('UnitType'),
-                zoneNames: getValues('ZoneName'),
-                soilTypes: getValues('SoilType'),
-                currentCrops: getValues('CurrentCrop'),
-                ownerships: getValues('Ownership'),
-                pincodes: getValues('Pincode'), // Added Pincode sync
-                titles: helperGet(newLookups, 'Title') || [],
-                relations: helperGet(newLookups, 'Relation')?.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value
-                })) || []
-            }), true);
-
-            // Sync Lead Master Fields from Lookups (Funding, Timeline, Furnishing, Transaction)
-            // This ensures "Add Lead" form is ALWAYS up to date with DB Lookups
-            setLeadMasterFields(prev => {
-                const transactionTypes = getValues('TransactionType');
-                const fundingTypes = getValues('FundingType');
-                const furnishingStatuses = getValues('FurnishingStatus');
-                const timelines = getValues('Timeline');
-
-                return {
-                    ...prev,
-                    transactionTypes: transactionTypes.length > 0 ? transactionTypes : prev.transactionTypes,
-                    fundingTypes: fundingTypes.length > 0 ? fundingTypes : prev.fundingTypes,
-                    furnishingStatuses: furnishingStatuses.length > 0 ? furnishingStatuses : prev.furnishingStatuses,
-                    timelines: timelines.length > 0 ? timelines : prev.timelines
-                };
-            }, true);
-
-            // ✅ ENTERPRISE: Map Sizes with localStorage cache sync
-            const sizesList = helperGet(newLookups, 'Size');
-            if (sizesList) {
-                const normalizedSizes = sizesList.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
-                }));
-                setSizesWithCache(normalizedSizes);
-            }
-
-            return newLookups;
+            console.log('[PropertyConfigContext] Triggering cache invalidation for lookups...');
+            await queryClient.invalidateQueries({ queryKey: ['lookups'] });
+            return lookups; // Return current local state for legacy awaiters
         } catch (error) {
-            console.error('[PropertyConfigContext] Failed to refresh lookups:', error);
+            console.error('[PropertyConfigContext] Failed to invalidate lookups:', error);
             return {};
         }
-    }, [setMasterFields, setSizes, setLeadMasterFields]);
+    }, [queryClient, lookups]);
 
     // Load all configurations from backend on mount
     useEffect(() => {
@@ -1808,23 +1818,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 // REDUNDANT CALLS REMOVED: 
                 // Company lookups and Sizes are now handled within refreshLookups()
 
-                // FETCH REAL PROJECTS FROM BACKEND
-                try {
-                    console.log("[PropertyConfigContext] Fetching projects...");
-                    const projectsRes = await api.get('/projects?limit=1000');
-                    console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
-
-                    if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
-                        const apiProjects = projectsRes.data.data;
-                        console.log(`[PropertyConfigContext] Received ${apiProjects.length} authoritative projects from API.`);
-                        setProjects(apiProjects); // authoritative source
-                    } else if (Array.isArray(projectsRes.data)) {
-                        const apiProjects = projectsRes.data;
-                        setProjects(apiProjects);
-                    }
-                } catch (projError) {
-                    console.error('[PropertyConfigContext] Failed to fetch projects:', projError);
-                }
+                // FETCH REAL PROJECTS FROM BACKEND - REMOVED (Handled by TanStack Bridge)
             } catch (error) {
                 console.error('Failed to load configs from backend:', error);
                 // Fallback for projects if backend is down - use static list if needed
@@ -1879,53 +1873,9 @@ export const PropertyConfigProvider = ({ children }) => {
         setDealMasterFields
     ]);
 
-    const addProject = useCallback(async (newProject) => {
-        const project = {
-            id: Date.now(),
-            name: newProject.name,
-            location: newProject.location || '',
-            blocks: [],
-            units: [],
-            ...newProject
-        };
-        // Functional update to avoid dependency on 'projects' which changes
-        setProjects(prevProjects => {
-            const updatedProjects = [...prevProjects, project];
-            // Save to backend inside setter or using updated value?
-            // Better to trigger save effect or save here.
+    
 
-            // Saving here requires handling async properly, but we can fire and forget for UI consistency
-            systemSettingsAPI.upsert('dynamic_projects', {
-                category: 'property',
-                value: updatedProjects,
-                isPublic: true
-            }).catch(err => console.error('Failed to save projects:', err));
-
-            return updatedProjects;
-        });
-        return project;
-    }, []);
-
-    const addBlock = async (projectId, blockName) => {
-        const updatedProjects = projects.map(p => {
-            if (p.id === projectId || p.name === projectId) { // Handle both ID or Name lookup
-                return { ...p, blocks: [...(p.blocks || []), blockName] };
-            }
-            return p;
-        });
-        setProjects(updatedProjects);
-
-        // Save to backend
-        try {
-            await systemSettingsAPI.upsert('dynamic_projects', {
-                category: 'property',
-                value: updatedProjects,
-                isPublic: true
-            });
-        } catch (error) {
-            console.error('Failed to save projects to backend:', error);
-        }
-    };
+    
 
 
     // Master Fields State (Property Specific)
@@ -2005,7 +1955,7 @@ export const PropertyConfigProvider = ({ children }) => {
         if (lookupType) {
             try {
                 if (mode === 'add') {
-                    await lookupsAPI.create({
+                    await createLookup.mutateAsync({
                         lookup_type: lookupType,
                         lookup_value: newValuesOrValue,
                         is_active: true
@@ -2013,7 +1963,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 } else if (mode === 'delete') {
                     const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
                     if (lookupToDelete) {
-                        await lookupsAPI.delete(lookupToDelete._id);
+                        await deleteLookup.mutateAsync(lookupToDelete._id);
                     }
                 }
                 // Always refresh from lookups to keep state in sync
@@ -2058,7 +2008,7 @@ export const PropertyConfigProvider = ({ children }) => {
         if (lookupType) {
             try {
                 if (mode === 'add') {
-                    await lookupsAPI.create({
+                    await createLookup.mutateAsync({
                         lookup_type: lookupType,
                         lookup_value: newValuesOrValue,
                         is_active: true
@@ -2067,7 +2017,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 } else if (mode === 'delete') {
                     const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
                     if (lookupToDelete) {
-                        await lookupsAPI.delete(lookupToDelete._id);
+                        await deleteLookup.mutateAsync(lookupToDelete._id);
                         await refreshLookups();
                     }
                 }
@@ -2100,13 +2050,13 @@ export const PropertyConfigProvider = ({ children }) => {
         try {
             let result = null;
             if (mode === 'add') {
-                result = await lookupsAPI.create({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
+                result = await createLookup.mutateAsync({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
             } else if (mode === 'update' && oldName) {
                 const existing = await resolveLookup('Category', oldName);
-                if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: categoryName });
+                if (existing) result = await updateLookup.mutateAsync({ id: existing._id, data: { lookup_value: categoryName } });
             } else if (mode === 'delete') {
                 const existing = await resolveLookup('Category', categoryName);
-                if (existing) await lookupsAPI.delete(existing._id);
+                if (existing) await deleteLookup.mutateAsync(existing._id);
             }
             await refreshLookups();
             return result?.data || result;
@@ -2123,13 +2073,13 @@ export const PropertyConfigProvider = ({ children }) => {
 
             let result = null;
             if (mode === 'add') {
-                result = await lookupsAPI.create({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
+                result = await createLookup.mutateAsync({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
             } else if (mode === 'update' && oldName) {
                 const existing = await resolveLookup('SubCategory', oldName, category._id);
-                if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: subCategoryName });
+                if (existing) result = await updateLookup.mutateAsync({ id: existing._id, data: { lookup_value: subCategoryName } });
             } else if (mode === 'delete') {
                 const existing = await resolveLookup('SubCategory', subCategoryName, category._id);
-                if (existing) await lookupsAPI.delete(existing._id);
+                if (existing) await deleteLookup.mutateAsync(existing._id);
             }
             await refreshLookups();
             return result?.data || result;
@@ -2148,13 +2098,13 @@ export const PropertyConfigProvider = ({ children }) => {
 
             let result = null;
             if (mode === 'add') {
-                result = await lookupsAPI.create({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
+                result = await createLookup.mutateAsync({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
             } else if (mode === 'update' && oldName) {
                 const existing = await resolveLookup('PropertyType', oldName, subCategory._id);
-                if (existing) result = await lookupsAPI.update(existing._id, { lookup_value: typeName });
+                if (existing) result = await updateLookup.mutateAsync({ id: existing._id, data: { lookup_value: typeName } });
             } else if (mode === 'delete') {
                 const existing = await resolveLookup('PropertyType', typeName, subCategory._id);
-                if (existing) await lookupsAPI.delete(existing._id);
+                if (existing) await deleteLookup.mutateAsync(existing._id);
             }
             await refreshLookups();
             return result?.data || result;
@@ -2173,16 +2123,16 @@ export const PropertyConfigProvider = ({ children }) => {
 
             let result = null;
             if (mode === 'add') {
-                result = await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: subCategory._id, is_active: true });
+                result = await createLookup.mutateAsync({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: subCategory._id, is_active: true });
             } else if (mode === 'update' && oldName) {
                 const existing = await resolveLookup('BuiltupType', oldName, subCategory._id);
                 if (existing) {
-                    result = await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
+                    result = await updateLookup.mutateAsync({ id: existing._id, data: { lookup_value: builtupTypeName } });
                 }
             } else if (mode === 'delete') {
                 const existing = await resolveLookup('BuiltupType', builtupTypeName, subCategory._id);
                 if (existing) {
-                    await lookupsAPI.delete(existing._id);
+                    await deleteLookup.mutateAsync(existing._id);
                     result = true;
                 }
             }
@@ -2218,7 +2168,7 @@ export const PropertyConfigProvider = ({ children }) => {
         if (!lookupType) return;
 
         try {
-            const res = await lookupsAPI.create({
+            const res = await createLookup.mutateAsync({
                 lookup_type: lookupType,
                 lookup_value: newItemValue,
                 is_active: true
@@ -2482,7 +2432,7 @@ export const PropertyConfigProvider = ({ children }) => {
             delete cleanMetadata.project;
             delete cleanMetadata.block;
 
-            const res = await lookupsAPI.create({
+            const res = await createLookup.mutateAsync({
                 lookup_type: 'Size',
                 lookup_value: name,
                 metadata: cleanMetadata
@@ -2529,10 +2479,10 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateSize = async (updatedSize) => {
         try {
             const { id, name, ...metadata } = updatedSize;
-            const res = await lookupsAPI.update(id, {
+            const res = await updateLookup.mutateAsync({ id, data: {
                 lookup_value: name,
                 metadata: metadata
-            });
+            }});
 
             if (res && res.data) {
                 const updated = {
@@ -2552,7 +2502,7 @@ export const PropertyConfigProvider = ({ children }) => {
     // ✅ ENTERPRISE: deleteSize — cache synced
     const deleteSize = async (id) => {
         try {
-            await lookupsAPI.delete(id);
+            await deleteLookup.mutateAsync(id);
             setSizesWithCache(prev => prev.filter(s => s.id !== id));
         } catch (error) {
             console.error('Failed to delete property size:', error);
@@ -2562,107 +2512,43 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // ✅ ENTERPRISE: Add a project-block mapping to an existing size
     const addSizeProjectMapping = async (sizeId, project, block) => {
-        const size = sizes.find(s => (s.id === sizeId || s._id === sizeId));
+        const size = sizes.find(s => s.id === sizeId);
         if (!size) return null;
         const existingMappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
         const alreadyMapped = existingMappings.some(m => m.project === project && m.block === (block || ''));
         if (alreadyMapped) return size;
         const newMappings = [...existingMappings, { project, block: block || '' }];
-        return updateSize({ ...size, id: size.id || size._id, projectMappings: newMappings });
+        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
     };
 
     // ✅ ENTERPRISE: Remove a project-block mapping from a size
     const removeSizeProjectMapping = async (sizeId, project, block) => {
-        const size = sizes.find(s => (s.id === sizeId || s._id === sizeId));
+        const size = sizes.find(s => s.id === sizeId);
         if (!size) return null;
         const newMappings = (Array.isArray(size.projectMappings) ? size.projectMappings : []).filter(
             m => !(m.project === project && m.block === (block || ''))
         );
-        return updateSize({ ...size, id: size.id || size._id, projectMappings: newMappings });
+        return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
     };
 
     // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block)
-    // STRICT: Only returns sizes strictly mapped to the project & block.
-    // NEVER leaks unassigned sizes or sizes mapped to other projects.
     const getSizesByProjectBlock = useCallback((project, block) => {
-        if (!project) return [];
-
-        let targetProjName = '';
-        let targetProjId = '';
-
-        if (typeof project === 'object' && project !== null) {
-            targetProjName = String(project.name || project.projectName || '').trim().toLowerCase();
-            targetProjId = String(project.id || project._id || project.projectId || '').trim();
-        } else {
-            const pStr = String(project).trim();
-            const foundProj = (projects || []).find(p => 
-                (p.name && p.name.trim().toLowerCase() === pStr.toLowerCase()) ||
-                String(p.id || p._id || '').trim() === pStr
-            );
-            if (foundProj) {
-                targetProjName = String(foundProj.name || '').trim().toLowerCase();
-                targetProjId = String(foundProj.id || foundProj._id || '').trim();
-            } else {
-                targetProjName = pStr.toLowerCase();
-                targetProjId = pStr;
-            }
-        }
-
-        if (!targetProjName && !targetProjId) return [];
-
-        let targetBlk = '';
-        if (block && typeof block === 'object') {
-            targetBlk = String(block.name || block.block || '').trim().toLowerCase();
-        } else if (block) {
-            targetBlk = String(block).trim().toLowerCase();
-        }
-        if (targetBlk === 'all' || targetBlk === 'all blocks') {
-            targetBlk = '';
-        }
-
-        return (sizes || []).filter(s => {
-            if (!s) return false;
+        if (!project) return sizes;
+        return sizes.filter(s => {
             const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-
-            const checkMapping = (m) => {
-                if (!m) return false;
-                const mProj = String(m.project || m.projectName || '').trim().toLowerCase();
-                const mProjId = String(m.projectId || m.id || '').trim();
-
-                const projMatches = (targetProjName && mProj === targetProjName) ||
-                                    (targetProjId && mProjId && mProjId === targetProjId);
-                if (!projMatches) return false;
-
-                const mBlk = String(m.block || '').trim().toLowerCase();
-                if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
-                if (targetBlk) return mBlk === targetBlk;
-                return true;
-            };
-
-            if (mappings.length > 0) {
-                return mappings.some(checkMapping);
-            }
-
-            if (s.project || s.projectId) {
-                return checkMapping({
-                    project: s.project,
-                    projectId: s.projectId,
-                    block: s.block
-                });
-            }
-
-            // STRICT: Never leak unassigned sizes to any project
-            return false;
+            if (mappings.length === 0) return false;
+            return mappings.some(m => {
+                if (block) return m.project === project && m.block === block;
+                return m.project === project;
+            });
         });
-    }, [sizes, projects]);
+    }, [sizes]);
 
-    const value = {
+    const value = React.useMemo(() => ({
         propertyConfig,
         updateConfig,
         projects,
-        addProject,
-        addBlock,
-        isLoading,
+                        isLoading,
         masterFields,
         updateMasterFields,
         projectMasterFields,
@@ -2738,7 +2624,7 @@ export const PropertyConfigProvider = ({ children }) => {
         syncSubCategoryLookup,
         syncPropertyTypeLookup,
         syncBuiltupTypeLookup
-    };
+    }), [propertyConfig, updateConfig, projects, isLoading, masterFields, updateMasterFields, projectMasterFields, updateProjectMasterFields, projectAmenities, updateProjectAmenities, companyMasterFields, updateCompanyMasterFields, leadMasterFields, updateLeadMasterFields, dealMasterFields, updateDealMasterFields, scoringAttributes, updateScoringAttributes, scoringConfig, updateScoringConfig, behaviouralSignals, updateBehaviouralSignals, dealFitSignals, updateDealFitSignals, financialSignals, updateFinancialSignals, decayRules, updateDecayRules, aiSignals, updateAiSignals, sourceQualityScores, updateSourceQualityScores, inventoryFitScores, updateInventoryFitScores, stageMultipliers, updateStageMultipliers, dealScoringRules, updateDealScoringRules, scoreBands, updateScoreBands, activityMasterFields, setActivityMasterFields, updateActivityMasterFields, stageMappingRules, addStageMappingRule, updateStageMappingRule, deleteStageMappingRule, updateOutcomeRule, stageDensityTargets, setStageDensityTargets, stabilityLockConfig, setStabilityLockConfig, updateStabilityLockConfig, syncRules, updateSyncRule, addSyncRule, deleteSyncRule, sequenceConfig, updateSequenceConfig, agingRules, updateAgingRule, forecastConfig, updateForecastConfig, dealHealthConfig, updateDealHealthConfig, intentSignals, updateIntentSignal, addSize, updateSize, deleteSize, refreshSizes, sizes, addSizeProjectMapping, removeSizeProjectMapping, getSizesByProjectBlock, lookups, refreshLookups, getLookupId, getLookupValue, findLookup, syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup, syncBuiltupTypeLookup]);
 
 
     return (

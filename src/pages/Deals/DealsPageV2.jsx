@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import { useTeams, useUsers, useDeals, useUpdateDealMutation, useDeleteDealMutation, useBulkDeleteDealsMutation } from '../../utils/crmHooks';
 import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
@@ -64,7 +65,9 @@ const DealStageChip = ({ stage }) => {
 
 function DealsPage({ onNavigate, onAddActivity }) {
     const { isDark } = useTheme();
-    const { teams, users } = useUserContext();
+    const { data: users = [] } = useUsers();
+    
+    const { data: teams = [] } = useTeams();
     const { startCall } = useCall();
     const { getLookupValue, sizes } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
@@ -134,10 +137,26 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [editingDeal, setEditingDeal] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
-    const [deals, setDeals] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [totalRecords, setTotalRecords] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
+    const queryParams = useMemo(() => ({
+        page: currentPage,
+        limit: recordsPerPage,
+        search: debouncedSearchTerm,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order,
+        ...Object.fromEntries(
+            Object.entries(filters).filter(([_, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+        )
+    }), [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
+
+    const { data: dealsData, isLoading: loading } = useDeals(queryParams);
+    const deals = dealsData?.records || [];
+    const totalRecords = dealsData?.totalCount || 0;
+    const categoryStats = dealsData?.categoryStats || [];
+
+    const updateDealMutation = useUpdateDealMutation({ isPartial: true });
+    const deleteDealMutation = useDeleteDealMutation();
+    const bulkDeleteMutation = useBulkDeleteDealsMutation();
+        const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
@@ -162,8 +181,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     }, []);
     // ────────────────────────────────────────────────────────────────
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
-    const [categoryStats, setCategoryStats] = useState([]);
-    const [activeMapDealId, setActiveMapDealId] = useState(null);
+        const [activeMapDealId, setActiveMapDealId] = useState(null);
     const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
     // --- OPTIMIZATION: Debounced Search Term ---
@@ -200,63 +218,17 @@ function DealsPage({ onNavigate, onAddActivity }) {
         }
         if (type === 'delete') {
             if (window.confirm('Are you sure you want to delete this deal?')) {
-                // 🚀 OPTIMISTIC UI: Remove from list immediately
-                const previousDeals = [...deals];
-                setDeals(prev => prev.filter(item => item._id !== d._id));
-                toast.success('Deal deleted successfully');
-
-                api.delete(`deals/${d._id}`).then(() => {
-                    // Success - no further action needed as UI is already updated
-                    // We can optionally trigger fetchDeals in background to sync any other changes
+                deleteDealMutation.mutateAsync(d._id).then(() => {
+                    toast.success('Deal deleted successfully');
                 }).catch(err => {
                     console.error("Delete failed:", err);
-                    toast.error('Failed to delete deal. Reverting...');
-                    setDeals(previousDeals); // Rollback
+                    toast.error('Failed to delete deal.');
                 });
             }
         }
         setActiveRowMenu(null);
     }, [getLookupValue, deals]);
 
-    const fetchDeals = useCallback(async () => {
-        setLoading(true);
-        try {
-            const queryParams = new URLSearchParams({
-                page: currentPage,
-                limit: recordsPerPage,
-                search: debouncedSearchTerm,
-                sortBy: sortConfig.by,
-                sortOrder: sortConfig.order,
-                ...Object.fromEntries(
-                    Object.entries(filters).filter(([_, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
-                )
-            });
-
-            const response = await api.get(`deals?${queryParams.toString()}`);
-
-            if (response.data && response.data.success) {
-                setDeals(response.data.records || []);
-                setTotalRecords(response.data.totalCount || 0);
-                setCategoryStats(response.data.categoryStats || []);
-
-                // ── Stage Engine: fetch live deal scores ──
-                api.get('stage-engine/deals/scores')
-                    .then(r => { if (r.data?.success) setDealScores(r.data.scores); })
-                    .catch(() => { }); // non-blocking
-            } else {
-                toast.error("Failed to fetch deals");
-                setDeals([]);
-                setTotalRecords(0);
-            }
-        } catch (error) {
-            console.error("Error fetching deals:", error);
-            toast.error("Error loading deals");
-            setDeals([]);
-            setTotalRecords(0);
-        } finally {
-            setLoading(false);
-        }
-    }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
 
     // Track fullscreen changes
     useEffect(() => {
@@ -300,14 +272,14 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const handleSaveUploads = async (mediaData) => {
         try {
             const dealId = selectedIds[0];
-            const response = await api.put(`deals/${dealId}`, {
+            const response = await updateDealMutation.mutateAsync({ id: dealId, payload: {
                 propertyImages: mediaData.images,
                 propertyVideos: mediaData.videos
-            });
+            }});
 
             if (response.data.success) {
                 toast.success("Files uploaded and saved successfully");
-                fetchDeals();
+                setRefreshTrigger(prev => prev + 1);
             } else {
                 toast.error("Failed to save file links to deal");
             }
@@ -330,13 +302,13 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 uploadedAt: new Date()
             }));
 
-            const response = await api.put(`deals/${dealId}`, {
+            const response = await updateDealMutation.mutateAsync({ id: dealId, payload: {
                 documents: formattedDocs
-            });
+            }});
 
             if (response.data.success) {
                 toast.success("Documents saved successfully");
-                fetchDeals();
+                setRefreshTrigger(prev => prev + 1);
             } else {
                 toast.error("Failed to save documents to deal");
             }
@@ -376,9 +348,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
         return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : ownerValue;
     }, [users]);
 
-    useEffect(() => {
-        fetchDeals();
-    }, [fetchDeals, refreshTrigger]);
 
 
     // Filter Removal Handlers
@@ -513,9 +482,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
         try {
             if (idsToDelete.length === 1) {
-                await api.delete(`deals/${idsToDelete[0]}`);
+                await deleteDealMutation.mutateAsync(idsToDelete[0]);
             } else {
-                await api.post(`deals/bulk-delete`, { ids: idsToDelete });
+                await bulkDeleteMutation.mutateAsync({ ids: idsToDelete });
             }
 
             toast.success(`${idsToDelete.length} deal(s) deleted successfully`);
@@ -524,7 +493,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
             } else {
                 setSelectedIds([]);
             }
-            fetchDeals();
+            setRefreshTrigger(prev => prev + 1);
         } catch (error) {
             console.error("Error deleting deals:", error);
             toast.error("Failed to delete deals");
@@ -770,8 +739,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <option value={100}>100</option>
                                             <option value={300}>300</option>
                                             <option value={500}>500</option>
-                                            <option value={750}>750</option>
-                                            <option value={1000}>1000</option>
                                         </select>
                                     </div>
 
@@ -1180,7 +1147,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         setEditingDeal(null);
                     }}
                     dealData={editingDeal}
-                    onSave={fetchDeals}
+                    onSave={() => setRefreshTrigger(prev => prev + 1)}
                 />
 
                 <AddQuoteModal
@@ -1189,7 +1156,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     deal={editingDeal}
                     onSuccess={() => {
                         setIsQuoteModalOpen(false);
-                        fetchDeals();
+                        setRefreshTrigger(prev => prev + 1);
                     }}
                 />
 
@@ -1203,7 +1170,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             if (response.data.success) {
                                 toast.success('Offer registered successfully');
                                 setIsOfferModalOpen(false);
-                                fetchDeals();
+                                setRefreshTrigger(prev => prev + 1);
                             }
                         } catch (error) {
                             console.error('Failed to save offer:', error);
@@ -1240,11 +1207,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     selectedItems={selectedDealsForTags}
                     entityType="deals"
                     onSave={(updatedItems) => {
-                        updatedItems.map(item => item.id);
-                        setDeals(prev => prev.map(d => {
-                            const updatedItem = updatedItems.find(item => item.id === d.id);
-                            return updatedItem ? { ...d, tags: updatedItem.tags } : d;
-                        }));
+                        setRefreshTrigger(prev => prev + 1);
                     }}
                 />
 
@@ -1281,7 +1244,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             onClose={() => setIsAddBookingOpen(false)}
                             dealId={selectedIds[0]}
                             onSave={() => {
-                                fetchDeals();
+                                setRefreshTrigger(prev => prev + 1);
                                 setSelectedIds([]);
                             }}
                         />

@@ -1,38 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
+import { useCompanyGroups, useAddCompanyGroupMutation, useDeleteCompanyGroupMutation } from '../../../utils/crmHooks';
+
 import toast from 'react-hot-toast';
 
 function ManageGroupsModal({ isOpen, onClose }) {
-    const [groups, setGroups] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const { data: groups = [], isLoading: loading } = useCompanyGroups();
+    const addGroupMutation = useAddCompanyGroupMutation();
+    const deleteGroupMutation = useDeleteCompanyGroupMutation();
     const [newGroup, setNewGroup] = useState({ name: '', description: '', category: 'Broker', color: '#6366f1' });
 
-    useEffect(() => {
-        if (isOpen) fetchGroups();
-    }, [isOpen]);
-
-    const fetchGroups = async () => {
-        setLoading(true);
-        try {
-            const res = await api.get('/company-groups');
-            if (res.data && res.data.success) {
-                setGroups(res.data.data || []);
-            }
-        } catch (error) {
-            toast.error("Failed to load groups");
-        } finally {
-            setLoading(false);
-        }
-    };
+    
 
     const handleCreate = async (e) => {
         e.preventDefault();
         try {
-            const res = await api.post('/company-groups', newGroup);
-            if (res.data) {
+            const res = await addGroupMutation.mutateAsync(newGroup);
+            if (res && res.success) {
                 toast.success("Group created");
                 setNewGroup({ name: '', description: '', category: 'Broker', color: '#6366f1' });
-                fetchGroups();
             }
         } catch (error) {
             toast.error("Failed to create group");
@@ -42,9 +28,8 @@ function ManageGroupsModal({ isOpen, onClose }) {
     const handleDelete = async (id) => {
         if (!window.confirm("Are you sure?")) return;
         try {
-            await api.delete(`/company-groups/${id}`);
+            await deleteGroupMutation.mutateAsync(id);
             toast.success("Group deleted");
-            fetchGroups();
         } catch (error) {
             toast.error("Failed to delete group");
         }

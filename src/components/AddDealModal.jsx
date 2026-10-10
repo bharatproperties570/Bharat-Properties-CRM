@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
@@ -15,7 +16,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
 
@@ -183,41 +186,16 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     };
 
     const initialInheritanceRef = useRef(false);
-    const [existingDeals, setExistingDeals] = useState([]);
-    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+    // removed existingDeals state
 
-    const fetchExistingDeals = useCallback(async (invId) => {
-        if (!invId) {
-            setExistingDeals([]);
-            return;
-        }
-        setIsCheckingDuplicate(true);
-        try {
-            const response = await api.get('/deals', { 
-                params: { 
-                    inventoryId: invId, 
-                    limit: 10,
-                    stage: 'Open,Quote,Negotiation,Booked,Closed Won' 
-                } 
-            });
-            if (response.data && response.data.success) {
-                setExistingDeals(response.data.records || []);
-            }
-        } catch (error) {
-            console.error("Error checking duplicate deals:", error);
-        } finally {
-            setIsCheckingDuplicate(false);
-        }
-    }, []);
+
+
 
     useEffect(() => {
         if (!isOpen) {
             initialInheritanceRef.current = false;
-            setExistingDeals([]);
-        } else if (formData.inventoryId) {
-            fetchExistingDeals(formData.inventoryId);
         }
-    }, [isOpen, formData.inventoryId, fetchExistingDeals]);
+    }, [isOpen]);
 
     const duplicateDeal = formData.intent === 'Sell' ? existingDeals.find(d => {
         const dIntent = (d.intent?.lookup_value || d.intent || '').toLowerCase();
@@ -338,8 +316,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         );
 
         if (unit) {
-            // Fetch existing deals for duplicate check
-            fetchExistingDeals(unit._id);
+
 
             setFormData(prev => {
                 const newSize = unit.size || prev.size;
@@ -669,9 +646,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             // Real API call
             let response;
             if (deal && deal._id) {
-                response = await api.put(`/deals/${deal._id}`, transformedData);
+                response = { data: await updateDealMutation.mutateAsync({ id: deal._id, payload: transformedData }) };
             } else {
-                response = await api.post('/deals', transformedData);
+                response = { data: await addDealMutation.mutateAsync(transformedData) };
             }
 
             if (!response.data || !response.data.success) {

@@ -3,6 +3,7 @@ import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { MAP_CENTER } from '../../utils/mapUtils';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useUpdateProjectMutation } from '../../utils/crmHooks';
 import { fixDriveUrl } from '../../utils/helpers';
 
 const labelStyle = { display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' };
@@ -136,7 +137,8 @@ const incrementUnitNumber = (unitNo) => {
 };
 
 const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
-    const { propertyConfig, sizes, masterFields, getSizesByProjectBlock } = usePropertyConfig();
+    const updateMutation = useUpdateProjectMutation();
+    const { propertyConfig, sizes, masterFields } = usePropertyConfig();
     const mapRef = useRef(null);
     const googleMapRef = useRef(null);
     const overlayRef = useRef(null);
@@ -428,7 +430,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                     isLocked: false
                 };
                 setMasterPlan(newPlan);
-                await api.put(`/projects/${project._id}`, { masterPlan: newPlan });
+                await updateMutation.mutateAsync({ id: project._id, data: { masterPlan: newPlan } });
                 toast.success("Layout Map uploaded successfully! Please align it.");
                 setIsEditMode(true);
             } else {
@@ -451,11 +453,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             const centerLat = (currentBounds.north + currentBounds.south) / 2;
             const centerLng = (currentBounds.east + currentBounds.west) / 2;
             
-            await api.put(`/projects/${project._id}`, { 
-                masterPlan: newPlan,
-                latitude: String(centerLat),
-                longitude: String(centerLng)
-            });
+            await updateMutation.mutateAsync({ id: project._id, data: { masterPlan: newPlan, latitude: String(centerLat), longitude: String(centerLng) } });
             
             setMasterPlan(newPlan);
             setIsEditMode(false);
@@ -489,7 +487,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const handleRemoveMap = async () => {
         if (!window.confirm("Are you sure you want to remove the map? This will delete the uploaded image and georeferencing.")) return;
         try {
-            await api.put(`/projects/${project._id}`, { masterPlan: null });
+            await updateMutation.mutateAsync({ id: project._id, data: { masterPlan: null } });
             setMasterPlan(null);
             if (overlayRef.current) overlayRef.current.setMap(null);
             if (rectRef.current) rectRef.current.setMap(null);
@@ -645,7 +643,10 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                             <label style={labelStyle}>Size / Config</label>
                             <select style={selectStyle} value={plotConfig.sizeConfig} onChange={e => setPlotConfig({...plotConfig, sizeConfig: e.target.value, builtupType: ''})}>
                                 <option value="">Select Size (Optional)</option>
-                                {getSizesByProjectBlock(project?.name || project?._id, plotConfig.block).map(s => (
+                                {sizes?.filter(s => 
+                                    (s.project === project?.name || s.projectId === project?._id) && 
+                                    s.block === plotConfig.block
+                                ).map(s => (
                                     <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
                                 ))}
                             </select>

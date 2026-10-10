@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
 import { systemSettingsAPI } from '../../../utils/api';
-import { useWhatsAppTemplates } from '../../../context/WhatsAppTemplateContext';
+import { useWhatsAppTemplatesDb, useSaveWhatsAppTemplatesMutation, useSubmitWhatsAppTemplateMutation, useSyncWhatsAppTemplatesCommand } from '../../../utils/crmHooks';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
 import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
@@ -851,13 +851,18 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
 };
 
 const MessagingSettingsPage = () => {
-    const { updateTemplates } = useWhatsAppTemplates();
+    
     const [subTab, setSubTab] = useState('templates');
     const [templateType, setTemplateType] = useState('whatsapp');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [contextEditingTemplate, setContextEditingTemplate] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    const { mutateAsync: saveWhatsAppTemplates } = useSaveWhatsAppTemplatesMutation();
+    const { mutateAsync: submitWhatsAppTemplate } = useSubmitWhatsAppTemplateMutation();
+    const { mutateAsync: syncWhatsAppTemplates } = useSyncWhatsAppTemplatesCommand();
+    const { data: dbWhatsappTemplates } = useWhatsAppTemplatesDb();
+
     const [isSyncingMeta, setIsSyncingMeta] = useState(false); // Enterprise Sync State
     const [activeDropdown, setActiveDropdown] = useState(null);
 
@@ -905,7 +910,7 @@ const MessagingSettingsPage = () => {
         const key = keyMap[type];
         if (!key) return; // SMS uses its own smsService
         try {
-            await systemSettingsAPI.upsert(key, { value: templateList });
+            if (type === 'whatsapp') { await saveWhatsAppTemplates(templateList); } else { await systemSettingsAPI.upsert(key, { value: templateList }); }
         } catch (err) {
             console.error(`Failed to persist ${type} templates:`, err.message);
         }
@@ -919,7 +924,7 @@ const MessagingSettingsPage = () => {
                 ...template,
                 body: template.body || template.content || '',
             };
-            await whatsappService.submitTemplateToMeta(savedData);
+            await submitWhatsAppTemplate(savedData);
             toast.success('Successfully submitted to Meta!', { id: toastId });
             handleSyncFromMeta(); // Sync to update status to PENDING
         } catch (err) {
@@ -985,7 +990,7 @@ const MessagingSettingsPage = () => {
                 if (templateType === 'whatsapp') {
                     try {
                         const toastId = toast.loading('Submitting template to Meta for review...');
-                        await whatsappService.submitTemplateToMeta(savedData);
+                        await submitWhatsAppTemplate(savedData);
                         toast.success('Successfully submitted to Meta!', { id: toastId });
                     } catch (err) {
                         console.warn('Meta Submission Error:', err);
@@ -1085,7 +1090,7 @@ const MessagingSettingsPage = () => {
             setAllTemplates(prev => ({ ...prev, [templateType]: updatedList }));
 
             // Sync shared WhatsAppTemplateContext so InventoryFeedbackModal picks up instantly
-            if (templateType === 'whatsapp') updateTemplates(updatedList);
+            
 
             // Update database
             await persistTemplates(templateType, updatedList);
@@ -1104,7 +1109,7 @@ const MessagingSettingsPage = () => {
         const toastId = toast.loading('Syncing approved templates from Meta WhatsApp Manager...');
         
         try {
-            const res = await whatsappService.syncTemplatesFromMeta();
+            const res = await syncWhatsAppTemplates();
             if (res?.success && res.data) {
                 setAllTemplates(prev => {
                     const localTemplates = prev.whatsapp || [];

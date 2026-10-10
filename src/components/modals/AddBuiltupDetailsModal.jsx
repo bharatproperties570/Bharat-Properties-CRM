@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { api } from '../../utils/api';
+import { useUpdateInventoryMutation } from '../../utils/crmHooks';
 import toast from 'react-hot-toast';
 
 export default function AddBuiltupDetailsModal({
@@ -248,15 +249,21 @@ export default function AddBuiltupDetailsModal({
                 };
             }
 
-            const endpoint = entityType === 'Deal' ? `/deals/${entityId}` : `/inventory/${entityId}`;
-            const response = await api.put(endpoint, payload);
-
-            if (response.data && response.data.success) {
+            if (entityType === 'Inventory' || entityType === 'Property') {
+                await updateInventory({ id: entityId, data: payload });
                 toast.success('Built-up & Furnishing details updated successfully!', { id: toastId });
                 if (onSave) onSave();
                 onClose();
             } else {
-                throw new Error(response.data?.error || 'Failed to update details');
+                const endpoint = `/deals/${entityId}`;
+                const response = await api.put(endpoint, payload);
+                if (response.data && response.data.success) {
+                    toast.success('Built-up & Furnishing details updated successfully!', { id: toastId });
+                    if (onSave) onSave();
+                    onClose();
+                } else {
+                    throw new Error(response.data?.error || 'Failed to update details');
+                }
             }
         } catch (error) {
             console.error('[AddBuiltupDetailsModal] Save error:', error);

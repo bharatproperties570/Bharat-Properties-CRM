@@ -2,6 +2,7 @@
 import Lead from "./models/Lead.js";
 import IntentKeywordRule from "./models/IntentKeywordRule.js";
 import connectDB from "./src/config/db.js";
+import { enrichmentQueue } from "./src/queues/queueManager.js";
 
 const verify = async () => {
     try {
@@ -42,13 +43,7 @@ const verify = async () => {
             console.log("✅ Auto-enrichment on creation successful!");
         } else {
             console.log("❌ Auto-enrichment on creation failed. Manual run starting...");
-            const OutboxEvent = (await import('./models/OutboxEvent.js')).default;
-            await OutboxEvent.create({
-                eventType: 'LeadCreated',
-                aggregateType: 'Lead',
-                aggregateId: testLead._id,
-                payload: { ...testLead.toJSON(), actorId: null }
-            });
+            await enrichmentQueue.add('enrichLead', { leadId: testLead._id });
             leadAfterCreation = await Lead.findById(testLead._id);
             console.log("Lead after manual enrichment queue dispatch (Note: check workers) - intent is async now");
         }

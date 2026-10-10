@@ -8,6 +8,7 @@ import BookingAnalytics from './BookingAnalytics';
 import { api } from '../../utils/api';
 import ClosingFormModal from '../../components/ClosingFormModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useBookings, useBookingDashboardStats } from '../../utils/crmHooks';
 
 const BookingPage = ({ onNavigate, initialContextId }) => {
     const { isDark } = useTheme();
@@ -24,9 +25,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [selectedIds, setSelectedIds] = useState([]);
     const [showDocOptions, setShowDocOptions] = useState(false); // Dropdown toggle
     const [isAddBookingModalOpen, setIsAddBookingModalOpen] = useState(false);
-    const [bookings, setBookings] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-
+        
     const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
     const [bookingToClose, setBookingToClose] = useState(null);
     const [filters, setFilters] = useState({});
@@ -37,8 +36,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [drawerBooking, setDrawerBooking] = useState(null);
 
     // Dashboard KPI Stats (from server aggregate — true totals)
-    const [dashStats, setDashStats] = useState(null);
-
+    
     const handleFeedbackClick = () => {
         const booking = bookings.find(b => b.id === selectedIds[0]);
         if (booking) {
@@ -50,119 +48,90 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
-    const [totalCount, setTotalCount] = useState(0);
-
+    
     // Sorting State
     const [sortConfig, setSortConfig] = useState({ label: 'Booking Date', by: 'bookingDate', order: -1 });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
-    const fetchBookings = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const skip = (currentPage - 1) * recordsPerPage;
-            // Build query params including active filters
-            const params = new URLSearchParams({
-                limit: recordsPerPage,
-                skip,
-                sortBy: sortConfig.by,
-                sortOrder: sortConfig.order,
-            });
-            // Append active filters
-            if (activeFilters.status?.length)        activeFilters.status.forEach(s => params.append('status', s));
-            if (activeFilters.health?.length)         activeFilters.health.forEach(h => params.append('health', h));
-            if (activeFilters.salesAgent)             params.set('salesAgent', activeFilters.salesAgent);
-            if (activeFilters.channelPartner)         params.set('channelPartner', activeFilters.channelPartner);
-            if (activeFilters.project)               params.set('project', activeFilters.project);
-            if (activeFilters.dateFrom)              params.set('dateFrom', activeFilters.dateFrom);
-            if (activeFilters.dateTo)                params.set('dateTo', activeFilters.dateTo);
-            if (activeFilters.minValue)              params.set('minValue', activeFilters.minValue);
-            if (activeFilters.maxValue)              params.set('maxValue', activeFilters.maxValue);
+        const skip = (currentPage - 1) * recordsPerPage;
+    const queryParams = {
+        limit: recordsPerPage,
+        skip,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order,
+        status: activeFilters.status,
+        health: activeFilters.health,
+        salesAgent: activeFilters.salesAgent,
+        channelPartner: activeFilters.channelPartner,
+        project: activeFilters.project,
+        dateFrom: activeFilters.dateFrom,
+        dateTo: activeFilters.dateTo,
+        minValue: activeFilters.minValue,
+        maxValue: activeFilters.maxValue,
+        search: searchTerm
+    };
 
-            const response = await api.get(`/bookings?${params.toString()}`);
-            if (response.data.success) {
-                setTotalCount(response.data.count || 0);
-                const mapped = response.data.data.map(b => ({
-                    id: b.applicationNo || b._id.substring(b._id.length - 8).toUpperCase(),
-                    _id: b._id,
-                    dealType: b.type,
-                    stage: b.status,
-                    health: b.health || 'On Track',
-                    healthReason: b.healthReason || null,
-                    dealDate: b.bookingDate,
-                    nextAction: b.nextAction || null,
-                    customer: {
-                        seller: {
-                            name: b.seller?.name || 'N/A',
-                            mobile: b.seller?.phones?.[0]?.number || b.seller?.mobile || '',
-                            avatar: b.seller?.name?.substring(0, 2).toUpperCase() || 'S',
-                            fatherName: b.seller?.fatherName || '',
-                            address: b.seller?.personalAddress || {},
-                            raw: b.seller || {}
-                        },
-                        buyer: {
-                            name: b.lead?.name || 'N/A',
-                            mobile: b.lead?.phones?.[0]?.number || '',
-                            avatar: b.lead?.name?.substring(0, 2).toUpperCase() || 'NA',
-                            fatherName: b.lead?.fatherName || '',
-                            address: b.lead?.personalAddress || {},
-                            raw: b.lead || {}
-                        }
-                    },
-                    property: {
-                        project: b.property?.projectName || b.property?.projectId?.name || b.project?.name || 'N/A',
-                        unit: b.property?.unitNo || b.property?.unitNumber || 'N/A',
-                        location: b.property?.location || b.project?.location || 'N/A',
-                        block: b.property?.block || 'N/A',
-                        sizeLabel: b.property?.sizeLabel || (b.property?.sizeConfig && typeof b.property.sizeConfig === 'object' ? b.property.sizeConfig.lookup_value : b.property?.sizeConfig) || (b.property?.size ? `${b.property.size} ${b.property.sizeUnit || 'Sq.Yd.'}` : 'N/A'),
-                        category: b.property?.category || 'N/A',
-                        subCategory: b.property?.subCategory || 'N/A',
-                        unitType: b.property?.unitType || 'N/A',
-                        builtupType: b.property?.builtupType || b.property?.builtupDetails || 'N/A'
-                    },
-                    financials: {
-                        dealValue: b.totalDealAmount || 0,
-                        totalPaidAmount: b.totalPaidAmount || 0,
-                        totalBalanceAmount: b.totalBalanceAmount || 0,
-                        agreementAmount: b.agreementAmount || 0,
-                        agreementDate: b.agreementDate,
-                        finalPaymentDate: b.finalPaymentDate,
-                        tokenAmount: b.tokenAmount || 0,
-                        bookingDate: b.bookingDate,
-                        partPaymentAmount: b.partPaymentAmount || 0,
-                        partPaymentDate: b.partPaymentDate,
-                        commissionTotal: b.totalCommissionAmount || (parseFloat(b.sellerBrokerageAmount || 0) + parseFloat(b.buyerBrokerageAmount || 0)),
-                        sellerBrokerageAmount: b.sellerBrokerageAmount || 0,
-                        buyerBrokerageAmount: b.buyerBrokerageAmount || 0,
-                        commissionReceived: b.commissionReceived || 0,
-                        commissionPending: b.commissionPending || 0
-                    }
-                }));
-                setBookings(mapped);
-            }
-        } catch (error) {
-            console.error("Error fetching bookings:", error);
-            setBookings([]);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [currentPage, recordsPerPage, sortConfig, activeFilters]);
-
-    const fetchDashStats = useCallback(async () => {
-        try {
-            const res = await api.get('/bookings/dashboard/stats');
-            if (res.data.success) setDashStats(res.data.data);
-        } catch (e) {
-            console.warn('Dashboard stats unavailable:', e.message);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchBookings();
-    }, [fetchBookings]);
-
-    useEffect(() => {
-        fetchDashStats();
-    }, [fetchDashStats]);
+    const { data: bookingsRes, isLoading } = useBookings(queryParams);
+    const { data: dashStats } = useBookingDashboardStats();
+    
+    const totalCount = bookingsRes?.count || 0;
+    const bookingsData = bookingsRes?.data || [];
+    
+    const bookings = useMemo(() => {
+        return bookingsData.map(b => ({
+            id: b.applicationNo || b._id.substring(b._id.length - 8).toUpperCase(),
+            _id: b._id,
+            dealType: b.type,
+            stage: b.status,
+            health: b.health || 'On Track',
+            healthReason: b.healthReason || null,
+            dealDate: b.bookingDate,
+            nextAction: b.nextAction || null,
+            customer: {
+                seller: {
+                    name: b.seller?.name || 'N/A',
+                    mobile: b.seller?.phones?.[0]?.number || b.seller?.mobile || '',
+                    avatar: b.seller?.name?.substring(0, 2).toUpperCase() || 'S',
+                    fatherName: b.seller?.fatherName || '',
+                    address: b.seller?.personalAddress || {},
+                    raw: b.seller || {}
+                },
+                buyer: {
+                    name: b.lead?.name || 'N/A',
+                    mobile: b.lead?.phones?.[0]?.number || '',
+                    avatar: b.lead?.name?.substring(0, 2).toUpperCase() || 'NA',
+                    raw: b.lead || {}
+                }
+            },
+            propertyDetails: {
+                name: b.property?.title || b.property?.unitNumber || 'Property Details Missing',
+                location: b.property?.projectId?.name || 'Project Name Missing',
+                type: b.property?.propertyCategory || b.property?.propertyType || '',
+                size: b.property?.size || '',
+                raw: b.property || {}
+            },
+            financials: {
+                dealValue: b.totalDealAmount || 0,
+                agreementAmount: b.agreementAmount || 0,
+                paidAmount: b.totalPaidAmount || 0,
+                commissionPercent: b.commissionPercent || 0,
+                commissionAmount: b.totalCommissionAmount || 0,
+                commissionReceived: b.commissionReceived || 0,
+                commissionPending: (b.totalCommissionAmount || 0) - (b.commissionReceived || 0)
+            },
+            agents: {
+                salesAgent: b.salesAgent?.name || b.salesAgent?.fullName || 'Unassigned',
+                channelPartner: b.channelPartner?.name || 'Direct',
+                cpCommissionPercent: b.channelPartnerCommissionPercent || 0,
+                cpCommissionAmount: b.channelPartnerCommissionAmount || 0,
+                cpCommissionReceived: b.channelPartnerCommissionReceived || 0,
+                cpCommissionPending: (b.channelPartnerCommissionAmount || 0) - (b.channelPartnerCommissionReceived || 0)
+            },
+            docs: b.documents || [],
+            paymentSchedule: b.paymentSchedule || [],
+            closingDetails: b.closingDetails || {}
+        }));
+    }, [bookingsData]);
 
     // Logic to handle specific deal navigation (Drill-down)
     const handleViewLedger = (dealId) => {
@@ -734,14 +703,14 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             <AddBookingModal
                 isOpen={isAddBookingModalOpen}
                 onClose={() => setIsAddBookingModalOpen(false)}
-                onSave={() => { fetchBookings(); fetchDashStats(); }}
+                onSave={() => {}}
             />
 
             {drawerBooking && (
                 <PaymentScheduleDrawer
                     booking={drawerBooking}
                     onClose={() => setDrawerBooking(null)}
-                    onUpdate={() => { fetchBookings(); fetchDashStats(); }}
+                    onUpdate={() => {}}
                 />
             )}
 
@@ -752,8 +721,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 onApply={(newFilters) => {
                     setActiveFilters(newFilters);
                     setCurrentPage(1);
-                    fetchDashStats();
-                }}
+                                    }}
             />
 
             < SummaryFooter stats={stats} formatCurrency={formatCurrency} />
@@ -767,7 +735,6 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     entity={bookingToClose}
                     entityType="Booking"
                     onComplete={() => {
-                        fetchBookings();
                         setSelectedIds([]);
                     }}
                 />

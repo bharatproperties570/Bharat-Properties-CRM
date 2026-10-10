@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { useUpdateLeadMutation } from '../../../utils/crmHooks';
 
 const BUDGET_VALUES = [
     { value: 500000, label: "5 Lakh" },
@@ -401,7 +402,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 locLng: formData.locLng
             };
 
-            const res = await api.put(`leads/${lead._id}`, payload);
+            const res = await updateLeadMutation.mutateAsync({ id: lead._id, payload, isPartial: true });
             if (res.data?.success) {
                 toast.success('Lead requirement updated successfully');
                 onUpdate(res.data.data);

@@ -1,4 +1,17 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Automated Actions Engine
+ *
+ * This module serves as a frontend validation, preview, and API-helper layer.
+ * Production automation orchestration remains exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - API dispatch is strictly bounded to explicitly approved architectural paths.
+ * - Do not independently reproduce backend automation orchestration.
+ * - Do not execute queue/outbox/domain-event side effects here.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Automated Actions Engine - Safe Execution Layer
  * 
  * Core Philosophy:

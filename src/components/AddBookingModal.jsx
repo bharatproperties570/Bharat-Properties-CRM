@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../utils/api';
+import { useDeal, useCreateBookingMutation } from '../utils/crmHooks';
 import toast from 'react-hot-toast';
 import { numberToIndianWords } from '../utils/numberToWords';
 
@@ -9,6 +10,7 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
     const [units, setUnits] = useState([]);
     const [contacts, setContacts] = useState([]);
     const [users, setUsers] = useState([]);
+    const createBookingMutation = useCreateBookingMutation();
 
     const [formData, setFormData] = useState({
         type: 'Sale', // Sale, Rent, Lease
@@ -88,30 +90,22 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
         }
     }, [isOpen]);
 
+    const { data: dealPayload } = useDeal(isOpen && dealId ? dealId : null);
+    
     // Pre-populate if dealId is provided
     useEffect(() => {
-        const fetchDealData = async () => {
-            if (isOpen && dealId) {
-                try {
-                    const res = await api.get(`/deals/${dealId}`);
-                    if (res.data && res.data.success) {
-                        const deal = res.data.deal;
-                        setFormData(prev => ({
-                            ...prev,
-                            project: deal.projectId?._id || deal.projectId || '',
-                            property: deal.inventoryId?._id || deal.inventoryId || '',
-                            lead: deal.partyStructure?.buyer?._id || deal.partyStructure?.buyer || '',
-                            totalDealAmount: deal.price || '',
-                            dealId: deal._id || deal.id
-                        }));
-                    }
-                } catch (error) {
-                    console.error('[AddBookingModal] Error fetching deal for pre-population:', error);
-                }
-            }
-        };
-        fetchDealData();
-    }, [isOpen, dealId]);
+        if (isOpen && dealPayload?.data) {
+            const deal = dealPayload.data;
+            setFormData(prev => ({
+                ...prev,
+                project: deal.projectId?._id || deal.projectId || '',
+                property: deal.inventoryId?._id || deal.inventoryId || '',
+                lead: deal.partyStructure?.buyer?._id || deal.partyStructure?.buyer || '',
+                totalDealAmount: deal.price || '',
+                dealId: deal._id || deal.id
+            }));
+        }
+    }, [isOpen, dealPayload]);
 
     // Auto-calculate Balance
     const balanceAmount = useMemo(() => {
@@ -251,17 +245,17 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
             if (!submissionData[key]) delete submissionData[key];
         });
         try {
-            const response = await api.post('/bookings', submissionData);
-            if (response.data.success) {
+            const response = await createBookingMutation.mutateAsync(submissionData);
+            if (response.success) {
                 toast.success('Booking created successfully!');
                 onSave();
                 onClose();
             } else {
-                toast.error(response.data.message || 'Failed to save booking');
+                toast.error(response.message || 'Failed to save booking');
             }
         } catch (error) {
             console.error('[AddBookingModal] Save error:', error);
-            toast.error(error.response?.data?.message || 'Error saving booking');
+            toast.error(error.response?.data?.message || error.message || 'Error saving booking');
         } finally {
             setIsSaving(false);
         }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
+import { useBooking, useUpdateBookingPaymentMutation, useCreateBookingPaymentMutation, useUpdateBookingCommissionMutation, useSavePaymentScheduleMutation, useUploadBookingReceiptMutation, useDeleteBookingReceiptMutation } from '../utils/crmHooks';
 import toast from 'react-hot-toast';
 
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -33,8 +34,6 @@ const numberToWords = (num) => {
 };
 
 export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('payments'); // 'payments' | 'commission' | 'schedule'
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [showScheduleForm, setShowScheduleForm] = useState(false);
@@ -46,6 +45,13 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
     const [saving, setSaving] = useState(false);
     const [allUsers, setAllUsers] = useState([]);
     const [lookupDict, setLookupDict] = useState({});
+
+    const updatePaymentMutation = useUpdateBookingPaymentMutation(booking?._id);
+    const createPaymentMutation = useCreateBookingPaymentMutation(booking?._id);
+    const updateCommissionMutation = useUpdateBookingCommissionMutation(booking?._id);
+    const saveScheduleMutation = useSavePaymentScheduleMutation(booking?._id);
+    const uploadReceiptMutation = useUploadBookingReceiptMutation(booking?._id);
+    const deleteReceiptMutation = useDeleteBookingReceiptMutation(booking?._id);
 
     useEffect(() => {
         api.get('/users?limit=500&status=Active')
@@ -79,30 +85,21 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
 
     const [scheduleRows, setScheduleRows] = useState([]);
 
-    const fetchFull = useCallback(async () => {
-        if (!booking?._id) return;
-        setLoading(true);
-        try {
-            const res = await api.get(`/bookings/${booking._id}`);
-            if (res.data.success) {
-                setData(res.data.data);
-                setCommissionForm({
-                    commissionReceived: res.data.data.commissionReceived || '',
-                    channelPartnerCommissionReceived: res.data.data.channelPartnerCommissionReceived || ''
-                });
-                if (!res.data.data.paymentSchedule?.length) {
-                    setScheduleRows(defaultSchedule());
-                    setActiveTab('schedule');
-                }
-            }
-        } catch (e) {
-            toast.error('Failed to load booking details');
-        } finally {
-            setLoading(false);
-        }
-    }, [booking?._id, defaultSchedule]);
+    const { data: bookingData, isLoading: loading } = useBooking(booking?._id);
+    const data = bookingData || null;
 
-    useEffect(() => { fetchFull(); }, [fetchFull]);
+    useEffect(() => {
+        if (data) {
+            setCommissionForm({
+                commissionReceived: data.commissionReceived || '',
+                channelPartnerCommissionReceived: data.channelPartnerCommissionReceived || ''
+            });
+            if (!data.paymentSchedule?.length && scheduleRows.length === 0) {
+                setScheduleRows(defaultSchedule());
+                setActiveTab('schedule');
+            }
+        }
+    }, [data, defaultSchedule]);
 
     const handleRecordPayment = async (scheduleItem = null) => {
         if (scheduleItem) {
@@ -154,14 +151,13 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
                 paidAmount: totalPaid
             };
             if (paymentForm.editingPaymentId) {
-                await api.put(`/bookings/${booking._id}/payments/${paymentForm.editingPaymentId}`, payload);
+                await updatePaymentMutation.mutateAsync({ paymentId: paymentForm.editingPaymentId, ...payload });
                 toast.success('Payment updated successfully!');
             } else {
-                await api.post(`/bookings/${booking._id}/payments`, payload);
+                await createPaymentMutation.mutateAsync(payload);
                 toast.success('Payment recorded successfully!');
             }
             setShowPaymentForm(false);
-            await fetchFull();
             onUpdate?.();
         } catch (e) {
             toast.error(e.response?.data?.message || 'Failed to record payment');
@@ -173,9 +169,8 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
     const submitCommission = async () => {
         setSaving(true);
         try {
-            await api.patch(`/bookings/${booking._id}/commission`, commissionForm);
+            await updateCommissionMutation.mutateAsync(commissionForm);
             toast.success('Commission updated!');
-            await fetchFull();
             onUpdate?.();
         } catch (e) {
             toast.error('Failed to update commission');
@@ -191,11 +186,10 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
         }
         setSaving(true);
         try {
-            await api.post(`/bookings/${booking._id}/payment-schedule`, { schedule: scheduleRows });
+            await saveScheduleMutation.mutateAsync({ schedule: scheduleRows });
             toast.success('Payment schedule saved!');
             setShowScheduleForm(false);
             setActiveTab('payments');
-            await fetchFull();
             onUpdate?.();
         } catch (e) {
             toast.error('Failed to save schedule');
@@ -378,9 +372,8 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
 
             if (uploadRes.data.success) {
                 const url = uploadRes.data.url;
-                await api.post(`/bookings/${b._id}/payments/${item._id}/receipt`, { receiptUrl: url });
+                await uploadReceiptMutation.mutateAsync({ paymentId: item._id, receiptUrl: url });
                 toast.success('Receipt uploaded successfully!', { id: loadingToast });
-                await fetchFull();
                 onUpdate?.();
             }
         } catch (error) {
@@ -392,9 +385,8 @@ export default function PaymentScheduleDrawer({ booking, onClose, onUpdate }) {
         if (!window.confirm("Are you sure you want to remove this receipt?")) return;
         const loadingToast = toast.loading('Removing receipt...');
         try {
-            await api.delete(`/bookings/${b._id}/payments/${item._id}/receipt`);
+            await deleteReceiptMutation.mutateAsync({ paymentId: item._id });
             toast.success('Receipt removed successfully!', { id: loadingToast });
-            await fetchFull();
             onUpdate?.();
         } catch (error) {
             toast.error('Failed to remove receipt', { id: loadingToast });

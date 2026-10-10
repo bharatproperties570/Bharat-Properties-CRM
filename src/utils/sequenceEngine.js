@@ -1,4 +1,16 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Sequence Engine
+ *
+ * This module serves as a UI-side preview and planning engine for sequence evaluation.
+ * Production automation and scheduling authority remain exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - Do not use this module as an independent production automation scheduler.
+ * - Do not execute queue/outbox/domain-event side effects here.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Sequences Engine Core Logic
  * Handles trigger evaluation, step scheduling, and exit condition checks.
  */

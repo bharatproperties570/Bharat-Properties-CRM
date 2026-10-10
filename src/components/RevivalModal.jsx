@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import { useUpdateLeadMutation } from '../utils/crmHooks';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useStageEngine } from '../hooks/useStageEngine';
 import { ModalOverlay, FormLabel } from './Activities/ActivityCommon';
 
 const RevivalModal = ({ isOpen, onClose, lead, onRevived }) => {
+    const updateLeadMutation = useUpdateLeadMutation();
     const { 
         masterFields, 
         propertyConfig, 
@@ -62,7 +64,7 @@ const RevivalModal = ({ isOpen, onClose, lead, onRevived }) => {
         setIsSaving(true);
         try {
             // 1. Update Lead Requirements first
-            await api.put(`/leads/${lead._id}`, {
+            await updateLeadMutation.mutateAsync({ id: lead._id, isPartial: true, payload: {
                 budgetMin: formData.budgetMin,
                 budgetMax: formData.budgetMax,
                 propertyType: formData.propertyType,
@@ -71,7 +73,7 @@ const RevivalModal = ({ isOpen, onClose, lead, onRevived }) => {
                 subType: formData.subType,
                 unitType: formData.unitType,
                 notes: (lead.notes ? lead.notes + '\n' : '') + `[Revival] ${formData.description}`
-            });
+            }});
 
             // 2. Trigger Stage Update via Activity
             // This also creates the Activity record and updates stageHistory

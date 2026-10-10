@@ -1,4 +1,18 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Triggers Engine
+ *
+ * This module provides frontend preview and condition evaluation logic only.
+ * Production automation authority and execution remain exclusively in the backend Phase 9 architecture.
+ *
+ * IMPORTANT:
+ * - Do not execute production automation side effects from this module.
+ * - `fireEvent()` execution is delegated to the backend EventBus.
+ * - Do not create queue/outbox/domain-event side effects here.
+ * - Do not introduce a second frontend automation runtime.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Triggers Engine - Event-Driven Control Layer
  * 
  * Core Principles:
@@ -395,8 +409,6 @@ export const evaluateAndExecuteTriggers = async (event, entity, triggers, action
     // This is enforced by isCriticalField('stage') in the update_field action handler.
     // Logging here makes the guard visible for debugging.
     if (triggeredBy === 'stage_engine' && event === 'lead_stage_changed') {
-        console.log(`[TriggerEngine] lead_stage_changed fired by StageTransitionEngine — ` +
-            `Triggers may react but cannot update 'stage' field. Source: stage_engine`);
     }
 
     // Filter relevant triggers

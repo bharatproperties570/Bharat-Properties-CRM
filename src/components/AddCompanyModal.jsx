@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { api } from '../utils/api';
+import { useAddCompanyMutation, useUpdateCompanyMutation } from '../utils/crmHooks';
+
 import toast from 'react-hot-toast';
 // Mock data removed
 
@@ -103,7 +106,9 @@ const getId = (field) => {
 
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const { companyMasterFields } = usePropertyConfig();
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
     const [currentAddressType, setCurrentAddressType] = useState('registeredOffice');
@@ -132,7 +137,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
 
 
-    const [formData, setFormData] = useState({
+    
+    const addMutation = useAddCompanyMutation();
+    const updateMutation = useUpdateCompanyMutation();
+const [formData, setFormData] = useState({
         name: '',
         phones: [{ id: 'init_phone', phoneCode: '+91', phoneNumber: '', type: 'Work' }],
         emails: [{ id: 'init_email', address: '', type: 'Work' }],
@@ -518,9 +526,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             let response;
             const companyId = initialData?._id || initialData?.id;
             if (isEdit && companyId) {
-                response = await api.put(`/companies/${companyId}`, payload);
+                response = await updateMutation.mutateAsync({ id: companyId, payload });
             } else {
-                response = await api.post('/companies', payload);
+                response = await addMutation.mutateAsync(payload);
             }
 
             if (response.data && response.data.success) {

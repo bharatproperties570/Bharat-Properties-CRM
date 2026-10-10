@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
+import { useProject } from '../../utils/crmHooks';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import Chart from 'react-apexcharts';
@@ -15,12 +16,19 @@ import AddInventoryModal from '../../components/AddInventoryModal';
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { isDark } = useTheme();
     const { getLookupValue } = usePropertyConfig();
-    const [project, setProject] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const { data: projectQuery, isFetching: loading, refetch: fetchProjectDetails } = useProject(projectId);
+    const project = projectQuery?.data || null;
     const [activeTab, setActiveTab] = useState('activity');
     const [inventoryData, setInventoryData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
     const [blocksData, setBlocksData] = useState([]);
+
+    useEffect(() => {
+        if (project) {
+            setBlocksData(project.blocks || []);
+        }
+    }, [project]);
+
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -29,28 +37,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-    const fetchProjectDetails = useCallback(async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(`projects/${projectId}`);
-            if (response.data && response.data.success) {
-                const data = response.data.data;
-                setProject(data);
-                setBlocksData(data.blocks || []);
-
-                // Fetch associated data
-                fetchInventory(projectId);
-                fetchDeals(projectId);
-            } else {
-                toast.error("Failed to load project details");
-            }
-        } catch (error) {
-            console.error("Error fetching project:", error);
-            toast.error("Error loading project");
-        } finally {
-            setLoading(false);
-        }
-    }, [projectId]);
+    // fetchProjectDetails replaced by useProject refetch mapping
 
 
     const fetchInventory = async (pid) => {
@@ -95,8 +82,11 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
         setIsEditUnitModalOpen(true);
     };
 
-     useEffect(() => {
-        fetchProjectDetails();
+useEffect(() => {
+        if (projectId) {
+            fetchInventory(projectId);
+            fetchDeals(projectId);
+        }
         
         // Listen for global project updates to refresh data
         const handleProjectUpdate = () => {
@@ -104,7 +94,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
         };
         window.addEventListener('project-updated', handleProjectUpdate);
         return () => window.removeEventListener('project-updated', handleProjectUpdate);
-    }, [fetchProjectDetails]);
+    }, [projectId, fetchProjectDetails]);
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-gray)' }}>

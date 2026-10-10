@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
@@ -426,10 +427,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
       // Fetch Lookups & Users for filters (Hardened)
       try {
         console.log("[MarketingOS] Synchronizing CRM Metadata...");
-        const [lks, usrRes] = await Promise.all([
-          api.get('/lookups?lookup_type=Stage,LeadStage,LeadStatus,DealStage,Source,LeadSource,PropertyCategory,Sub-Category,LeadSegment,City,InventoryStatus').catch(() => ({ success: false })),
-          usersAPI.getAll().catch(() => ({ success: false }))
-        ]);
+        const lks = await api.get('/lookups?lookup_type=Stage,LeadStage,LeadStatus,DealStage,Source,LeadSource,PropertyCategory,Sub-Category,LeadSegment,City,InventoryStatus').catch(() => ({ success: false }));
         
         // Normalize the lookups response to match the structure expected by the rest of the code
         if (lks && lks.status === 200 && lks.data?.status === 'success') {
@@ -453,7 +451,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
             segments: allLks.filter(i => i.lookup_type === 'Lead Segment'),
             cities: allLks.filter(i => i.lookup_type === 'City'),
             inventoryStatuses: allLks.filter(i => i.lookup_type === 'Inventory Status'),
-            users: usrRes?.data || (Array.isArray(usrRes) ? usrRes : []),
+            
           }));
         }
       } catch (err) {
@@ -3710,8 +3708,8 @@ export default function MarketingOverviewPage({ onNavigate }) {
                         if (onNavigate) {
                             onNavigate('sequence-builder', 'new');
                         } else if (typeof window !== 'undefined') {
-                            window.history.pushState({ view: 'sequence-builder', contactId: 'new' }, '', '/marketing/sequences/new');
-                            window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'sequence-builder', contactId: 'new' } }));
+                            navigate('/marketing/sequences/new');
+                            
                         }
                     }}
                 >
@@ -4247,7 +4245,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
                           style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
                           <option value="">👤 Deal Owner</option>
-                          {lookups.users?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
+                          {usersData?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
                         </select>
                         <input 
                           type="number"

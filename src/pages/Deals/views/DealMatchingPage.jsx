@@ -1,18 +1,21 @@
+import { useParams } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
 import { useState, useEffect, useCallback } from 'react';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
-import { useActivities } from '../../../context/ActivityContext';
+import { useAddActivityMutation } from '../../../utils/crmHooks';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { useDeal } from '../../../utils/crmHooks';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import whatsappService from '../../../services/whatsappService';
 import { systemSettingsAPI } from '../../../utils/api';
 
 
-const DealMatchingPage = ({ onNavigate, dealId }) => {
+const DealMatchingPage = ({ onNavigate}) => {
+    const { id: dealId } = useParams();
     const { isDark } = useTheme();
-    const { addActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
     const { lookups, projects } = usePropertyConfig();
 
     // Core State
@@ -62,19 +65,6 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     // 1. Fetch Deal
     useEffect(() => {
         if (!dealId) return;
-        const fetchDeal = async () => {
-            setLoading(true);
-            try {
-                const res = await api.get(`deals/${dealId}`);
-                if (res.data?.success) setDeal(res.data.deal);
-            } catch (err) {
-                toast.error('Failed to load deal');
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchDeal();
-
         const fetchTemplates = async () => {
             try {
                 const [metaRes, localRes] = await Promise.all([

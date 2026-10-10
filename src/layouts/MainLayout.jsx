@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useActivities } from '../context/ActivityContext';
+import { useAddActivityMutation } from '../utils/crmHooks';
 import { useImport } from '../context/ImportContext';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 
@@ -21,6 +22,7 @@ import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
 import { leadsAPI, dealsAPI } from '../utils/api';
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
+    const navigate = useNavigate();
     // Global Modal State
     const [showAddContactModal, setShowAddContactModal] = useState(false);
     const [showAddLeadModal, setShowAddLeadModal] = useState(false);
@@ -49,7 +51,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [editingLead, setEditingLead] = useState(null);
 
     // Global Context
-    const { addActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
     const { activeImports, clearImport } = useImport();
 
     const handleSaveGlobalActivity = (activityData) => {
@@ -73,7 +75,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
         setEditingProject(null);
         setShowAddProjectModal(true);
         if (typeof window !== 'undefined' && window.history) {
-            window.history.pushState({ view: currentView, modal: 'add-project' }, '', '/projects/new');
+            navigate('/projects/new');
         }
     };
 

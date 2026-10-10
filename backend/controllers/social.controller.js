@@ -288,13 +288,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             // Header Media override
             // Priority: headerImageUrl (from frontend) > mediaUrl (manual) > DB-configured default > hardcoded fallback
             if (headerImageUrl || mediaUrl || requiredHeaderFormat) {
-                
-                let guessedType = 'image';
-                const testUrl = headerImageUrl || mediaUrl || dbDefaultImage || '';
-                if (testUrl.toLowerCase().endsWith('.pdf')) guessedType = 'document';
-                else if (testUrl.toLowerCase().endsWith('.mp4')) guessedType = 'video';
-
-                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : type === 'video' ? 'video' : guessedType);
+                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : 'video');
                 
                 // Try to load configured default image from SystemSettings
                 let dbDefaultImage = null;
@@ -323,11 +317,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                         if (finalMediaUrl.includes('/uploads/')) {
                             const parts = finalMediaUrl.split('/uploads/');
                             // Use absolute path logic similar to WhatsAppService
-                            const relativePath = parts[1].split('?')[0];
-                            const path1 = path.resolve(process.cwd(), 'uploads', relativePath);
-                            const path2 = path.resolve(process.cwd(), 'backend', 'uploads', relativePath);
-                            const path3 = path.resolve(process.cwd(), '../uploads', relativePath);
-                            localPath = fs.existsSync(path1) ? path1 : fs.existsSync(path2) ? path2 : fs.existsSync(path3) ? path3 : path1;
+                            localPath = path.resolve(process.cwd(), 'uploads', parts[1].split('?')[0]);
                         } else if (finalMediaUrl.startsWith('/')) {
                             localPath = path.resolve(process.cwd(), finalMediaUrl.substring(1));
                         }
@@ -349,11 +339,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                     }
                 }
 
-                let fallbackLink = finalMediaUrl;
-                if (fallbackLink.startsWith('/')) {
-                    fallbackLink = 'https://api.bharatproperties.co' + fallbackLink;
-                }
-                const mediaObject = mediaId ? { id: mediaId } : { link: fallbackLink };
+                const mediaObject = mediaId ? { id: mediaId } : { link: finalMediaUrl };
                 if (hType === 'document' && !mediaId) {
                     mediaObject.filename = filename || 'Huda_Map_Book_KKR.pdf';
                 }
@@ -1200,3 +1186,71 @@ export const getWhatsAppAccounts = async (req, res) => {
     }
 };
 
+/**
+ * POST /api/social/whatsapp/baileys/start
+ * Initialize a Baileys QR connection
+ */
+export const startBaileysConnection = async (req, res) => {
+    try {
+        const { displayPhoneNumber, accountLabel } = req.body;
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        
+        // Find if one already exists for this phone number, or create new
+        let integration = await WhatsAppIntegration.findOne({ 
+            provider: 'BAILEYS', 
+            phoneNumberId: displayPhoneNumber || 'temp_baileys'
+        });
+
+        if (!integration) {
+            integration = await WhatsAppIntegration.create({
+                provider: 'BAILEYS',
+                phoneNumberId: displayPhoneNumber || `baileys_${Date.now()}`,
+                displayPhoneNumber,
+                accountLabel: accountLabel || 'QR WhatsApp Web',
+                connectionType: 'QR_SCANNER',
+                onboardingStatus: 'INITIATED',
+                status: 'PENDING_ONBOARDING',
+                connectedBy: req.user._id
+            });
+        } else {
+            integration.onboardingStatus = 'INITIATED';
+            integration.status = 'PENDING_ONBOARDING';
+            integration.failureReason = null;
+            await integration.save();
+        }
+
+        const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+        // This will asynchronously generate the QR and store it in failureReason
+        BaileysConnectionManager.connect(integration._id.toString());
+
+        res.json({ success: true, integrationId: integration._id });
+    } catch (error) {
+        console.error('[SocialController] startBaileysConnection error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/social/whatsapp/baileys/status/:id
+ * Get the Baileys connection status and QR code
+ */
+export const getBaileysStatus = async (req, res) => {
+    try {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        const integration = await WhatsAppIntegration.findById(req.params.id);
+        
+        if (!integration) {
+            return res.status(404).json({ success: false, error: 'Integration not found' });
+        }
+
+        res.json({ 
+            success: true, 
+            status: integration.status,
+            onboardingStatus: integration.onboardingStatus,
+            qrDataUrl: integration.onboardingStatus === 'QR_PENDING' ? integration.failureReason : null 
+        });
+    } catch (error) {
+        console.error('[SocialController] getBaileysStatus error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

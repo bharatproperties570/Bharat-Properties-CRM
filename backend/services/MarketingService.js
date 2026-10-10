@@ -1,6 +1,4 @@
 import unifiedAIService from './UnifiedAIService.js';
-import AIExecutionService from './ai/AIExecutionService.js';
-import AIExecutionContext from './ai/AIExecutionContext.js';
 import AiAgent from '../models/AiAgent.js';
 import Deal from '../models/Deal.js';
 // Assuming CampaignEngine or a worker queue is available
@@ -70,17 +68,7 @@ class MarketingService {
             - If YouTube: Separate Title, Description, and Script sections.
         `;
 
-        
-        const context = AIExecutionContext.fromSystem('SYSTEM_TENANT', 'MarketingService');
-        const resultObj = await AIExecutionService.execute({
-            context,
-            capability: 'AI_MARKETING_GENERATION',
-            expectedSchema: 'TEXT_GENERATION_RESULT',
-            inputData: prompt,
-            provider
-        });
-        return resultObj.content;
-
+        return await unifiedAIService.generate(prompt, { provider });
     }
 
     /**
@@ -114,17 +102,12 @@ class MarketingService {
             }
         `;
 
-        
-        const context = AIExecutionContext.fromSystem('SYSTEM_TENANT', 'MarketingService');
-        const responseObj = await AIExecutionService.execute({
-            context,
-            capability: 'AI_MARKETING_GENERATION',
-            expectedSchema: 'EMAIL_CONTENT_RESULT',
-            inputData: prompt,
-            provider
-        });
-        return responseObj;
-
+        const response = await unifiedAIService.generate(prompt, { provider });
+        try {
+            return JSON.parse(response);
+        } catch (e) {
+            return { subject: `Exclusive Opportunity: ${projectName}`, body: response };
+        }
     }
 
     /**

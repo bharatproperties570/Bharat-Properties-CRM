@@ -36,18 +36,19 @@ class WhatsAppService {
             if (!integration) {
                 throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' not found or inactive`);
             }
-            if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
+            if (integration.provider !== 'BAILEYS' && (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken))) {
                 throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' has no valid credentials`);
             }
             return {
                 integrationId: integration._id,
-                token: integration.credentials.systemUserToken,
+                token: integration.credentials?.systemUserToken,
                 phoneId: integration.phoneNumberId,
                 businessId: integration.wabaId,
                 appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
                 displayPhoneNumber: integration.displayPhoneNumber,
                 accountLabel: integration.accountLabel || 'WhatsApp Account',
-                connectionType: integration.connectionType
+                connectionType: integration.connectionType,
+                provider: integration.provider || 'META'
             };
         }
 
@@ -55,16 +56,17 @@ class WhatsAppService {
         try {
             const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
             const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
-            if (defaultIntegration && defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)) {
+            if (defaultIntegration && (defaultIntegration.provider === 'BAILEYS' || (defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)))) {
                 return {
                     integrationId: defaultIntegration._id,
-                    token: defaultIntegration.credentials.systemUserToken,
+                    token: defaultIntegration.credentials?.systemUserToken,
                     phoneId: defaultIntegration.phoneNumberId,
                     businessId: defaultIntegration.wabaId,
                     appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
                     displayPhoneNumber: defaultIntegration.displayPhoneNumber,
                     accountLabel: defaultIntegration.accountLabel || 'Main WhatsApp API',
-                    connectionType: defaultIntegration.connectionType
+                    connectionType: defaultIntegration.connectionType,
+                    provider: defaultIntegration.provider || 'META'
                 };
             }
         } catch (e) {
@@ -126,6 +128,9 @@ class WhatsAppService {
             return { success: false, error: err.message, provider: 'meta' };
         }
         if (config) {
+            if (config.provider === 'BAILEYS') {
+                return this._sendViaBaileys(mobile, message, config, { type: 'text', ...(typeof options === 'object' ? options : {}) });
+            }
             return this._sendViaMeta(mobile, message, config, { type: 'text', ...(typeof options === 'object' ? options : {}) });
         }
         
@@ -169,14 +174,45 @@ class WhatsAppService {
         return digitsOnly.length === 10 ? `91${digitsOnly}` : digitsOnly;
     }
 
+    async _sendViaBaileys(mobile, message, config, options = {}) {
+        const { type = 'text', mediaUrl } = options;
+        try {
+            const { Queue } = await import('bullmq');
+            const IORedis = (await import('ioredis')).default;
+            const envConfig = (await import('../config/env.js')).default;
+            
+            const connection = new IORedis(envConfig.redisUri || 'redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
+            const baileysQueue = new Queue('whatsapp_baileys_outbound', { connection });
+
+            const job = await baileysQueue.add('send', {
+                integrationId: config.integrationId.toString(),
+                to: mobile,
+                text: message,
+                mediaUrl: type !== 'text' ? mediaUrl : null
+            }, {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 }
+            });
+
+            console.log(`[WhatsAppService/Baileys] Enqueued job ${job.id} for ${mobile}`);
+
+            return { 
+                success: true, 
+                provider: 'baileys', 
+                messageId: `baileys-job-${job.id}`,
+                messages: [{ id: `baileys-job-${job.id}` }] 
+            };
+        } catch (error) {
+            console.error(`[WhatsAppService/Baileys] Queue error:`, error);
+            return { success: false, error: error.message, provider: 'baileys' };
+        }
+    }
+
     async _sendViaMeta(mobile, message, config, options = {}) {
         const toNumber = this._normalizeTarget(mobile);
         if (!toNumber) return { success: false, error: 'Invalid phone number format' };
 
-        let { type = 'text', mediaUrl, filename, caption } = options;
-        if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('/')) {
-            mediaUrl = 'https://api.bharatproperties.co' + mediaUrl;
-        }
+        const { type = 'text', mediaUrl, filename, caption } = options;
 
         try {
             const url = `${META_GRAPH_BASE}/${config.phoneId}/messages`;
@@ -289,6 +325,11 @@ class WhatsAppService {
             return { success: true, mock: true, provider: 'mock' };
         }
 
+        if (metaConfig.provider === 'BAILEYS') {
+            console.log(`[WhatsApp/Baileys] Templates are not natively supported by Baileys. Triggering plain-text fallback.`);
+            return { success: false, error: 'Templates not supported by Baileys provider' };
+        }
+
         const toNumber = this._normalizeTarget(mobile);
         if (!toNumber) return { success: false, error: 'Invalid phone number' };
 
@@ -348,6 +389,9 @@ class WhatsAppService {
             return { success: false, error: err.message, provider: 'meta' };
         }
         if (metaConfig) {
+            if (metaConfig.provider === 'BAILEYS') {
+                return this._sendViaBaileys(mobile, caption, metaConfig, { type, mediaUrl, caption, filename, ...extraOptions });
+            }
             let mediaId = null;
 
             // 🚀 SENIOR LOGIC: If mediaUrl is local or from our server, upload to Meta first for reliability
@@ -358,18 +402,11 @@ class WhatsAppService {
                     
                     // Resolve absolute path
                     let localPath = '';
-                    let relativePart = '';
                     if (mediaUrl.startsWith('/uploads/')) {
-                        relativePart = mediaUrl.substring(9);
+                        localPath = path.resolve(mediaUrl.substring(1)); // remove leading slash
                     } else if (mediaUrl.includes('/uploads/')) {
-                        relativePart = mediaUrl.split('/uploads/')[1];
-                    }
-                    
-                    if (relativePart) {
-                        const p1 = path.resolve(process.cwd(), 'uploads', relativePart.split('?')[0]);
-                        const p2 = path.resolve(process.cwd(), 'backend', 'uploads', relativePart.split('?')[0]);
-                        const p3 = path.resolve(process.cwd(), '../uploads', relativePart.split('?')[0]);
-                        localPath = fs.existsSync(p1) ? p1 : fs.existsSync(p2) ? p2 : fs.existsSync(p3) ? p3 : p1;
+                        const parts = mediaUrl.split('/uploads/');
+                        localPath = path.resolve('uploads', parts[1]);
                     }
 
                     if (localPath && fs.existsSync(localPath)) {

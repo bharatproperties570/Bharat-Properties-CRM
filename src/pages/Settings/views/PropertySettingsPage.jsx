@@ -228,16 +228,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
         console.log('[AddSizeModal] Initializing sizeData. initialData:', initialData);
         if (initialData) {
-            const rawMappings = Array.isArray(initialData.projectMappings) ? initialData.projectMappings : [];
-            const mergedMappings = [...rawMappings];
-            if (initialData.project && !mergedMappings.some(m => m.project === initialData.project && m.block === (initialData.block || ''))) {
-                mergedMappings.push({ project: initialData.project, block: initialData.block || '' });
-            }
-            setSizeData({
-                ...defaultState,
-                ...initialData,
-                projectMappings: mergedMappings
-            });
+            setSizeData(initialData);
         } else {
             const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
             const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
@@ -284,8 +275,8 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
     // ✅ ENTERPRISE: Real-time duplicate check — globally unique name
     useEffect(() => {
         if (!sizeData.name || !Array.isArray(existingSizes)) { setNameConflict(false); return; }
-        const editingId = initialData?.id || initialData?._id;
-        const conflict = existingSizes.some(s => s.name === sizeData.name && (s.id || s._id) !== editingId);
+        const editingId = initialData?.id;
+        const conflict = existingSizes.some(s => s.name === sizeData.name && s.id !== editingId);
         setNameConflict(conflict);
     }, [sizeData.name, existingSizes, initialData]);
 
@@ -339,16 +330,8 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
         if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
         if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
-        let finalMappings = Array.isArray(sizeData.projectMappings) ? [...sizeData.projectMappings] : [];
-        if (quickProject) {
-            const alreadyAdded = finalMappings.some(m => m.project === quickProject && m.block === (quickBlock || ''));
-            if (!alreadyAdded) {
-                finalMappings.push({ project: quickProject, block: quickBlock || '' });
-            }
-        }
-
         // Pass projectMappings along — context will handle them
-        onAdd({ ...sizeData, projectMappings: finalMappings });
+        onAdd({ ...sizeData });
         onClose();
     };
 
@@ -982,7 +965,7 @@ const PropertySettingsPage = () => {
     const handleSaveSize = async (sizeData) => {
         try {
             if (editingSize) {
-                await updateSize({ ...sizeData, id: editingSize.id || editingSize._id });
+                await updateSize({ ...sizeData, id: editingSize.id });
                 showToast('Property size updated successfully');
             } else {
                 // ✅ ENTERPRISE: Global duplicate check — same name cannot exist anywhere
@@ -1125,42 +1108,19 @@ const PropertySettingsPage = () => {
             String(s.carpetArea || '').includes(q) ||
             (s.description || '').toLowerCase().includes(q)
         );
-        // Project/Block filter uses joint projectMappings check
-        const matchesProjectAndBlock = (!sizeFilters.project && !sizeFilters.block) || (() => {
-            const targetProj = (sizeFilters.project || '').trim().toLowerCase();
-            const targetBlk = (sizeFilters.block || '').trim().toLowerCase();
-            const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-            
-            if (mappings.length > 0) {
-                return mappings.some(m => {
-                    if (!m) return false;
-                    const mProj = String(m.project || '').trim().toLowerCase();
-                    const mBlk = String(m.block || '').trim().toLowerCase();
-                    if (targetProj && mProj !== targetProj) return false;
-                    if (targetBlk) {
-                        if (!mBlk || mBlk === 'all' || mBlk === 'all blocks') return true;
-                        return mBlk === targetBlk;
-                    }
-                    return true;
-                });
-            }
-            if (s.project) {
-                const sProj = String(s.project).trim().toLowerCase();
-                const sBlk = String(s.block || '').trim().toLowerCase();
-                if (targetProj && sProj !== targetProj) return false;
-                if (targetBlk) {
-                    if (!sBlk || sBlk === 'all' || sBlk === 'all blocks') return true;
-                    return sBlk === targetBlk;
-                }
-                return true;
-            }
-            return false;
-        })();
-
+        // Project/Block filter uses projectMappings (post-migration) with old project field as fallback
+        const matchesProject = !sizeFilters.project || (
+            (Array.isArray(s.projectMappings) && s.projectMappings.some(m => m.project === sizeFilters.project)) ||
+            s.project === sizeFilters.project
+        );
+        const matchesBlock = !sizeFilters.block || (
+            (Array.isArray(s.projectMappings) && s.projectMappings.some(m => m.block === sizeFilters.block)) ||
+            s.block === sizeFilters.block
+        );
         const matchesCategory = !sizeFilters.category || s.category === sizeFilters.category;
         const matchesSubCategory = !sizeFilters.subCategory || s.subCategory === sizeFilters.subCategory;
         const matchesUnitType = !sizeFilters.unitType || s.unitType === sizeFilters.unitType;
-        return matchesSearch && matchesProjectAndBlock && matchesCategory && matchesSubCategory && matchesUnitType;
+        return matchesSearch && matchesProject && matchesBlock && matchesCategory && matchesSubCategory && matchesUnitType;
     });
 
     // Pagination Logic

@@ -2,11 +2,13 @@ import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { api } from '../../utils/api';
+import { useUpdateDealMutation } from '../../utils/crmHooks';
 import toast from 'react-hot-toast';
 import { fixDriveUrl } from '../../utils/helpers';
 
 const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
     const { isDark } = useTheme();
+    const updateDealMutation = useUpdateDealMutation({ isPartial: true });
     const [selectedImageUrl, setSelectedImageUrl] = useState(null);
 
     const gridStyle = { 
@@ -115,7 +117,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             const currentBuiltup = deal.builtupDetails || [];
             const updatedBuiltup = [...currentBuiltup, newRow];
 
-            const res = await api.put(`deals/${deal._id}`, { builtupDetails: updatedBuiltup });
+            const res = { data: await updateDealMutation.mutateAsync({ id: deal._id, payload: { builtupDetails: updatedBuiltup } }) };
             if (res.data && (res.data.success || res.data.status === 'success')) {
                 toast.success('Specification added successfully! ✨');
                 setIsModalOpen(false);
@@ -149,7 +151,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             const currentBuiltup = deal.builtupDetails || [];
             const updatedBuiltup = currentBuiltup.filter((_, idx) => idx !== indexToDelete);
 
-            const res = await api.put(`deals/${deal._id}`, { builtupDetails: updatedBuiltup });
+            const res = { data: await updateDealMutation.mutateAsync({ id: deal._id, payload: { builtupDetails: updatedBuiltup } }) };
             if (res.data && (res.data.success || res.data.status === 'success')) {
                 toast.success('Specification removed successfully!');
                 if (onRefresh) onRefresh();
@@ -653,6 +655,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
 
 const InfoItem = ({ label, value, icon }) => {
     const { isDark } = useTheme();
+    const updateDealMutation = useUpdateDealMutation({ isPartial: true });
     return (
 <div style={{ padding: '14px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
         <p style={{ margin: '0 0 6px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>

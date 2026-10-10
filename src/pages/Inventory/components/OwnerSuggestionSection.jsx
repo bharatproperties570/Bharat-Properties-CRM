@@ -55,15 +55,9 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                 ownerHistory: [...(inventory.ownerHistory || []), newHistoryEntry]
             };
 
-            const res = await api.put(`inventory/${inventoryId}`, updates);
-            
-            if (res.data?.success) {
-                toast.success(`${contact.name} linked successfully`, { id: toastId });
-                setSuggestions(prev => prev.filter(c => c._id !== contact._id));
-                if (onRefresh) onRefresh();
-            } else {
-                toast.error("Failed to link contact", { id: toastId });
-            }
+            await updateInventory({ id: inventoryId, data: updates });
+            toast.success(`${contact.name} linked successfully`, { id: toastId });
+            setSuggestions(prev => prev.filter(c => c._id !== contact._id));
         } catch (err) {
             console.error("Quick add error:", err);
             toast.error("An error occurred");

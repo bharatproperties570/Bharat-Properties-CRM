@@ -4,7 +4,6 @@ import EnrichmentLog from "../../../models/EnrichmentLog.js";
 import AuditLog from "../../../models/AuditLog.js";
 import Lead from "../../../models/Lead.js";
 import { scanKeywords, calculateIntentIndex, classifyLead, detectMarginOpportunity } from "../../utils/enrichmentEngine.js";
-import { AuthorityProofIssuer } from "../../../utils/ServerAuthorityProof.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 
 /**
@@ -111,54 +110,9 @@ export const runEnrichment = async (req, res, next) => {
     try {
         const { leadId } = req.params;
 
-        const { authorizeTargetEntity } = await import('../../../utils/authorization.js');
-        await authorizeTargetEntity(req.user, 'lead', leadId);
-
-        const { withMongoTransaction } = await import('../../../utils/withMongoTransaction.js');
-        const { DomainEventPublisher } = await import('../../../utils/DomainEventPublisher.js');
-        const Lead = (await import('../../../models/Lead.js')).default;
-        
-        // Read state and OCC version marker BEFORE transaction
-        const existingLead = await Lead.findById(leadId).lean();
-        const currentStatus = existingLead?.enrichmentState?.status;
-        const currentV = existingLead?.__v || 0;
-        
-        if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED') {
-            return res.status(409).json({
-                success: false,
-                message: 'Enrichment is already in progress.'
-            });
-        }
-
-        await withMongoTransaction(async (session) => {
-            // Atomic OCC-based transition inside transaction
-            // Binds __v to prevent concurrent request retries from succeeding
-            const result = await Lead.updateOne(
-                { 
-                    _id: leadId, 
-                    "enrichmentState.status": { $in: ["COMPLETED", "NONE", "FAILED", null] },
-                    __v: currentV
-                }, 
-                { 
-                    $set: { "enrichmentState.status": "NONE" },
-                    $inc: { __v: 1 }
-                }, 
-                { session }
-            );
-
-            if (result.matchedCount === 0) {
-                // If 0, either another manual enrichment won the race, 
-                // or a concurrent Lead update occurred. Fail safely.
-                throw new Error("Concurrency conflict: Lead enrichment state changed before atomic transition.");
-            }
-
-            await DomainEventPublisher.publishFromHttp(req, session, {
-                eventType: 'ManualEnrichmentRequested',
-                aggregateType: 'Lead',
-                aggregateId: leadId,
-                payload: { requestedBy: req.user?._id }
-            });
-        });
+        await scanKeywords(leadId);
+        await calculateIntentIndex(leadId);
+        await classifyLead(leadId);
 
         const updatedLead = await Lead.findById(leadId);
 
@@ -167,12 +121,6 @@ export const runEnrichment = async (req, res, next) => {
             data: updatedLead
         });
     } catch (error) {
-        if (error.message.includes("Concurrency conflict")) {
-            return res.status(409).json({
-                success: false,
-                message: 'Enrichment is already in progress or state changed concurrently.'
-            });
-        }
         next(error);
     }
 };
@@ -181,7 +129,13 @@ export const runEnrichment = async (req, res, next) => {
  * Run Manual Margin Detection for a Deal
  */
 export const runMarginDetection = async (req, res, next) => {
-    return next(new AppError('SECURITY_VIOLATION: Margin detection can only be triggered via authorized WEBHOOK pipelines.', 403));
+    try {
+        const { dealId } = req.params;
+        const result = await detectMarginOpportunity(dealId);
+        res.status(200).json({ success: true, negotiation_window: result });
+    } catch (error) {
+        next(error);
+    }
 };
 
 /**

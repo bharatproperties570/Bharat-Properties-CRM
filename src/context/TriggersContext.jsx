@@ -138,7 +138,6 @@ export const TriggersProvider = ({ children }) => {
         // [PHASE 5 EDA MIGRATION]
         // Execution is now handled entirely by the backend EventBus and AutomationEngine.
         // Frontend no longer simulates or executes triggers.
-        console.log(`[TriggersContext] Event '${event}' delegated to backend EventBus.`);
         return [];
     }, []);
 

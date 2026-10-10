@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
@@ -9,7 +10,7 @@ import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard } from '../../../utils/matchingLogic'; // Keeping for parsing utilities
-import { useActivities } from '../../../context/ActivityContext';
+import { useAddActivityMutation, useLead, useUpdateLeadMutation } from '../../../utils/crmHooks';
 import { renderValue } from '../../../utils/renderUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import QuickFillModal from '../components/QuickFillModal';
@@ -19,12 +20,18 @@ import { systemSettingsAPI } from '../../../utils/api';
 import { useUserContext } from '../../../context/UserContext';
 import { generateDealsPDF } from '../../../utils/pdfUtils';
 
-const LeadMatchingPage = ({ onNavigate, leadId }) => {
+const LeadMatchingPage = ({ onNavigate}) => {
+    const { id: leadId } = useParams();
     const { isDark } = useTheme();
-    const { addActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
     const { getLookupValue, lookups, projects, sizes, propertyConfig, leadMasterFields, getLookupId } = usePropertyConfig();
-    const [lead, setLead] = useState(null);
-    const [inventoryItems, setInventoryItems] = useState([]);
+
+    // --- TANSTACK SERVER STATE ---
+    const { data: leadData, isPending: isLeadLoading } = useLead(leadId);
+    const updateLeadMutation = useUpdateLeadMutation();
+    const lead = leadData;
+
+        const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
 
     // Selection State
@@ -166,11 +173,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             const fetchData = async () => {
                 setLoading(true);
                 try {
-                    // 1. Fetch specific lead
-                    const leadRes = await api.get(`leads/${leadId}`);
-                    if (leadRes.data && leadRes.data.success) {
-                        setLead(leadRes.data.data);
-                    }
+                    // 1. Lead is fetched via TanStack Query (useLead)
+                    // We only proceed to fetch matches if leadData is available
+                    if (!leadData) return;
 
                     const matchRes = await api.get('deals/match', { 
                         params: { 
@@ -440,10 +445,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             if (quickFields.areaMax !== undefined) payload.areaMax = parseFloat(quickFields.areaMax);
             if (quickFields.areaMetric !== undefined) payload.areaMetric = quickFields.areaMetric;
 
-            const res = await api.patch(`leads/${lead._id}`, payload);
+            const res = await updateLeadMutation.mutateAsync({ id: lead._id, payload, isPartial: true });
             if (res.data?.success || res.data?.data) {
-                setLead(prev => ({ ...prev, ...payload }));
-                setIsQuickFillOpen(false);
+                                setIsQuickFillOpen(false);
                 setQuickFields({});
                 toast.success('Profile updated! Re-matching...');
                 // Re-trigger match fetch by bumping budgetFlexibility slightly then back
@@ -570,11 +574,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             if (feedback === 'snoozed' && (item.inventoryId?._id || item.inventoryId)) {
                 await api.put(`leads/match/snooze/${item.inventoryId?._id || item.inventoryId}`, { leadId: lead._id });
             } else {
-                await api.patch(`leads/${lead._id}`, payload);
+                await updateLeadMutation.mutateAsync({ id: lead._id, payload, isPartial: true });
             }
             
-            setLead(prev => ({ ...prev, ...payload }));
-
+            
             // 4. Show contextual feedback
             const messages = {
                 interested: `✅ ${lead.firstName} marked as interested in ${item.projectName || 'this property'}`,
@@ -665,10 +668,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 // For a senior professional, we'll just update the scalars
             };
             
-            const res = await api.patch(`leads/${lead._id}`, payload);
+            const res = await updateLeadMutation.mutateAsync({ id: lead._id, payload, isPartial: true });
             if (res.data?.success) {
-                setLead(prev => ({ ...prev, ...payload }));
-                setAiFindings(null);
+                                setAiFindings(null);
                 toast.success('AI Insights applied to profile! Re-matching...');
                 setRefreshCount(prev => prev + 1);
             }

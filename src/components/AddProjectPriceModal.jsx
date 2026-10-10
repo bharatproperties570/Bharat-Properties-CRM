@@ -7,7 +7,7 @@ import { renderValue } from '../utils/renderUtils';
 // keeping consistent styling variables is key.
 
 export default function AddProjectPriceModal({ isOpen, onClose, onSave, project }) {
-    const { sizes, getSizesByProjectBlock } = usePropertyConfig();
+    const { sizes } = usePropertyConfig();
     const [formData, setFormData] = useState({});
 
     // Initialize form data when project changes or modal opens
@@ -298,11 +298,13 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                         onChange={e => setNewPriceRow({ ...newPriceRow, size: e.target.value })}
                                     >
                                         <option value="">Select Size</option>
-                                        {getSizesByProjectBlock(formData.name || project?.name || project?._id, newPriceRow.block)
-                                            .filter(s => !newPriceRow.subCategory || s.subCategory === newPriceRow.subCategory)
-                                            .map(s => (
-                                                <option key={s.id || s._id} value={s.saleableArea || s.totalArea || s.name}>{s.name}</option>
-                                            ))}
+                                        {sizes.filter(s =>
+                                            (!s.project || s.project === formData.name) &&
+                                            (!newPriceRow.block || s.block === newPriceRow.block) &&
+                                            (!newPriceRow.subCategory || s.subCategory === newPriceRow.subCategory)
+                                        ).map(s => (
+                                            <option key={s.id} value={s.saleableArea || s.totalArea}>{s.name}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>

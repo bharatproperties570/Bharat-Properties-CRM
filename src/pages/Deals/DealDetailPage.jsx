@@ -1,7 +1,7 @@
 import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
-import { api, activitiesAPI } from '../../utils/api';
+import { api } from '../../utils/api';
 import { performanceAPI } from '../../utils/performanceAPI';
 import toast from 'react-hot-toast';
 import AddOfferModal from '../../components/AddOfferModal';
@@ -17,6 +17,7 @@ import AddBookingModal from '../../components/AddBookingModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import AddBuiltupDetailsModal from '../../components/modals/AddBuiltupDetailsModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useDeal, useUpdateDealMutation, useUnifiedActivityQueries } from '../../utils/crmHooks';
 import { renderValue } from '../../utils/renderUtils';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
@@ -55,18 +56,61 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { isDark } = useTheme();
     const { user } = useUserContext();
     const { getLookupValue } = usePropertyConfig();
-    const [deal, setDeal] = useState(null);
+    const { data: dealPayload, isLoading: loading } = useDeal(dealId);
+    const deal = dealPayload?.data || null;
+    const matchingLeads = dealPayload?.matchingLeads || [];
+    const liveScoreData = dealPayload?.liveScore || { score: 0, color: '#94a3b8', label: 'Warm' };
+    
+    // Minimum transient UI state for optimistic updates
+    const [optimisticStage, setOptimisticStage] = useState(null);
+
+    // Prevent flash of old stage during query invalidation refetch
+    useEffect(() => {
+        if (optimisticStage && deal?.stage === optimisticStage) {
+            setOptimisticStage(null);
+        }
+    }, [deal?.stage, optimisticStage]);
+
+    const updateDealMutation = useUpdateDealMutation({ isPartial: true });
+
+    const activityQueries = useUnifiedActivityQueries([{ type: 'Deal', id: dealId }]);
+    const activities = useMemo(() => {
+        return activityQueries[0]?.data || [];
+    }, [activityQueries]);
     const [inventory, setInventory] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [matchingLeads, setMatchingLeads] = useState([]);
     const [allLeads, setAllLeads] = useState([]);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
     
     // Custom Hooks
     const { financials } = useDealFinancials(deal);
 
-    const [activities, setActivities] = useState([]);
-    const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
+    useEffect(() => {
+        if (!deal) return;
+        if (deal.inventoryId && typeof deal.inventoryId === 'object') {
+            setInventory(prev => ({
+                ...deal.inventoryId,
+                owners: deal.owner ? [deal.owner] : (deal.inventoryId.owners || []),
+                associates: deal.associatedContact ? [{ contact: deal.associatedContact }] : (deal.inventoryId.associates || [])
+            }));
+        }
+        
+        const invId = deal.inventoryId?._id || (typeof deal.inventoryId === 'string' ? deal.inventoryId : null);
+        if (invId) {
+            import('../../utils/api').then(({ api }) => {
+                api.get(`inventory/${invId}`).then(invRes => {
+                    if (invRes.data?.success) {
+                        setInventory(prev => ({
+                            ...prev,
+                            ...invRes.data.data,
+                            owners: (prev?.owners?.length > 0) ? prev.owners : (invRes.data.data.owners || []),
+                            associates: (prev?.associates?.length > 0) ? prev.associates : (invRes.data.data.associates || [])
+                        }));
+                    }
+                }).catch(err => console.error("Error fetching inventory for sidebar:", err));
+            });
+        }
+    }, [deal]);
+
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const { startCall } = useCall();
     const [isMailOpen, setIsMailOpen] = useState(false);
@@ -99,7 +143,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
-    const currentStage = deal?.stage || 'Open';
+    const currentStage = optimisticStage || deal?.stage || 'Open';
     const stageAlerts = useDealIntelligence(deal, currentStage);
 
     // Sync liveScoreData with intelligence health
@@ -128,12 +172,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             };
             const response = await api.post(`deals/${dealId}/offers`, offerData);
             if (response.data && response.data.success) {
-                await api.put(`deals/${dealId}`, { 
+                await updateDealMutation.mutateAsync({ id: dealId, payload: { 
                     stage: 'Negotiation',
                     triggeredBy: 'manual_pipeline_override'
-                });
+                }});
                 toast.success("Offer added & Deal moved to Negotiation stage");
-                fetchDealDetails();
+                
             }
         } catch (error) {
             console.error("Error adding offer:", error);
@@ -159,14 +203,14 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             });
 
             if (confirm.isConfirmed) {
-                const response = await api.put(`deals/${dealId}`, {
+                const response = await updateDealMutation.mutateAsync({ id: dealId, payload: {
                     stage: 'Negotiation',
                     closingDetails: null, // Clear loss data
                     triggeredBy: 'manual_reopen'
-                });
+                }});
                 if (response.data && response.data.success) {
                     toast.success('Deal reopened successfully!');
-                    fetchDealDetails();
+                    
                 }
             }
         } catch (error) {
@@ -181,7 +225,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             {
                 loading: 'Analyzing transaction health...',
                 success: (res) => {
-                    fetchDealDetails();
+                    
                     fetchLiveScore();
                     return 'Intelligence data refreshed! ✨';
                 },
@@ -190,59 +234,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         );
     };
 
-    const fetchDealDetails = useCallback(async () => {
-        setLoading(true);
-        try {
-            const res = await api.get(`deals/${dealId}?unified=true`);
-            if (res.data && (res.data.success || res.data.status === 'success')) {
-                const dealData = res.data.data;
-                setDeal(dealData);
-
-                // --- 🚀 UNIFIED API DATA SINK ---
-                if (res.data.activities) setActivities(res.data.activities);
-                if (res.data.matchingLeads) setMatchingLeads(res.data.matchingLeads);
-                if (res.data.liveScore) setLiveScoreData(res.data.liveScore);
-
-                // --- [ENTERPRISE HARDENING]: Instant Data Initialization ---
-                // If the deal already has enriched inventory data from the backend, 
-                // use it immediately to prevent UI flicker or "disappearing" owners.
-                if (dealData.inventoryId && typeof dealData.inventoryId === 'object') {
-                    setInventory(prev => ({
-                        ...dealData.inventoryId,
-                        // Priority merge: Ensure owners and associates from Deal enrichment are used
-                        owners: dealData.owner ? [dealData.owner] : (dealData.inventoryId.owners || []),
-                        associates: dealData.associatedContact ? [{ contact: dealData.associatedContact }] : (dealData.inventoryId.associates || [])
-                    }));
-                }
-
-                // Fetch full Inventory for technical specs only if available
-                const invId = dealData.inventoryId?._id || (typeof dealData.inventoryId === 'string' ? dealData.inventoryId : null);
-                if (invId) {
-                    api.get(`inventory/${invId}`)
-                        .then(invRes => { 
-                            if (invRes.data?.success) {
-                                // Merge full technical details (built-up, specs) but keep owners stable
-                                setInventory(prev => ({
-                                    ...prev,
-                                    ...invRes.data.data,
-                                    // Preserve stable owner/associate data from Deal or initialization
-                                    owners: (prev?.owners?.length > 0) ? prev.owners : (invRes.data.data.owners || []),
-                                    associates: (prev?.associates?.length > 0) ? prev.associates : (invRes.data.data.associates || [])
-                                }));
-                            }
-                        })
-                        .catch(err => console.error("Error fetching inventory for sidebar:", err));
-                }
-            } else {
-                toast.error('Failed to load deal details');
-            }
-        } catch (error) {
-            console.error("Error fetching deal details:", error);
-            toast.error('Error loading deal details');
-        } finally {
-            setLoading(false);
-        }
-    }, [dealId]);
 
     const openPublishModal = () => {
         setPublishFormDescription(deal?.description || deal?.websiteMetadata?.description || '');
@@ -272,14 +263,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 description: publishFormDescription // Sync with deal description
             };
 
-            const res = await api.put(`deals/${dealId}`, payload);
+            const res = await updateDealMutation.mutateAsync({ id: dealId, payload });
             if (res.data && (res.data.success || res.data.status === 'success')) {
-                setDeal(prev => ({ 
-                    ...prev, 
-                    isPublished: shouldPublish,
-                    description: publishFormDescription,
-                    websiteMetadata: payload.websiteMetadata
-                }));
                 toast.success(shouldPublish ? 'Listing published to Website!' : 'Settings updated successfully!', { id: toastId });
                 setIsPublishModalOpen(false);
             }
@@ -301,12 +286,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 publishedAt: null
             };
 
-            const res = await api.put(`deals/${dealId}`, payload);
+            const res = await updateDealMutation.mutateAsync({ id: dealId, payload });
             if (res.data && (res.data.success || res.data.status === 'success')) {
-                setDeal(prev => ({ 
-                    ...prev, 
-                    isPublished: false
-                }));
                 toast.success('Listing removed from Website', { id: toastId });
                 setIsPublishModalOpen(false);
             }
@@ -438,7 +419,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
         if (result.isConfirmed) {
             try {
-                const res = await api.put(`deals/${dealId}`, {
+                const res = await updateDealMutation.mutateAsync({ id: dealId, payload: {
                     stage: 'Closed Lost',
                     triggeredBy: 'manual_override',
                     closingDetails: {
@@ -447,11 +428,11 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         remarks: reasons?.remarks || deal.closingDetails?.remarks || '',
                         lossReasons: reasons?.primaryReasons || deal.closingDetails?.lossReasons || []
                     }
-                });
+                }});
                 if (res.data && (res.data.success || res.data.status === 'success')) {
                     toast.success('Deal marked as LOST');
                     setIsMarkingLost(false);
-                    fetchDealDetails();
+                    
                 }
             } catch (error) {
                 console.error("Error marking deal as lost:", error);
@@ -494,23 +475,20 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             return;
         }
 
-        // 🚀 OPTIMISTIC UI: Update state immediately
-        const previousStage = deal.stage;
-        setDeal(prev => ({ ...prev, stage: newStage }));
+        // 🚀 OPTIMISTIC UI: Update transient state immediately
+        setOptimisticStage(newStage);
         toast.success(`Transaction moved to ${newStage} stage!`);
 
         try {
-            const res = await api.put(`deals/${dealId}`, { 
+            const res = await updateDealMutation.mutateAsync({ id: dealId, payload: { 
                 stage: newStage,
                 triggeredBy: 'manual_pipeline_override'
-            });
+            }});
             
             if (res.data && (res.data.success || res.data.status === 'success')) {
-                // Refresh background data for consistency
-                fetchDealDetails();
-                fetchLiveScore();
-                fetchDealActivities();
+                // Background intelligence
                 enrichDealIntelligence();
+                // Transient state clears automatically via effect when query syncs
                 
                 // Trigger Performance Marketing CAPI if Closed Won
                 if (newStage === 'Closed Won') {
@@ -519,7 +497,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         currency: 'INR',
                         dealId: dealId
                     }, {
-                        // Assuming primary contact is linked to deal
                         phone: deal.buyer?.mobile || deal.seller?.mobile,
                         email: deal.buyer?.email || deal.seller?.email
                     });
@@ -530,7 +507,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         } catch (error) {
             console.error("Error updating deal stage:", error);
             // ROLLBACK on failure
-            setDeal(prev => ({ ...prev, stage: previousStage }));
+            setOptimisticStage(null);
             toast.error("Failed to update status. Reverting changes.");
         }
     };
@@ -569,25 +546,15 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     }, []);
 
 
-    const fetchDealActivities = useCallback(async () => {
-        try {
-            const res = await activitiesAPI.getUnified('Deal', dealId);
-            if (res.data && res.data.success) {
-                setActivities(res.data.data || []);
-            }
-        } catch (err) {
-            console.error("Error fetching deal activities:", err);
-        }
-    }, [dealId]);
 
 
     // Effects (RESTORING MISSING DATA FETCHING)
     useEffect(() => {
-        fetchDealDetails();
+        
         // fetchLiveScore(); // Replaced by Unified API
         fetchAllLeads();
-        // fetchDealActivities(); // Replaced by Unified API
-    }, [dealId, fetchDealDetails, fetchAllLeads]);
+        //  // Replaced by Unified API
+    }, [dealId,  fetchAllLeads]);
 
     useEffect(() => {
         if (dealId) {
@@ -650,7 +617,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 enrichDealIntelligence={enrichDealIntelligence}
                 currentUser={user}
                 handleReopenDeal={handleReopenDeal}
-                fetchDealDetails={fetchDealDetails}
+                fetchDealDetails={() => {}}
                 onNavigate={onNavigate}
             />
 
@@ -713,7 +680,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                 deal={deal} 
                                 inventory={inventory}
                                 getLookupValue={getLookupValue} 
-                                onRefresh={fetchDealDetails}
+                                onRefresh={() => {}}
                             />
                         </div>
                     )}
@@ -790,12 +757,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                         <UnifiedActivitySection 
                                             deal={deal} 
                                             activities={activities} 
-                                            fetchDealDetails={fetchDealDetails} 
+                                            fetchDealDetails={() => {}} 
                                             isReadOnly={isReadOnly}
                                             entityId={dealId} 
                                             entityType="Deal" 
                                             entityData={deal}
-                                            onActivitySaved={fetchDealDetails}
+                                            onActivitySaved={() => {}}
                                             relatedEntities={relatedEntities}
                                         />
                                     );
@@ -804,7 +771,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                 <MarketingTab 
                                     dealId={dealId} 
                                     deal={deal} 
-                                    onRefresh={fetchDealDetails} 
+                                    onRefresh={() => {}} 
                                 />
                             )}
                         </div>
@@ -947,7 +914,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     entityType="Deal"
                     entityId={dealId}
                     phoneNumber={deal.contactDetails?.phones?.[0]?.number}
-                    onActivitySaved={fetchDealDetails}
+                    onActivitySaved={() => {}}
                 />
             )}
 
@@ -958,7 +925,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     recipientEmail={deal.contactDetails?.emails?.[0]?.address}
                     entityType="Deal"
                     entityId={dealId}
-                    onActivitySaved={fetchDealDetails}
+                    onActivitySaved={() => {}}
                 />
             )}
 
@@ -969,7 +936,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     entityType="Deal"
                     entityId={dealId}
                     initialTags={deal.tags}
-                    onSaved={fetchDealDetails}
+                    onSaved={() => {}}
                 />
             )}
 
@@ -980,7 +947,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     entityType="Deal"
                     entityId={dealId}
                     entityData={deal}
-                    onSave={fetchDealDetails}
+                    onSave={() => {}}
                 />
             )}
 
@@ -989,7 +956,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     isOpen={isBookingModalOpen}
                     onClose={() => setIsBookingModalOpen(false)}
                     deal={deal}
-                    onSaved={fetchDealDetails}
+                    onSaved={() => {}}
                 />
             )}
 
@@ -999,7 +966,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     onClose={() => setIsUploadModalOpen(false)}
                     entityType="Inventory"
                     entityId={inventory?._id || inventory?.id}
-                    onUploaded={fetchDealDetails}
+                    onUploaded={() => {}}
                     project={inventory}
                     type="property"
                 />
@@ -1011,7 +978,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     onClose={() => setIsNoteModalOpen(false)}
                     entityType="Deal"
                     entityId={dealId}
-                    onSaved={fetchDealDetails}
+                    onSaved={() => {}}
                 />
             )}
 
@@ -1020,7 +987,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     isOpen={isQuoteModalOpen}
                     onClose={() => setIsQuoteModalOpen(false)}
                     deal={deal}
-                    onSaved={fetchDealDetails}
+                    onSaved={() => {}}
                 />
             )}
 
@@ -1029,7 +996,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     isOpen={isDocumentModalOpen}
                     onClose={() => setIsDocumentModalOpen(false)}
                     inventoryId={deal.inventoryId?._id || deal.inventoryId}
-                    onSaved={fetchDealDetails}
+                    onSaved={() => {}}
                     project={inventory}
                 />
             )}
@@ -1103,7 +1070,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         const res = await api.put(`inventory/${inventoryId}`, updates);
                         if (res.data?.success) {
                             toast.success("Contacts updated");
-                            fetchDealDetails();
+                            
                             setIsOwnerModalOpen(false);
                         }
                     }}

@@ -1,6 +1,5 @@
 import React from 'react';
 import { renderValue } from '../../utils/renderUtils';
-import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 const InventoryUnitSection = ({
     formData,
@@ -31,8 +30,6 @@ const InventoryUnitSection = ({
     labelStyle,
     sectionStyle
 }) => {
-    const { getSizesByProjectBlock } = usePropertyConfig();
-
     return (
         <div className="tab-content fade-in">
             {/* Basic Unit Details */}
@@ -185,13 +182,14 @@ const InventoryUnitSection = ({
                                 disabled={!formData.projectName || !formData.block}
                                 onChange={e => {
                                     const selectedSizeName = e.target.value;
-                                    const availableSizes = getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block);
-                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName);
+                                    const availableSizes = sizes || [];
+                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName && 
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
+                                        s.block === formData.block);
                                     
                                     setFormData(prev => ({ 
                                         ...prev, 
                                         size: selectedSizeName,
-                                        sizeConfig: sizeObj?.id || sizeObj?._id || prev.sizeConfig || null,
                                         sizeType: sizeObj?.sizeType || prev.sizeType || ''
                                     }));
                                 }}
@@ -201,23 +199,12 @@ const InventoryUnitSection = ({
                                 </option>
                                 {(() => {
                                     if (!formData.projectName || !formData.block) return null;
-                                    const filteredSizes = getSizesByProjectBlock(formData.projectName || formData.projectId, formData.block);
-
-                                    const currentSizeInList = filteredSizes.some(sz => sz.name === formData.size);
-                                    return (
-                                        <>
-                                            {formData.size && !currentSizeInList && (
-                                                <option key="__current_size__" value={formData.size}>
-                                                    {formData.size}
-                                                </option>
-                                            )}
-                                            {filteredSizes.map(sz => (
-                                                <option key={sz.id || sz._id} value={sz.name}>
-                                                    {sz.name}
-                                                </option>
-                                            ))}
-                                        </>
+                                    const availableSizes = sizes || [];
+                                    const filteredSizes = availableSizes.filter(s =>
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) &&
+                                        (s.block === formData.block)
                                     );
+                                    return filteredSizes.map(sz => <option key={sz.id || sz._id} value={sz.name}>{sz.name}</option>);
                                 })()}
                             </select>
                             <button

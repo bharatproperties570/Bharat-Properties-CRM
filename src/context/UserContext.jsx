@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { usersAPI, rolesAPI, teamsAPI, authAPI, safeStorage } from '../utils/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../utils/queryClient';
 
 const UserContext = createContext();
 
@@ -9,16 +11,10 @@ export const useUserContext = () => {
     if (!context) {
         console.warn('[UserContext] useUserContext called outside UserProvider or during HMR module reload.');
         return {
-            users: [],
-            roles: [],
-            teams: [],
+                        roles: [],
             loading: false,
             error: null,
-            addUser: async () => {},
-            updateUser: async () => {},
-            deleteUser: async () => {},
-            toggleUserStatus: async () => {},
-            addRole: async () => {},
+                                                            addRole: async () => {},
             updateRole: async () => {},
             deleteRole: async () => {},
             addTeam: async () => {},
@@ -37,9 +33,7 @@ export const useUserContext = () => {
 };
 
 export const UserProvider = ({ children }) => {
-    const [users, setUsers] = useState([]);
-    const [roles, setRoles] = useState([]);
-    const [teams, setTeams] = useState([]);
+        const [roles, setRoles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [token, setToken] = useState(() => {
@@ -47,6 +41,7 @@ export const UserProvider = ({ children }) => {
         return t;
     });
     const [currentUser, setCurrentUser] = useState(null);
+    const queryClient = useQueryClient();
 
     const processUserWithAdminFlag = (user) => {
         if (!user) return null;
@@ -74,12 +69,6 @@ export const UserProvider = ({ children }) => {
                 }
             }
 
-            const usersRes = await usersAPI.getAll();
-            if (usersRes.success) {
-                const activeUsers = (usersRes.data || []).filter(u => u.status === 'active' || u.isActive);
-                setUsers(activeUsers);
-            }
-
             // Fetch roles and teams separately to not block users
             try {
                 const rolesRes = await rolesAPI.getAll();
@@ -88,20 +77,13 @@ export const UserProvider = ({ children }) => {
                 console.warn('Failed to fetch roles:', e);
             }
 
-            try {
-                const teamsRes = await teamsAPI.getAll();
-                if (teamsRes.success) setTeams(teamsRes.data || []);
-            } catch (e) {
-                console.warn('Failed to fetch teams:', e);
-            }
-
             setError(null);
         } catch (err) {
             if (err.response?.status === 401 || err.message?.includes('401')) {
                 logout();
             }
             console.error('Failed to fetch user data:', err);
-            setError(err.message || 'Failed to load users and roles');
+            setError(err.message || 'Failed to load roles');
         } finally {
             setLoading(false);
         }
@@ -161,7 +143,7 @@ export const UserProvider = ({ children }) => {
                 setCurrentUser(updatedUser);
                 
                 // Also update in users list if present
-                setUsers(prev => prev.map(u => u._id === updatedUser._id ? updatedUser : u));
+                queryClient.invalidateQueries({ queryKey: queryKeys.users() });
                 
                 return { success: true, data: updatedUser };
             }
@@ -191,57 +173,6 @@ export const UserProvider = ({ children }) => {
             return { success: false, error: err.message };
         }
     };
-
-    // User Operations
-    const addUser = async (userData) => {
-        try {
-            const response = await usersAPI.create(userData);
-            if (response.success) {
-                setUsers(prev => [response.data, ...prev]);
-                return { success: true, data: response.data };
-            }
-        } catch (err) {
-            return { success: false, error: err.message };
-        }
-    };
-
-    const updateUser = async (id, userData) => {
-        try {
-            const response = await usersAPI.update(id, userData);
-            if (response.success) {
-                setUsers(prev => prev.map(u => u._id === id ? response.data : u));
-                return { success: true, data: response.data };
-            }
-        } catch (err) {
-            return { success: false, error: err.message };
-        }
-    };
-
-    const deleteUser = async (id) => {
-        try {
-            const response = await usersAPI.delete(id);
-            if (response.success) {
-                setUsers(prev => prev.filter(u => u._id !== id));
-                return { success: true };
-            }
-        } catch (err) {
-            return { success: false, error: err.message };
-        }
-    };
-
-    const toggleUserStatus = async (id, status, reason, duration, customDate) => {
-        try {
-            const response = await usersAPI.toggleStatus(id, { status, reason, duration, customDate });
-            if (response.success) {
-                // Update user in state
-                setUsers(prev => prev.map(u => u._id === id ? response.data : u));
-                return { success: true, data: response.data };
-            }
-        } catch (err) {
-            return { success: false, error: err.message };
-        }
-    };
-
     // Role Operations
     const addRole = async (roleData) => {
         try {
@@ -284,7 +215,7 @@ export const UserProvider = ({ children }) => {
         try {
             const response = await teamsAPI.create(teamData);
             if (response.success) {
-                setTeams(prev => [response.data, ...prev].sort((a, b) => a.name.localeCompare(b.name)));
+                queryClient.invalidateQueries({ queryKey: queryKeys.teams() });
                 return { success: true, data: response.data };
             }
         } catch (err) {
@@ -296,7 +227,7 @@ export const UserProvider = ({ children }) => {
         try {
             const response = await teamsAPI.update(id, teamData);
             if (response.success) {
-                setTeams(prev => prev.map(t => t._id === id ? { ...t, ...response.data } : t));
+                queryClient.invalidateQueries({ queryKey: queryKeys.teams() });
                 return { success: true, data: response.data };
             }
         } catch (err) {
@@ -308,7 +239,7 @@ export const UserProvider = ({ children }) => {
         try {
             const response = await teamsAPI.delete(id);
             if (response.success) {
-                setTeams(prev => prev.filter(t => t._id !== id));
+                queryClient.invalidateQueries({ queryKey: queryKeys.teams() });
                 return { success: true };
             }
         } catch (err) {
@@ -319,16 +250,10 @@ export const UserProvider = ({ children }) => {
     const refreshData = fetchAllData;
 
     const value = {
-        users,
-        roles,
-        teams,
+                roles,
         loading,
         error,
-        addUser,
-        updateUser,
-        deleteUser,
-        toggleUserStatus,
-        addRole,
+                                        addRole,
         updateRole,
         deleteRole,
         addTeam,

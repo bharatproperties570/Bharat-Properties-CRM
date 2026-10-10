@@ -1,29 +1,44 @@
 import { useState } from 'react';
-import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
+import { useAddProjectMutation } from '../../utils/crmHooks';
 
 const AddProjectModal = ({ isOpen, onClose, onSave }) => {
-    const { addProject } = usePropertyConfig();
+    const addProjectMutation = useAddProjectMutation();
     const [name, setName] = useState('');
     const [city, setCity] = useState('');
     const [location, setLocation] = useState('');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!name.trim()) return toast.error('Project Name is required');
 
         const newProject = {
             name,
-            location: `${location}, ${city}`,
-            city // Optional helper
+            address: {
+                city,
+                location: `${location}, ${city}`
+            }
         };
 
-        const created = addProject(newProject);
-        if (onSave) onSave(created);
-        toast.success(`Project "${name}" added!`);
-        onClose();
-        setName('');
-        setCity('');
-        setLocation('');
+        try {
+            const response = await addProjectMutation.mutateAsync(newProject);
+            const responseProj = response.data;
+            const mappedProj = {
+                ...responseProj,
+                city: responseProj.city || responseProj.address?.city,
+                location: responseProj.location || responseProj.address?.location
+            };
+            
+            if (onSave) onSave(mappedProj);
+            toast.success(`Project "${name}" added!`);
+            onClose();
+            setName('');
+            setCity('');
+            setLocation('');
+        } catch (error) {
+            console.error("Failed to save project:", error);
+            const errorMsg = error.response?.data?.error || error.message || "Failed to save project";
+            toast.error(errorMsg);
+        }
     };
 
     if (!isOpen) return null;

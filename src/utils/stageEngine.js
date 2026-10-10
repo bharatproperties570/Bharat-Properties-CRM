@@ -1,4 +1,16 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Stage Engine
+ *
+ * This module serves as a pure computation, constants, and business-display helper.
+ * Production stage transitions and workflow execution remain exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - Do not introduce autonomous production automation here.
+ * - Do not execute queue/outbox/domain-event side effects.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Stage Computation Engine v2
  *
  * Computes the stage of a lead/deal based on:

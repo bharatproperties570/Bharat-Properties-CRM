@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 
 import React, { useState, useEffect } from 'react';
@@ -9,6 +10,7 @@ import LeadConversionService from '../../services/LeadConversionService';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
 import { activitiesAPI } from '../../utils/api';
+import { useAddActivityMutation, useUnifiedActivityQueries } from '../../utils/crmHooks';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import { useCall } from '../../context/CallContext';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
@@ -42,8 +44,10 @@ import ContactAutomation from '../../components/ContactDetail/ContactAutomation'
 import ContactHistory from '../../components/ContactDetail/ContactHistory';
 import ContactBookings from '../../components/ContactDetail/ContactBookings';
 
-const ContactDetail = ({ contactId, onBack, onNavigate }) => {
+const ContactDetail = ({ onBack, onNavigate }) => {
+    const { id: contactId } = useParams();
     const { isDark } = useTheme();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
     const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue, getLookupId } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const [contact, setContact] = useState(null);
@@ -55,6 +59,13 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     // const [pendingTasks, setPendingTasks] = useState([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
     // const [composerContent, setComposerContent] = useState('');
     const { startCall } = useCall();
+
+    // --- LEAD CANONICAL SERVER STATE ---
+    const { data: leadData, isPending: isLeadLoading } = useLead(recordType === 'lead' ? contactId : null);
+    
+    // We only use `contact` state if it's a true contact.
+    const activeContact = recordType === 'lead' ? (leadData || contact) : contact;
+
     const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -78,7 +89,10 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
 
 
-    const [unifiedTimeline, setUnifiedTimeline] = useState([]);
+    const activityQueries = useUnifiedActivityQueries([{ type: recordType, id: contactId }]);
+    const unifiedTimeline = React.useMemo(() => {
+        return activityQueries[0]?.data || [];
+    }, [activityQueries]);
 
     // New states for backend data
     const [ownedProperties, setOwnedProperties] = useState([]);
@@ -103,21 +117,10 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
         liveScoreData
     });
 
-    const fetchUnifiedTimeline = React.useCallback(async (id, type) => {
-        try {
-            const res = await api.get(`activities/unified/${type}/${id}`);
-            if (res.data && res.data.success) {
-                const timeline = res.data.data || [];
-                setUnifiedTimeline(timeline);
-            }
-        } catch (error) {
-            console.error("Error fetching unified timeline:", error);
-        }
-    }, []);
-
+    
     const handleCallComplete = React.useCallback(async (summary) => {
         try {
-            await activitiesAPI.create({
+            await addActivity({
                 type: 'Call',
                 subject: `Call with ${contact?.fullName || contact?.name}`,
                 status: 'Completed',
@@ -137,12 +140,11 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 dueDate: new Date()
             });
             showNotification('Call activity logged successfully');
-            fetchUnifiedTimeline(contactId, recordType);
-        } catch (error) {
+                    } catch (error) {
             console.error('Failed to log call activity:', error);
             showNotification('Failed to log call activity');
         }
-    }, [contact, contactId, recordType, fetchUnifiedTimeline]);
+    }, [contact, contactId, recordType]);
 
     const handleAutoSave = (field) => {
         showNotification(`${field} auto-saved!`);
@@ -460,9 +462,11 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
             let foundType = 'contact';
 
             if (!response.data || !response.data.success) {
-                // Try fetching as lead
-                response = await api.get(`leads/${contactId}`);
-                foundType = 'lead';
+                // Trigger fallback to Lead TanStack hook
+                setRecordType('lead');
+                fetchLiveScore(contactId);
+                fetchRelatedData(contactId, 'lead', null);
+                return;
             }
 
             if (response.data && response.data.success) {
@@ -483,8 +487,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 }
 
                 setRecordType(finalType);
-                fetchUnifiedTimeline(contactId, finalType);
-
+                
                 // Fetch live score for leads
                 if (finalType === 'lead') {
                     fetchLiveScore(contactId);
@@ -511,8 +514,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     }
 
                     setRecordType('lead');
-                    fetchUnifiedTimeline(contactId, 'lead');
-                    fetchRelatedData(contactId, 'lead', leadData);
+                                        fetchRelatedData(contactId, 'lead', leadData);
                     // Ensure live score is fetched for fallback lead records
                     fetchLiveScore(contactId);
                 } else {
@@ -524,7 +526,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 setContact(null);
             }
         }
-    }, [contactId, fetchRelatedData, fetchUnifiedTimeline, fetchLiveScore, recordType]);
+    }, [contactId, fetchRelatedData, fetchLiveScore, recordType]);
 
     useEffect(() => {
         fetchData();
@@ -576,7 +578,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
         );
     };
 
-    if (!contact) {
+    if (!activeContact) {
         return (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-gray)', color: 'var(--text-muted)' }}>
                 <i className="fas fa-search-plus" style={{ fontSize: '3rem', marginBottom: '1.5rem', color: 'var(--primary-color)', opacity: 0.5 }}></i>
@@ -592,7 +594,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
 
             <ContactDetailHeader 
-                contact={contact}
+                contact={activeContact}
                 recordType={recordType}
                 onBack={onBack}
                 liveScoreData={liveScoreData}
@@ -638,7 +640,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             </span>
                         </div>
                         <EnterprisePipeline
-                            contact={contact}
+                            contact={activeContact}
                             activities={unifiedTimeline}
                         />
                     </div>
@@ -666,7 +668,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         
                         <div style={{ pointerEvents: dealStatus === 'lost' ? 'none' : 'auto', opacity: dealStatus === 'lost' ? 0.8 : 1 }}>
                             <ContactCoreInfo 
-                                contact={contact}
+                                contact={activeContact}
                                 recordType={recordType}
                                 expandedSections={expandedSections}
                                 toggleSection={toggleSection}
@@ -675,7 +677,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             />
 
                             <ContactPreferences 
-                                contact={contact}
+                                contact={activeContact}
                                 aiStats={aiStats}
                                 expandedSections={expandedSections}
                                 toggleSection={toggleSection}
@@ -705,8 +707,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                     entityType={recordType.charAt(0).toUpperCase() + recordType.slice(1)}
                                     entityData={contact}
                                     onActivitySaved={() => {
-                                        fetchUnifiedTimeline(contactId, recordType);
-                                        fetchLiveScore(contactId);
+                                                                                fetchLiveScore(contactId);
                                     }}
                                 />
                             </div>
@@ -729,7 +730,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         ) : isMobile && activeTab === 'deals' ? (
                             <>
                                 <ContactRelatedDeals
-                                    contact={contact}
+                                    contact={activeContact}
                                     recordType={recordType}
                                     expandedSections={expandedSections}
                                     toggleSection={toggleSection}
@@ -756,7 +757,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                 </div>
                                 {recordType === 'lead' && (
                                     <ContactPropertyRequirement
-                                        contact={contact}
+                                        contact={activeContact}
                                         aiStats={aiStats}
                                         expandedSections={expandedSections}
                                         toggleSection={toggleSection}
@@ -767,7 +768,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
                                 <div className={isMobile ? 'hide-mobile' : ''}>
                                     <ContactRelatedDeals
-                                        contact={contact}
+                                        contact={activeContact}
                                         recordType={recordType}
                                         expandedSections={expandedSections}
                                         toggleSection={toggleSection}
@@ -812,7 +813,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
                         {/* Strategic Intelligence Sections */}
                         <ContactAIIntelligence 
-                            contact={contact}
+                            contact={activeContact}
                             aiStats={aiStats}
                             recordType={recordType}
                             dealStatus={dealStatus}
@@ -839,7 +840,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
 
                         <ContactAutomation
-                            contact={contact}
+                            contact={activeContact}
                             sequences={sequences}
                             enrollments={enrollments}
                             updateEnrollmentStatus={updateEnrollmentStatus}
@@ -1049,7 +1050,7 @@ padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignI
                     <ContactIntelligenceModal
                         isOpen={isIntelligenceModalOpen}
                         onClose={() => setIsIntelligenceModalOpen(false)}
-                        contact={contact}
+                        contact={activeContact}
                         onSave={() => {
                             fetchData(); // Refresh the page/contact data
                         }}
@@ -1088,7 +1089,7 @@ padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignI
                         onClose={() => setIsMessageModalOpen(false)}
                         onSend={async (data) => {
                             try {
-                                await activitiesAPI.create({
+                                await addActivity({
                                     type: 'Messaging',
                                     subject: `Message to ${contact?.fullName || contact?.name}`,
                                     status: 'Completed',
@@ -1105,8 +1106,7 @@ padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignI
                                     dueDate: new Date()
                                 });
                                 showNotification('Message activity logged successfully');
-                                fetchUnifiedTimeline(contactId, recordType);
-                            } catch (error) {
+                                                            } catch (error) {
                                 console.error('Failed to log message activity:', error);
                             }
                             setIsMessageModalOpen(false);
@@ -1124,8 +1124,7 @@ padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignI
                         onClose={() => setIsActivityModalOpen(false)}
                         onSave={() => {
                             showNotification('Activity created successfully!');
-                            fetchUnifiedTimeline(contactId, recordType);
-                        }}
+                                                    }}
                         initialData={{
                             relatedTo: [{
                                 id: contact?._id,

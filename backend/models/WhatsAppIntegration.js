@@ -11,9 +11,14 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
             type: String,
             index: true
         },
+        provider: {
+            type: String,
+            enum: ['META', 'BAILEYS'],
+            default: 'META'
+        },
         wabaId: {
             type: String,
-            required: true,
+            required: function() { return this.provider === 'META' || !this.provider; },
             index: true
         },
         phoneNumberId: {
@@ -45,7 +50,7 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
         }],
         connectionType: {
             type: String,
-            enum: ['COEXISTENCE', 'NEW_API', 'MANUAL'],
+            enum: ['COEXISTENCE', 'NEW_API', 'MANUAL', 'QR_SCANNER'],
             required: true
         },
         onboardingStatus: {
@@ -67,7 +72,9 @@ const WhatsAppIntegrationSchema = new mongoose.Schema(
                 'FAILED_SUBSCRIPTION',
                 'FAILED_VERIFICATION',
                 'CANCELLED',
-                'REVOKED'
+                'REVOKED',
+                'QR_PENDING',
+                'QR_LINKED'
             ],
             default: 'INITIATED',
             index: true

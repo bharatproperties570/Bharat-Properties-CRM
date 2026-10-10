@@ -1,4 +1,6 @@
 import { useTheme } from '../../context/ThemeContext';
+import {  useTeams , useUsers, useLeads, useUpdateLeadMutation, useBulkDeleteLeadsMutation, useDeleteLeadMutation } from '../../utils/crmHooks';
+import { useMemo } from 'react';
 import React, { useEffect, useState, useCallback } from 'react';
 
 import PipelineDashboard from '../../components/PipelineDashboard';
@@ -76,7 +78,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { executeDistribution } = useDistribution();
-    const { teams, users } = useUserContext();
+    const { data: users = [] } = useUsers();
+    
+    const { data: teams = [] } = useTeams();
 
     // Bundle config for scoring engine
     const scoringConfig = {
@@ -88,11 +92,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         stageMultipliers
     };
 
-    const [leads, setLeads] = useState([]);
-    const [totalCount, setTotalCount] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
-    const [loading, setLoading] = useState(false);
-    const [selectedIds, setSelectedIds] = useState([]);
+                    const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(() => {
         const saved = sessionStorage.getItem('leadsPage_currentPage');
@@ -110,8 +110,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     useEffect(() => {
         sessionStorage.setItem('leadsPage_recordsPerPage', recordsPerPage);
     }, [recordsPerPage]);
-    const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const [liveScores, setLiveScores] = useState({}); // { leadId: { score, color, label } } from stage engine
+        const [liveScores, setLiveScores] = useState({}); // { leadId: { score, color, label } } from stage engine
     const [sortConfig, setSortConfig] = useState({ by: 'createdAt', order: -1, label: 'Newest First' });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
@@ -241,33 +240,28 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         fetchMatches();
     }, [activeMatchPopover, leads]);
 
-    // Server-side Pagination & Search
-    useEffect(() => {
-        const fetchLeads = async () => {
-            setLoading(true);
-            try {
-                const response = await api.get(`leads`, {
-                    params: {
-                        page: currentPage,
-                        limit: recordsPerPage,
-                        search: debouncedSearchTerm,
-                        showDormant,
-                        sortBy: sortConfig.by,
-                        sortOrder: sortConfig.order,
-                        ...filters
-                    }
-                });
 
-                if (!response.data || !response.data.success) {
-                    throw new Error("Failed to fetch leads");
-                }
+    // --- TANSTACK SERVER STATE ---
+    const { data: leadsData, isPending: loading } = useLeads({
+        page: currentPage,
+        limit: recordsPerPage,
+        search: debouncedSearchTerm,
+        showDormant,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order,
+        ...filters
+    });
 
-                // Backend returns 'records' not 'docs', and 'totalCount' not 'totalDocs'
-                const sourceData = response.data.records || [];
-                const totalDocs = response.data.totalCount || 0;
-                const pages = response.data.totalPages || 0;
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const updateLeadMutation = useUpdateLeadMutation();
+    const deleteLeadMutation = useDeleteLeadMutation();
+    const bulkDeleteLeadsMutation = useBulkDeleteLeadsMutation();
 
-                const resolveLeadLookup = (val, type) => {
+    const { leads, totalCount, totalPages } = useMemo(() => {
+        if (!leadsData || !leadsData.records) return { leads: [], totalCount: 0, totalPages: 0 };
+        const sourceData = leadsData.records;
+        
+        const resolveLeadLookup = (val, type) => {
                     if (!val) return null;
                     if (Array.isArray(val)) {
                         return val
@@ -289,7 +283,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     return resolved;
                 };
 
-                const mappedLeads = sourceData.map((lead, index) => {
+                
+
+        const mappedLeads = sourceData.map((lead, index) => {
                     // Handle both API shape and Fallback
                     const contact = lead.contactDetails || {};
                     const firstName = contact.name || lead.firstName || "";
@@ -431,23 +427,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     };
                 });
 
-                setLeads(mappedLeads);
-                setTotalCount(totalDocs);
-                setTotalPages(pages);
+                
 
-                // (Removed redundant stage-engine/leads/scores fetch. Using lead.leadScore directly from database)
-
-            } catch (error) {
-                console.error("Error fetching leads:", error);
-                toast.error("Error loading leads");
-            } finally {
-                setLoading(false);
-            }
+        return {
+            leads: mappedLeads,
+            totalCount: leadsData.totalCount || 0,
+            totalPages: leadsData.totalPages || 0
         };
-
-        fetchLeads();
-    }, [currentPage, recordsPerPage, debouncedSearchTerm, filters, refreshTrigger, sortConfig, getLookupValue]);
-
+    }, [leadsData, getLookupValue]);
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -509,9 +496,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setLoading(true);
         try {
             if (selectedIds.length === 1) {
-                await api.delete(`leads/${selectedIds[0]}?deleteContact=${deleteContact}`);
+                await deleteLeadMutation.mutateAsync({ id: selectedIds[0], deleteContact });
             } else {
-                await api.post(`leads/bulk-delete`, {
+                await bulkDeleteLeadsMutation.mutateAsync({
                     ids: selectedIds,
                     deleteContacts: deleteContact
                 });
@@ -793,7 +780,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 if (window.confirm(`Mark ${selectedIds.length} leads as dormant?`)) {
                                                     try {
                                                         const dormantLookup = getLookupValue('Status', 'Dormant') || 'Dormant';
-                                                        await Promise.all(selectedIds.map(id => api.put(`leads/${id}`, { status: dormantLookup })));
+                                                        await Promise.all(selectedIds.map(id => updateLeadMutation.mutateAsync({ id, payload: { status: dormantLookup }, isPartial: true })));
                                                         showToast(`Marked ${selectedIds.length} leads as dormant.`);
                                                         setSelectedIds([]);
                                                         setRefreshTrigger(prev => prev + 1);
@@ -895,8 +882,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             <option value={100}>100</option>
                                             <option value={300}>300</option>
                                             <option value={500}>500</option>
-                                            <option value={750}>750</option>
-                                            <option value={1000}>1000</option>
                                         </select>
                                     </div>
 
@@ -1159,7 +1144,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         
                         const toastId = toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
                         const promises = selectedLeadsForAssign.map(lead => {
-                            return api.put(`leads/${lead._id}`, {
+                            return updateLeadMutation.mutateAsync({ id: lead._id, isPartial: true, payload: {
                                 owner: assignmentDetails.assignedTo,
                                 teams: assignmentDetails.team ? [assignmentDetails.team] : undefined,
                                 assignment: {
@@ -1174,7 +1159,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 notifyUser: assignmentDetails.notifyUser,
                                 sendEmail: assignmentDetails.sendEmail,
                                 sendWhatsApp: assignmentDetails.sendWhatsApp
-                            });
+                            } });
                         });
                         
                         const responses = await Promise.all(promises);

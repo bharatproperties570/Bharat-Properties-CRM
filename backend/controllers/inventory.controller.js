@@ -1155,43 +1155,10 @@ export const addInventory = async (req, res) => {
         if (data.direction !== undefined) data.direction = await resolveLookup('Direction', data.direction);
         if (data.orientation !== undefined) data.orientation = await resolveLookup('Orientation', data.orientation);
         if (data.intent !== undefined) data.intent = await resolveLookup('Intent', data.intent);
-        if (data.sizeConfig !== undefined) data.sizeConfig = await resolveLookup('Size', data.sizeConfig);
-        if (data.sizeLabel !== undefined) {
-            data.sizeLabel = String(data.sizeLabel || '').trim();
-            if (data.sizeLabel) {
-                const matchedSizeLookup = await Lookup.findOne({
-                    lookup_type: 'Size',
-                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
-                }).select('_id lookup_value').lean();
-                if (matchedSizeLookup) {
-                    data.sizeConfig = matchedSizeLookup._id;
-                }
-            }
-        } else if (data.sizeConfig) {
-            const scId = typeof data.sizeConfig === 'object' ? data.sizeConfig._id : data.sizeConfig;
-            if (scId && mongoose.Types.ObjectId.isValid(scId)) {
-                const matchedSizeLookup = await Lookup.findById(scId).select('lookup_value').lean();
-                if (matchedSizeLookup?.lookup_value) {
-                    data.sizeLabel = matchedSizeLookup.lookup_value;
-                }
-            }
-        }
+        if (data.builtupType !== undefined) data.builtupType = await resolveLookup('BuiltupType', data.builtupType);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
-        if (data.teams !== undefined) {
-            data.teams = await resolveTeam(data.teams);
-            if (Array.isArray(data.teams) && data.teams.length > 0 && !data.team) {
-                data.team = data.teams[0];
-            }
-        }
-        if (data.team !== undefined) {
-            data.team = await resolveTeam(data.team);
-            if (Array.isArray(data.team)) {
-                data.team = data.team[0] || null;
-            }
-            if (data.team && (!data.teams || data.teams.length === 0)) {
-                data.teams = [data.team];
-            }
-        }
+        if (data.teams) data.teams = await resolveTeam(data.teams);
+        else if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) {
@@ -1349,27 +1316,6 @@ export const updateInventory = async (req, res) => {
         // Strip ownerHistory and ownerSources from direct $set — backend is sole authority via $push above
         delete data.ownerHistory;
         delete data.ownerSources;
-
-        if (data.sizeLabel !== undefined) {
-            data.sizeLabel = String(data.sizeLabel || '').trim();
-            if (data.sizeLabel) {
-                const matchedSizeLookup = await Lookup.findOne({
-                    lookup_type: 'Size',
-                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(data.sizeLabel)}$`, 'i') }
-                }).select('_id lookup_value').lean();
-                if (matchedSizeLookup) {
-                    data.sizeConfig = matchedSizeLookup._id;
-                }
-            }
-        } else if (data.sizeConfig) {
-            const scId = typeof data.sizeConfig === 'object' ? data.sizeConfig._id : data.sizeConfig;
-            if (scId && mongoose.Types.ObjectId.isValid(scId)) {
-                const matchedSizeLookup = await Lookup.findById(scId).select('lookup_value').lean();
-                if (matchedSizeLookup?.lookup_value) {
-                    data.sizeLabel = matchedSizeLookup.lookup_value;
-                }
-            }
-        }
 
         // 🌟 SENIOR HARDENING: Resolve categorical fields BEFORE update to prevent populate-stage CastErrors
         const categoricalFields = [
@@ -1782,11 +1728,6 @@ export const resolveSizeLookup = async (value, projectName, blockName, categoryN
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-
-    if (typeof identifier === 'object' && identifier !== null) {
-        identifier = identifier._id || identifier.id || identifier.toString();
-    }
-
     const cacheKey = String(identifier).toLowerCase();
     if (userCache.has(cacheKey)) return userCache.get(cacheKey);
 
@@ -1817,10 +1758,6 @@ const resolveTeam = async (identifier) => {
     // Handle array of teams
     if (Array.isArray(identifier)) {
         return await Promise.all(identifier.map(id => resolveTeam(id)));
-    }
-
-    if (typeof identifier === 'object' && identifier !== null) {
-        identifier = identifier._id || identifier.id || identifier.toString();
     }
 
     const cacheKey = String(identifier).toLowerCase();
@@ -3407,52 +3344,5 @@ export const bulkAddInventory = async (req, res) => {
     } catch (error) {
         console.error("Error bulk adding inventory:", error);
         res.status(500).json({ success: false, error: error.message });
-    }
-};
-
-export const exportInventors = async (req, res, next) => {
-    try {
-        const visibilityFilter = typeof getVisibilityFilter === 'function' ? await getVisibilityFilter(req.user) : {};
-        let query = { ...visibilityFilter };
-
-        const EXPORT_SYNC_CAP = 5000;
-        const totalCount = await Inventory.countDocuments(query);
-        
-        if (totalCount > EXPORT_SYNC_CAP) {
-            return res.status(400).json({ 
-                success: false, 
-                error: `Export exceeds synchronous limit of ${EXPORT_SYNC_CAP} records. Please apply filters.` 
-            });
-        }
-
-        const records = await Inventory.find(query)
-            .select('_id category subCategory status projectName projectId block unitNo unitNumber unitType size sizeConfig sizeId sizeLabel sizeType totalLandAreaText direction facing isCorner isTwoSideOpen orientation roadWidth address owners ownerName ownerPhone associates team assignedTo createdAt updatedAt followUpDate history primaryDealIntent intent teams')
-            .populate([{ path: 'owners', select: 'name email phones' }, { path: 'associates.contact', select: 'name email phones' }])
-            .limit(EXPORT_SYNC_CAP)
-            .lean();
-
-        res.status(200).json({ success: true, records, count: records.length });
-    } catch (error) {
-        console.error(`[EXPORT ERROR] Inventor:`, error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-};
-
-export const restoreInventory = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = typeof Inventory.restoreOne === 'function' 
-            ? await Inventory.restoreOne({ _id: id }, req.user?._id || 'System')
-            : await Inventory.findByIdAndUpdate(id, { $set: { isArchived: false, isDeleted: false } }, { new: true });
-        if (!result) {
-            return res.status(404).json({ success: false, error: "Inventory not found or not soft-deleted." });
-        }
-        res.json({ success: true, message: "Inventory restored successfully", data: result });
-    } catch (error) {
-        if (error.code === 11000) {
-            return res.status(409).json({ success: false, error: "Restore failed: An active inventory record currently occupies this Project/Block/UnitNo combination." });
-        }
-        console.error("Error restoring inventory:", error);
-        res.status(500).json({ success: false, error: "Server Error" });
     }
 };

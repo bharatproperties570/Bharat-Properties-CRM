@@ -11,23 +11,19 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
     const handleSubmit = async () => {
         if (!sizeName.trim()) return toast.error('Size Name is required');
 
-        const projName = typeof projectName === 'object' ? (projectName?.name || '') : String(projectName || '');
-        const blkName = typeof block === 'object' ? (block?.name || '') : String(block || '');
-
         const newSize = {
-            project: projName,
-            block: blkName,
-            projectMappings: projName ? [{ project: projName, block: blkName || '' }] : [],
+            project: projectName,
+            block: block,
             category: category || 'Residential',
             subCategory: subCategory || '',
-            name: area ? `${sizeName} (${area} ${unit})` : sizeName,
+            name: `${sizeName} (${area} ${unit})`,
             sizeType: sizeName,
             saleableArea: area,
             description: `Auto-created Size`
         };
 
-        const added = await addSize(newSize);
-        if (onSave) onSave(newSize.name, newSize.sizeType, added?.id || added?._id); // Return the display string, base type, and ID
+        await addSize(newSize);
+        if (onSave) onSave(newSize.name, newSize.sizeType); // Return the display string and base type
 
         toast.success(`Size added!`);
         onClose();

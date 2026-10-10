@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTeams, useActiveUsers, useProjects } from '../utils/crmHooks';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { useFieldRules } from '../context/FieldRulesContext';
@@ -17,14 +18,19 @@ import { useInventoryForm } from '../hooks/useInventoryForm';
 
 const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, property = null, initialTab = 'Unit' }) => {
     const {
-        projects: allProjects,
         masterFields = {},
         propertyConfig,
         sizes,
         getLookupId,
         getLookupValue
     } = usePropertyConfig();
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    // Canonical Project State
+    const { data: projectQueryData } = useProjects({ limit: 1000 });
+    const allProjects = projectQueryData?.data || [];
+    
+    const { data: teams = [] } = useTeams();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
@@ -231,7 +237,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
                         )}
                     </div>
                 </div>
-                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name, sizeType, sizeId) => setFormData(prev => ({ ...prev, size: name, sizeType: sizeType, sizeConfig: sizeId || prev.sizeConfig }))} />
+                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name, sizeType) => setFormData(prev => ({ ...prev, size: name, sizeType: sizeType }))} />
                 <style>{`
                     .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
                     .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }

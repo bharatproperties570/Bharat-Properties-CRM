@@ -7,6 +7,7 @@ import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { useAddProjectMutation, useUpdateProjectMutation } from '../utils/crmHooks';
 
 
 
@@ -208,6 +209,10 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const [duplicateWarning, setDuplicateWarning] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
     const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+    const addMutation = useAddProjectMutation();
+    const updateMutation = useUpdateProjectMutation();
+
 
     // Real-time Duplicate Check
 
@@ -752,20 +757,22 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 zoneName: getLookupId('ZoneName', formData.zoneName) || formData.zoneName
             };
 
+            
             let response;
             if (projectToEdit && projectToEdit._id) {
-                response = await api.put(`/projects/${projectToEdit._id}`, transformedData);
+                response = await updateMutation.mutateAsync({ id: projectToEdit._id, data: transformedData });
             } else {
-                response = await api.post('/projects', transformedData);
+                response = await addMutation.mutateAsync(transformedData);
             }
 
-            if (response.data && response.data.success) {
+            if (response && response.success) {
                 toast.success(projectToEdit ? 'Project updated!' : 'Project created!', { id: toastId });
-                onSave && onSave(response.data.data);
+                onSave && onSave(response.data);
                 onClose();
             } else {
-                throw new Error(response.data?.error || 'Failed to save project');
+                throw new Error(response?.error || 'Failed to save project');
             }
+
         } catch (error) {
             console.error("Save Error:", error);
             const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Failed to save project";

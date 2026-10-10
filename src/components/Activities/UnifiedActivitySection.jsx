@@ -4,9 +4,10 @@ import toast from 'react-hot-toast';
 import whatsappService from '../../services/whatsappService';
 import smsService from '../../services/smsService';
 import RecordingPlayer from './RecordingPlayer';
-import { useActivities } from '../../context/ActivityContext';
+import { useAddActivityMutation, useUpdateActivityMutation, useUnifiedActivityQueries } from '../../utils/crmHooks';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import apiWrapper, { api, usersAPI, activitiesAPI } from '../../utils/api';
+import { useUsers } from '../../utils/crmHooks';
 import MeetingActivitySection from './sections/MeetingActivitySection';
 import SiteVisitActivitySection from './sections/SiteVisitActivitySection';
 import './UnifiedActivitySection.css';
@@ -23,8 +24,10 @@ import './UnifiedActivitySection.css';
  */
 const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [], isReadOnly = false }) => {
     const { isDark } = useTheme();
-    const { addActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
+    const { mutateAsync: updateActivity } = useUpdateActivityMutation();
     const { activityMasterFields } = usePropertyConfig();
+    const { data: usersData = [] } = useUsers();
     
     // Inject terminal outcomes directly into the component's master fields view
     const enrichedMasterFields = useMemo(() => {
@@ -87,11 +90,9 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     const [timelineFilter, setTimelineFilter] = useState('all');
     const [userFilter, setUserFilter] = useState('all');
     const [tagFilter, setTagFilter] = useState('all');
-    const [allUsers, setAllUsers] = useState([]);
+    const allUsers = usersData;
     const [allTags, setAllTags] = useState([]);
-    const [unifiedTimeline, setUnifiedTimeline] = useState([]);
-    const [loadingTimeline, setLoadingTimeline] = useState(false);
-
+    
     const [pendingTasks, setPendingTasks] = useState([
         { id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }
     ]);
@@ -165,17 +166,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         }));
     }, [composerData.visitedProperties.length]);
 
-    const fetchUsers = useCallback(async () => {
-        try {
-            const res = await usersAPI.getAll();
-            if (res && res.success) {
-                setAllUsers(res.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching users:", error);
-        }
-    }, []);
-
+    
     const fetchWhatsAppTemplates = useCallback(async () => {
         setIsTemplatesLoading(true);
         try {
@@ -205,76 +196,46 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isDropdownOpen]);
 
-    // Stabilize the dependency to prevent infinite render loops when parent passes inline arrays
-    const relatedEntitiesKey = JSON.stringify(relatedEntities);
-
-    const fetchUnifiedTimeline = useCallback(async () => {
-        const entitiesToFetch = relatedEntities.length > 0 
+    
+    const entitiesToFetch = useMemo(() => {
+        return relatedEntities.length > 0 
             ? relatedEntities 
             : (entityId && entityType ? [{ type: entityType, id: entityId }] : []);
+    }, [relatedEntities, entityId, entityType]);
+
+    const queries = useUnifiedActivityQueries(entitiesToFetch);
+
+    const loadingTimeline = queries.some(q => q.isPending);
+
+    const timelineData = useMemo(() => {
+        const merged = [];
+        const seenIds = new Set();
         
-        if (entitiesToFetch.length === 0) return;
-        
-        setLoadingTimeline(true);
-        try {
-            // Parallel fetching for all related entities
-            const results = await Promise.all(
-                entitiesToFetch.map(async (entity) => {
-                    try {
-                        const res = await activitiesAPI.getUnified(entity.type.toLowerCase(), entity.id);
-                        if (res && res.success) {
-                            return (res.data || []).map(item => ({
-                                ...item,
-                                sourceEntity: entity.type // Track source for visual labeling
-                            }));
-                        }
-                    } catch (err) {
-                        console.error(`Error fetching timeline for ${entity.type} ${entity.id}:`, err);
+        queries.forEach(q => {
+            if (q.data) {
+                q.data.forEach(item => {
+                    const id = String(item._id || item.id);
+                    if (!seenIds.has(id)) {
+                        seenIds.add(id);
+                        merged.push(item);
                     }
-                    return [];
-                })
-            );
-
-            // Merge and Deduplicate by string ID to ensure consistency
-            const merged = [];
-            const seenIds = new Set();
-            
-            results.flat().forEach(item => {
-                const id = String(item._id || item.id);
-                if (!seenIds.has(id)) {
-                    seenIds.add(id);
-                    merged.push(item);
-                }
-            });
-
-            // Sort by timestamp descending (Professional Consistency)
-            const sorted = merged.sort((a, b) => {
-                const dateA = new Date(a.timestamp || a.createdAt || a.date || 0).getTime();
-                const dateB = new Date(b.timestamp || b.createdAt || b.date || 0).getTime();
-                return dateB - dateA;
-            });
-
-            setUnifiedTimeline(sorted);
-
-            // Extract unique tags
-            const tags = new Set();
-            sorted.forEach(item => {
-                if (item.tags && Array.isArray(item.tags)) {
-                    item.tags.forEach(t => tags.add(t));
-                }
-            });
-            setAllTags(Array.from(tags));
-        } catch (error) {
-            console.error("Error fetching aggregated timeline:", error);
-        } finally {
-            setLoadingTimeline(false);
-        }
-    }, [entityId, entityType, relatedEntitiesKey]);
+                });
+            }
+        });
+        
+        return merged.sort((a, b) => new Date(b.createdAt || b.timestamp) - new Date(a.createdAt || a.timestamp));
+    }, [queries]);
 
     useEffect(() => {
-        fetchUsers();
-        fetchUnifiedTimeline();
-    }, [fetchUsers, fetchUnifiedTimeline]);
+        const tags = new Set();
+        timelineData.forEach(item => {
+            if (item.tags && Array.isArray(item.tags)) {
+                item.tags.forEach(t => tags.add(t));
+            }
+        });
+        setAllTags(Array.from(tags));
+    }, [timelineData]);
+
 
     const addTask = () => {
         setPendingTasks([...pendingTasks, {
@@ -301,13 +262,8 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         if (item.source !== 'activity') return;
         try {
             const newStarredStatus = !item.isStarred;
-            const res = await activitiesAPI.update(item._id, { isStarred: newStarredStatus });
-            if (res && res.success) {
-                setUnifiedTimeline(prev => prev.map(t =>
-                    t._id === item._id ? { ...t, isStarred: newStarredStatus } : t
-                ));
-                toast.success(newStarredStatus ? 'Activity starred' : 'Activity unstarred');
-            }
+            await updateActivity({ id: item._id, updates: { isStarred: newStarredStatus } });
+            toast.success(newStarredStatus ? 'Activity starred' : 'Activity unstarred');
         } catch (error) {
             console.error("Error toggling star:", error);
             toast.error('Failed to update star status');
@@ -421,7 +377,6 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     completionResult: ''
                 });
                 setPendingTasks([{ id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }]);
-                fetchUnifiedTimeline();
                 if (onActivitySaved) onActivitySaved(res.data);
             } else {
                 toast.error('Failed to save activity');
@@ -874,9 +829,9 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                             <div className="loader" style={{ margin: '0 auto 12px' }}></div>
                             <span style={{ fontSize: '0.85rem' }}>Syncing timeline...</span>
                         </div>
-                    ) : unifiedTimeline.length > 0 ? (
+                    ) : timelineData.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {unifiedTimeline
+                            {timelineData
                                 .filter(item => {
                                     const isMarketingMatch = (item.type || '').toLowerCase() === 'marketing' && 
                                                              item.details?.results?.some(r => r.channel === timelineFilter);

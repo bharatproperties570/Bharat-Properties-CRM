@@ -11,7 +11,7 @@ import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
-import { AuthorityProofIssuer } from "../utils/ServerAuthorityProof.js";
+import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
@@ -20,8 +20,6 @@ import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
-import AIExecutionService from '../services/ai/AIExecutionService.js';
-import AIExecutionContext from '../services/ai/AIExecutionContext.js';
 import AddressParsingService from '../services/AddressParsingService.js';
 import WhatsAppService from '../services/WhatsAppService.js';
 
@@ -863,13 +861,6 @@ export const addLead = async (req, res, next) => {
     try {
         console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
         const data = { ...req.body };
-        // R4-B1-R8 Security: Prevent client from tampering with enrichmentState (including dot-notation paths)
-        for (const key of Object.keys(data)) {
-            if (key === 'enrichmentState' || key.startsWith('enrichmentState.')) {
-                return res.status(403).json({ success: false, message: 'SECURITY_VIOLATION: Cannot manually mutate enrichmentState' });
-            }
-        }
-
 
         // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
         await resolveAllReferenceFields(data);
@@ -952,14 +943,6 @@ export const updateLead = async (req, res, next) => {
         delete updateData.activities;
         delete updateData.activity;
         delete updateData.lastAct;
-        
-        // R4-B1-R8 Security: Prevent client from tampering with enrichmentState (including dot-notation paths)
-        for (const key of Object.keys(updateData)) {
-            if (key === 'enrichmentState' || key.startsWith('enrichmentState.')) {
-                return res.status(403).json({ success: false, message: 'SECURITY_VIOLATION: Cannot manually mutate enrichmentState' });
-            }
-        }
-
 
         // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const visibilityFilter = await getVisibilityFilter(req.user);
@@ -1174,7 +1157,13 @@ export const updateLead = async (req, res, next) => {
                     mobile: finalLead.mobile 
                 });
             }
-            // Enrichment and Scoring are now handled by Domain Event Worker via OutboxEvent
+            // Auto-run Enrichment & Scoring (wrapped in try-catch)
+            try {
+                await runFullLeadEnrichment(finalLead._id);
+                await LeadScoringService.computeAndSave(finalLead._id);
+            } catch (enrichError) {
+                console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);
+            }
 
             // ─── Phase 5: AI Audit Trail (SaaS Grade Persistence) ────────────
             if (req.body.source === 'AI_PROFILER') {
@@ -2219,16 +2208,22 @@ export const interpretLeadRequirements = async (req, res) => {
             };
         }
 
-        
-        const context = AIExecutionContext.fromHttpRequest(req.user);
-        const interpretation = await AIExecutionService.execute({
-            context,
-            capability: 'AI_LEAD_PROFILING',
-            expectedSchema: 'LEAD_PROFILE_RESULT',
-            inputData: prompt,
-            systemInstructions: agent.systemPrompt,
-            provider: agent.provider || 'gemini'
+        const aiResponseText = await UnifiedAIService.generate(prompt, {
+            provider: agent.provider || 'gemini',
+            systemPrompt: agent.systemPrompt,
+            model: agent.modelName,
+            temperature: 0.2
         });
+
+        // 3. Parse and Clean Response
+        let interpretation;
+        try {
+            const jsonMatch = aiResponseText.match(/\{.*\}/s);
+            interpretation = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponseText);
+        } catch (e) {
+            console.error("[AI_INTERPRET] JSON Parse Failed:", aiResponseText);
+            throw new Error("AI returned unparseable response");
+        }
 
         // 4. Transform Interpretation to DB IDs (Optional but professional)
         // Note: For now we return the raw interpretation and let the frontend confirm

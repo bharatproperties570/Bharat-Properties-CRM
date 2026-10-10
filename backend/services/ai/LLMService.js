@@ -3,8 +3,6 @@
  * Useful as a fallback when regex-based parsing fails to find core fields.
  */
 import fetch from 'node-fetch'; // Requires node-fetch if Node < 18, but Node 24 is used here so global fetch is ok. But we'll just use global.
-import AIDataPolicy from './AIDataPolicy.js';
-import AIOutputValidator from './AIOutputValidator.js';
 
 class LLMService {
     constructor() {
@@ -25,33 +23,23 @@ class LLMService {
             return null; // Fallback to null so parser returns whatever it got via regex
         }
 
-        const safeText = AIDataPolicy.sanitizeText(text);
-
         const prompt = `
-        Extract the following Indian real estate fields from the document provided within the <untrusted_document> tags. 
+        Extract the following Indian real estate fields from the text below. 
         Return ONLY a raw JSON object (no markdown formatting or backticks).
         Required keys: price (string), size (string), location (string), intent (BUYER/SELLER/TENANT/LANDLORD), property_type (string).
         If a field is missing, set its value to null.
         
-        <untrusted_document>
-        ${safeText}
-        </untrusted_document>
+        Text: "${text}"
         `;
 
         try {
-            let rawOutput;
             if (this.provider === 'claude') {
-                rawOutput = await this._callClaude(prompt);
+                return await this._callClaude(prompt);
             } else if (this.provider === 'openai') {
-                rawOutput = await this._callOpenAI(prompt);
+                return await this._callOpenAI(prompt);
             } else if (this.provider === 'gemini') {
-                rawOutput = await this._callGemini(prompt);
+                return await this._callGemini(prompt);
             }
-            
-            // Normalize & Validate the structured AI output (P16-R3)
-            // Note: _call* methods currently return parsed JSON. We stringify it back to simulate raw string if it is an object, 
-            // since AIOutputValidator accepts either string or object.
-            return AIOutputValidator.validateDocumentExtraction(rawOutput);
         } catch (error) {
             console.error('[LLMService] Extraction failed:', error.message);
             return null;

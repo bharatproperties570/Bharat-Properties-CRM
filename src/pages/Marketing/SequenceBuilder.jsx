@@ -1,8 +1,10 @@
+import { useParams } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
 import './SequenceBuilder.css';
 import api from '../../utils/api';
 
-const SequenceBuilder = ({ sequenceId, onBack, onNavigate }) => {
+const SequenceBuilder = ({ onBack, onNavigate }) => {
+    const { id: sequenceId } = useParams();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     

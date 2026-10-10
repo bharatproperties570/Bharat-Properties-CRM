@@ -1,4 +1,16 @@
 /**
+ * FRONTEND AUTOMATION BOUNDARY — Field Rule Engine
+ *
+ * This module provides frontend field validation, constants, and helper logic.
+ * Production data integrity and rule enforcement remain exclusively in the backend.
+ *
+ * IMPORTANT:
+ * - Do not introduce autonomous production automation here.
+ * - Do not execute queue/outbox/domain-event side effects.
+ *
+ * Phase 10.7 — Automation Engine Boundary Documentation
+ */
+/**
  * Field Rule Engine
  * 
  * "Field Rules = CRM Constitution"

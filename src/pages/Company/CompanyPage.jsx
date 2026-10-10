@@ -7,6 +7,7 @@ import CompanyFilterPanel from './components/CompanyFilterPanel';
 import AssignContactModal from '../../components/AssignContactModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import { api } from '../../utils/api';
+import { useCompanies, useUpdateCompanyMutation, useDeleteCompanyMutation, useBulkDeleteCompaniesMutation } from '../../utils/crmHooks';
 import toast from 'react-hot-toast';
 import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
@@ -31,44 +32,37 @@ function CompanyPage({ onEdit, onNavigate }) {
     const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
 
     // API Data States
-    const [companies, setCompanies] = useState([]);
-    const [totalCount, setTotalCount] = useState(0);
-    const [totalPages, setTotalPages] = useState(0);
-    const [loading, setLoading] = useState(false);
-    const [industryStats, setIndustryStats] = useState([]);
+    
+    
+    
+    const [isTransientLoading, setIsTransientLoading] = useState(false);
+    
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const params = {
-                page: currentPage,
-                limit: recordsPerPage,
-                search: searchTerm,
-                sortBy: sortConfig.by,
-                sortOrder: sortConfig.order,
-                ...filters
-            };
-            const response = await api.get('/companies', { params });
-            if (response.data && response.data.success) {
-                setCompanies(response.data.records || []);
-                setTotalCount(response.data.totalCount || 0);
-                setTotalPages(response.data.totalPages || 0);
-                setIndustryStats(response.data.industryStats || []);
-            }
-        } catch (error) {
-            console.error("Error fetching companies:", error);
-            toast.error("Failed to load companies");
-        } finally {
-            setLoading(false);
-        }
-    }, [currentPage, recordsPerPage, searchTerm, filters, sortConfig]);
+    
+    const { data: companiesData, isLoading } = useCompanies({
+        page: currentPage,
+        limit: recordsPerPage,
+        search: searchTerm,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order,
+        ...filters
+    });
 
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            fetchData();
-        }, 500); // Debounce search
-        return () => clearTimeout(timeoutId);
-    }, [fetchData]);
+    const companies = companiesData?.records || [];
+    const totalCount = companiesData?.totalCount || 0;
+    const totalPages = companiesData?.totalPages || 0;
+    const industryStats = companiesData?.industryStats || [];
+    
+    // Using a debounced search term for the query would be better, but the API handles the delay currently by the effect.
+    // TanStack Query handles this gracefully if we rely on the state changing.
+    // However, to keep it simple, we just pass the states. The hook will refetch automatically.
+    
+    const loading = isLoading || isTransientLoading;
+    
+    const updateMutation = useUpdateCompanyMutation();
+    const deleteMutation = useDeleteCompanyMutation();
+    const bulkDeleteMutation = useBulkDeleteCompaniesMutation();
+
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -114,21 +108,20 @@ function CompanyPage({ onEdit, onNavigate }) {
         if (selectedIds.length === 0) return;
 
         if (window.confirm(`Are you sure you want to delete ${selectedIds.length} companies?`)) {
-            setLoading(true);
+            setIsTransientLoading(true);
             try {
-                const response = await api.post('/companies/bulk-delete', { ids: selectedIds });
-                if (response.data && response.data.success) {
-                    toast.success(response.data.message || "Companies deleted successfully");
+                const response = await bulkDeleteMutation.mutateAsync({ ids: selectedIds });
+                if (response && response.success) {
+                    toast.success(response.message || "Companies deleted successfully");
                     setSelectedIds([]);
-                    fetchData();
                 } else {
-                    toast.error(response.data.error || "Failed to delete companies");
+                    toast.error(response.error || "Failed to delete companies");
                 }
             } catch (error) {
                 console.error("Error deleting companies:", error);
                 toast.error("An error occurred during deletion");
             } finally {
-                setLoading(false);
+                setIsTransientLoading(false);
             }
         }
     };
@@ -137,12 +130,11 @@ function CompanyPage({ onEdit, onNavigate }) {
         try {
             toast.loading("Assigning companies...");
             const promises = selectedCompanies.map(company =>
-                api.put(`companies/${company._id}`, { owner: assignmentDetails.assignedTo })
+                updateMutation.mutateAsync({ id: company._id, payload: { owner: assignmentDetails.assignedTo } })
             );
             await Promise.all(promises);
             toast.dismiss();
             toast.success(`${selectedCompanies.length} company(s) assigned successfully`);
-            fetchData(); // Refresh the list
         } catch (error) {
             toast.dismiss();
             toast.error("Failed to assign companies");
@@ -154,20 +146,19 @@ function CompanyPage({ onEdit, onNavigate }) {
 
     const handleOneDelete = async (id) => {
         if (window.confirm(`Are you sure you want to delete this company?`)) {
-            setLoading(true);
+            setIsTransientLoading(true);
             try {
-                const response = await api.delete(`companies/${id}`);
-                if (response.data && response.data.success) {
+                const response = await deleteMutation.mutateAsync(id);
+                if (response && response.success) {
                     toast.success("Company deleted successfully");
-                    fetchData();
                 } else {
-                    toast.error(response.data.error || "Failed to delete company");
+                    toast.error(response.error || "Failed to delete company");
                 }
             } catch (error) {
                 console.error("Error deleting company:", error);
                 toast.error("An error occurred during deletion");
             } finally {
-                setLoading(false);
+                setIsTransientLoading(false);
             }
         }
     };
@@ -177,7 +168,7 @@ function CompanyPage({ onEdit, onNavigate }) {
         console.log('Updating tags:', payload);
         toast.success("Tags updated successfully!");
         setSelectedIds([]);
-        fetchData();
+        
     };
 
 
@@ -887,7 +878,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                 isOpen={isAssignGroupModalOpen}
                 onClose={() => setIsAssignGroupModalOpen(false)}
                 selectedCompanies={selectedCompanies}
-                onComplete={fetchData}
+                onComplete={() => {}}
             />
         </section>
     );

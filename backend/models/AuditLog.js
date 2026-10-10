@@ -32,13 +32,6 @@ const AuditLogSchema = new mongoose.Schema({
             'deals_transferred',
             'inventory_transferred',
 
-            // AI Policy Engine Events
-            'ai_action_blocked',
-            'ai_action_approval_required',
-            'ai_action_authorized',
-            'ai_action_dispatched',
-            'ai_activation_changed',
-
             // Entity Trackers
             'stage_changed',
             'assignment_changed',

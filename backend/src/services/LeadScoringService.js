@@ -439,27 +439,8 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
  * @param {string} [options.triggeredBy] - 'activity'|'manual'|'cron'|'import'
  * @returns {Promise<{leadId, score, activityScore, temperature, intent}>}
  */
-export const computeAndSave = async (leadId, options = {}, authContext = null, txContext = {}) => {
+export const computeAndSave = async (leadId, options = {}) => {
     const { triggeredBy = 'system' } = options;
-
-    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
-        if (!authContext || !authContext.authorizationProof) {
-            throw new Error("SECURITY_VIOLATION: SYSTEM_ENRICHMENT requires executionContext with authorizationProof");
-        }
-    } else if (triggeredBy === 'HUMAN' || triggeredBy === 'UI') {
-        if (!authContext || !authContext.user) {
-            throw new Error("SECURITY_VIOLATION: HUMAN/UI mode requires authenticated user context");
-        }
-    } else if (triggeredBy === 'manual') {
-        throw new Error("SECURITY_VIOLATION: 'manual' is no longer a valid authorization mode bypass");
-    } else {
-        if (!['system', 'activity_created', 'activity_completion', 'bulk_recalc', 'cron', 'import'].includes(triggeredBy)) {
-             throw new Error("SECURITY_VIOLATION: Unrecognized authorization mode: " + triggeredBy);
-        }
-        if (triggeredBy === 'OTHER_SYSTEM_AUTOMATION' && (!authContext || !authContext.systemAuthorityContract)) {
-             throw new Error("SECURITY_VIOLATION: OTHER_SYSTEM_AUTOMATION requires systemAuthorityContract");
-        }
-    }
 
     // Load lead with populated stage for multiplier resolution
     const lead = await Lead.findById(leadId)
@@ -494,59 +475,31 @@ export const computeAndSave = async (leadId, options = {}, authContext = null, t
     const prevScore = lead.leadScore || 0;
 
     // Persist to MongoDB
-    const updatePayload = {
+    await Lead.findByIdAndUpdate(leadId, {
         leadScore:      result.total,
         activityScore:  result.activityScore,
         scoreBreakdown: result.breakdown,
         dealHealthScore: dealHealth.score,
         dealHealthStatus: dealHealth.status
-    };
-
-    const session = txContext.session || null;
-    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
-        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
-        const predicate = AuthorityProofIssuer.getMutationPredicate(authContext.authorizationProof);
-        const updated = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true, session });
-        if (!updated) {
-            throw new Error("SECURITY_VIOLATION: LeadScoringService mutation rejected (superseded or state mismatch)");
-        }
-    } else {
-        await Lead.findByIdAndUpdate(leadId, { $set: updatePayload }, { session });
-    }
+    });
 
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
-            if (session) {
-                const AuditLogModel = (await import('../../models/AuditLog.js')).default;
-                await AuditLogModel.create([{
-                    eventType: 'score_changed',
-                    targetType: 'lead',
-                    targetId: leadId,
-                    targetName: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-                    userId: null,
-                    changes: { before: prevScore, after: result.total },
-                    description: `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
-                }], { session });
-            } else {
-                await AuditLog.logEntityUpdate(
-                    'score_changed',
-                    'lead',
-                    leadId,
-                    `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-                    null,
-                    { before: prevScore, after: result.total },
-                    `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
-                );
-            }
+            await AuditLog.logEntityUpdate(
+                'score_changed',
+                'lead',
+                leadId,
+                `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                null,
+                { before: prevScore, after: result.total },
+                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+            );
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
-            // Do NOT emit directly if running inside a transaction, to prevent pre-commit side effects.
-            if (!session) {
-                const eventBus = (await import('../../services/EventBus.js')).default;
-                const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
-                eventBus.emit('LEAD_UPDATED', updatedLead);
-            }
+            const eventBus = (await import('../../services/EventBus.js')).default;
+            const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
+            eventBus.emit('LEAD_UPDATED', updatedLead);
             
         } catch (_) { /* Non-critical — don't let audit failure break scoring */ }
     }

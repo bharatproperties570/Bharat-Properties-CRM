@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../utils/api';
+import { useCompanyGroups, useAssignCompanyGroupMutation } from '../../../utils/crmHooks';
+
 import toast from 'react-hot-toast';
 
 function AssignGroupModal({ isOpen, onClose, selectedCompanies, onComplete }) {
-    const [groups, setGroups] = useState([]);
-    const [loading, setLoading] = useState(false);
+    
+    const [isAssigning, setIsAssigning] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');
     const [actionType, setActionType] = useState('add');
 
@@ -24,32 +26,25 @@ function AssignGroupModal({ isOpen, onClose, selectedCompanies, onComplete }) {
 
     useEffect(() => {
         if (isOpen) {
-            fetchGroups();
+            
             setActionType('add');
             setSelectedGroupId('');
         }
     }, [isOpen]);
 
-    const fetchGroups = async () => {
-        try {
-            const res = await api.get('/company-groups');
-            if (res.data && res.data.success) {
-                setGroups(res.data.data || []);
-            }
-        } catch (error) {
-            toast.error("Failed to load groups");
-        }
-    };
+    
+    const { data: groups = [], isLoading: loading } = useCompanyGroups();
+    const assignGroupMutation = useAssignCompanyGroupMutation();
 
     const handleAssign = async () => {
         if (!selectedGroupId) {
             toast.error("Please select a group");
             return;
         }
-        setLoading(true);
+        setIsAssigning(true);
         try {
             const companyIds = selectedCompanies.map(c => c._id);
-            await api.post('/company-groups/bulk-assign', { 
+            await assignGroupMutation.mutateAsync({ 
                 companyIds: companyIds, 
                 groupIds: [selectedGroupId],
                 action: actionType
@@ -58,10 +53,11 @@ function AssignGroupModal({ isOpen, onClose, selectedCompanies, onComplete }) {
             onComplete();
             onClose();
         } catch (error) {
-            toast.error("Failed to update group");
+            toast.error("Failed to update group assignments");
         } finally {
-            setLoading(false);
+            setIsAssigning(false);
         }
+    
     };
 
     if (!isOpen) return null;

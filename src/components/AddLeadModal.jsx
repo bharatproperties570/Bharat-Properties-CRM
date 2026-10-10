@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import {  useTeams , useActiveUsers } from '../utils/crmHooks';
 import { api } from '../utils/api';
 import whatsappService from '../services/whatsappService';
 import { STAGE_PIPELINE } from '../utils/stageEngine';
 
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useAddLeadMutation, useUpdateLeadMutation } from '../utils/crmHooks';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
@@ -420,7 +422,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
     const { fireEvent } = useTriggers();
-    const { users, teams } = useUserContext();
+    const { data: users = [] } = useActiveUsers();
+    
+    const { data: teams = [] } = useTeams();
     const [currentTab, setCurrentTab] = useState(initialTab || (entityType === 'lead' ? 'requirement' : 'basic'));
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -926,39 +930,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         setIsSaving(true);
         let response;
 
-        // Normalize references to IDs only to prevent 500/400 errors
-        const normalizeRefs = (obj, parentKey = null) => {
-            if (!obj || typeof obj !== 'object') return obj;
-            const result = Array.isArray(obj) ? [...obj] : { ...obj };
-
-            // Fields that should REMAIN as objects (not converted to IDs)
-            const embeddedFields = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents"];
-
-            if (Array.isArray(result)) {
-                // If we are INSIDE an embedded field (like phones array), don't normalize the items to IDs
-                if (embeddedFields.includes(parentKey)) {
-                    return result.map(item => normalizeRefs(item));
-                }
-                return result.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
-            }
-
-            for (const key in result) {
-                if (result[key] && typeof result[key] === 'object') {
-                    if (embeddedFields.includes(key)) {
-                        // Recurse into embedded fields without converting to ID
-                        result[key] = normalizeRefs(result[key], key);
-                    } else if (result[key]._id) {
-                        result[key] = result[key]._id;
-                    } else if (Array.isArray(result[key])) {
-                        result[key] = result[key].map(item =>
-                            (item && typeof item === 'object' && item._id) ? item._id : item
-                        );
-                    }
-                }
-            }
-            return result;
-        };
-
         try {
             // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
             const validationResult = await validateAsync('lead', formData, { stage: formData.stage || 'New' });
@@ -1136,17 +1107,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 });
 
                 // Final cleanup: Ensure no objects left in transformedData before sending
-                const finalLeadPayload = normalizeRefs(transformedData);
-                
-                // Do not override stage on manual edit; let StageEngine handle stage progression via activities
-                if (mode === 'edit') {
-                    delete finalLeadPayload.stage;
-                }
-
+                const finalLeadPayload = transformedData; // normalization is now handled by the mutation hooks
                 if (mode === 'edit' && initialData?._id) {
-                    response = await api.put(`/leads/${initialData._id}`, finalLeadPayload);
+                    response = await updateLeadMutation.mutateAsync({ id: initialData._id, payload: finalLeadPayload, isPartial: false });
                 } else {
-                    response = await api.post('/leads', finalLeadPayload);
+                    response = await addLeadMutation.mutateAsync(finalLeadPayload);
                 }
                 } catch (leadError) {
                     console.error("Error creating/updating lead:", leadError);

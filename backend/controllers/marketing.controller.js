@@ -10,8 +10,6 @@ import marketingPublishingService from '../services/MarketingPublishingService.j
 import geminiService    from '../services/GeminiService.js';
 import openAIService    from '../services/OpenAIService.js';
 import unifiedAIService from '../services/UnifiedAIService.js';
-import AIExecutionService from '../services/ai/AIExecutionService.js';
-import AIExecutionContext from '../services/ai/AIExecutionContext.js';
 import publishService from '../services/PublishService.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
@@ -355,17 +353,11 @@ export const generateWithModel = async (req, res) => {
             : prompt;
 
         // Use UnifiedAIService to support automatic provider fallback (failover)
-        
-        const execContext = AIExecutionContext.fromHttpRequest(req.user);
-        const resultObj = await AIExecutionService.execute({
-            context: execContext,
-            capability: 'AI_MARKETING_GENERATION',
-            expectedSchema: 'TEXT_GENERATION_RESULT',
-            inputData: userPrompt,
-            systemInstructions: systemPrompt,
-            provider: provider || 'google'
+        const result = await unifiedAIService.generate(userPrompt, {
+            provider: provider || 'google',
+            model: model,
+            systemPrompt: systemPrompt
         });
-        const result = resultObj.content;
 
         res.json({ success: true, content: result });
     } catch (error) {

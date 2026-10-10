@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, memo, Fragment } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { useActivities } from '../../context/ActivityContext';
+import { useActivities, useAddActivityMutation, useUpdateActivityMutation, useDeleteActivityMutation } from '../../utils/crmHooks';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
 import ActivityFilterPanel from './components/ActivityFilterPanel';
@@ -217,7 +217,9 @@ ActivityRow.displayName = 'ActivityRow';
 
 function ActivitiesPage() {
     const { isDark } = useTheme();
-    const { activities, fetchActivities, addActivity, updateActivity, deleteActivity } = useActivities();
+    const { mutateAsync: addActivity } = useAddActivityMutation();
+    const { mutateAsync: updateActivity } = useUpdateActivityMutation();
+    const { mutateAsync: deleteActivity } = useDeleteActivityMutation();
 
     // UI State
     const [viewMode, setViewMode] = useState('list'); 
@@ -237,6 +239,7 @@ function ActivitiesPage() {
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
+    const { data: activities = [] } = useActivities({ sortBy: sortConfig.by, sortOrder: sortConfig.order, search: searchTerm, ...filters });
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ label: 'Recently Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
     const [isSortOpen, setIsSortOpen] = useState(false);
@@ -261,7 +264,7 @@ function ActivitiesPage() {
             }
             setIsCreateModalOpen(false);
             setActivityToEdit(null);
-            fetchActivities();
+            
         } catch (error) {
             console.error('Failed to save activity:', error);
         }
@@ -282,7 +285,7 @@ function ActivitiesPage() {
                     await deleteActivity(id);
                 }
                 setSelectedIds([]);
-                fetchActivities();
+                
             } catch (error) {
                 console.error("Failed to delete activities", error);
                 alert("Failed to delete some activities");
@@ -360,14 +363,7 @@ function ActivitiesPage() {
         );
     }, [filteredActivities, currentPage, recordsPerPage]);
 
-    useEffect(() => {
-        fetchActivities({
-            sortBy: sortConfig.by,
-            sortOrder: sortConfig.order,
-            search: searchTerm,
-            ...filters
-        });
-    }, [sortConfig, filters, searchTerm]);
+    // Filter changes trigger useActivities query automatically
 
     const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
     const goToPreviousPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
@@ -841,7 +837,7 @@ function ActivitiesPage() {
             <CreateActivityModal isOpen={isCreateModalOpen} onClose={() => { setIsCreateModalOpen(false); setActivityToEdit(null); }} onSave={handleSaveActivity} initialData={activityToEdit} />
             <ActivityFilterPanel isOpen={isFilterPanelOpen} onClose={() => setIsFilterPanelOpen(false)} filters={filters} onFilterChange={(key, value) => { if (typeof key === 'object') { setFilters(prev => ({ ...prev, ...key })); } else { setFilters(prev => ({ ...prev, [key]: value })); } }} onReset={() => setFilters({})} />
             {isOutcomeModalOpen && (
-                <ActivityOutcomeModal isOpen={isOutcomeModalOpen} onClose={() => { setIsOutcomeModalOpen(false); fetchActivities(); }} activity={selectedActivity || activities.find(a => a._id === selectedIds[0])} />
+                <ActivityOutcomeModal isOpen={isOutcomeModalOpen} onClose={() => { setIsOutcomeModalOpen(false);  }} activity={selectedActivity || activities.find(a => a._id === selectedIds[0])} />
             )}
         </section >
     );
