@@ -1213,10 +1213,18 @@ export const startBaileysConnection = async (req, res) => {
                 connectedBy: req.user._id
             });
         } else {
+            // Clear old auth data to force new QR generation
+            const { default: BaileysAuthModel } = await import('../models/BaileysAuth.js');
+            await BaileysAuthModel.deleteMany({ sessionId: integration._id.toString() });
+
             integration.onboardingStatus = 'INITIATED';
             integration.status = 'PENDING_ONBOARDING';
             integration.failureReason = null;
             await integration.save();
+            
+            // Logout and kill old socket
+            const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+            await BaileysConnectionManager.logout(integration._id.toString());
         }
 
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
