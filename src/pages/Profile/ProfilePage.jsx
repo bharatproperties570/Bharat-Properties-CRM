@@ -165,7 +165,8 @@ const ProfilePage = () => {
                 gap: '20px',
                 padding: '20px',
                 height: 'calc(100% - 64px)',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                overflowY: 'auto'
             }}>
 
                 {/* Column 1: Identity & Bio */}
