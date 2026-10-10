@@ -42,11 +42,15 @@ async function startServer() {
         const { default: loadedApp } = await import("../app.js");
         app = loadedApp;
 
-        app.listen(config.port, () => {
+        app.listen(config.port, async () => {
             const msg = `🚀 CRM Backend running on port ${config.port} (Env: ${config.nodeEnv})`;
             console.log(msg);
             logStartup(msg);
             
+            // Initialize WhatsApp Connections
+            const { BaileysConnectionManager } = await import("./services/baileysQueue/BaileysConnectionManager.js");
+            BaileysConnectionManager.initializeAll();
+
             if (config.disableBackgroundTasks) {
                 console.log("\n=========================================");
                 console.log("🛡️  STAGING RUNTIME SAFETY GUARD ACTIVE");
