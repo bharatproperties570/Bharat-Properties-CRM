@@ -16,14 +16,14 @@ async function runTests() {
     try {
         replset = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
         await mongoose.connect(replset.getUri());
-        
+
         mongoose.model('User', new mongoose.Schema({
             fullName: String, email: String, department: String
         }));
 
         console.log('Running AC-1 (Asynchronous error propagation)');
         AuditLog.create = async function() { throw new Error('Mocked DuplicateKey'); };
-        
+
         let ac1Passed = false;
         try {
             await AuditLog.logUserEvent('user_login', null, null, 'Test');
@@ -78,7 +78,7 @@ async function runTests() {
         check(docAC7.description.includes('[PHONE_MINIMIZED]'), 'AC-7: Description phone not masked');
         check(docAC7.changes.after.email === '[PII_MINIMIZED]', 'AC-7: Metadata email not minimized');
         check(docAC7.changes.after.phoneToken === '[REDACTED]', 'AC-7: Credential overlap not redacted');
-        
+
         // Test errorMessage pre-save hook
         docAC7.errorMessage = "Failed to connect to Mongo at db.js:40\n    at connect (db.js:40)\n    at main (index.js:10)";
         await docAC7.save();
