@@ -197,10 +197,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         }
     }, [isOpen]);
 
-    const duplicateDeal = formData.intent === 'Sell' ? existingDeals.find(d => {
-        const dIntent = (d.intent?.lookup_value || d.intent || '').toLowerCase();
-        return dIntent === 'sell' && d._id !== deal?._id;
-    }) : null;
+    const duplicateDeal = null; // previously used existingDeals
 
     const isFormLocked = !!duplicateDeal;
 
