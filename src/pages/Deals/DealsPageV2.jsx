@@ -934,7 +934,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div>Match</div>
                             <div>Expectation</div>
                             <div>Owner_Details</div>
-                            <div>Associate</div>
+                            <div>Associate Contact</div>
                             <div>Status</div>
                             <div>Interaction</div>
                             <div style={{ textAlign: 'center' }}>Assignment</div>
@@ -1627,26 +1627,34 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 </div>
             </div>
 
-            {/* Col 7: Associate */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                {(deal.associatedContact?.name || deal.associateName) ? (
-                    <>
-                        <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.8rem' }}>
-                            {renderValue(deal.associatedContact?.name || deal.associateName)}
+            {/* Col 7: Associate Contact */}
+            {(() => {
+                const assoc = deal.associatedContact || deal.partyStructure?.buyer || deal.partyStructure?.channelPartner;
+                const aName = assoc?.name || deal.associateName || (typeof deal.associatedContact === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.associatedContact) ? deal.associatedContact : null);
+                const aPhone = assoc?.phones?.[0]?.number || assoc?.mobile || assoc?.phone || deal.associatePhone;
+                const aEmail = assoc?.emails?.[0]?.address || assoc?.email || deal.associateEmail;
+
+                if (aName || aPhone || aEmail) {
+                    return (
+                        <div className="super-cell" style={{ background: isDark ? 'rgba(59, 130, 246, 0.1)' : '#eff6ff', padding: '8px', borderRadius: '6px', borderLeft: `3px solid ${isDark ? '#60a5fa' : '#2563eb'}` }}>
+                            <div className="text-ellipsis" style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.8rem', marginBottom: '4px' }}>
+                                {renderValue(aName, 'Associate')}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: isDark ? '#93c5fd' : '#1d4ed8', fontWeight: 600, marginBottom: '2px' }}>
+                                <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                                {renderValue(aPhone, 'N/A')}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
+                                {renderValue(aEmail, 'N/A')}
+                            </div>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: isDark ? '#c084fc' : '#8e44ad', fontWeight: 600 }}>
-                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
-                            {renderValue(deal.associatedContact?.phones?.[0]?.number || deal.associatedContact?.mobile || deal.associatedContact?.phone || deal.associatePhone)}
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
-                            {renderValue(deal.associatedContact?.emails?.[0]?.address || deal.associatedContact?.email || deal.associateEmail)}
-                        </div>
-                    </>
-                ) : (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>--</div>
-                )}
-            </div>
+                    );
+                }
+                return (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '8px' }}>--</div>
+                );
+            })()}
 
             {/* Col 8: Stage */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

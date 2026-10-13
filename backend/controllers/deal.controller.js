@@ -1142,7 +1142,7 @@ export const getDeals = async (req, res) => {
 
         // 🚀 SENIOR OPTIMIZATION: Redis Cache Layer for List View (Page 1)
         const isPageOne = Number(page) === 1 && !search;
-        const cacheKey = `deals_list_v4:${req.user._id}:${JSON.stringify(req.query)}`;
+        const cacheKey = `deals_list_v5:${req.user._id}:${JSON.stringify(req.query)}`;
 
         if (isPageOne) {
             const cachedData = await safeRedisCall('get', cacheKey);
@@ -1452,13 +1452,20 @@ export const getDeals = async (req, res) => {
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
             price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
             dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
-            owner: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1
+            owner: 1, associatedContact: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1,
+            partyStructure: 1, isOwnerSelected: 1, isAssociateSelected: 1,
+            associateName: 1, associatePhone: 1, associateEmail: 1,
+            ownerName: 1, ownerPhone: 1, ownerEmail: 1
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng builtUpArea builtupType ageOfConstruction constructionAge' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng builtUpArea builtupType ageOfConstruction constructionAge owners associates' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
-            { path: 'owner', select: 'name phones', model: 'Contact' },
+            { path: 'owner', select: 'name phones emails mobile phone email', model: 'Contact' },
+            { path: 'associatedContact', select: 'name phones emails mobile phone email', model: 'Contact' },
+            { path: 'partyStructure.owner', select: 'name phones emails mobile phone email', model: 'Contact' },
+            { path: 'partyStructure.buyer', select: 'name phones emails mobile phone email', model: 'Contact' },
+            { path: 'partyStructure.channelPartner', select: 'name phones emails mobile phone email', model: 'Contact' },
             { path: 'assignedTo', select: 'fullName name email' },
             { path: 'assignment.assignedTo', select: 'fullName name email' },
             { path: 'assignment.team', select: 'name' },
@@ -1522,6 +1529,52 @@ export const getDeals = async (req, res) => {
         ]);
         console.timeEnd("getDeals_Paginate_Category");
         console.log(">> getDeals API: finished Promise.all");
+
+        // 🛡️ [SENIOR RESILIENCE]: Batch-resolve any unpopulated Contact IDs (Strings or unpopulated ObjectIds)
+        const unpopulatedContactIds = new Set();
+        (results.records || []).forEach(deal => {
+            ['associatedContact', 'owner'].forEach(field => {
+                const val = deal[field];
+                if (val) {
+                    if (typeof val === 'string' && isValidObjectId(val)) {
+                        unpopulatedContactIds.add(val);
+                    } else if (typeof val === 'object' && val._id && !val.name && isValidObjectId(val._id)) {
+                        unpopulatedContactIds.add(String(val._id));
+                    }
+                }
+            });
+            if (deal.partyStructure?.buyer) {
+                const b = deal.partyStructure.buyer;
+                const bId = String(b._id || b);
+                if (isValidObjectId(bId) && !b.name) unpopulatedContactIds.add(bId);
+            }
+        });
+
+        if (unpopulatedContactIds.size > 0) {
+            const rawContacts = await Contact.find({
+                _id: { $in: Array.from(unpopulatedContactIds).map(id => new mongoose.Types.ObjectId(id)) }
+            }).select('name phones emails mobile phone email').lean();
+            const contactIdMap = new Map(rawContacts.map(c => [String(c._id), c]));
+
+            results.records.forEach(deal => {
+                ['associatedContact', 'owner'].forEach(field => {
+                    const val = deal[field];
+                    if (val) {
+                        const idStr = String(val._id || val);
+                        if (contactIdMap.has(idStr)) {
+                            deal[field] = contactIdMap.get(idStr);
+                        }
+                    }
+                });
+                if (deal.partyStructure?.buyer) {
+                    const bId = String(deal.partyStructure.buyer._id || deal.partyStructure.buyer);
+                    if (contactIdMap.has(bId)) {
+                        deal.partyStructure.buyer = contactIdMap.get(bId);
+                        if (!deal.associatedContact) deal.associatedContact = contactIdMap.get(bId);
+                    }
+                }
+            });
+        }
 
         // Fetch latest activities for owners and associates
         // 🚀 SENIOR OPTIMIZATION: Skip for compact/mobile list views — not displayed on card
