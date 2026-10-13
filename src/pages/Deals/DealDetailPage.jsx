@@ -938,7 +938,26 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     onClose={() => setIsMessageOpen(false)}
                     entityType="Deal"
                     entityId={dealId}
-                    phoneNumber={deal.contactDetails?.phones?.[0]?.number}
+                    phoneNumber={deal?.contactDetails?.phones?.[0]?.number || deal?.contactPhone || ''}
+                    initialRecipients={[{
+                        _id: deal?.contactDetails?._id || deal?.leadId?._id || deal?._id,
+                        name: deal?.contactDetails?.name || deal?.contactName || deal?.clientName || deal?.title || 'Valued Client',
+                        phone: deal?.contactDetails?.phones?.[0]?.number || deal?.contactPhone || deal?.phone || '',
+                        mobile: deal?.contactDetails?.phones?.[0]?.number || deal?.contactPhone || deal?.phone || '',
+                        requirement: deal?.requirement || deal?.propertyType || deal?.category || '',
+                        budget: deal?.demandPrice || deal?.dealValue || deal?.expectedAmount || ''
+                    }]}
+                    initialProperty={deal?.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : {
+                        _id: deal?.inventoryId || deal?._id,
+                        title: deal?.title || deal?.projectName || 'Featured Deal',
+                        unitNo: deal?.unitNumber || deal?.unitNo,
+                        category: deal?.propertyType || deal?.category || 'Commercial / Residential',
+                        location: deal?.location || deal?.geography?.city || 'Kurukshetra',
+                        city: deal?.geography?.city || 'Kurukshetra',
+                        price: deal?.demandPrice || deal?.dealValue || deal?.price,
+                        size: deal?.size || deal?.builtupArea || deal?.unitType || 'Prime Unit',
+                        projectName: deal?.projectName || deal?.title
+                    }}
                     onActivitySaved={() => {}}
                 />
             )}

@@ -31,8 +31,11 @@ const isMarketingBroadcastContext = (tpl) => {
     return false;
 };
 
-function interpolateTemplateString(rawText, { meta, deal, isHtml = false }) {
+function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipient = null }) {
     if (!rawText || typeof rawText !== 'string') return '';
+
+    const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
+    const recipientFirstName = recipient?.firstName || (recipientName !== '[Recipient / Broker Name]' ? recipientName.split(' ')[0] : '[Recipient / Broker Name]');
 
     const dealTitle = getSafeString(meta?.title || deal?.title || deal?.projectName, 'Featured Deal');
     const dealPrice = getSafeString(meta?.price, deal?.price ? `₹ ${Number(deal.price).toLocaleString('en-IN')}` : 'Price on Request');
@@ -52,13 +55,13 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false }) {
         : `🏢 *${dealTitle}*\n📍 ${dealLoc}\n💰 ${dealPrice}\n📐 ${dealSpecs}\n📝 ${dealDesc}`;
 
     const replacements = {
-        '\\[Recipient / Broker Name\\]': '[Recipient / Broker Name]',
-        '\\[Recipient / Group\\]': '[Recipient / Group]',
-        '\\{\\{customer_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{first_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{full_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{name\\}\\}': '[Recipient / Broker Name]',
-        '\\{owner\\}': '[Recipient / Broker Name]',
+        '\\[Recipient / Broker Name\\]': recipientName,
+        '\\[Recipient / Group\\]': recipientName,
+        '\\{\\{customer_name\\}\\}': recipientName,
+        '\\{\\{first_name\\}\\}': recipientFirstName,
+        '\\{\\{full_name\\}\\}': recipientName,
+        '\\{\\{name\\}\\}': recipientName,
+        '\\{owner\\}': recipientName,
         '\\{\\{property_title\\}\\}': dealTitle,
         '\\{\\{projectName\\}\\}': dealTitle,
         '\\{\\{project_name\\}\\}': dealTitle,
@@ -84,11 +87,11 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false }) {
         '\\{\\{match_percentage\\}\\}': '98',
         '\\{\\{requirement_summary\\}\\}': `${dealSpecs} in ${dealLoc}`,
         '\\{\\{agent_name\\}\\}': 'Bharat Properties',
-        '\\{\\{agent_mobile\\}\\}': '87000 00000',
+        '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
         '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
         '\\{\\{company_name\\}\\}': 'Bharat Properties',
         '\\{\\{due_date\\}\\}': 'This Weekend',
-        '\\{\\{document_list\\}\\}': 'PAN, Aadhaar & Booking Receipt',
+        '\\{\\{document_list\\}\\}': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt',
         '\\{\\{amount\\}\\}': dealPrice,
         '\\{\\{lead_status\\}\\}': 'Verified Deal',
         '\\{\\{lead_stage\\}\\}': 'Ready for Inspection',
@@ -100,10 +103,13 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false }) {
         result = result.replace(new RegExp(pattern, 'gi'), getSafeString(val, ''));
     });
 
-    result = result.replace(/\{\{1\}\}/g, '[Recipient / Broker Name]');
+    result = result.replace(/\{\{1\}\}/g, recipientFirstName || recipientName);
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
+    result = result.replace(/\{\{5\}\}/g, dealSpecs);
+    result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
+    result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
 
     return result;
 }
@@ -379,9 +385,13 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         const body = selectedTemplate.components?.find(c => c.type === 'BODY');
         if (!body) return null;
 
-        const resolveSource = (source) => {
+        const recipientName = '[Broker Company Name]';
+        const recipientFirstName = '[Broker Company Name]';
+
+        const resolveSource = (source, idx) => {
             switch(source) {
-                case 'customer_name': return '[Broker Company Name]';
+                case 'customer_name': return recipientName;
+                case 'first_name': return recipientFirstName;
                 case 'property_list_default':
                 case 'matchListDefault':
                     return `1️⃣ 🏢 ${getSafeString(meta.title, 'Project')} | 📐 ${getSafeString(meta.features?.[0], 'Size')} | 💰 ${getSafeString(meta.price, 'Price')}`;
@@ -392,20 +402,28 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');
                 case 'description': return getSafeString(meta.description, '');
-                case 'agentMobile': return '87000 00000';
-                default: return `[${getSafeString(source)}]`;
+                case 'agentMobile': return '+91 9991333570';
+                default:
+                    if (idx === '1') return recipientFirstName || recipientName;
+                    if (idx === '2') return resolveSource('property_list_default', idx);
+                    if (idx === '3') return getSafeString(meta.price, 'Price on Request');
+                    if (idx === '4') return getSafeString(meta.location, 'Kurukshetra');
+                    if (idx === '5') return getSafeString(meta.features?.[0], 'Prime Specs');
+                    if (idx === '6') return 'Bharat Properties';
+                    if (idx === '7') return '+91 9991333570';
+                    return source ? `[${getSafeString(source)}]` : '-';
             }
         };
 
-        let preview = body.text;
-        const varMatches = preview.match(/{{(\d+)}}/g) || [];
-        
-        varMatches.forEach(m => {
-            const idx = m.replace(/[{}]/g, '');
-            const config = registry[idx];
-            const source = typeof config === 'object' ? config.source : config;
-            const value = resolveSource(source);
-            preview = preview.replace(m, value);
+        let preview = body.text || '';
+        preview = preview.replace(/{{([^}]+)}}/g, (match, rawKey) => {
+            const clean = rawKey.trim();
+            if (/^\d+$/.test(clean)) {
+                const config = registry[clean];
+                const source = typeof config === 'object' ? config.source : config;
+                return resolveSource(source, clean);
+            }
+            return resolveSource(clean, clean);
         });
 
         return preview;

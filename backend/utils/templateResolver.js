@@ -39,24 +39,44 @@ const renderValue = (val, defaultVal = '') => {
     return val !== undefined && val !== null && val !== '' ? String(val) : defaultVal;
 };
 
+const formatCurrency = (val, defaultVal = 'Price on Request') => {
+    if (val === undefined || val === null || val === '') return defaultVal;
+    if (typeof val === 'string') {
+        const cleaned = val.trim();
+        if (cleaned.startsWith('₹')) return cleaned;
+        if (/Cr|Lakh|Lac|k/i.test(cleaned) || isNaN(Number(cleaned))) {
+            return `₹ ${cleaned}`;
+        }
+        const num = Number(cleaned);
+        if (!isNaN(num)) return `₹ ${num.toLocaleString('en-IN')}`;
+        return cleaned;
+    }
+    if (typeof val === 'number') {
+        return `₹ ${val.toLocaleString('en-IN')}`;
+    }
+    return defaultVal;
+};
+
 export const resolveMessageTemplate = async (template, channel, recipient, properties, currentUser) => {
     let resolvedBody = '';
     const components = [];
     const lookupsCache = {};
 
-    // Get variable registry from system settings
+    // Get variable registry from system settings (with safety timeout)
     let variableRegistry = {};
     try {
-        const regSetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+        const regSetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).maxTimeMS(3000).lean();
         if (regSetting && regSetting.value) {
             variableRegistry = regSetting.value;
         }
     } catch (err) {
-        console.error('Failed to fetch messaging variable registry', err);
+        console.warn('[templateResolver] Messaging variable registry fetch delayed, using defaults:', err.message);
     }
 
+    const hasProperties = properties && Array.isArray(properties) && properties.length > 0;
+
     const getPropVal = (key) => {
-        if (!properties || properties.length === 0) return '';
+        if (!hasProperties) return '';
         const p = properties[0];
         const labelKey = `${key}_label`;
         if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
@@ -79,50 +99,60 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         return val !== undefined && val !== null ? val : '';
     };
 
-    const categoryRaw = getPropVal('category') || getPropVal('propertyType');
-    const categoryResolved = await resolveLookup(categoryRaw, 'Category', lookupsCache);
+    let categoryRaw = getPropVal('category') || getPropVal('propertyType');
+    let categoryResolved = await resolveLookup(categoryRaw, 'Category', lookupsCache);
 
-    const subCategoryRaw = getPropVal('subCategory');
-    const subCategoryResolved = await resolveLookup(subCategoryRaw, 'SubCategory', lookupsCache);
+    let subCategoryRaw = getPropVal('subCategory');
+    let subCategoryResolved = await resolveLookup(subCategoryRaw, 'SubCategory', lookupsCache);
 
-    const builtupTypeRaw = getPropVal('builtupType');
-    const builtupTypeResolved = builtupTypeRaw && !/^[0-9a-fA-F]{24}$/.test(String(builtupTypeRaw))
+    let builtupTypeRaw = getPropVal('builtupType');
+    let builtupTypeResolved = builtupTypeRaw && !/^[0-9a-fA-F]{24}$/.test(String(builtupTypeRaw))
         ? builtupTypeRaw
         : await resolveLookup(builtupTypeRaw, 'BuiltupType', lookupsCache);
 
-    const sizeLabelRaw = getPropVal('sizeLabel') || getPropVal('sizeConfig');
-    const sizeLabelResolved = (sizeLabelRaw && !/^[0-9a-fA-F]{24}$/.test(String(sizeLabelRaw)))
+    let sizeLabelRaw = getPropVal('sizeLabel') || getPropVal('sizeConfig');
+    let sizeLabelResolved = (sizeLabelRaw && !/^[0-9a-fA-F]{24}$/.test(String(sizeLabelRaw)))
         ? sizeLabelRaw
         : (await resolveLookup(sizeLabelRaw, 'Size', lookupsCache) || getPropVal('size'));
 
-    const directionRaw = getPropVal('direction');
-    const directionResolved = directionRaw && !/^[0-9a-fA-F]{24}$/.test(String(directionRaw))
+    let directionRaw = getPropVal('direction');
+    let directionResolved = directionRaw && !/^[0-9a-fA-F]{24}$/.test(String(directionRaw))
         ? directionRaw
         : await resolveLookup(directionRaw, 'Direction', lookupsCache);
 
-    const facingRaw = getPropVal('facing');
-    const facingResolved = facingRaw && !/^[0-9a-fA-F]{24}$/.test(String(facingRaw))
+    let facingRaw = getPropVal('facing');
+    let facingResolved = facingRaw && !/^[0-9a-fA-F]{24}$/.test(String(facingRaw))
         ? facingRaw
         : await resolveLookup(facingRaw, 'Facing', lookupsCache);
 
-    const roadWidthRaw = getPropVal('roadWidth');
-    const roadWidthResolved = roadWidthRaw && !/^[0-9a-fA-F]{24}$/.test(String(roadWidthRaw))
+    let roadWidthRaw = getPropVal('roadWidth');
+    let roadWidthResolved = roadWidthRaw && !/^[0-9a-fA-F]{24}$/.test(String(roadWidthRaw))
         ? roadWidthRaw
         : await resolveLookup(roadWidthRaw, 'RoadWidth', lookupsCache);
 
-    const sizeRaw = getPropVal('size');
-    const sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
+    let sizeRaw = getPropVal('size');
+    let sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
 
-    const priceVal = getPropVal('price');
-    const projectNameVal = getPropVal('projectName') || getPropVal('unitNo') || 'Premium Listing';
+    let priceVal = getPropVal('price');
+    let projectNameVal = getPropVal('projectName') || getPropVal('title') || getPropVal('unitNo');
 
-    const locationRaw = getPropVal('location') || getPropVal('city') || getPropVal('sector');
-    const locationResolved = await resolveLookup(locationRaw, 'Location', lookupsCache) || locationRaw;
+    let locationRaw = getPropVal('location') || getPropVal('city') || getPropVal('sector');
+    let locationResolved = await resolveLookup(locationRaw, 'Location', lookupsCache) || locationRaw;
+
+    // 🌟 SENIOR CONTEXTUAL FALLBACKS: If properties array is empty, resolve from recipient/lead requirement data
+    if (!hasProperties) {
+        categoryResolved = categoryResolved || recipient?.requirement || recipient?.requirementType || (Array.isArray(recipient?.propertyType) ? recipient.propertyType[0] : recipient?.propertyType) || 'Commercial / Residential';
+        subCategoryResolved = subCategoryResolved || (Array.isArray(recipient?.subType) ? recipient.subType[0] : recipient?.subType) || 'Plot';
+        locationResolved = locationResolved || recipient?.locArea || recipient?.locCity || recipient?.location || recipient?.searchLocation || 'Sector 3, Kurukshetra';
+        priceVal = priceVal ? formatCurrency(priceVal) : (recipient?.budgetMax ? formatCurrency(recipient.budgetMax) : (recipient?.budgetMin ? formatCurrency(recipient.budgetMin) : (recipient?.budget ? formatCurrency(recipient.budget) : 'Attractive Price')));
+        sizeVal = sizeVal || sizeLabelResolved || (recipient?.sizeType?.[0] ? `${recipient.sizeType[0]} ${recipient.areaMetric || 'Sq.Yd.'}` : '250 Sq.Yd.');
+        projectNameVal = projectNameVal || (recipient?.projectName?.[0] || 'Featured Property Listing');
+    }
 
     let propertyListDefault = '';
     let propertyListDetailed = '';
     
-    if (properties && properties.length > 0) {
+    if (hasProperties) {
         for (let i = 0; i < properties.length; i++) {
             const p = properties[i];
             const propVal = (key) => {
@@ -134,69 +164,111 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
             };
             const loc = propVal('location') || propVal('city') || propVal('sector');
             const resolvedLoc = await resolveLookup(loc, 'Location', lookupsCache) || loc || 'Sector';
-            propertyListDefault += `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${resolvedLoc}\n`;
+            const pTitle = propVal('title') || propVal('projectName') || propVal('unitNo') || 'Unit';
+            const pPrice = propVal('price') ? formatCurrency(propVal('price'), 'P.O.R') : 'P.O.R';
+            propertyListDefault += `${i + 1}️⃣ 🏢 *${pTitle}* - 📍 ${resolvedLoc} | 💰 ${pPrice}\n`;
             
             const szRaw = propVal('size');
             const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : szRaw;
-            propertyListDetailed += `${i + 1}️⃣ 📍 ${resolvedLoc}\n📏 Size: ${szVal}\n💰 Price: ₹${propVal('price') || ''}\n`;
+            propertyListDetailed += `${i + 1}️⃣ 🏢 *${pTitle}*\n📍 ${resolvedLoc}\n📏 Size: ${szVal || 'Prime'}\n💰 Price: ${pPrice}\n`;
         }
         propertyListDefault = propertyListDefault.trim();
         propertyListDetailed = propertyListDetailed.trim();
+    } else {
+        propertyListDefault = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}\n📏 Size: ${sizeVal || 'Prime Specs'}\n💰 Price: ${priceVal || 'Price on Request'}`;
+        propertyListDetailed = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}\n📏 Size: ${sizeVal || 'Prime Specs'}\n💰 Price: ${priceVal || 'Price on Request'}\n✨ Status: Verified & Ready for Inspection`;
     }
 
-    const agentName = recipient?.assignedTo?.name || recipient?.owner || recipient?.agentName || currentUser?.name || 'Our Representative';
-    const agentMobile = recipient?.assignment?.assignedTo?.mobile || recipient?.assignedTo?.mobile || recipient?.ownerMobile || recipient?.agentMobile || currentUser?.mobile || currentUser?.phone || '';
+    const agentName = recipient?.assignedTo?.name || recipient?.owner || recipient?.agentName || currentUser?.name || 'Bharat Properties';
+    const agentMobile = recipient?.assignment?.assignedTo?.mobile || recipient?.assignedTo?.mobile || recipient?.ownerMobile || recipient?.agentMobile || currentUser?.mobile || currentUser?.phone || '+91 9991333570';
     const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
+
+    const rawCustName = recipient?.name || (recipient?.firstName ? `${recipient.firstName} ${recipient?.lastName || recipient?.surname || ''}`.trim() : '') || 'Valued Client';
+    const cleanCustName = rawCustName && !/^[0-9a-fA-F]{24}$/.test(rawCustName) ? rawCustName : 'Valued Client';
+    const custFirstName = recipient?.firstName || (cleanCustName.split(' ')[0] && cleanCustName.split(' ')[0] !== 'Valued' ? cleanCustName.split(' ')[0] : cleanCustName);
 
     const unifiedContext = {
         // Customer / Lead Data
-        'full_name': recipient?.name || '',
-        'first_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
+        'full_name': cleanCustName,
+        'fullname': cleanCustName,
+        'name': cleanCustName,
+        'customer_name': custFirstName,
+        'customername': custFirstName,
+        'first_name': custFirstName,
+        'firstname': custFirstName,
+        'client_name': cleanCustName,
+        'lead_name': cleanCustName,
+        'owner_name': cleanCustName,
+        'ownername': cleanCustName,
         'last_name': recipient?.surname || recipient?.lastName || '',
+        'lastname': recipient?.surname || recipient?.lastName || '',
         'mobile': recipient?.phone || recipient?.mobile || '',
+        'phone': recipient?.phone || recipient?.mobile || '',
         'email': recipient?.email || '',
-        'lead_source': recipient?.source || '',
-        'lead_status': recipient?.status || recipient?.stage || '',
-        'lead_stage': recipient?.stage || recipient?.status || '',
-        'lead_requirement': recipient?.requirement || recipient?.requirementType || 'property',
+        'lead_source': recipient?.source || 'Direct Inquiry',
+        'lead_status': recipient?.status || recipient?.stage || 'Active',
+        'lead_stage': recipient?.stage || recipient?.status || 'Active',
+        'lead_requirement': recipient?.requirement || recipient?.requirementType || categoryResolved || 'Property Requirement',
         'budget_min': recipient?.budgetMin || recipient?.budget || '',
         'budget_max': recipient?.budgetMax || '',
-        'preferred_city': recipient?.locCity || recipient?.location || '',
-        'preferred_area': recipient?.locArea || '',
+        'budget': recipient?.budgetMax ? formatCurrency(recipient.budgetMax) : (recipient?.budgetMin ? formatCurrency(recipient.budgetMin) : (recipient?.budget ? formatCurrency(recipient.budget) : 'Attractive Budget')),
+        'preferred_city': recipient?.locCity || recipient?.location || 'Kurukshetra',
+        'preferred_area': recipient?.locArea || locationResolved || 'Sector 3',
         
         // Agent / System Data
-        'agent_name': agentName || '',
-        'agent_mobile': agentMobile || '',
-        'agent_email': recipient?.assignedTo?.email || currentUser?.email || '',
-        'company_name': 'Bharat Properties', // Hardcoded or from env
+        'agent_name': agentName || 'Bharat Properties',
+        'agentname': agentName || 'Bharat Properties',
+        'agent_mobile': agentMobile || '+91 9991333570',
+        'agentmobile': agentMobile || '+91 9991333570',
+        'agent_phone': agentMobile || '+91 9991333570',
+        'agentphone': agentMobile || '+91 9991333570',
+        'agent_email': recipient?.assignedTo?.email || currentUser?.email || 'deals@bharatproperties.co',
+        'company_name': 'Bharat Properties',
+        'companyname': 'Bharat Properties',
 
         // Property Data
-        'project_name': projectNameVal,
-        'unit_number': getPropVal('unitNo'),
-        'block_name': getPropVal('block'),
-        'unit_type': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache),
-        'property_category': categoryResolved,
-        'property_subcategory': subCategoryResolved,
-        'builtup_type': builtupTypeResolved,
-        'size_label': sizeLabelResolved,
-        'property_direction': directionResolved,
-        'property_facing': facingResolved,
-        'road_width': roadWidthResolved,
-        'property_price': priceVal || 'N/A',
-        'property_size': sizeVal || 'N/A',
-        'property_location': locationResolved || recipient?.location || 'our project',
+        'project_name': projectNameVal || 'Featured Property Listing',
+        'projectname': projectNameVal || 'Featured Property Listing',
+        'property_title': projectNameVal || 'Featured Property Listing',
+        'title': projectNameVal || 'Featured Property Listing',
+        'unit_number': getPropVal('unitNo') || 'Unit 1',
+        'unitnumber': getPropVal('unitNo') || 'Unit 1',
+        'unit': getPropVal('unitNo') || 'Unit 1',
+        'unitNo': getPropVal('unitNo') || 'Unit 1',
+        'block_name': getPropVal('block') || 'Block A',
+        'unit_type': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache) || 'Plot',
+        'property_category': categoryResolved || 'Residential Plot',
+        'property_subcategory': subCategoryResolved || 'Plot',
+        'property_type': categoryResolved || 'Residential Plot',
+        'builtup_type': builtupTypeResolved || 'Plot',
+        'size_label': sizeLabelResolved || sizeVal || '250 Sq.Yd.',
+        'property_size': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
+        'size': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
+        'specs': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
+        'property_direction': directionResolved || 'North',
+        'property_facing': facingResolved || 'Park Facing',
+        'road_width': roadWidthResolved || '30 Feet',
+        'property_price': formatCurrency(priceVal, 'Price on Request'),
+        'price': formatCurrency(priceVal, 'Price on Request'),
+        'amount': formatCurrency(priceVal, 'Price on Request'),
+        'property_location': locationResolved || 'Sector 3, Kurukshetra',
+        'location': locationResolved || 'Sector 3, Kurukshetra',
+        'sector': locationResolved || 'Sector 3',
+        'dealCode': getPropVal('dealCode') || 'DEAL-REF',
+        'ref': getPropVal('dealCode') || 'DEAL-REF',
+        'shareableId': getPropVal('dealCode') || 'DEAL-REF',
         
         // Dynamic / Match Data
         'property_list': propertyListDefault,
         'property_list_default': propertyListDefault,
         'property_list_detailed': propertyListDetailed,
-        'property_list_dtl': propertyListDetailed,   // ✅ Alias: renamed for Meta 20-char limit
-        'requirement_summary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${locationResolved || recipient?.location || 'our area'} budget ${recipient?.budgetMin || recipient?.budget || ''}` : 'Your property requirement',
-        'properties_count': properties?.length || 0,
-        
-        'customer_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
-        'full_name': recipient?.name || recipient?.firstName || 'customer',      // ✅ common named var
-        'match_percentage': '95'
+        'property_list_dtl': propertyListDetailed,
+        'matchListDefault': propertyListDefault,
+        'requirement_summary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${locationResolved} (Budget: ${priceVal})` : `Curated ${categoryResolved} in ${locationResolved}`,
+        'properties_count': String(properties?.length || 1),
+        'match_percentage': '98',
+        'due_date': 'This Weekend',
+        'document_list': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt'
     };
 
     const seen = new Set();
@@ -204,9 +276,10 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         if (!text) return text;
         return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
             const cleanKey = vIdx.trim();
+            const lowerKey = cleanKey.toLowerCase();
             
-            // Standardized Named Variables
-            if (unifiedContext[cleanKey] !== undefined) {
+            // 1. Direct match in unifiedContext
+            if (unifiedContext[cleanKey] !== undefined && unifiedContext[cleanKey] !== '') {
                 const val = renderValue(unifiedContext[cleanKey], '');
                 if (!seen.has(cleanKey)) {
                     components.push({ type: 'text', parameter_name: cleanKey, text: val });
@@ -214,19 +287,85 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
                 }
                 return val;
             }
+
+            // 2. Case-insensitive match in unifiedContext
+            const matchedKey = Object.keys(unifiedContext).find(k => k.toLowerCase() === lowerKey);
+            if (matchedKey && unifiedContext[matchedKey] !== undefined && unifiedContext[matchedKey] !== '') {
+                const val = renderValue(unifiedContext[matchedKey], '');
+                if (!seen.has(matchedKey)) {
+                    components.push({ type: 'text', parameter_name: matchedKey, text: val });
+                    seen.add(matchedKey);
+                }
+                return val;
+            }
+
+            // 3. Numbered Placeholders (e.g. {{1}}, {{2}}, {{3}}, ...)
+            if (/^\d+$/.test(cleanKey)) {
+                const num = cleanKey;
+                let targetKey = null;
+
+                if (variableRegistry && variableRegistry[num]) {
+                    const reg = variableRegistry[num];
+                    targetKey = typeof reg === 'object' ? reg.source : reg;
+                }
+
+                if (targetKey && unifiedContext[targetKey] !== undefined && unifiedContext[targetKey] !== '') {
+                    const val = renderValue(unifiedContext[targetKey], '');
+                    if (!seen.has(num)) {
+                        components.push({ type: 'text', parameter_name: num, text: val });
+                        seen.add(num);
+                    }
+                    return val;
+                }
+
+                // Positional standard fallbacks for numbered placeholders
+                const n = parseInt(num, 10);
+                let posVal = '';
+                switch (n) {
+                    case 1:
+                        posVal = unifiedContext['first_name'] || unifiedContext['customer_name'] || 'Valued Client';
+                        break;
+                    case 2:
+                        posVal = unifiedContext['property_list_default'] || unifiedContext['project_name'] || unifiedContext['property_category'] || 'Verified Property Listing';
+                        break;
+                    case 3:
+                        posVal = unifiedContext['property_price'] || unifiedContext['agent_name'] || 'Attractive Price';
+                        break;
+                    case 4:
+                        posVal = unifiedContext['property_location'] || 'Sector 3, Kurukshetra';
+                        break;
+                    case 5:
+                        posVal = unifiedContext['property_size'] || 'Prime Specs';
+                        break;
+                    case 6:
+                        posVal = unifiedContext['agent_name'] || 'Bharat Properties';
+                        break;
+                    case 7:
+                        posVal = unifiedContext['agent_mobile'] || '+91 9991333570';
+                        break;
+                    default:
+                        posVal = '-';
+                        break;
+                }
+                if (!seen.has(num)) {
+                    components.push({ type: 'text', parameter_name: num, text: posVal });
+                    seen.add(num);
+                }
+                return posVal;
+            }
             
-            // Fallbacks for specific legacy/hardcoded strings
+            // 4. Fallbacks for specific legacy/hardcoded strings
             const legacyHardcoded = {
                 'match_count': 'several',
                 'old_price': 'N/A',
                 'new_price': 'N/A',
                 'savings': 'N/A',
                 'deadline': 'tomorrow',
-                'amount': 'the due amount',
-                'due_date': 'the due date',
+                'amount': unifiedContext['property_price'] || 'the due amount',
+                'due_date': 'This Weekend',
                 'payment_type': 'payment',
                 'payment_methods': 'Bank Transfer / UPI',
-                'match_percentage': '95',
+                'match_percentage': '98',
                 'match_reasons': '- Matches your budget\n- Preferred location\n- Right size',
                 'competing_buyers': '2',
                 'slot_1': 'Tomorrow 10 AM',
@@ -235,14 +374,14 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
                 'positive_feedback': 'Location, Amenities',
                 'concerns': 'Price negotiation',
                 'next_steps': 'I will share a revised offer',
-                'document_list': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
+                'document_list': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt'
             };
             
-            if (legacyHardcoded[cleanKey] !== undefined) {
-                const val = renderValue(legacyHardcoded[cleanKey], '');
-                if (!seen.has(cleanKey)) {
-                    components.push({ type: 'text', parameter_name: cleanKey, text: val });
-                    seen.add(cleanKey);
+            if (legacyHardcoded[lowerKey] !== undefined) {
+                const val = renderValue(legacyHardcoded[lowerKey], '');
+                if (!seen.has(lowerKey)) {
+                    components.push({ type: 'text', parameter_name: lowerKey, text: val });
+                    seen.add(lowerKey);
                 }
                 return val;
             }
@@ -268,12 +407,12 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
             });
         }
         
-        resolvedBody = resolvedBody.replace(/{{Name}}/g, recipient?.name || 'valued customer');
-        resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient?.firstName || recipient?.name?.split(' ')[0] || 'valued customer');
-        resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient?.phone || 'your phone');
+        resolvedBody = resolvedBody.replace(/{{Name}}/gi, cleanCustName);
+        resolvedBody = resolvedBody.replace(/{{FirstName}}/gi, custFirstName);
+        resolvedBody = resolvedBody.replace(/{{Phone}}/gi, recipient?.phone || recipient?.mobile || 'your phone');
 
         // SAFETY FILTER: Strip any surviving raw MongoDB ObjectIds (24-char hex)
-        resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, '');
+        resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, categoryResolved);
     }
 
     return {

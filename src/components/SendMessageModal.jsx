@@ -8,6 +8,132 @@ import { systemSettingsAPI } from '../utils/api';
 import { whatsappTemplates as whatsappTemplatesConst, smsTemplates as smsTemplatesConst, rcsTemplates as rcsTemplatesConst } from '../constants/templates';
 import { renderValue } from '../utils/renderUtils';
 import { useUserContext } from '../context/UserContext';
+
+/**
+ * Enterprise Client-Side Template Interpolator
+ * Seamlessly resolves both named (e.g. {{customer_name}}, {{property_price}})
+ * and numbered positional (e.g. {{1}}, {{2}}, {{3}}...) placeholders
+ */
+export const clientInterpolateTemplate = (rawText, recipient = {}, properties = [], currentUser = null, variableRegistry = {}) => {
+    if (!rawText || typeof rawText !== 'string') return '';
+
+    const firstProp = properties?.[0] || {};
+    const propTitle = firstProp.unitNo || firstProp.title || firstProp.projectName || firstProp.name || 'Verified Property';
+    const propCat = firstProp.category || firstProp.propertyType || (recipient?.requirement || 'Prime Property');
+    const propLoc = firstProp.location || firstProp.city || firstProp.sector || recipient?.location || 'Sector 3, Kurukshetra';
+    const rawPrice = firstProp.price || firstProp.demandPrice || firstProp.dealValue || firstProp.expectedAmount || recipient?.budget;
+    const propPrice = rawPrice ? (String(rawPrice).startsWith('₹') ? String(rawPrice) : `₹${Number(rawPrice).toLocaleString('en-IN')}`) : 'Attractive Price';
+    const propSize = firstProp.size || firstProp.builtupArea || firstProp.area || 'Prime Specs';
+
+    const rName = recipient.name || recipient.fullName || recipient.clientName || recipient.leadName || recipient.contactName || 'Valued Client';
+    const rFirstName = recipient.firstName || (rName !== 'Valued Client' ? rName.split(' ')[0] : 'Valued Client');
+    const rPhone = recipient.phone || recipient.mobile || '';
+
+    const agentName = currentUser?.name || 'Bharat Properties';
+    const agentMobile = currentUser?.phone || currentUser?.mobile || '+91 9991333570';
+
+    let propertyList = '';
+    if (properties && properties.length > 1) {
+        propertyList = properties.map((p, i) => {
+            const pName = p.unitNo || p.title || p.projectName || `Property ${i + 1}`;
+            const pL = p.location || p.city || 'Kurukshetra';
+            const pP = p.price ? (String(p.price).startsWith('₹') ? String(p.price) : `₹${Number(p.price).toLocaleString('en-IN')}`) : 'P.O.R';
+            return `${i + 1}️⃣ 🏢 *${pName}* | 💰 ${pP} | 📍 ${pL}`;
+        }).join('\n');
+    } else {
+        propertyList = `🏢 *${propTitle}*\n📍 ${propLoc}\n💰 ${propPrice}\n📐 ${propSize}`;
+    }
+
+    const namedDict = {
+        'customer_name': rName,
+        'client_name': rName,
+        'lead_name': rName,
+        'name': rName,
+        'full_name': rName,
+        'first_name': rFirstName,
+        'firstname': rFirstName,
+        'phone': rPhone,
+        'mobile': rPhone,
+        'property_title': propTitle,
+        'property_name': propTitle,
+        'project_name': propTitle,
+        'projectname': propTitle,
+        'title': propTitle,
+        'property_category': propCat,
+        'category': propCat,
+        'property_location': propLoc,
+        'location': propLoc,
+        'sector': propLoc,
+        'city': propLoc,
+        'property_price': propPrice,
+        'price': propPrice,
+        'budget': propPrice,
+        'property_size': propSize,
+        'size': propSize,
+        'specs': propSize,
+        'property_list_default': propertyList,
+        'property_list_dtl': propertyList,
+        'matchlistdefault': propertyList,
+        'match_list_default': propertyList,
+        'agent_name': agentName,
+        'agent_mobile': agentMobile,
+        'agent_phone': agentMobile,
+        'company_name': 'Bharat Properties',
+        'requirement_summary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${propLoc} (Budget: ${propPrice})` : `Curated ${propCat} in ${propLoc}`,
+        'properties_count': String(properties?.length || 1),
+        'match_percentage': '98',
+        'due_date': 'This Weekend',
+        'amount': propPrice,
+        'document_list': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt'
+    };
+
+    let result = rawText.replace(/{{([^}]+)}}/g, (match, vKey) => {
+        const clean = vKey.trim();
+        const lower = clean.toLowerCase();
+
+        // 1. Direct or case-insensitive match
+        if (namedDict[lower] !== undefined && namedDict[lower] !== '') {
+            return namedDict[lower];
+        }
+
+        // 2. Numbered Placeholders
+        if (/^\d+$/.test(clean)) {
+            const num = clean;
+            let targetKey = null;
+            if (variableRegistry && variableRegistry[num]) {
+                const reg = variableRegistry[num];
+                targetKey = typeof reg === 'object' ? reg.source : reg;
+            }
+            if (targetKey && namedDict[targetKey.toLowerCase()]) {
+                return namedDict[targetKey.toLowerCase()];
+            }
+
+            // Positional fallback
+            const n = parseInt(num, 10);
+            switch (n) {
+                case 1: return rFirstName || rName;
+                case 2: return propertyList || propTitle;
+                case 3: return propPrice;
+                case 4: return propLoc;
+                case 5: return propSize;
+                case 6: return agentName;
+                case 7: return agentMobile;
+                default: return match;
+            }
+        }
+
+        return match;
+    });
+
+    // Replace bracketed placeholders
+    result = result
+        .replace(/\[Recipient \/ Broker Name\]/gi, rName)
+        .replace(/\[Recipient \/ Group\]/gi, rName)
+        .replace(/\[Recipient Name\]/gi, rName);
+
+    return result;
+};
+
 const SendMessageModal = ({ 
     isOpen, 
     onClose, 
@@ -17,7 +143,11 @@ const SendMessageModal = ({
     initialProperties = [],
     initialTemplateId = '',
     initialChannel = 'SMS',
-    triggerContext = null
+    triggerContext = null,
+    phoneNumber = '',
+    entityType = null,
+    entityId = null,
+    onActivitySaved = null
 }) => {
     const { fireEvent } = useTriggers();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
@@ -30,6 +160,7 @@ const SendMessageModal = ({
     // Message Content States
     const [messageBody, setMessageBody] = useState('');
     const [templateId, setTemplateId] = useState('');
+    const [isTemplateModified, setIsTemplateModified] = useState(false);
 
     // RCS Specifics
     const [rcsTitle, setRcsTitle] = useState('');
@@ -59,8 +190,16 @@ const SendMessageModal = ({
     useEffect(() => {
         if (isOpen) {
             setChannel(initialChannel);
-            setRecipients(initialRecipients);
-            setProperties(initialProperties || (initialProperty ? [initialProperty] : []));
+            let effectiveRecipients = (initialRecipients && initialRecipients.length > 0) ? initialRecipients : [];
+            if (effectiveRecipients.length === 0 && phoneNumber) {
+                effectiveRecipients = [{
+                    name: 'Valued Client',
+                    phone: phoneNumber,
+                    mobile: phoneNumber
+                }];
+            }
+            setRecipients(effectiveRecipients);
+            setProperties(initialProperties && initialProperties.length > 0 ? initialProperties : (initialProperty ? [initialProperty] : []));
             setMessageBody('');
             setTemplateId(initialTemplateId);
             setRcsTitle('');
@@ -72,8 +211,9 @@ const SendMessageModal = ({
             loadWhatsAppTemplates();
             loadVariableRegistry();
             setWhatsappComponents([]);
+            setIsTemplateModified(false);
         }
-    }, [isOpen, initialChannel, initialTemplateId]);
+    }, [isOpen, initialChannel, initialTemplateId, initialRecipients, initialProperty, initialProperties, phoneNumber]);
 
     useEffect(() => {
         if (initialProperty) {
@@ -296,24 +436,20 @@ const SendMessageModal = ({
 
                 if (!targetTpl) return;
 
-                // ⚡ WhatsApp Web fast client token resolution
-                if (channel === 'WHATSAPP' && isCurrentAccountBaileys && (targetTpl.body || targetTpl.content)) {
-                    let directBody = targetTpl.body || targetTpl.content || '';
-                    const r = recipients[0] || {};
-                    const rName = r.name || r.fullName || 'Client';
-                    directBody = directBody
-                        .replace(/\{\{first_name\}\}/gi, rName.split(' ')[0] || rName)
-                        .replace(/\{\{Name\}\}/gi, rName)
-                        .replace(/\{\{client_name\}\}/gi, rName)
-                        .replace(/\{\{lead_name\}\}/gi, rName)
-                        .replace(/\{\{agent_name\}\}/gi, 'Bharat Properties')
-                        .replace(/\{\{agent_mobile\}\}/gi, '+91 99960 00570');
-                    setMessageBody(directBody);
-                    setWhatsappComponents([]);
-                    setIsTemplateModified(false);
-                    return;
-                }
+                const rawBody = targetTpl.body || targetTpl.content || '';
 
+                // ⚡ 1. Instant Client-Side Variable Interpolation (Named + Numbered Placeholders)
+                const instantInterpolated = clientInterpolateTemplate(
+                    rawBody,
+                    recipients[0] || {},
+                    properties,
+                    currentUser,
+                    variableRegistry
+                );
+                setMessageBody(instantInterpolated);
+                setIsTemplateModified(false);
+
+                // 🌐 2. Authoritative Backend Template Resolver (Components + Full DB Registry)
                 const payload = {
                     template: targetTpl,
                     channel,
@@ -322,8 +458,8 @@ const SendMessageModal = ({
                 };
 
                 const response = await whatsappService.previewTemplate(payload);
-                if (response.success) {
-                    setMessageBody(response.resolvedBody || '');
+                if (response && response.success && response.resolvedBody) {
+                    setMessageBody(response.resolvedBody);
                     if (channel === 'WHATSAPP') {
                         setWhatsappComponents(response.components || []);
                         setIsTemplateModified(false);
@@ -337,19 +473,24 @@ const SendMessageModal = ({
                 console.error("Failed to fetch template preview:", err);
                 const targetTpl = whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId);
                 if (targetTpl) {
-                    setMessageBody(targetTpl.body || targetTpl.content || '');
+                    const fallbackBody = clientInterpolateTemplate(
+                        targetTpl.body || targetTpl.content || '',
+                        recipients[0] || {},
+                        properties,
+                        currentUser,
+                        variableRegistry
+                    );
+                    setMessageBody(fallbackBody);
                 }
             }
         };
 
         fetchPreview();
-    }, [isOpen, templateId, channel, whatsappTemplates, filteredWhatsAppTemplates, isCurrentAccountBaileys, smsTemplates, recipients, properties]);
+    }, [isOpen, templateId, channel, whatsappTemplates, filteredWhatsAppTemplates, isCurrentAccountBaileys, smsTemplates, recipients, properties, currentUser, variableRegistry]);
 
     const handleTemplateChange = (e) => {
         setTemplateId(e.target.value);
     };
-
-    const [isTemplateModified, setIsTemplateModified] = useState(false);
 
     const handleReferenceSelect = (type, id) => {
         setReferenceType(type);
@@ -392,11 +533,16 @@ const SendMessageModal = ({
                 let successCount = 0;
                 let lastRes = null;
                 let lastError = null;
+                const targetTpl = whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId);
                 for (const recipient of recipients) {
                     try {
+                        const individualMessage = (!isTemplateModified && targetTpl)
+                            ? clientInterpolateTemplate(targetTpl.body || targetTpl.content || messageBody, recipient, properties, currentUser, variableRegistry)
+                            : messageBody;
+
                         const individualRes = await whatsappService.sendMessage({
                             mobile: recipient.phone || recipient.mobile,
-                            message: messageBody,
+                            message: individualMessage,
                             templateId,
                             templateComponents: templateId ? whatsappComponents : [],
                             language: templateLanguage,

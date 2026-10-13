@@ -35,8 +35,11 @@ const isMarketingBroadcastContext = (tpl) => {
  * Enterprise Omnichannel Template Variable Interpolator
  * Replaces lead/deal/portfolio placeholders into template text or HTML across WhatsApp, SMS, RCS, and Email
  */
-function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false }) {
+function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false, recipient = null }) {
     if (!rawText || typeof rawText !== 'string') return '';
+
+    const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
+    const recipientFirstName = recipient?.firstName || (recipientName !== '[Recipient / Broker Name]' ? recipientName.split(' ')[0] : '[Recipient / Broker Name]');
 
     const singleTitle = getSafeString(singleDeal?.title || singleDeal?.projectName, 'Featured Deal');
     const singleLoc = getSafeString(singleDeal?.location, 'Kurukshetra');
@@ -90,13 +93,13 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     }
 
     const replacements = {
-        '\\[Recipient / Broker Name\\]': '[Recipient / Broker Name]',
-        '\\[Recipient / Group\\]': '[Recipient / Group]',
-        '\\{\\{customer_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{first_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{full_name\\}\\}': '[Recipient / Broker Name]',
-        '\\{\\{name\\}\\}': '[Recipient / Broker Name]',
-        '\\{owner\\}': '[Recipient / Broker Name]',
+        '\\[Recipient / Broker Name\\]': recipientName,
+        '\\[Recipient / Group\\]': recipientName,
+        '\\{\\{customer_name\\}\\}': recipientName,
+        '\\{\\{first_name\\}\\}': recipientFirstName,
+        '\\{\\{full_name\\}\\}': recipientName,
+        '\\{\\{name\\}\\}': recipientName,
+        '\\{owner\\}': recipientName,
         '\\{\\{property_title\\}\\}': dealTitle,
         '\\{\\{projectName\\}\\}': dealTitle,
         '\\{\\{project_name\\}\\}': dealTitle,
@@ -122,11 +125,11 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{match_percentage\\}\\}': '98',
         '\\{\\{requirement_summary\\}\\}': `${dealSpecs} in ${dealLoc}`,
         '\\{\\{agent_name\\}\\}': 'Bharat Properties',
-        '\\{\\{agent_mobile\\}\\}': '87000 00000',
+        '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
         '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
         '\\{\\{company_name\\}\\}': 'Bharat Properties',
         '\\{\\{due_date\\}\\}': 'This Weekend',
-        '\\{\\{document_list\\}\\}': 'PAN, Aadhaar & Booking Receipt',
+        '\\{\\{document_list\\}\\}': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt',
         '\\{\\{amount\\}\\}': dealPrice,
         '\\{\\{lead_status\\}\\}': 'Verified Deal',
         '\\{\\{lead_stage\\}\\}': 'Ready for Inspection',
@@ -138,10 +141,13 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         result = result.replace(new RegExp(pattern, 'gi'), getSafeString(val, ''));
     });
 
-    result = result.replace(/\{\{1\}\}/g, '[Recipient / Broker Name]');
+    result = result.replace(/\{\{1\}\}/g, recipientFirstName || recipientName);
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
+    result = result.replace(/\{\{5\}\}/g, dealSpecs);
+    result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
+    result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
 
     return result;
 }
@@ -543,6 +549,10 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         const body = selectedTemplate.components?.find(c => c.type === 'BODY');
         if (!body) return null;
 
+        const targetLead = matchedLeads.find(l => selectedMatchedLeads.includes(l._id || l.id)) || matchedLeads[0];
+        const recipientName = targetLead?.name || targetLead?.fullName || '[Broker / Contact Name]';
+        const recipientFirstName = targetLead?.firstName || (recipientName !== '[Broker / Contact Name]' ? recipientName.split(' ')[0] : recipientName);
+
         const meta = singleMeta || {
             title: getSafeString(singleDeal?.title || singleDeal?.projectName, 'Project'),
             location: getSafeString(singleDeal?.location, 'Kurukshetra'),
@@ -551,9 +561,10 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             description: getSafeString(singleDeal?.remarks, 'Verified property listing')
         };
 
-        const resolveSource = (source) => {
+        const resolveSource = (source, idx) => {
             switch (source) {
-                case 'customer_name': return '[Broker / Contact Name]';
+                case 'customer_name': return recipientName;
+                case 'first_name': return recipientFirstName;
                 case 'property_list_default':
                 case 'matchListDefault':
                     if (isMultiDeal) {
@@ -567,24 +578,32 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');
                 case 'description': return getSafeString(meta.description, '');
-                case 'agentMobile': return '87000 00000';
-                default: return `[${getSafeString(source)}]`;
+                case 'agentMobile': return '+91 9991333570';
+                default:
+                    if (idx === '1') return recipientFirstName || recipientName;
+                    if (idx === '2') return resolveSource('property_list_default', idx);
+                    if (idx === '3') return getSafeString(meta.price, 'Price on Request');
+                    if (idx === '4') return getSafeString(meta.location, 'Kurukshetra');
+                    if (idx === '5') return getSafeString(meta.features?.[0], 'Prime Specs');
+                    if (idx === '6') return 'Bharat Properties';
+                    if (idx === '7') return '+91 9991333570';
+                    return source ? `[${getSafeString(source)}]` : '-';
             }
         };
 
-        let preview = body.text;
-        const varMatches = preview.match(/{{(\d+)}}/g) || [];
-
-        varMatches.forEach(m => {
-            const idx = m.replace(/[{}]/g, '');
-            const config = registry[idx];
-            const source = typeof config === 'object' ? config.source : config;
-            const value = resolveSource(source);
-            preview = preview.replace(m, value);
+        let preview = body.text || '';
+        preview = preview.replace(/{{([^}]+)}}/g, (match, rawKey) => {
+            const clean = rawKey.trim();
+            if (/^\d+$/.test(clean)) {
+                const config = registry[clean];
+                const source = typeof config === 'object' ? config.source : config;
+                return resolveSource(source, clean);
+            }
+            return resolveSource(clean, clean);
         });
 
         return preview;
-    }, [selectedTemplate, singleMeta, singleDeal, isMultiDeal, selectedDeals, registry]);
+    }, [selectedTemplate, singleMeta, singleDeal, isMultiDeal, selectedDeals, registry, matchedLeads, selectedMatchedLeads]);
 
     // ── Channel Template Groupings (Broadcast Tagged vs Other) ──────────────
     const webBroadcastTemplates = useMemo(() => allWhatsAppTemplates.filter(isMarketingBroadcastContext), [allWhatsAppTemplates]);
@@ -623,13 +642,15 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
     // ── Live Previews per Channel ───────────────────────────────────────────
     const webTemplatePreviewText = useMemo(() => {
         if (!selectedWebTemplate) return null;
+        const targetLead = matchedLeads.find(l => selectedMatchedLeads.includes(l._id || l.id)) || matchedLeads[0];
         return interpolateWebTemplateText(selectedWebTemplate, {
             isMultiDeal,
             singleMeta,
             singleDeal,
-            selectedDeals
+            selectedDeals,
+            recipient: targetLead
         });
-    }, [selectedWebTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals]);
+    }, [selectedWebTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals, matchedLeads, selectedMatchedLeads]);
 
     const activeWhatsAppPreview = useMemo(() => {
         if (isBaileys) {
