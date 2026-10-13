@@ -1699,8 +1699,17 @@ export const getDeals = async (req, res) => {
             }
 
             if (inventory) {
-                if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
-                if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
+                // Only fall back to inventory owner if deal does not already have a populated owner with name
+                const hasPopulatedOwner = dealObj.owner && typeof dealObj.owner === 'object' && dealObj.owner.name;
+                if (!hasPopulatedOwner && inventory.owners?.[0]) {
+                    dealObj.owner = inventory.owners[0];
+                }
+
+                // Only fall back to inventory associate if deal does not already have a populated associate with name
+                const hasPopulatedAssoc = dealObj.associatedContact && typeof dealObj.associatedContact === 'object' && dealObj.associatedContact.name;
+                if (!hasPopulatedAssoc && inventory.associates?.[0]?.contact) {
+                    dealObj.associatedContact = inventory.associates[0].contact;
+                }
 
                 // Metadata labels should always be live from the source of truth (Inventory)
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
@@ -1771,6 +1780,55 @@ export const getDeals = async (req, res) => {
             return dealObj;
         });
         console.timeEnd("getDeals_Lookup_Resolution");
+
+        // 🛡️ [FINAL ENTERPRISE PASS]: Batch-resolve any remaining unpopulated Contact references in enrichedRecords
+        const unpopulatedEnrichedIds = new Set();
+        enrichedRecords.forEach(deal => {
+            ['associatedContact', 'owner'].forEach(field => {
+                const val = deal[field];
+                if (val) {
+                    if (typeof val === 'string' && isValidObjectId(val)) {
+                        unpopulatedEnrichedIds.add(val);
+                    } else if (typeof val === 'object' && (val._id || val.id) && !val.name) {
+                        const id = String(val._id || val.id);
+                        if (isValidObjectId(id)) unpopulatedEnrichedIds.add(id);
+                    }
+                }
+            });
+            if (deal.partyStructure?.buyer) {
+                const b = deal.partyStructure.buyer;
+                const bId = String(b._id || b.id || b);
+                if (isValidObjectId(bId) && !b.name) unpopulatedEnrichedIds.add(bId);
+            }
+        });
+
+        if (unpopulatedEnrichedIds.size > 0) {
+            const extraContacts = await Contact.find({
+                _id: { $in: Array.from(unpopulatedEnrichedIds).map(id => new mongoose.Types.ObjectId(id)) }
+            }).select('name phones emails mobile phone email').lean();
+            const extraContactMap = new Map(extraContacts.map(c => [String(c._id), c]));
+
+            enrichedRecords.forEach(deal => {
+                ['associatedContact', 'owner'].forEach(field => {
+                    const val = deal[field];
+                    if (val) {
+                        const idStr = String(val._id || val.id || val);
+                        if (extraContactMap.has(idStr)) {
+                            deal[field] = extraContactMap.get(idStr);
+                        }
+                    }
+                });
+                if (deal.partyStructure?.buyer) {
+                    const bId = String(deal.partyStructure.buyer._id || deal.partyStructure.buyer.id || deal.partyStructure.buyer);
+                    if (extraContactMap.has(bId)) {
+                        deal.partyStructure.buyer = extraContactMap.get(bId);
+                        if (!deal.associatedContact || !deal.associatedContact.name) {
+                            deal.associatedContact = extraContactMap.get(bId);
+                        }
+                    }
+                }
+            });
+        }
 
         // 🚀 ENTERPRISE PERFORMANCE FIX: Bulk Exact Match Count calculation has been removed from the Deal List View API.
         // Reason: It was fetching ALL active leads in the system and running an O(N*M) calculation across all deals on the page.
