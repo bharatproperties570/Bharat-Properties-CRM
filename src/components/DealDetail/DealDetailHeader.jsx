@@ -87,14 +87,22 @@ const DealDetailHeader = ({
                             e.preventDefault();
                             e.stopPropagation();
                         }
-                        if (onBack) onBack(e);
+                        if (typeof onBack === 'function') {
+                            onBack(e);
+                        } else if (window.history.length > 1) {
+                            window.history.back();
+                        } else {
+                            window.location.href = '/deals';
+                        }
                     }} 
                     style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
                         borderRadius: '14px', width: '44px', height: '44px',
                         cursor: 'pointer', color: isDark ? 'var(--text-main)' : '#475569', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                        position: 'relative',
+                        zIndex: 10
                     }} 
                     className="hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md"
                     title="Back to Deals"

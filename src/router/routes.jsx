@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { createBrowserRouter, useOutletContext, Navigate, Outlet, useParams } from 'react-router-dom';
+import { createBrowserRouter, useOutletContext, Navigate, Outlet, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AuthGuard } from './AuthGuard';
 import PublicChatWidget from '../components/PublicChatWidget';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -94,6 +94,20 @@ const WithNav = ({ Component }) => {
         // Not in an outlet
     }
     const params = useParams();
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const handleBack = () => {
+        if (context?.onNavigate) {
+            const currentSection = location.pathname.split('/')[1] || 'deals';
+            context.onNavigate(currentSection);
+        } else if (window.history.length > 1) {
+            navigate(-1);
+        } else {
+            navigate('/deals');
+        }
+    };
+
     return <Component 
         {...context} 
         {...params} 
@@ -101,6 +115,7 @@ const WithNav = ({ Component }) => {
         projectId={params?.id} 
         inventoryId={params?.id} 
         contactId={params?.id} 
+        onBack={handleBack}
     />;
 };
 

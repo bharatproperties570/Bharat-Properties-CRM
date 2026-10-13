@@ -91,7 +91,6 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     const [userFilter, setUserFilter] = useState('all');
     const [tagFilter, setTagFilter] = useState('all');
     const allUsers = usersData;
-    const [allTags, setAllTags] = useState([]);
     
     const [pendingTasks, setPendingTasks] = useState([
         { id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }
@@ -207,12 +206,14 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
 
     const loadingTimeline = queries.some(q => q.isPending);
 
+    const queriesDataSignature = queries.map(q => `${q.status}-${q.data?.length || 0}-${q.dataUpdatedAt || 0}`).join('|');
+
     const timelineData = useMemo(() => {
         const merged = [];
         const seenIds = new Set();
         
         queries.forEach(q => {
-            if (q.data) {
+            if (q.data && Array.isArray(q.data)) {
                 q.data.forEach(item => {
                     const id = String(item._id || item.id);
                     if (!seenIds.has(id)) {
@@ -224,16 +225,16 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         });
         
         return merged.sort((a, b) => new Date(b.createdAt || b.timestamp) - new Date(a.createdAt || a.timestamp));
-    }, [queries]);
+    }, [queriesDataSignature]);
 
-    useEffect(() => {
+    const allTags = useMemo(() => {
         const tags = new Set();
         timelineData.forEach(item => {
             if (item.tags && Array.isArray(item.tags)) {
                 item.tags.forEach(t => tags.add(t));
             }
         });
-        setAllTags(Array.from(tags));
+        return Array.from(tags);
     }, [timelineData]);
 
 

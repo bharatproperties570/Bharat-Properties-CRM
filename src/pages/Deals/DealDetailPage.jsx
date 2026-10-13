@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Swal from 'sweetalert2';
 import { api } from '../../utils/api';
 import { performanceAPI } from '../../utils/performanceAPI';
@@ -57,15 +57,23 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
     const navigate = useNavigate();
     const dealId = propDealId || routeDealId;
     const handleBack = useCallback((e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        if (e && e.stopPropagation) e.stopPropagation();
-        if (propOnBack) {
-            propOnBack();
-        } else if (onNavigate) {
-            onNavigate('deals');
-        } else {
-            navigate('/deals');
+        if (e) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
         }
+        if (typeof propOnBack === 'function') {
+            propOnBack();
+            return;
+        }
+        if (typeof onNavigate === 'function') {
+            onNavigate('deals');
+            return;
+        }
+        if (window.history.length > 2) {
+            navigate(-1);
+            return;
+        }
+        navigate('/deals');
     }, [propOnBack, onNavigate, navigate]);
     const onBack = handleBack;
 
@@ -108,30 +116,39 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
 
     const dealEntity = useMemo(() => (dealId ? [{ type: 'Deal', id: dealId }] : []), [dealId]);
     const activityQueries = useUnifiedActivityQueries(dealEntity);
+    const queryData = activityQueries[0]?.data;
     const activities = useMemo(() => {
-        if (activityQueries[0]?.data && activityQueries[0].data.length > 0) {
-            return activityQueries[0].data;
+        if (queryData && queryData.length > 0) {
+            return queryData;
         }
         return dealPayload?.activities || [];
-    }, [activityQueries, dealPayload?.activities]);
+    }, [queryData, dealPayload?.activities]);
     const [inventory, setInventory] = useState(null);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
     
     // Custom Hooks
     const { financials } = useDealFinancials(deal);
 
+    const fetchedInventoryIdRef = useRef(null);
+
     useEffect(() => {
         if (!deal) return;
-        if (deal.inventoryId && typeof deal.inventoryId === 'object') {
-            setInventory(prev => ({
-                ...deal.inventoryId,
-                owners: deal.owner ? [deal.owner] : (deal.inventoryId.owners || []),
-                associates: deal.associatedContact ? [{ contact: deal.associatedContact }] : (deal.inventoryId.associates || [])
-            }));
+        const invObj = deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null;
+        const invId = invObj?._id || (typeof deal.inventoryId === 'string' ? deal.inventoryId : null);
+
+        if (invObj) {
+            setInventory(prev => {
+                if (prev?._id === invObj._id && prev?.updatedAt === invObj.updatedAt) return prev;
+                return {
+                    ...invObj,
+                    owners: deal.owner ? [deal.owner] : (invObj.owners || []),
+                    associates: deal.associatedContact ? [{ contact: deal.associatedContact }] : (invObj.associates || [])
+                };
+            });
         }
-        
-        const invId = deal.inventoryId?._id || (typeof deal.inventoryId === 'string' ? deal.inventoryId : null);
-        if (invId) {
+
+        if (invId && fetchedInventoryIdRef.current !== String(invId)) {
+            fetchedInventoryIdRef.current = String(invId);
             import('../../utils/api').then(({ api }) => {
                 api.get(`inventory/${invId}`).then(invRes => {
                     if (invRes.data?.success) {
@@ -145,7 +162,7 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
                 }).catch(err => console.error("Error fetching inventory for sidebar:", err));
             });
         }
-    }, [deal]);
+    }, [deal?._id, deal?.inventoryId]);
 
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const { startCall } = useCall();
@@ -183,14 +200,18 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
 
     // Sync liveScoreData with intelligence health
     useEffect(() => {
-        if (stageAlerts.health) {
-            setLiveScoreData({
-                score: stageAlerts.health.score,
-                color: stageAlerts.health.color,
-                label: stageAlerts.health.label
+        if (stageAlerts?.health) {
+            const newScore = stageAlerts.health.score;
+            const newColor = stageAlerts.health.color;
+            const newLabel = stageAlerts.health.label;
+            setLiveScoreData(prev => {
+                if (prev.score === newScore && prev.color === newColor && prev.label === newLabel) {
+                    return prev;
+                }
+                return { score: newScore, color: newColor, label: newLabel };
             });
         }
-    }, [stageAlerts.health]);
+    }, [stageAlerts?.health?.score, stageAlerts?.health?.color, stageAlerts?.health?.label]);
 
     // Handlers
     const handleAddOffer = async (newOffer) => {
@@ -875,7 +896,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             <div style={{ paddingLeft: '14px', borderLeft: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {inventory ? (
                                     (inventory.ownerHistory || []).length > 0 ? (
-                                        (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
+                                        [...(inventory.ownerHistory || [])].reverse().slice(0, 5).map((item, idx) => (
                                             <div key={idx} style={{ position: 'relative' }}>
                                                 <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
                                                 <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{renderValue(item.contactName)}</p>
