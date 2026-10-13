@@ -2247,7 +2247,7 @@ export const getThreadHistory = async (req, res) => {
 
         // Build Conversation Query
         const phoneFilters = isGroup 
-            ? [{ phoneNumber: identifier }] 
+            ? [{ phoneNumber: identifier }, { 'metadata.groupJid': identifier }] 
             : [
                 { phoneNumber: { $in: phoneVariantList } },
                 ...(phoneRegex ? [{ phoneNumber: phoneRegex }] : []),
@@ -2267,8 +2267,10 @@ export const getThreadHistory = async (req, res) => {
             convQuery = { $and: [convQuery, { channel: 'website_chat' }] };
         } else if (isWhatsApp && via) {
             const accFilters = [{ channel: { $in: ['whatsapp', 'WhatsApp'] } }];
-            if (targetBizPhoneId) accFilters.push({ businessPhoneNumberId: targetBizPhoneId });
-            if (targetIntegrationId) accFilters.push({ whatsappIntegrationId: targetIntegrationId });
+            if (!isGroup) {
+                if (targetBizPhoneId) accFilters.push({ businessPhoneNumberId: targetBizPhoneId });
+                if (targetIntegrationId) accFilters.push({ whatsappIntegrationId: targetIntegrationId });
+            }
             convQuery = { $and: [convQuery, ...accFilters] };
         } else if (isSMS) {
             convQuery = { $and: [convQuery, { channel: 'sms' }] };
@@ -2283,6 +2285,7 @@ export const getThreadHistory = async (req, res) => {
                 { 'details.phoneNumber': identifier },
                 { 'details.to': identifier },
                 { 'details.from': identifier },
+                { entityId: identifier },
                 { 'participants.mobile': identifier }
               ]
             : [
@@ -2645,6 +2648,8 @@ export const getThreadHistory = async (req, res) => {
                              (aType === 'marketing' && a.details?.results?.some(r => r.channel === 'whatsapp'));
                 if (!isWa) return false;
 
+                if (isGroup) return true;
+
                 const aBizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId;
                 const aIntId = a.details?.whatsappIntegrationId || a.details?.integrationId;
                 if (aBizId && targetBizPhoneId && String(aBizId) !== targetBizPhoneId) return false;
@@ -2681,7 +2686,7 @@ export const getThreadHistory = async (req, res) => {
             const isIncoming = (a.details?.direction || '').toLowerCase().includes('in');
             const isHexId = (val) => Boolean(val && /^[0-9a-fA-F]{24}$/.test(String(val).trim()));
             const senderName = isIncoming
-                ? ((!isHexId(a.performedBy) && a.performedBy !== 'System' ? a.performedBy : null) || a.participants?.[0]?.name || recipientContext.name || a.details?.senderName || 'Customer')
+                ? ((!isHexId(a.performedBy) && a.performedBy !== 'System' ? a.performedBy : null) || a.details?.senderName || a.participants?.[0]?.name || recipientContext.name || 'Customer')
                 : ((!isHexId(a.performedBy) ? a.performedBy : null) || 'Agent');
 
             return {
@@ -2691,7 +2696,12 @@ export const getThreadHistory = async (req, res) => {
                 text: text,
                 time: a.createdAt || a.performedAt,
                 status: a.details?.status || a.outcome || (isIncoming ? 'Received' : 'Delivered'),
-                metadata: resolveMessageMetadata(a.details, a.details?.message || a.description || a.subject)
+                metadata: {
+                    ...resolveMessageMetadata(a.details, a.details?.message || a.description || a.subject),
+                    messageId: a.details?.messageId || a._id.toString(),
+                    ...(a.details?.participant ? { participant: a.details.participant } : {}),
+                    ...(a.details?.isGroup ? { isGroup: true, groupJid: a.details.groupJid, groupName: a.details.groupName } : {})
+                }
             };
         });
 
@@ -2718,23 +2728,39 @@ export const getThreadHistory = async (req, res) => {
                     id: m._id,
                     sender: isIncoming ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
                     senderName: isIncoming
-                        ? (m.metadata?.participant || c.metadata?.senderName || recipientContext.name || 'Member')
+                        ? (m.metadata?.senderName || m.metadata?.participant || c.metadata?.senderName || recipientContext.name || 'Member')
                         : (m.role === 'assistant' ? 'AI Bot' : 'Agent'),
                     text: contentText,
                     time: m.timestamp,
                     status: m.metadata?.status || 'Delivered',
-                    metadata: resolveMessageMetadata(m.metadata, contentText)
+                    metadata: {
+                        ...resolveMessageMetadata(m.metadata, contentText),
+                        messageId: m.metadata?.messageId || m._id?.toString(),
+                        ...(m.metadata?.participant ? { participant: m.metadata.participant } : {}),
+                        ...(m.metadata?.isGroup ? { isGroup: true, groupJid: m.metadata.groupJid, groupName: m.metadata.groupName } : {})
+                    }
                 };
             }));
             thread = [...thread, ...aiMsgs];
         }
 
         // De-duplicate and sort by time
-        const seen = new Set();
+        const seenMessageIds = new Set();
+        const seenFuzzy = [];
         const uniqueThread = thread.filter(m => {
-            const key = `${new Date(m.time).getTime()}-${m.text}-${m.sender}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
+            const msgId = m.metadata?.messageId || m.id;
+            if (msgId && /^[A-Z0-9_-]{12,}$/i.test(String(msgId))) {
+                if (seenMessageIds.has(String(msgId))) return false;
+                seenMessageIds.add(String(msgId));
+            }
+            const timeMs = new Date(m.time).getTime();
+            const isFuzzyDup = seenFuzzy.some(existing => 
+                existing.sender === m.sender &&
+                existing.text === m.text &&
+                Math.abs(existing.timeMs - timeMs) < 3000
+            );
+            if (isFuzzyDup) return false;
+            seenFuzzy.push({ sender: m.sender, text: m.text, timeMs });
             return true;
         }).sort((a, b) => new Date(a.time) - new Date(b.time));
 

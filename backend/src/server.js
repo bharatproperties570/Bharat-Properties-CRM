@@ -61,9 +61,15 @@ async function startServer() {
             console.log(msg);
             logStartup(msg);
             
-            // Initialize WhatsApp Connections
-            const { BaileysConnectionManager } = await import("../services/baileysQueue/BaileysConnectionManager.js");
-            BaileysConnectionManager.initializeAll();
+            // Initialize WhatsApp Connections (Production or explicit local flag only)
+            const isProd = config.nodeEnv === 'production' || process.env.NODE_ENV === 'production';
+            const enableLocal = process.env.ENABLE_BAILEYS_LOCAL === 'true';
+            if (isProd || enableLocal) {
+                const { BaileysConnectionManager } = await import("../services/baileysQueue/BaileysConnectionManager.js");
+                BaileysConnectionManager.initializeAll();
+            } else {
+                console.log('ℹ️ [Baileys] Non-production environment detected (Set ENABLE_BAILEYS_LOCAL=true to enable local Baileys). Skipping auto-initialization to prevent session conflict with EC2 production.');
+            }
 
             if (config.disableBackgroundTasks) {
                 console.log("\n=========================================");

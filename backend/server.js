@@ -21,8 +21,14 @@ connectDB().then(() => {
     app.listen(PORT, () => {
         console.log(`🚀 CRM Backend running on port ${PORT}`);
         
-        // Initialize WhatsApp Web Connections
-        BaileysConnectionManager.initializeAll();
+        // Initialize WhatsApp Web Connections (Production or explicit local flag only)
+        const isProd = process.env.NODE_ENV === 'production';
+        const enableLocal = process.env.ENABLE_BAILEYS_LOCAL === 'true';
+        if (isProd || enableLocal) {
+            BaileysConnectionManager.initializeAll();
+        } else {
+            console.log('ℹ️ [Baileys] Non-production environment detected (Set ENABLE_BAILEYS_LOCAL=true to enable local Baileys). Skipping auto-initialization to prevent session conflict with EC2 production.');
+        }
 
         // Initialize Auto-Aging Engine
         AgingCronService.init();
