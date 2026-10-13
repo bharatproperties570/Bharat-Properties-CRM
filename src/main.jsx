@@ -4,6 +4,19 @@ import App from './App'
 import './index.css'
 
 window.onerror = function(message, source, lineno, colno, error) {
+    const msgStr = String(message || '').toLowerCase();
+    
+    // 🛡️ Enterprise Chunk Auto-Recovery: When a dynamic import fails due to code deployment or stale Vite chunk, auto-reload once cleanly
+    if (msgStr.includes('importing a module script failed') || msgStr.includes('failed to fetch dynamically imported module') || msgStr.includes('chunkloaderror')) {
+        const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('vite_chunk_auto_reload') : null;
+        const now = Date.now();
+        if (!lastReload || now - Number(lastReload) > 10000) {
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('vite_chunk_auto_reload', String(now));
+            window.location.reload();
+            return true;
+        }
+    }
+
     const existing = document.getElementById('global-crash-banner');
     if (existing) existing.remove();
     const errorDiv = document.createElement('div');
@@ -14,9 +27,22 @@ window.onerror = function(message, source, lineno, colno, error) {
 };
 
 window.addEventListener("unhandledrejection", function(event) {
+    const reasonStr = String(event.reason?.message || event.reason || '').toLowerCase();
+    
     // Ignore benign network / abort errors in global overlay
-    const reasonStr = String(event.reason?.message || event.reason || '');
-    if (reasonStr.includes('Network Error') || reasonStr.includes('timeout') || reasonStr.includes('canceled')) return;
+    if (reasonStr.includes('network error') || reasonStr.includes('timeout') || reasonStr.includes('canceled')) return;
+    
+    // 🛡️ Enterprise Chunk Auto-Recovery for unhandled promise rejections
+    if (reasonStr.includes('importing a module script failed') || reasonStr.includes('failed to fetch dynamically imported module') || reasonStr.includes('chunkloaderror')) {
+        const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('vite_chunk_auto_reload') : null;
+        const now = Date.now();
+        if (!lastReload || now - Number(lastReload) > 10000) {
+            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('vite_chunk_auto_reload', String(now));
+            window.location.reload();
+            return;
+        }
+    }
+
     const existing = document.getElementById('global-rejection-banner');
     if (existing) existing.remove();
     const errorDiv = document.createElement('div');
