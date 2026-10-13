@@ -1273,7 +1273,7 @@ export const getDeals = async (req, res) => {
         }
 
         // Project & Block Filters
-        if (projectId) query.projectId = projectId;
+        if (projectId && mongoose.Types.ObjectId.isValid(projectId)) query.projectId = projectId;
         if (block) {
             const blocks = Array.isArray(block) ? block : block.split(',').filter(Boolean);
             if (blocks.length > 0) query.block = { $in: blocks.map(b => new RegExp(`^${escapeRegExp(b)}$`, 'i')) };
@@ -1311,9 +1311,9 @@ export const getDeals = async (req, res) => {
         if (transactionType) query.transactionType = { $in: Array.isArray(transactionType) ? transactionType : transactionType.split(',') };
         if (source) query.source = { $in: Array.isArray(source) ? source : source.split(',') };
 
-        if (projectId) query.projectId = projectId;
-        if (inventoryId) query.inventoryId = inventoryId;
-        if (req.query.leadId) query.leads = req.query.leadId;
+        if (projectId && mongoose.Types.ObjectId.isValid(projectId)) query.projectId = projectId;
+        if (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) query.inventoryId = inventoryId;
+        if (req.query.leadId && mongoose.Types.ObjectId.isValid(req.query.leadId)) query.leads = req.query.leadId;
 
         if (contactPhone) {
             const cleanPhone = contactPhone.replace(/[^0-9]/g, "").slice(-10);
