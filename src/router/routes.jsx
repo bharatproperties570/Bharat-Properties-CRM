@@ -156,10 +156,16 @@ export const router = createBrowserRouter([
                     { path: '/leads', element: <WithNav Component={LeadsPage} /> },
                     { path: '/lead-analytics', element: <WithNav Component={LeadAnalyticsPage} /> },
                     { path: '/leads/match/:id', element: <WithNav Component={LeadMatchingPage} /> },
+                    { path: '/leads/match', element: <WithNav Component={LeadMatchingPage} /> },
+                    { path: '/lead-matching', element: <WithNav Component={LeadMatchingPage} /> },
+                    { path: '/lead-matching/:id', element: <WithNav Component={LeadMatchingPage} /> },
                     
                     { path: '/deals', element: <WithNav Component={DealsPage} /> },
                     { path: '/deal-analytics', element: <WithNav Component={DealAnalyticsPage} /> },
                     { path: '/deals/match/:id', element: <WithNav Component={DealMatchingPage} /> },
+                    { path: '/deals/match', element: <WithNav Component={DealMatchingPage} /> },
+                    { path: '/deal-matching', element: <WithNav Component={DealMatchingPage} /> },
+                    { path: '/deal-matching/:id', element: <WithNav Component={DealMatchingPage} /> },
                     { path: '/deals/:id', element: <WithNav Component={DealDetailPage} /> },
                     { path: '/deal-intake', element: <WithNav Component={DealIntakePage} /> },
                     

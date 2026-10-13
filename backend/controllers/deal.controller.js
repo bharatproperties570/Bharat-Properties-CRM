@@ -497,7 +497,7 @@ export const matchDeals = async (req, res) => {
             entityId: leadId,
             type: 'Marketing',
             status: 'Completed'
-        }).sort({ performedAt: -1 }).lean();
+        }).select('performedAt details.inventoryId details.results').sort({ performedAt: -1 }).lean();
 
         const dispatchMap = new Map();
         dispatchActivities.forEach(act => {

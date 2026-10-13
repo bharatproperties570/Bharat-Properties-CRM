@@ -67,6 +67,8 @@ ActivitySchema.index({ dueDate: 1 });
 ActivitySchema.index({ createdAt: -1 });
 ActivitySchema.index({ type: 1, dueDate: 1 });
 ActivitySchema.index({ status: 1, dueDate: 1 });
+ActivitySchema.index({ 'details.dealId': 1, type: 1, status: 1 });
+ActivitySchema.index({ 'details.inventoryId': 1, type: 1, status: 1 });
 
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);

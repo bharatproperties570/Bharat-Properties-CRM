@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
@@ -22,10 +22,22 @@ import { generateDealsPDF } from '../../../utils/pdfUtils';
 
 const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
     const { id: paramLeadId } = useParams();
+    const navigate = useNavigate();
     const [selectedLeadId, setSelectedLeadId] = useState(null);
 
+    const handleBack = useCallback(() => {
+        if (typeof onNavigate === 'function') {
+            onNavigate('leads');
+        } else if (window.history.length > 2) {
+            navigate(-1);
+        } else {
+            navigate('/leads');
+        }
+    }, [onNavigate, navigate]);
+
     // Fetch fallback leads list for selector or when no ID is provided
-    const { data: leadsListData, isLoading: isLeadsListLoading } = useLeads({ limit: 50 });
+    const leadsParams = useMemo(() => ({ limit: 50 }), []);
+    const { data: leadsListData, isLoading: isLeadsListLoading } = useLeads(leadsParams);
     const availableLeads = useMemo(() => {
         if (!leadsListData) return [];
         return leadsListData.records || leadsListData.leads || leadsListData.data || [];
@@ -38,7 +50,7 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
         if (selectedLeadId) return selectedLeadId;
         if (availableLeads.length > 0) return availableLeads[0]._id;
         return null;
-    }, [propLeadId, paramLeadId, selectedLeadId, availableLeads]);
+    }, [propLeadId, paramLeadId, selectedLeadId, availableLeads.length > 0 ? availableLeads[0]._id : null]);
 
     const { isDark } = useTheme();
     const { mutateAsync: addActivity } = useAddActivityMutation();
@@ -711,11 +723,25 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
         }
     };
 
-    if (loading && !lead) {
+    if (isLeadLoading && !lead) {
         return (
-            <div style={{ padding: '60px', textAlign: 'center', minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div className="loading-spinner" style={{ marginBottom: '16px' }}></div>
-                <p style={{ fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Initializing Requirement Match Engine...</p>
+            <div style={{ background: isDark ? '#0f172a' : '#f8fafc', minHeight: '100vh', padding: '24px', fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                    <button
+                        onClick={handleBack}
+                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                    >
+                        <i className="fas fa-arrow-left" style={{ color: isDark ? 'var(--text-main)' : '#1e293b' }}></i>
+                    </button>
+                    <div>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Requirement Match Center</h1>
+                        <p style={{ margin: 0, color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.85rem' }}>Loading buyer intelligence...</p>
+                    </div>
+                </div>
+                <div style={{ padding: '80px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="loading-spinner" style={{ marginBottom: '16px' }}></div>
+                    <p style={{ fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Initializing Requirement Match Engine...</p>
+                </div>
             </div>
         );
     }
@@ -879,7 +905,7 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
                             ))}
                         </select>
                     )}
-                    <button onClick={() => onNavigate('leads')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '10px' }}>Go back to Leads</button>
+                    <button onClick={handleBack} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '10px' }}>Go back to Leads</button>
                 </div>
             </div>
         );
@@ -898,10 +924,10 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
                     This lead is in a Terminal State (e.g., Closed, Lost, or Unqualified). Deal matching and AI recommendations are disabled for closed records to preserve pipeline integrity.
                 </p>
                 <div style={{ display: 'flex', gap: '16px' }}>
-                    <button onClick={() => onNavigate('leads')} className="btn-primary" style={{ background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)' }}>
+                    <button onClick={handleBack} className="btn-primary" style={{ background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)' }}>
                         <i className="fas fa-arrow-left"></i> Back to Leads
                     </button>
-                    <button onClick={() => onNavigate('contact-detail', lead.mobile)} className="btn-primary">
+                    <button onClick={() => onNavigate ? onNavigate('contact-detail', lead.mobile) : navigate(`/leads?mobile=${lead.mobile}`)} className="btn-primary">
                         View Lead Details
                     </button>
                 </div>
@@ -914,18 +940,18 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
-                        onClick={() => onNavigate('leads')}
+                        onClick={handleBack}
                         style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
                     >
-                        <i className="fas fa-arrow-left" style={{ color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#1e293b' }}></i>
+                        <i className="fas fa-arrow-left" style={{ color: isDark ? 'var(--text-main)' : '#1e293b' }}></i>
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Requirement Match Center</h1>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Requirement Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <span style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Finding matches for Lead:</span>
                             <span
                                 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
-                                onClick={() => onNavigate('contact-detail', lead.mobile)}
+                                onClick={() => onNavigate ? onNavigate('contact-detail', lead.mobile) : navigate(`/leads?mobile=${lead.mobile}`)}
                             >
                                 {renderValue(lead.name)} | {renderValue(lead.mobile)}
                             </span>
@@ -1620,7 +1646,14 @@ const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
                         </button>
                     )}
 
-                    {matchedItems.length === 0 && (
+                    {loading && (
+                        <div style={{ padding: '60px', textAlign: 'center', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', border: '1px solid #e2e8f0' }}>
+                            <div className="loading-spinner" style={{ marginBottom: '16px' }}></div>
+                            <p style={{ fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Analyzing inventory & calculating match scores...</p>
+                        </div>
+                    )}
+
+                    {!loading && matchedItems.length === 0 && (
                         <div style={{ padding: '60px', textAlign: 'center', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
                             <i className="fas fa-search-minus" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
                             <h3 style={{ color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '8px' }}>No exact matches found</h3>

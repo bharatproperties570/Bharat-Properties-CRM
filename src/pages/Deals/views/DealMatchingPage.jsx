@@ -1,6 +1,6 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
@@ -14,16 +14,28 @@ import { systemSettingsAPI } from '../../../utils/api';
 
 const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
     const { id: paramDealId } = useParams();
+    const navigate = useNavigate();
     const [selectedDealId, setSelectedDealId] = useState('');
     const activeDealId = propDealId || paramDealId || selectedDealId;
+
+    const handleBack = useCallback(() => {
+        if (typeof onNavigate === 'function') {
+            onNavigate('deals');
+        } else if (window.history.length > 2) {
+            navigate(-1);
+        } else {
+            navigate('/deals');
+        }
+    }, [onNavigate, navigate]);
 
     const { isDark } = useTheme();
     const { mutateAsync: addActivity } = useAddActivityMutation();
     const { lookups, projects } = usePropertyConfig();
 
     // Data Hooks
-    const { data: dealsListPayload, isLoading: isDealsLoading } = useDeals({ limit: 100 });
-    const availableDeals = dealsListPayload?.records || [];
+    const dealsParams = useMemo(() => ({ limit: 100 }), []);
+    const { data: dealsListPayload, isLoading: isDealsLoading } = useDeals(dealsParams);
+    const availableDeals = useMemo(() => dealsListPayload?.records || [], [dealsListPayload?.records]);
 
     useEffect(() => {
         if (!activeDealId && availableDeals.length > 0 && !selectedDealId) {
@@ -161,7 +173,7 @@ const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
 
     // --- Unified Omnichannel Dispatch ---
     const handleSendBlast = async () => {
-        if (!dealId) return toast.error('No deal selected');
+        if (!deal?._id) return toast.error('No deal selected');
         if (selectedLeads.length === 0) return toast.error('Select at least one lead');
         if (!Object.values(blastChannels).some(v => v)) return toast.error('Select at least one channel');
         
@@ -252,41 +264,60 @@ const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
 
     const getSeverityColor = (sev) => ({ high: '#ef4444', medium: '#f59e0b', low: '#3b82f6' })[sev] || '#6366f1';
 
-    if (loading && (isDealLoading || !availableDeals.length)) return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '20px', background: isDark ? '#0f172a' : '#f8fafc' }}>
-            <div className="loading-spinner"></div>
-            <h3 style={{ fontWeight: 800, color: isDark ? '#e2e8f0' : '#1e293b' }}>Initializing Deal Match Engine...</h3>
-        </div>
-    );
+    if (activeDealId && isDealLoading && !deal) {
+        return (
+            <div style={{ background: isDark ? '#0f172a' : '#f8fafc', minHeight: '100vh', padding: '24px', fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                    <button onClick={handleBack} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                        <i className="fas fa-arrow-left"></i> Back to Deals
+                    </button>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#e2e8f0' : '#0f172a', margin: 0 }}>Deal Match Center</h1>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', gap: '16px' }}>
+                    <div className="loading-spinner"></div>
+                    <h3 style={{ fontWeight: 800, color: isDark ? '#e2e8f0' : '#1e293b', margin: 0 }}>Loading Deal Data...</h3>
+                    <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>Fetching deal parameters and buyer requirement engine...</p>
+                </div>
+            </div>
+        );
+    }
 
     if (!deal) {
         return (
-            <div style={{ padding: '60px 20px', textAlign: 'center', color: isDark ? '#e2e8f0' : '#1e293b', minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0f172a' : '#f8fafc' }}>
-                <i className="fas fa-handshake-slash" style={{ fontSize: '3rem', color: '#94a3b8', marginBottom: '16px' }}></i>
-                <h3 style={{ fontWeight: 800, marginBottom: '8px' }}>No Active Deal Selected</h3>
-                <p style={{ color: '#64748b', maxWidth: '420px', marginBottom: '24px' }}>
-                    Select a deal from below or return to the Deals Pipeline to start matching buyer requirements.
-                </p>
-                {availableDeals.length > 0 ? (
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <select
-                            value={selectedDealId}
-                            onChange={(e) => setSelectedDealId(e.target.value)}
-                            style={{ padding: '10px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.9rem' }}
-                        >
-                            <option value="">Select a Deal to Match...</option>
-                            {availableDeals.map(d => (
-                                <option key={d._id} value={d._id}>
-                                    {d.projectName || d.propertyType || 'Deal'} {d.unitNo ? `(Unit ${d.unitNo})` : ''} - {formatIndianCurrency(d.price || d.quotePrice || 0)}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                ) : (
-                    <button onClick={() => onNavigate('deals')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '8px' }}>
-                        Back to Deals Pipeline
+            <div style={{ background: isDark ? '#0f172a' : '#f8fafc', minHeight: '100vh', padding: '24px', fontFamily: "'Inter', sans-serif" }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                    <button onClick={handleBack} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                        <i className="fas fa-arrow-left"></i> Back to Deals
                     </button>
-                )}
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: isDark ? '#e2e8f0' : '#0f172a', margin: 0 }}>Deal Match Center</h1>
+                </div>
+                <div style={{ padding: '60px 20px', textAlign: 'center', color: isDark ? '#e2e8f0' : '#1e293b', minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className="fas fa-handshake-slash" style={{ fontSize: '3rem', color: '#94a3b8', marginBottom: '16px' }}></i>
+                    <h3 style={{ fontWeight: 800, marginBottom: '8px' }}>No Active Deal Selected</h3>
+                    <p style={{ color: '#64748b', maxWidth: '420px', marginBottom: '24px' }}>
+                        Select a deal from below or return to the Deals Pipeline to start matching buyer requirements.
+                    </p>
+                    {availableDeals.length > 0 ? (
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <select
+                                value={selectedDealId}
+                                onChange={(e) => setSelectedDealId(e.target.value)}
+                                style={{ padding: '10px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.9rem' }}
+                            >
+                                <option value="">Select a Deal to Match...</option>
+                                {availableDeals.map(d => (
+                                    <option key={d._id} value={d._id}>
+                                        {d.projectName || d.propertyType || 'Deal'} {d.unitNo ? `(Unit ${d.unitNo})` : ''} - {formatIndianCurrency(d.price || d.quotePrice || 0)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : (
+                        <button onClick={handleBack} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '8px' }}>
+                            Back to Deals Pipeline
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
@@ -305,7 +336,7 @@ const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
             {/* ─── HEADER ─── */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <button onClick={() => onNavigate('deals')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: card, border: `1px solid ${brd}`, borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: sub, transition: 'all 0.2s' }}>
+                    <button onClick={handleBack} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: card, border: `1px solid ${brd}`, borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: sub, transition: 'all 0.2s' }}>
                         <i className="fas fa-arrow-left" style={{ fontSize: '0.8rem' }}></i> Back to Deals
                     </button>
                     <div>
@@ -518,8 +549,14 @@ const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: matchingLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-                        {displayedLeads.length === 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: matchingLoading && displayedLeads.length > 0 ? 0.7 : 1, transition: 'opacity 0.2s' }}>
+                        {matchingLoading && displayedLeads.length === 0 ? (
+                            <div style={{ background: card, border: `1px solid ${brd}`, padding: '60px 40px', borderRadius: '20px', textAlign: 'center' }}>
+                                <div className="loading-spinner" style={{ margin: '0 auto 16px auto' }}></div>
+                                <h3 style={{ color: txt, margin: '0 0 8px 0', fontWeight: 800 }}>Analyzing Active Buyer Requirements...</h3>
+                                <p style={{ color: sub, margin: 0, fontSize: '0.85rem' }}>Scanning active buyer requirements against location, budget, and category parameters.</p>
+                            </div>
+                        ) : displayedLeads.length === 0 ? (
                             <div style={{ background: card, border: `1px solid ${brd}`, padding: '80px', borderRadius: '20px', textAlign: 'center' }}>
                                 <i className="fas fa-user-slash" style={{ fontSize: '2.5rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
                                 <h3 style={{ color: txt }}>No Matching Leads Found</h3>

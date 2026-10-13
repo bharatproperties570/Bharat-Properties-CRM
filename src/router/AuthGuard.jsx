@@ -39,8 +39,9 @@ export const AuthGuard = () => {
         else if (view === 'contact-detail' && contactId) url = `/contacts/${contactId}`;
         else if (view === 'inventory-detail' && contactId) url = `/inventory/${contactId}`;
         else if (view === 'deal-detail' && contactId) url = `/deals/${contactId}`;
-        else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
-        else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
+        else if (view === 'deal-matching') url = contactId ? `/deals/match/${contactId}` : '/deals/match';
+        else if (view === 'lead-matching') url = contactId ? `/leads/match/${contactId}` : '/leads/match';
+        else if (view === 'inventory-matching') url = contactId ? `/inventory-matching/${contactId}` : '/inventory';
         else if (view === 'project-master-plan' && contactId) url = `/projects/${contactId}/master-plan`;
         else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
         else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;

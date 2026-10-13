@@ -1771,7 +1771,9 @@ export const matchLeads = async (req, res) => {
             status: { $nin: excludedStatusIds },
             stage: { $nin: terminalStageIds }
         };
-        const leads = await Lead.find(leadQuery).lean();
+        const leads = await Lead.find(leadQuery)
+            .select('firstName lastName mobile email requirement propertyType subType sizeType unitType budgetMin budgetMax locCity city locArea sector location locLat locLng range locBlock locHNo streetAddress projectName areaMetric areaMin areaMax status stage createdAt pinnedMatches specificUnits specificSizeUnits intent_index leadScore')
+            .lean();
         console.log(`[DEAL_MATCH_ENGINE] Evaluating ${leads.length} active leads`);
 
         // ─── 3. DISPATCH HISTORY ─────────────────────────────────────────────────
@@ -1779,7 +1781,7 @@ export const matchLeads = async (req, res) => {
             'details.dealId': dealId,
             type: 'Marketing',
             status: 'Completed'
-        }).sort({ performedAt: -1 }).lean();
+        }).select('entityId performedAt details.results').sort({ performedAt: -1 }).lean();
 
         const dispatchMap = new Map();
         dispatchActivities.forEach(act => {
