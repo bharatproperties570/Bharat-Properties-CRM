@@ -175,6 +175,24 @@ const checkUnitMatch = (leadUnits, dealUnitNo) => {
     return false;
 };
 
+// ⚡ High-speed in-memory Lookup Cache for Deal Match Engine
+let cachedDealMatchLookups = null;
+let lastDealMatchLookupFetch = 0;
+const DEAL_LOOKUP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedDealMatchLookups(lookupTypes) {
+    const now = Date.now();
+    if (cachedDealMatchLookups && (now - lastDealMatchLookupFetch < DEAL_LOOKUP_CACHE_TTL)) {
+        return cachedDealMatchLookups;
+    }
+    const lookups = await Lookup.find({
+        lookup_type: { $in: lookupTypes }
+    }).select('_id lookup_type lookup_value').lean();
+    cachedDealMatchLookups = lookups;
+    lastDealMatchLookupFetch = now;
+    return cachedDealMatchLookups;
+}
+
 export const matchDeals = async (req, res) => {
     try {
         const {
@@ -214,9 +232,7 @@ export const matchDeals = async (req, res) => {
             // Inventory-specific lookup types (critical for WhatsApp variable resolution)
             'Facing', 'Direction', 'RoadWidth', 'BuiltupType', 'Orientation'
         ];
-        const allLookups = await Lookup.find({
-            lookup_type: { $in: lookupTypes }
-        }).select('_id lookup_type lookup_value').lean();
+        const allLookups = await getCachedDealMatchLookups(lookupTypes);
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 

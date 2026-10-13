@@ -1632,6 +1632,22 @@ const checkUnitMatch = (leadUnits, dealUnitNo) => {
     return false;
 };
 
+// ⚡ High-speed in-memory Lookup Cache for Match Engine
+let cachedLeadMatchLookups = null;
+let lastLeadMatchLookupFetch = 0;
+const LOOKUP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedMatchLookups() {
+    const now = Date.now();
+    if (cachedLeadMatchLookups && (now - lastLeadMatchLookupFetch < LOOKUP_CACHE_TTL)) {
+        return cachedLeadMatchLookups;
+    }
+    const lookups = await Lookup.find({}).select('_id lookup_type lookup_value').lean();
+    cachedLeadMatchLookups = lookups;
+    lastLeadMatchLookupFetch = now;
+    return cachedLeadMatchLookups;
+}
+
 export const matchLeads = async (req, res) => {
     try {
         const {
@@ -1683,7 +1699,7 @@ export const matchLeads = async (req, res) => {
         };
 
         // ─── 0. PRE-FETCH LOOKUPS ─────────────────────────────────────────────────
-        const allLookups = await Lookup.find({}).lean();
+        const allLookups = await getCachedMatchLookups();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
 
         const getLookupVal = (val) => {
