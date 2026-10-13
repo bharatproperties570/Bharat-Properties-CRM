@@ -144,7 +144,34 @@ export const BaileysConnectionManager = {
 
                         // Prevent tight conflict loops when another connection took over
                         if (isConflict) {
-                            console.warn(`[BaileysConnectionManager] Conflict / connection replaced for ${integrationId}. Backing off for 10s.`);
+                            console.warn(`[BaileysConnectionManager] Conflict / connection replaced for ${integrationId}. Checking for duplicate numbers...`);
+                            try {
+                                const currentDoc = await WhatsAppIntegration.findById(integrationId);
+                                const norm = currentDoc?.displayPhoneNumber ? normalizePhone(currentDoc.displayPhoneNumber) : null;
+                                if (norm) {
+                                    const dup = await WhatsAppIntegration.findOne({
+                                        _id: { $ne: integrationId },
+                                        provider: 'BAILEYS',
+                                        status: 'ACTIVE',
+                                        $or: [
+                                            { displayPhoneNumber: { $regex: norm + '$' } },
+                                            { phoneNumberId: { $regex: norm + '$' } }
+                                        ]
+                                    });
+                                    if (dup) {
+                                        console.error(`[BaileysConnectionManager] Duplicate phone ${currentDoc.displayPhoneNumber} detected between ${integrationId} and ${dup._id}. Aborting reconnect loop to preserve system stability.`);
+                                        await WhatsAppIntegration.findByIdAndUpdate(integrationId, {
+                                            status: 'ERROR',
+                                            onboardingStatus: 'ERROR',
+                                            failureReason: `DUPLICATE_NUMBER: Another active connection exists with this phone number (${currentDoc.displayPhoneNumber}). Reconnect loop stopped.`
+                                        });
+                                        return;
+                                    }
+                                }
+                            } catch (err) {
+                                console.error('[BaileysConnectionManager] Error checking duplicate conflict:', err.message);
+                            }
+
                             const timer = setTimeout(() => {
                                 reconnectTimers.delete(integrationId);
                                 if (!connections.has(integrationId)) {
@@ -168,6 +195,48 @@ export const BaileysConnectionManager = {
                         try {
                             const phone = sock.user?.id ? sock.user.id.split(':')[0].replace(/\D/g, '') : undefined;
                             const currentInt = await WhatsAppIntegration.findById(integrationId);
+                            
+                            // 🔒 CRITICAL ENTERPRISE CHECK: One WhatsApp number can only belong to ONE user across the entire CRM
+                            if (phone) {
+                                const normPhone = normalizePhone(phone);
+                                const existingConflict = await WhatsAppIntegration.findOne({
+                                    _id: { $ne: integrationId },
+                                    provider: 'BAILEYS',
+                                    status: 'ACTIVE',
+                                    connectedBy: { $ne: currentInt?.connectedBy },
+                                    $or: [
+                                        { displayPhoneNumber: { $regex: normPhone + '$' } },
+                                        { phoneNumberId: { $regex: normPhone + '$' } }
+                                    ]
+                                }).populate('connectedBy', 'fullName name email');
+
+                                if (existingConflict) {
+                                    const conflictUserName = existingConflict.connectedBy?.fullName || existingConflict.connectedBy?.name || 'another user';
+                                    console.warn(`[BaileysConnectionManager] ⚠️ REJECTING DUPLICATE WHATSAPP CONNECTION for ${integrationId} (Phone: ${phone}). Already active on user ${conflictUserName} (ID: ${existingConflict._id})`);
+
+                                    // Cleanly disconnect socket immediately
+                                    try {
+                                        await sock.logout();
+                                    } catch (e) {}
+                                    try {
+                                        if (sock.ws) sock.ws.close();
+                                        sock.ev?.removeAllListeners();
+                                    } catch (e) {}
+                                    connections.delete(integrationId);
+
+                                    // Wipe auth credentials for this duplicate attempt
+                                    const { default: BaileysAuthModel } = await import('../../models/BaileysAuth.js');
+                                    await BaileysAuthModel.deleteMany({ sessionId: integrationId.toString() });
+
+                                    await WhatsAppIntegration.findByIdAndUpdate(integrationId, {
+                                        status: 'ERROR',
+                                        onboardingStatus: 'ERROR',
+                                        failureReason: `DUPLICATE_NUMBER: Yeh WhatsApp number (+${phone}) pehle se hi "${conflictUserName}" ke sath connect hai. Pure CRM me ek number sirf ek hi user ke scanner pr use ho sakta hai.`
+                                    });
+                                    return;
+                                }
+                            }
+
                             const name = sock.user?.name || currentInt?.accountLabel || 'WhatsApp Web';
                             await WhatsAppIntegration.findByIdAndUpdate(integrationId, {
                                 status: 'ACTIVE',

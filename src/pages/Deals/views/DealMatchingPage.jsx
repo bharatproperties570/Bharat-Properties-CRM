@@ -6,20 +6,35 @@ import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useAddActivityMutation } from '../../../utils/crmHooks';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
-import { useDeal } from '../../../utils/crmHooks';
+import { useDeal, useDeals } from '../../../utils/crmHooks';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import whatsappService from '../../../services/whatsappService';
 import { systemSettingsAPI } from '../../../utils/api';
 
 
-const DealMatchingPage = ({ onNavigate}) => {
-    const { id: dealId } = useParams();
+const DealMatchingPage = ({ onNavigate, dealId: propDealId }) => {
+    const { id: paramDealId } = useParams();
+    const [selectedDealId, setSelectedDealId] = useState('');
+    const activeDealId = propDealId || paramDealId || selectedDealId;
+
     const { isDark } = useTheme();
     const { mutateAsync: addActivity } = useAddActivityMutation();
     const { lookups, projects } = usePropertyConfig();
 
+    // Data Hooks
+    const { data: dealsListPayload, isLoading: isDealsLoading } = useDeals({ limit: 100 });
+    const availableDeals = dealsListPayload?.records || [];
+
+    useEffect(() => {
+        if (!activeDealId && availableDeals.length > 0 && !selectedDealId) {
+            setSelectedDealId(availableDeals[0]._id);
+        }
+    }, [activeDealId, availableDeals, selectedDealId]);
+
+    const { data: dealPayload, isLoading: isDealLoading } = useDeal(activeDealId);
+    const deal = dealPayload?.data || dealPayload?.deal || dealPayload?.record || (dealPayload?._id ? dealPayload : null);
+
     // Core State
-    const [deal, setDeal]                   = useState(null);
     const [matchedLeads, setMatchedLeads]   = useState([]);
     const [excludedLeads, setExcludedLeads] = useState([]);
     const [suggestions, setSuggestions]     = useState([]);
@@ -62,9 +77,9 @@ const DealMatchingPage = ({ onNavigate}) => {
         rcs: null
     });
 
-    // 1. Fetch Deal
+    // 1. Fetch Templates
     useEffect(() => {
-        if (!dealId) return;
+        if (!activeDealId) return;
         const fetchTemplates = async () => {
             try {
                 const [metaRes, localRes] = await Promise.all([
@@ -94,15 +109,18 @@ const DealMatchingPage = ({ onNavigate}) => {
             }
         };
         fetchTemplates();
-    }, [dealId]);
+    }, [activeDealId]);
 
     // 2. Matching Engine
     const fetchMatches = useCallback(async () => {
-        if (!dealId) return;
+        if (!activeDealId) {
+            setLoading(false);
+            return;
+        }
         setMatchingLoading(true);
         try {
             const res = await api.get('leads/match', {
-                params: { dealId, budgetFlexibility, sizeFlexibility, showOtherCities }
+                params: { dealId: activeDealId, budgetFlexibility, sizeFlexibility, showOtherCities }
             });
             if (res.data?.success) {
                 setMatchedLeads(res.data.matchingLeads || []);
@@ -112,11 +130,13 @@ const DealMatchingPage = ({ onNavigate}) => {
                 setExcludedCount(res.data.excludedCount || 0);
             }
         } catch (err) {
+            console.error('Matching engine error:', err);
             toast.error('Matching engine error');
         } finally {
             setMatchingLoading(false);
+            setLoading(false);
         }
-    }, [dealId, budgetFlexibility, sizeFlexibility, showOtherCities]);
+    }, [activeDealId, budgetFlexibility, sizeFlexibility, showOtherCities]);
 
     useEffect(() => {
         const timer = setTimeout(fetchMatches, 400);
@@ -232,14 +252,44 @@ const DealMatchingPage = ({ onNavigate}) => {
 
     const getSeverityColor = (sev) => ({ high: '#ef4444', medium: '#f59e0b', low: '#3b82f6' })[sev] || '#6366f1';
 
-    if (loading) return (
+    if (loading && (isDealLoading || !availableDeals.length)) return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '20px', background: isDark ? '#0f172a' : '#f8fafc' }}>
             <div className="loading-spinner"></div>
             <h3 style={{ fontWeight: 800, color: isDark ? '#e2e8f0' : '#1e293b' }}>Initializing Deal Match Engine...</h3>
         </div>
     );
 
-    if (!deal) return <div style={{ padding: '40px', textAlign: 'center', color: isDark ? '#e2e8f0' : '#1e293b' }}>Deal not found.</div>;
+    if (!deal) {
+        return (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: isDark ? '#e2e8f0' : '#1e293b', minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: isDark ? '#0f172a' : '#f8fafc' }}>
+                <i className="fas fa-handshake-slash" style={{ fontSize: '3rem', color: '#94a3b8', marginBottom: '16px' }}></i>
+                <h3 style={{ fontWeight: 800, marginBottom: '8px' }}>No Active Deal Selected</h3>
+                <p style={{ color: '#64748b', maxWidth: '420px', marginBottom: '24px' }}>
+                    Select a deal from below or return to the Deals Pipeline to start matching buyer requirements.
+                </p>
+                {availableDeals.length > 0 ? (
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <select
+                            value={selectedDealId}
+                            onChange={(e) => setSelectedDealId(e.target.value)}
+                            style={{ padding: '10px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.9rem' }}
+                        >
+                            <option value="">Select a Deal to Match...</option>
+                            {availableDeals.map(d => (
+                                <option key={d._id} value={d._id}>
+                                    {d.projectName || d.propertyType || 'Deal'} {d.unitNo ? `(Unit ${d.unitNo})` : ''} - {formatIndianCurrency(d.price || d.quotePrice || 0)}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : (
+                    <button onClick={() => onNavigate('deals')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '8px' }}>
+                        Back to Deals Pipeline
+                    </button>
+                )}
+            </div>
+        );
+    }
 
     const bg   = isDark ? '#0f172a' : '#f1f5f9';
     const card = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
@@ -267,6 +317,33 @@ const DealMatchingPage = ({ onNavigate}) => {
                         </p>
                     </div>
                 </div>
+
+                {availableDeals.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: sub }}>Switch Deal:</span>
+                        <select
+                            value={activeDealId || ''}
+                            onChange={(e) => setSelectedDealId(e.target.value)}
+                            style={{
+                                padding: '8px 14px',
+                                borderRadius: '10px',
+                                border: `1px solid ${brd}`,
+                                background: card,
+                                color: txt,
+                                fontWeight: 700,
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                outline: 'none'
+                            }}
+                        >
+                            {availableDeals.map(d => (
+                                <option key={d._id} value={d._id}>
+                                    {d.projectName || d.propertyType || 'Deal'} {d.unitNo ? `· Unit ${d.unitNo}` : ''} ({formatIndianCurrency(d.price || d.quotePrice || 0)})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
             </div>
 
             {/* ─── STATS BAR ─── */}

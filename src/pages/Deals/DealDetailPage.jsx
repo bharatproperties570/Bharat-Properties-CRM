@@ -56,13 +56,18 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
     const { id: routeDealId } = useParams();
     const navigate = useNavigate();
     const dealId = propDealId || routeDealId;
-    const onBack = propOnBack || (() => {
-        if (onNavigate) {
+    const handleBack = useCallback((e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (propOnBack) {
+            propOnBack();
+        } else if (onNavigate) {
             onNavigate('deals');
         } else {
             navigate('/deals');
         }
-    });
+    }, [propOnBack, onNavigate, navigate]);
+    const onBack = handleBack;
 
     const { isDark } = useTheme();
     const { user } = useUserContext();
@@ -101,7 +106,8 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
 
     const updateDealMutation = useUpdateDealMutation({ isPartial: true });
 
-    const activityQueries = useUnifiedActivityQueries([{ type: 'Deal', id: dealId }]);
+    const dealEntity = useMemo(() => (dealId ? [{ type: 'Deal', id: dealId }] : []), [dealId]);
+    const activityQueries = useUnifiedActivityQueries(dealEntity);
     const activities = useMemo(() => {
         if (activityQueries[0]?.data && activityQueries[0].data.length > 0) {
             return activityQueries[0].data;
@@ -109,7 +115,6 @@ const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, on
         return dealPayload?.activities || [];
     }, [activityQueries, dealPayload?.activities]);
     const [inventory, setInventory] = useState(null);
-    const [allLeads, setAllLeads] = useState([]);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
     
     // Custom Hooks
@@ -559,33 +564,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         }
     }, [dealId]);
 
-    const fetchAllLeads = useCallback(async () => {
-        try {
-            const response = await api.get('leads', { params: { limit: 1000 } });
-            if (response.data && response.data.success) {
-                const mapped = (response.data.records || response.data.data || []).map(l => ({
-                    ...l,
-                    name: l.name || (l.contactDetails ? `${l.contactDetails.name || ''} ${l.contactDetails.surname || ''}`.trim() : 'Unknown'),
-                    mobile: l.mobile || l.phone || (l.contactDetails?.phones?.[0]?.number) || ''
-                }));
-                setAllLeads(mapped);
-            }
-        } catch (error) {
-            console.error("Error fetching all leads:", error);
-        }
-    }, []);
-
-
-
-
-    // Effects (RESTORING MISSING DATA FETCHING)
-    useEffect(() => {
-        
-        // fetchLiveScore(); // Replaced by Unified API
-        fetchAllLeads();
-        //  // Replaced by Unified API
-    }, [dealId,  fetchAllLeads]);
-
     useEffect(() => {
         if (dealId) {
             fetchMatchingLeads();
@@ -638,6 +616,31 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     );
 
     const isReadOnly = isMarkingLost || deal.stage === 'Closed Won' || deal.stage === 'Closed Lost' || deal.stage === 'Cancelled';
+
+    const relatedEntities = useMemo(() => {
+        if (!dealId) return [];
+        const entities = [{ type: 'Deal', id: dealId }];
+        if (deal?.contactId?._id || deal?.contactId) {
+            entities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+        }
+        if (inventory) {
+            const invId = inventory._id || inventory.id;
+            if (invId) entities.push({ type: 'Inventory', id: invId });
+            if (inventory.owners && Array.isArray(inventory.owners)) {
+                inventory.owners.forEach(o => {
+                    const oId = o._id || o.id;
+                    if (oId) entities.push({ type: 'Contact', id: oId });
+                });
+            }
+            if (inventory.associates && Array.isArray(inventory.associates)) {
+                inventory.associates.forEach(a => {
+                    const cId = a.contact?._id || a.contact?.id || a.id;
+                    if (cId) entities.push({ type: 'Contact', id: cId });
+                });
+            }
+        }
+        return entities;
+    }, [dealId, deal?.contactId, inventory]);
 
     return (
         <div className="deal-detail-page bg-slate-50 min-h-screen" style={{ fontFamily: '"Inter", sans-serif' }}>
@@ -767,38 +770,17 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             </div>
                         </div>
                         <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                            {(() => {
-                                const relatedEntities = [{ type: 'Deal', id: dealId }];
-                                if (deal.contactId?._id || deal.contactId) {
-                                    relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
-                                }
-                                if (inventory) {
-                                    relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
-                                    if (inventory.owners && Array.isArray(inventory.owners)) {
-                                        inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
-                                    }
-                                    if (inventory.associates && Array.isArray(inventory.associates)) {
-                                        inventory.associates.forEach(a => {
-                                            const cId = a.contact?._id || a.contact?.id || a.id;
-                                            if (cId) relatedEntities.push({ type: 'Contact', id: cId });
-                                        });
-                                    }
-                                }
-
-                                return (
-                                    <UnifiedActivitySection 
-                                        deal={deal} 
-                                        activities={activities} 
-                                        fetchDealDetails={() => {}} 
-                                        isReadOnly={isReadOnly}
-                                        entityId={dealId} 
-                                        entityType="Deal" 
-                                        entityData={deal}
-                                        onActivitySaved={() => {}}
-                                        relatedEntities={relatedEntities}
-                                    />
-                                );
-                            })()}
+                            <UnifiedActivitySection 
+                                deal={deal} 
+                                activities={activities} 
+                                fetchDealDetails={() => {}} 
+                                isReadOnly={isReadOnly}
+                                entityId={dealId} 
+                                entityType="Deal" 
+                                entityData={deal}
+                                onActivitySaved={() => {}}
+                                relatedEntities={relatedEntities}
+                            />
                         </div>
                     </div>
                 </div>
@@ -927,7 +909,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     isOpen={isOfferModalOpen}
                     onClose={() => setIsOfferModalOpen(false)}
                     onSave={handleAddOffer}
-                    leads={matchingLeads.length > 0 ? matchingLeads : allLeads}
+                    leads={matchingLeads}
                     deal={deal}
                 />
             )}

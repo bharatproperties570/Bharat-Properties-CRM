@@ -1308,6 +1308,30 @@ export const startBaileysConnection = async (req, res) => {
     try {
         const { displayPhoneNumber, accountLabel } = req.body;
         
+        // 🔒 STRICT CRM-WIDE PHONE UNIQUENESS VALIDATION:
+        // One phone number can only be connected to ONE user across the entire CRM
+        const { normalizePhone } = await import('../utils/normalization.js');
+        const normalizedInput = displayPhoneNumber ? normalizePhone(displayPhoneNumber) : '';
+        if (normalizedInput) {
+            const existingConflict = await WhatsAppIntegration.findOne({
+                provider: 'BAILEYS',
+                status: 'ACTIVE',
+                connectedBy: { $ne: req.user._id },
+                $or: [
+                    { displayPhoneNumber: { $regex: normalizedInput + '$' } },
+                    { phoneNumberId: { $regex: normalizedInput + '$' } }
+                ]
+            }).populate('connectedBy', 'fullName name email');
+
+            if (existingConflict) {
+                const ownerName = existingConflict.connectedBy?.fullName || existingConflict.connectedBy?.name || 'dusre user';
+                return res.status(409).json({
+                    success: false,
+                    error: `Yeh WhatsApp number (${displayPhoneNumber}) pehle se hi "${ownerName}" ke account pr active hai. Pure CRM me ek WhatsApp number sirf ek hi user ke scanner pr link ho sakta hai.`
+                });
+            }
+        }
+        
         // Find if one already exists for THIS user, or create new user-bound integration
         let integration = await WhatsAppIntegration.findOne({ 
             provider: 'BAILEYS', 
@@ -1391,15 +1415,45 @@ export const getBaileysStatus = async (req, res) => {
         // 🚀 ENTERPRISE STATE VERIFICATION:
         // Check if active socket exists in memory
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+        const { normalizePhone } = await import('../utils/normalization.js');
         const sock = BaileysConnectionManager.getSocket(req.params.id);
 
         if (sock && sock.user && sock.user.id) {
+            const rawPhone = sock.user.id.split(':')[0].replace(/\D/g, '');
+            const norm = normalizePhone(rawPhone);
+
+            // Double check duplicate before marking active
+            const duplicate = await WhatsAppIntegration.findOne({
+                _id: { $ne: req.params.id },
+                provider: 'BAILEYS',
+                status: 'ACTIVE',
+                connectedBy: { $ne: integration.connectedBy },
+                $or: [
+                    { displayPhoneNumber: { $regex: norm + '$' } },
+                    { phoneNumberId: { $regex: norm + '$' } }
+                ]
+            }).populate('connectedBy', 'fullName name');
+
+            if (duplicate) {
+                const dupName = duplicate.connectedBy?.fullName || duplicate.connectedBy?.name || 'another user';
+                status = 'ERROR';
+                onboardingStatus = 'ERROR';
+                qrDataUrl = null;
+                const errorMsg = `Yeh WhatsApp number (${rawPhone}) pehle se "${dupName}" ke account pr linked hai. Ek number sirf ek user use kr sakta hai.`;
+                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                    status: 'ERROR',
+                    onboardingStatus: 'ERROR',
+                    failureReason: errorMsg
+                });
+                return res.json({ success: true, status: 'ERROR', onboardingStatus: 'ERROR', error: errorMsg });
+            }
+
             status = 'ACTIVE';
             onboardingStatus = 'CONNECTED';
             qrDataUrl = null;
 
             if (integration.status !== 'ACTIVE' || integration.onboardingStatus !== 'CONNECTED') {
-                const phone = sock.user.id.split(':')[0].replace(/\D/g, '');
+                const phone = rawPhone;
                 const name = sock.user.name || integration.accountLabel || 'Bharat Properties';
                 await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
                     status: 'ACTIVE',
@@ -1415,10 +1469,35 @@ export const getBaileysStatus = async (req, res) => {
             const { useMongoDBAuthState } = await import('../services/baileysQueue/useMongoDBAuthState.js');
             const { state } = await useMongoDBAuthState(req.params.id);
             if (state && state.creds && state.creds.me && state.creds.me.id) {
+                const rawPhone = state.creds.me.id.split(':')[0].replace(/\D/g, '');
+                const norm = normalizePhone(rawPhone);
+
+                const duplicate = await WhatsAppIntegration.findOne({
+                    _id: { $ne: req.params.id },
+                    provider: 'BAILEYS',
+                    status: 'ACTIVE',
+                    connectedBy: { $ne: integration.connectedBy },
+                    $or: [
+                        { displayPhoneNumber: { $regex: norm + '$' } },
+                        { phoneNumberId: { $regex: norm + '$' } }
+                    ]
+                }).populate('connectedBy', 'fullName name');
+
+                if (duplicate) {
+                    const dupName = duplicate.connectedBy?.fullName || duplicate.connectedBy?.name || 'another user';
+                    const errorMsg = `Yeh WhatsApp number (${rawPhone}) pehle se "${dupName}" ke account pr linked hai.`;
+                    await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                        status: 'ERROR',
+                        onboardingStatus: 'ERROR',
+                        failureReason: errorMsg
+                    });
+                    return res.json({ success: true, status: 'ERROR', onboardingStatus: 'ERROR', error: errorMsg });
+                }
+
                 status = 'ACTIVE';
                 onboardingStatus = 'CONNECTED';
                 qrDataUrl = null;
-                const phone = state.creds.me.id.split(':')[0].replace(/\D/g, '');
+                const phone = rawPhone;
                 const name = state.creds.me.name || integration.accountLabel || 'Bharat Properties';
                 await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
                     status: 'ACTIVE',
@@ -1437,7 +1516,8 @@ export const getBaileysStatus = async (req, res) => {
             success: true, 
             status,
             onboardingStatus,
-            qrDataUrl
+            qrDataUrl,
+            error: integration.failureReason
         });
     } catch (error) {
         console.error('[SocialController] getBaileysStatus error:', error.message);

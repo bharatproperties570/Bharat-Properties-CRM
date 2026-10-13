@@ -75,6 +75,10 @@ const WhatsAppQRConnect = ({ onComplete }) => {
                     setStatus('ERROR');
                     setErrorMsg('Connection revoked or expired.');
                     clearInterval(pollIntervalRef.current);
+                } else if (res.onboardingStatus === 'ERROR' || res.status === 'ERROR') {
+                    setStatus('ERROR');
+                    setErrorMsg(res.error || 'Connection failed: duplicate number or session error.');
+                    clearInterval(pollIntervalRef.current);
                 }
             }
         } catch (error) {

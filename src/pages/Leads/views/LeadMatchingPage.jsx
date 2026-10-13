@@ -10,7 +10,7 @@ import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard } from '../../../utils/matchingLogic'; // Keeping for parsing utilities
-import { useAddActivityMutation, useLead, useUpdateLeadMutation } from '../../../utils/crmHooks';
+import { useAddActivityMutation, useLead, useLeads, useUpdateLeadMutation } from '../../../utils/crmHooks';
 import { renderValue } from '../../../utils/renderUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import QuickFillModal from '../components/QuickFillModal';
@@ -20,18 +20,43 @@ import { systemSettingsAPI } from '../../../utils/api';
 import { useUserContext } from '../../../context/UserContext';
 import { generateDealsPDF } from '../../../utils/pdfUtils';
 
-const LeadMatchingPage = ({ onNavigate}) => {
-    const { id: leadId } = useParams();
+const LeadMatchingPage = ({ onNavigate, leadId: propLeadId }) => {
+    const { id: paramLeadId } = useParams();
+    const [selectedLeadId, setSelectedLeadId] = useState(null);
+
+    // Fetch fallback leads list for selector or when no ID is provided
+    const { data: leadsListData, isLoading: isLeadsListLoading } = useLeads({ limit: 50 });
+    const availableLeads = useMemo(() => {
+        if (!leadsListData) return [];
+        return leadsListData.records || leadsListData.leads || leadsListData.data || [];
+    }, [leadsListData]);
+
+    // Active Lead ID resolution
+    const activeLeadId = useMemo(() => {
+        if (propLeadId) return propLeadId;
+        if (paramLeadId) return paramLeadId;
+        if (selectedLeadId) return selectedLeadId;
+        if (availableLeads.length > 0) return availableLeads[0]._id;
+        return null;
+    }, [propLeadId, paramLeadId, selectedLeadId, availableLeads]);
+
     const { isDark } = useTheme();
     const { mutateAsync: addActivity } = useAddActivityMutation();
     const { getLookupValue, lookups, projects, sizes, propertyConfig, leadMasterFields, getLookupId } = usePropertyConfig();
 
     // --- TANSTACK SERVER STATE ---
-    const { data: leadData, isPending: isLeadLoading } = useLead(leadId);
+    const { data: leadData, isPending: isLeadLoading } = useLead(activeLeadId);
     const updateLeadMutation = useUpdateLeadMutation();
-    const lead = leadData;
+    const [localLead, setLocalLead] = useState(null);
 
-        const [inventoryItems, setInventoryItems] = useState([]);
+    useEffect(() => {
+        if (leadData) setLocalLead(leadData);
+    }, [leadData]);
+
+    const lead = localLead || leadData;
+    const setLead = setLocalLead;
+
+    const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
 
     // Selection State
@@ -146,8 +171,9 @@ const LeadMatchingPage = ({ onNavigate}) => {
     const [refreshCount, setRefreshCount] = useState(0);
 
     useEffect(() => {
-        const savedWeights = localStorage.getItem(`match_weights_${leadId}`);
-        const savedFlex = localStorage.getItem(`match_flex_${leadId}`);
+        if (!activeLeadId) return;
+        const savedWeights = localStorage.getItem(`match_weights_${activeLeadId}`);
+        const savedFlex = localStorage.getItem(`match_flex_${activeLeadId}`);
         if (savedWeights) {
             try { setWeights(JSON.parse(savedWeights)); } catch(e) {}
         }
@@ -158,28 +184,30 @@ const LeadMatchingPage = ({ onNavigate}) => {
                 setSizeFlexibility(size);
             } catch(e) {}
         }
-    }, [leadId]);
+    }, [activeLeadId]);
 
     useEffect(() => {
-        localStorage.setItem(`match_weights_${leadId}`, JSON.stringify(weights));
-    }, [weights, leadId]);
+        if (!activeLeadId) return;
+        localStorage.setItem(`match_weights_${activeLeadId}`, JSON.stringify(weights));
+    }, [weights, activeLeadId]);
 
     useEffect(() => {
-        localStorage.setItem(`match_flex_${leadId}`, JSON.stringify({ budget: budgetFlexibility, size: sizeFlexibility }));
-    }, [budgetFlexibility, sizeFlexibility, leadId]);
+        if (!activeLeadId) return;
+        localStorage.setItem(`match_flex_${activeLeadId}`, JSON.stringify({ budget: budgetFlexibility, size: sizeFlexibility }));
+    }, [budgetFlexibility, sizeFlexibility, activeLeadId]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
             const fetchData = async () => {
+                if (!activeLeadId || !lead) {
+                    setLoading(false);
+                    return;
+                }
                 setLoading(true);
                 try {
-                    // 1. Lead is fetched via TanStack Query (useLead)
-                    // We only proceed to fetch matches if leadData is available
-                    if (!leadData) return;
-
                     const matchRes = await api.get('deals/match', { 
                         params: { 
-                            leadId, 
+                            leadId: activeLeadId, 
                             budgetFlexibility, 
                             sizeFlexibility, 
                             weights: JSON.stringify(weights),
@@ -219,7 +247,7 @@ const LeadMatchingPage = ({ onNavigate}) => {
         }, 600); // 600ms debounce for sliders
 
         return () => clearTimeout(timer);
-    }, [leadId, budgetFlexibility, sizeFlexibility, weights, showOtherCities, refreshCount]);
+    }, [activeLeadId, lead, budgetFlexibility, sizeFlexibility, weights, showOtherCities, refreshCount]);
 
     // Profile Completeness State (Phase 1)
     const [isQuickFillOpen, setIsQuickFillOpen] = useState(false);
@@ -683,11 +711,11 @@ const LeadMatchingPage = ({ onNavigate}) => {
         }
     };
 
-    if (loading) {
+    if (loading && !lead) {
         return (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-                <div className="loading-spinner"></div>
-                <p>Loading matching properties...</p>
+            <div style={{ padding: '60px', textAlign: 'center', minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="loading-spinner" style={{ marginBottom: '16px' }}></div>
+                <p style={{ fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Initializing Requirement Match Engine...</p>
             </div>
         );
     }
@@ -834,9 +862,25 @@ const LeadMatchingPage = ({ onNavigate}) => {
 
     if (!lead) {
         return (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-                <h2>Lead not found</h2>
-                <button onClick={() => onNavigate('leads')} className="btn-primary">Go back to Leads</button>
+            <div style={{ padding: '60px 40px', textAlign: 'center', minHeight: '60vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="fas fa-users-slash" style={{ fontSize: '3rem', color: '#94a3b8', marginBottom: '16px' }}></i>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', marginBottom: '8px' }}>No Active Lead Selected</h2>
+                <p style={{ color: isDark ? 'var(--text-muted)' : '#64748b', marginBottom: '24px', maxWidth: '400px' }}>Please select a lead to evaluate matching deals and inventory requirements.</p>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {availableLeads.length > 0 && (
+                        <select
+                            onChange={(e) => setSelectedLeadId(e.target.value)}
+                            value=""
+                            style={{ padding: '10px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem' }}
+                        >
+                            <option value="" disabled>Select a Lead to Match...</option>
+                            {availableLeads.map(l => (
+                                <option key={l._id} value={l._id}>{l.name || l.firstName || 'Lead'} ({l.mobile || l.phone || 'No phone'})</option>
+                            ))}
+                        </select>
+                    )}
+                    <button onClick={() => onNavigate('leads')} className="btn-primary" style={{ padding: '10px 20px', borderRadius: '10px' }}>Go back to Leads</button>
+                </div>
             </div>
         );
     }
@@ -889,6 +933,32 @@ const LeadMatchingPage = ({ onNavigate}) => {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    {availableLeads.length > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Switch:</span>
+                            <select
+                                value={activeLeadId || ''}
+                                onChange={(e) => setSelectedLeadId(e.target.value)}
+                                style={{
+                                    padding: '6px 12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #cbd5e1',
+                                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#fff',
+                                    color: isDark ? 'var(--text-main)' : '#0f172a',
+                                    fontWeight: 700,
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer',
+                                    outline: 'none'
+                                }}
+                            >
+                                {availableLeads.map(l => (
+                                    <option key={l._id} value={l._id}>
+                                        {l.name || l.firstName || 'Lead'} {l.mobile ? `· ${l.mobile}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     <div style={{ padding: '8px 16px', background: '#ecfdf5', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #b9f6ca' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>

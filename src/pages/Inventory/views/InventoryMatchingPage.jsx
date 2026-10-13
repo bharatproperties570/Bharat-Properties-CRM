@@ -14,8 +14,9 @@ import { renderValue } from '../../../utils/renderUtils';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
-const InventoryMatchingPage = ({ onNavigate}) => {
-    const { id: inventoryId } = useParams();
+const InventoryMatchingPage = ({ onNavigate, inventoryId: propInventoryId }) => {
+    const { id: paramInventoryId } = useParams();
+    const inventoryId = propInventoryId || paramInventoryId;
     const { isDark } = useTheme();
     const { mutateAsync: addActivity } = useAddActivityMutation();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
