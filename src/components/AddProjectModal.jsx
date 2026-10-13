@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
+import { useTheme } from '../context/ThemeContext';
 
 import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
@@ -9,12 +10,8 @@ import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { useAddProjectMutation, useUpdateProjectMutation } from '../utils/crmHooks';
 
-
-
-
-
 // --- Helper: Reusable MultiSelect Dropdown ---
-const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." }) => {
+const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", isDark = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -35,9 +32,21 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
         onChange(newSelected);
     };
 
+    const getOptVal = (o) => {
+        if (!o) return '';
+        if (typeof o === 'object') return o.value ?? o.lookup_value ?? o.name ?? o.label ?? o._id ?? '';
+        return String(o);
+    };
+    const getOptLabel = (o) => {
+        if (!o) return '';
+        if (typeof o === 'object') return o.label ?? o.lookup_value ?? o.name ?? o.value ?? '';
+        return String(o);
+    };
+
     const getLabel = (value) => {
-        const option = (options || []).find(o => o && (o.value || o) === value);
-        return option?.label || option || value;
+        const strVal = getOptVal(value);
+        const option = (options || []).find(o => o && getOptVal(o) === strVal);
+        return option ? getOptLabel(option) : getOptLabel(value);
     };
 
     return (
@@ -45,49 +54,68 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
             <div
                 onClick={() => setIsOpen(!isOpen)}
                 style={{
-                    width: '100%', minHeight: '42px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0',
-                    fontSize: '0.9rem', color: '#1e293b', backgroundColor: '#fff', boxSizing: 'border-box',
+                    width: '100%', minHeight: '40px', padding: '6px 12px', borderRadius: '10px',
+                    border: isDark ? '1.5px solid rgba(255, 255, 255, 0.12)' : '1.5px solid #e2e8f0',
+                    fontSize: '0.86rem', color: isDark ? '#f1f5f9' : '#1e293b',
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#fff', boxSizing: 'border-box',
                     cursor: 'pointer', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px',
-                    backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
-                    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px', paddingRight: '32px'
+                    backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+                    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '10px', paddingRight: '32px'
                 }}
             >
                 {selected.length === 0 ? (
-                    <span style={{ color: '#94a3b8' }}>{placeholder}</span>
+                    <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>{placeholder}</span>
                 ) : (
-                    selected.map(val => (
-                        <span key={val} style={{ background: '#e0f2fe', color: '#0284c7', fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {getLabel(val)}
-                            <i
-                                className="fas fa-times"
-                                style={{ cursor: 'pointer', fontSize: '0.75rem' }}
-                                onClick={(e) => { e.stopPropagation(); toggleOption(val); }}
-                            ></i>
-                        </span>
-                    ))
+                    selected.map((val, idx) => {
+                        const vKey = getOptVal(val) || idx;
+                        return (
+                            <span key={vKey} style={{
+                                background: isDark ? 'rgba(59, 130, 246, 0.2)' : '#e0f2fe',
+                                color: isDark ? '#60a5fa' : '#0284c7',
+                                fontSize: '0.78rem', padding: '2px 8px', borderRadius: '8px',
+                                fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px'
+                            }}>
+                                {getLabel(val)}
+                                <i
+                                    className="fas fa-times"
+                                    style={{ cursor: 'pointer', fontSize: '0.75rem' }}
+                                    onClick={(e) => { e.stopPropagation(); toggleOption(val); }}
+                                ></i>
+                            </span>
+                        );
+                    })
                 )}
             </div>
 
             {isOpen && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', zIndex: 100, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                    {options.map(option => {
-                        const val = option.value || option;
-                        const label = option.label || option;
+                <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                    background: isDark ? '#1e293b' : '#fff',
+                    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #e2e8f0',
+                    borderRadius: '10px', zIndex: 100, maxHeight: '200px', overflowY: 'auto',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+                }}>
+                    {options.map((option, idx) => {
+                        const val = getOptVal(option);
+                        const label = getOptLabel(option);
                         return (
                             <div
-                                key={val}
+                                key={val || idx}
                                 onClick={() => toggleOption(val)}
-                                style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                onMouseOut={(e) => e.currentTarget.style.background = '#fff'}
+                                style={{
+                                    padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px',
+                                    cursor: 'pointer', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid #f1f5f9'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'}
+                                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
                             >
                                 <input
                                     type="checkbox"
-                                    checked={selected.includes(val)}
+                                    checked={selected.map(getOptVal).includes(val)}
                                     readOnly
-                                    style={{ width: '16px', height: '16px', accentColor: '#3b82f6', cursor: 'pointer' }}
+                                    style={{ width: '16px', height: '16px', accentColor: '#4f46e5', cursor: 'pointer' }}
                                 />
-                                <span style={{ fontSize: '0.9rem', color: '#334155' }}>{label}</span>
+                                <span style={{ fontSize: '0.86rem', color: isDark ? '#f1f5f9' : '#334155', fontWeight: 500 }}>{label}</span>
                             </div>
                         );
                     })}
@@ -196,6 +224,7 @@ const DEFAULT_FORM_DATA = {
 };
 
 function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
+    const { isDark } = useTheme();
     const {
         propertyConfig: propertyConfigFromContext,
         projectMasterFields: masterFieldsFromContext,
@@ -722,25 +751,24 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         setFormData(prev => ({ ...prev, amenities: newAmenities }));
     };
 
-    const TABS = ['Basic', 'Location', 'Block', 'Amenities'];
-    const TAB_ICONS = {
-        'Basic': 'fa-info-circle',
-        'Location': 'fa-map-marker-alt',
-        'Block': 'fa-cubes',
-        'Amenities': 'fa-wifi'
-    };
+    const TABS = [
+        { id: 'Basic', label: 'Basic Info', icon: 'fas fa-info-circle', color: '#3b82f6' },
+        { id: 'Location', label: 'Location & Map', icon: 'fas fa-map-marker-alt', color: '#10b981' },
+        { id: 'Block', label: 'Blocks & Towers', icon: 'fas fa-cubes', color: '#8b5cf6' },
+        { id: 'Amenities', label: 'Amenities', icon: 'fas fa-wifi', color: '#f59e0b' }
+    ];
 
     const handleNext = () => {
-        const currentIndex = TABS.indexOf(activeTab);
+        const currentIndex = TABS.findIndex(t => t.id === activeTab);
         if (currentIndex < TABS.length - 1) {
-            setActiveTab(TABS[currentIndex + 1]);
+            setActiveTab(TABS[currentIndex + 1].id);
         }
     };
 
     const handlePrev = () => {
-        const currentIndex = TABS.indexOf(activeTab);
+        const currentIndex = TABS.findIndex(t => t.id === activeTab);
         if (currentIndex > 0) {
-            setActiveTab(TABS[currentIndex - 1]);
+            setActiveTab(TABS[currentIndex - 1].id);
         }
     };
 
@@ -783,31 +811,69 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     if (!isOpen) return null;
 
     const buttonStyle = {
-        cancel: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer' },
-        secondary: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' },
-        primary: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer' },
-        success: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#22c55e', color: '#fff', fontWeight: 600, cursor: 'pointer' }
+        cancel: {
+            padding: '9px 20px', borderRadius: '10px',
+            border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+            background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+            color: isDark ? '#cbd5e1' : '#475569',
+            fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer', transition: 'all 0.15s'
+        },
+        secondary: {
+            padding: '9px 20px', borderRadius: '10px',
+            border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1.5px solid #e2e8f0',
+            background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+            color: isDark ? '#cbd5e1' : '#475569',
+            fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer', transition: 'all 0.15s',
+            display: 'flex', alignItems: 'center', gap: '6px'
+        },
+        primary: {
+            padding: '9px 22px', borderRadius: '10px', border: 'none',
+            background: isDark ? 'rgba(99, 102, 241, 0.2)' : '#eff6ff',
+            color: isDark ? '#818cf8' : '#4f46e5',
+            fontWeight: 800, fontSize: '0.84rem', cursor: 'pointer', transition: 'all 0.15s',
+            display: 'flex', alignItems: 'center', gap: '6px'
+        },
+        success: {
+            padding: '9px 24px', borderRadius: '10px', border: 'none',
+            background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+            color: '#ffffff', fontWeight: 800, fontSize: '0.84rem', cursor: 'pointer',
+            transition: 'all 0.15s', boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)',
+            display: 'flex', alignItems: 'center', gap: '6px'
+        }
     };
 
-    // --- Design System Constants ---
+    // --- Enterprise Broadcast Design System Constants ---
     const labelStyle = {
-        fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '6px', display: 'block'
+        fontSize: '0.71rem', fontWeight: 800,
+        color: isDark ? '#94a3b8' : '#64748b',
+        marginBottom: '6px', display: 'block',
+        textTransform: 'uppercase', letterSpacing: '0.45px'
     };
     const inputStyle = {
-        width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0',
-        fontSize: '0.9rem', outline: 'none', color: '#1e293b', transition: 'all 0.2s',
-        backgroundColor: '#fff', height: '42px', boxSizing: 'border-box'
+        width: '100%', padding: '9px 12px', borderRadius: '10px',
+        border: isDark ? '1.5px solid rgba(255, 255, 255, 0.12)' : '1.5px solid #e2e8f0',
+        fontSize: '0.84rem', fontWeight: 500, outline: 'none',
+        color: isDark ? '#f1f5f9' : '#1e293b', transition: 'all 0.15s ease',
+        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+        height: '40px', boxSizing: 'border-box'
     };
     const customSelectStyle = {
         ...inputStyle,
+        backgroundColor: isDark ? '#1e293b' : '#ffffff',
         appearance: 'none',
-        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
-        backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px', paddingRight: '32px'
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+        backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
+        backgroundSize: '10px', paddingRight: '32px', cursor: 'pointer'
     };
 
     const sectionStyle = {
-        background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)', marginBottom: '24px'
+        background: isDark ? '#1e293b' : '#ffffff',
+        padding: '20px 24px', borderRadius: '16px',
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+        boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.03)',
+        marginBottom: '20px'
     };
 
     const renderBasicTab = () => (
@@ -1390,9 +1456,12 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                                         onChange={e => setBlockFormData({ ...blockFormData, parkingType: e.target.value })}
                                     >
                                         <option value="">Parking</option>
-                                        {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
-                                            <option key={type} value={type}>{type}</option>
-                                        ))}
+                                        {(projectMasterFieldsSafe.parkingTypes || []).map((type, idx) => {
+                                            const tVal = renderValue(type);
+                                            return (
+                                                <option key={tVal || idx} value={tVal}>{tVal}</option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                             </div>
@@ -1467,10 +1536,10 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1 }}>
                                     <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
-                                        <b style={{ fontSize: '0.9rem' }}>{block.name.charAt(0)}</b>
+                                        <b style={{ fontSize: '0.9rem' }}>{(renderValue(block.name) || 'B').charAt(0)}</b>
                                     </div>
                                     <div>
-                                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{block.name}</div>
+                                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{renderValue(block.name)}</div>
                                         <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
                                             <span style={{ marginRight: '12px' }}><i className="fas fa-layer-group" style={{ marginRight: '4px' }}></i> {block.floors} Floors</span>
                                             <span><i className="fas fa-home" style={{ marginRight: '4px' }}></i> {block.units} Units</span>
@@ -1482,7 +1551,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                                         padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
                                         background: '#f1f5f9', color: '#475569'
                                     }}>
-                                        <i className="fas fa-parking" style={{ marginRight: '6px' }}></i> {block.parkingType}
+                                        <i className="fas fa-parking" style={{ marginRight: '6px' }}></i> {renderValue(block.parkingType)}
                                     </span>
                                     {block.expectedCompletionDate && (
                                         <span style={{
@@ -1494,10 +1563,10 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                                     )}
                                     <span style={{
                                         padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
-                                        background: block.status === 'Completed' ? '#dcfce7' : block.status === 'In Progress' ? '#fef9c3' : '#f1f5f9',
-                                        color: block.status === 'Completed' ? '#166534' : block.status === 'In Progress' ? '#854d0e' : '#475569'
+                                        background: renderValue(block.status) === 'Completed' ? '#dcfce7' : renderValue(block.status) === 'In Progress' ? '#fef9c3' : '#f1f5f9',
+                                        color: renderValue(block.status) === 'Completed' ? '#166534' : renderValue(block.status) === 'In Progress' ? '#854d0e' : '#475569'
                                     }}>
-                                        {block.status}
+                                        {renderValue(block.status)}
                                     </span>
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         <button
@@ -1529,46 +1598,130 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
 
     return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-            <div style={{ background: '#fff', width: '95%', maxWidth: '1200px', height: '90vh', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #e2e8f0' }} ref={modalRef} className="animate-slideIn">
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.65)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(8px)', padding: '16px' }} onClick={onClose}>
+            <div style={{
+                background: isDark ? '#0f172a' : '#ffffff',
+                width: '96%', maxWidth: '1160px', height: '90vh', maxHeight: '90vh',
+                borderRadius: '18px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.45)',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0'
+            }} ref={modalRef} className="animate-slideIn" onClick={e => e.stopPropagation()}>
 
-                {/* Header aligned with AddCompanyModal */}
-                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #ffffff, #f8fafc)' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className="fas fa-building" style={{ color: '#2563eb' }}></i>
+                {/* Header aligned with Enterprise Hub design */}
+                <div style={{
+                    padding: '18px 24px',
+                    borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: isDark ? 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)' : 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{
+                            width: '44px', height: '44px', borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)', color: '#fff',
+                            flexShrink: 0
+                        }}>
+                            <i className="fas fa-building" style={{ fontSize: '18px' }}></i>
+                        </div>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>
+                                    {projectToEdit ? 'Update Project' : 'Create New Project'}
+                                </h2>
+                                <span style={{
+                                    fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                                    background: projectToEdit ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7') : (isDark ? 'rgba(99, 102, 241, 0.2)' : '#e0e7ff'),
+                                    color: projectToEdit ? '#f59e0b' : '#6366f1',
+                                    border: projectToEdit ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(99, 102, 241, 0.3)'
+                                }}>
+                                    {projectToEdit ? 'EDIT MODE' : 'NEW RECORD'}
+                                </span>
+                                {formData.name && (
+                                    <span style={{
+                                        fontSize: '0.72rem', fontWeight: 700,
+                                        color: isDark ? '#93c5fd' : '#2563eb',
+                                        background: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff',
+                                        padding: '2px 8px', borderRadius: '6px', border: '1px solid #bfdbfe'
+                                    }}>
+                                        {renderValue(formData.name)}
+                                    </span>
+                                )}
                             </div>
-                            {projectToEdit ? 'Update Project' : 'Add New Project'}
-                        </h2>
-                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500, marginLeft: '42px' }}>
-                            {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-                        </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, marginTop: '3px' }}>
+                                <i className="far fa-clock" style={{ color: '#6366f1', fontSize: '11px' }}></i>
+                                <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                                <span style={{ opacity: 0.4 }}>•</span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#e2e8f0' : '#1e293b' }}>
+                                    {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                </span>
+                                <span style={{ opacity: 0.3 }}>•</span>
+                                <span>Master Project Database</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                                background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc',
+                                color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '14px'
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; }}
+                            onMouseLeave={e => { e.currentTarget.style.color = isDark ? '#94a3b8' : '#64748b'; }}
+                            title="Close"
+                        >
+                            <i className="fas fa-times"></i>
+                        </button>
                     </div>
                 </div>
 
-                {/* Tabs */}
-                <div style={{ padding: '0 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '30px', background: '#fff' }}>
-                    {TABS.map(tab => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            style={{
-                                padding: '16px 0', fontSize: '0.9rem', fontWeight: 600, color: activeTab === tab ? '#2563eb' : '#64748b',
-                                border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#2563eb' : 'transparent'}`, transition: 'all 0.2s',
-                                display: 'flex', alignItems: 'center', gap: '8px'
-                            }}
-                        >
-                            <i className={`fas ${TAB_ICONS[tab]}`}></i> {tab}
-                        </button>
-                    ))}
+                {/* Tab Navigation Bar - Enterprise Pill Design */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 24px',
+                    background: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc',
+                    borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid #e2e8f0',
+                    overflowX: 'auto', flexShrink: 0
+                }} className="no-scrollbar">
+                    {TABS.map(tab => {
+                        const active = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px',
+                                    borderRadius: '10px', border: 'none',
+                                    background: active ? (isDark ? 'rgba(99, 102, 241, 0.2)' : '#ffffff') : 'transparent',
+                                    color: active ? (isDark ? '#818cf8' : '#4f46e5') : (isDark ? '#94a3b8' : '#64748b'),
+                                    boxShadow: active ? (isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)') : 'none',
+                                    fontWeight: active ? 800 : 600, fontSize: '0.82rem', cursor: 'pointer',
+                                    whiteSpace: 'nowrap', transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <i className={tab.icon} style={{ color: active ? tab.color : 'inherit', fontSize: '13px' }}></i>
+                                <span>{tab.label}</span>
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Body */}
-                <div style={{ flex: 1, overflowY: 'auto', background: '#F8F9FB', padding: '24px' }}>
+                <div className="no-scrollbar" style={{
+                    flex: 1, overflowY: 'auto',
+                    background: isDark ? '#0b1329' : '#f8fafc',
+                    padding: '24px', scrollbarWidth: 'none', msOverflowStyle: 'none'
+                }}>
                     {isLoading ? (
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ height: '120px', background: '#e2e8f0', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
+                            <div style={{ height: '120px', background: isDark ? 'rgba(255,255,255,0.05)' : '#e2e8f0', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
                         </div>
                     ) : (
                         <div style={{ width: '100%', margin: '0 auto' }}>
@@ -1577,8 +1730,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             {activeTab === 'Block' && renderBlockTab()}
                             {activeTab === 'Amenities' && renderAmenitiesTab()}
                             {!['Basic', 'Location', 'Block', 'Amenities'].includes(activeTab) && (
-                                <div style={{ textAlign: 'center', padding: '60px 0', color: '#94a3b8' }}>
-                                    <i className="fas fa-tools" style={{ fontSize: '3rem', marginBottom: '16px', color: '#cbd5e1' }}></i>
+                                <div style={{ textAlign: 'center', padding: '60px 0', color: isDark ? '#64748b' : '#94a3b8' }}>
+                                    <i className="fas fa-tools" style={{ fontSize: '3rem', marginBottom: '16px', color: isDark ? '#334155' : '#cbd5e1' }}></i>
                                     <p>Section <b>{activeTab}</b> is under development.</p>
                                 </div>
                             )}
@@ -1587,26 +1740,48 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 </div>
 
                 {/* Footer fixed at bottom */}
-                <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
-
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        {activeTab !== 'Basic' && (
-                            <button onClick={handlePrev} style={buttonStyle.secondary}>Back</button>
+                <div style={{
+                    padding: '14px 24px',
+                    borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    background: isDark ? '#0f172a' : '#ffffff',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {formData.name && (
+                            <span style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                <i className="fas fa-check-circle" style={{ color: '#10b981', marginRight: '6px' }}></i>
+                                {formData.name} {formData.category?.length ? `• ${Array.isArray(formData.category) ? formData.category.join(', ') : formData.category}` : ''}
+                            </span>
                         )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button type="button" onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
+
+                        {activeTab !== 'Basic' && (
+                            <button type="button" onClick={handlePrev} style={buttonStyle.secondary}>
+                                <i className="fas fa-arrow-left" style={{ marginRight: '6px' }}></i>
+                                Previous
+                            </button>
+                        )}
+
                         {activeTab !== 'Amenities' ? (
-                            <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
+                            <button type="button" onClick={handleNext} style={buttonStyle.primary}>
+                                Next
+                                <i className="fas fa-arrow-right" style={{ marginLeft: '6px' }}></i>
+                            </button>
                         ) : (
                             <button
+                                type="button"
                                 onClick={handleSave}
                                 disabled={isBlocked}
                                 style={{
                                     ...buttonStyle.success,
                                     opacity: isBlocked ? 0.7 : 1,
-                                    cursor: isBlocked ? 'not-allowed' : 'pointer',
-                                    background: isBlocked ? '#94a3b8' : '#22c55e'
+                                    cursor: isBlocked ? 'not-allowed' : 'pointer'
                                 }}
                             >
+                                <i className="fas fa-check" style={{ marginRight: '6px' }}></i>
                                 {projectToEdit ? 'Update Project' : 'Create Project'}
                             </button>
                         )}
@@ -1614,6 +1789,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 </div>
 
                 <style>{`
+                .no-scrollbar::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+                .no-scrollbar { -ms-overflow-style: none !important; scrollbar-width: none !important; }
                 .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
                 .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
                 .grid-4-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }

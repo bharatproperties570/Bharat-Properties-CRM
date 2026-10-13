@@ -185,6 +185,7 @@ export const socialAPI = {
     
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),
+    getBaileysGroups: (id) => api.get(`/social/whatsapp/baileys/groups/${id}`).then(res => res.data),
 };
 
 export const automationAPI = {
@@ -249,8 +250,67 @@ const onRefreshed = (token) => {
     refreshSubscribers = [];
 };
 
+// 🛡️ Enterprise Safeguard: Prevent {_id, lookup_type, lookup_value} objects from crashing React JSX
+// React checks obj[Symbol.iterator] before throwing "Objects are not valid as a React child".
+// By defining a non-enumerable Symbol.iterator and toString on Lookup objects, React seamlessly renders
+// lookup_value as text if a raw Lookup object is ever passed as a JSX child, without altering Object.keys() or JSON.stringify().
+export const attachSafeLookupIterator = (data, visited = new WeakSet()) => {
+    if (!data || typeof data !== 'object') return data;
+    if (visited.has(data)) return data;
+    visited.add(data);
+
+    if (Array.isArray(data)) {
+        for (let i = 0; i < data.length; i++) {
+            attachSafeLookupIterator(data[i], visited);
+        }
+        return data;
+    }
+
+    if ('lookup_value' in data || 'lookup_type' in data) {
+        if (!Object.prototype.hasOwnProperty.call(data, Symbol.iterator)) {
+            Object.defineProperty(data, Symbol.iterator, {
+                enumerable: false,
+                configurable: true,
+                value: function* () {
+                    const raw = this.lookup_value ?? this.name ?? this.label ?? this.value ?? '';
+                    const text = (raw && typeof raw === 'object')
+                        ? String(raw.lookup_value ?? raw.name ?? raw._id ?? '')
+                        : String(raw ?? '');
+                    yield text;
+                }
+            });
+        }
+        if (!Object.prototype.hasOwnProperty.call(data, 'toString')) {
+            Object.defineProperty(data, 'toString', {
+                enumerable: false,
+                configurable: true,
+                value: function () {
+                    const raw = this.lookup_value ?? this.name ?? this.label ?? this.value ?? this._id ?? '';
+                    return (raw && typeof raw === 'object')
+                        ? String(raw.lookup_value ?? raw.name ?? raw._id ?? '')
+                        : String(raw ?? '');
+                }
+            });
+        }
+    }
+
+    const keys = Object.keys(data);
+    for (let i = 0; i < keys.length; i++) {
+        const val = data[keys[i]];
+        if (val && typeof val === 'object') {
+            attachSafeLookupIterator(val, visited);
+        }
+    }
+    return data;
+};
+
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        if (response && response.data) {
+            attachSafeLookupIterator(response.data);
+        }
+        return response;
+    },
     async (error) => {
         const { config, response } = error;
         const originalRequest = config;

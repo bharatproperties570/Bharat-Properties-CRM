@@ -16,6 +16,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
     const [step, setStep] = useState(1);
     const [templateData, setTemplateData] = useState({
         name: '',
+        channel: initialData?.channel || (channelType === 'whatsapp' ? 'web' : 'sms'),
         category: 'MARKETING',
         subCategory: 'DEFAULT',
         language: 'en_US',
@@ -38,6 +39,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             if (initialData) {
                 setTemplateData({
                     ...initialData,
+                    channel: initialData.channel || (channelType === 'whatsapp' ? 'web' : 'sms'),
                     buttons: initialData.buttons || [],
                     tags: initialData.tags || [],
                     headerType: initialData.headerType || 'NONE',
@@ -47,6 +49,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             } else {
                 setTemplateData({
                     name: '',
+                    channel: channelType === 'whatsapp' ? 'web' : 'sms',
                     category: channelType === 'sms' ? 'Transactional' : 'MARKETING',
                     subCategory: 'DEFAULT',
                     language: 'en_US',
@@ -96,7 +99,64 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
     const renderWhatsAppStep1 = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.3s ease-out' }}>
             <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Set up your template</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Choose the category that best describes your message template.</p>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Choose the WhatsApp channel and category for this template.</p>
+            
+            {/* 🎯 Target WhatsApp Channel Selector */}
+            <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+                    Target WhatsApp Channel <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                    <div 
+                        onClick={() => setTemplateData({ ...templateData, channel: 'web' })}
+                        style={{
+                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
+                            border: `2px solid ${templateData.channel === 'web' ? '#10b981' : 'var(--border-color)'}`,
+                            background: templateData.channel === 'web' ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-card)',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <i className="fab fa-whatsapp" style={{ color: '#10b981', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'web' ? '#047857' : 'var(--text-main)' }}>WhatsApp Web</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>⚡ Instant Active • Zero Meta Approval</div>
+                    </div>
+
+                    <div 
+                        onClick={() => setTemplateData({ ...templateData, channel: 'cloud_api' })}
+                        style={{
+                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
+                            border: `2px solid ${templateData.channel === 'cloud_api' ? '#3b82f6' : 'var(--border-color)'}`,
+                            background: templateData.channel === 'cloud_api' ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-card)',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <i className="fas fa-cloud" style={{ color: '#3b82f6', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'cloud_api' ? '#1d4ed8' : 'var(--text-main)' }}>Meta Cloud API</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>🔵 Official • Meta Review Required</div>
+                    </div>
+
+                    <div 
+                        onClick={() => setTemplateData({ ...templateData, channel: 'both' })}
+                        style={{
+                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
+                            border: `2px solid ${templateData.channel === 'both' ? '#8b5cf6' : 'var(--border-color)'}`,
+                            background: templateData.channel === 'both' ? 'rgba(139, 92, 246, 0.08)' : 'var(--bg-card)',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <i className="fas fa-globe" style={{ color: '#8b5cf6', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'both' ? '#6d28d9' : 'var(--text-main)' }}>All Channels</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>🌐 Universal • Web + Meta API</div>
+                    </div>
+                </div>
+            </div>
+
+            {templateData.channel === 'web' && (
+                <div style={{ padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', fontSize: '0.82rem', color: '#065f46', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-bolt" style={{ color: '#10b981' }}></i>
+                    <span><strong>WhatsApp Web Mode:</strong> This template will be immediately available in your WhatsApp Web chat and deals sender without any Meta verification delay.</span>
+                </div>
+            )}
             
             <div style={{ display: 'flex', gap: '0', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                 {['MARKETING', 'UTILITY', 'AUTHENTICATION'].map(cat => (
@@ -777,6 +837,7 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
     if (!isOpen || !template) return null;
 
     const options = [
+        { value: 'marketing_broadcast', label: 'Marketing Broadcast (Deal BNA / WhatsApp Web & Meta)' },
         { value: 'add_lead_modal', label: 'Add Lead (Auto-Send Modal)' },
         { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
         { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
@@ -865,6 +926,7 @@ const MessagingSettingsPage = () => {
 
     const [isSyncingMeta, setIsSyncingMeta] = useState(false); // Enterprise Sync State
     const [activeDropdown, setActiveDropdown] = useState(null);
+    const [waChannelFilter, setWaChannelFilter] = useState('ALL'); // 'ALL' | 'WEB' | 'CLOUD_API'
 
     // Initialize from hardcoded defaults; DB overrides on mount
     const [allTemplates, setAllTemplates] = useState({
@@ -980,14 +1042,17 @@ const MessagingSettingsPage = () => {
                 loadSmsTemplates();
             } else {
                 // Keep body + content in sync for compatibility locally
+                const targetChannel = data.channel || 'web';
                 const savedData = {
                     ...data,
+                    channel: targetChannel,
                     body:    data.body    || data.content || '',
                     content: data.content || data.body    || '',
+                    status: targetChannel === 'web' ? 'APPROVED' : (data.status || 'PENDING')
                 };
 
-                // ENTERPRISE UPGRADE: Sync Up to Meta Cloud API (WhatsApp only)
-                if (templateType === 'whatsapp') {
+                // ENTERPRISE UPGRADE: Sync Up to Meta Cloud API ONLY IF applicable
+                if (templateType === 'whatsapp' && (targetChannel === 'cloud_api' || targetChannel === 'both')) {
                     try {
                         const toastId = toast.loading('Submitting template to Meta for review...');
                         await submitWhatsAppTemplate(savedData);
@@ -997,6 +1062,8 @@ const MessagingSettingsPage = () => {
                         const errorMessage = err.response?.data?.error || err.message || 'Meta API integration incomplete. Saved locally only.';
                         toast.error(errorMessage);
                     }
+                } else if (templateType === 'whatsapp' && targetChannel === 'web') {
+                    toast.success('WhatsApp Web template saved and activated instantly!');
                 }
 
 
@@ -1192,17 +1259,53 @@ const MessagingSettingsPage = () => {
     );
 
     const renderTemplates = () => {
-        const templatesToDisplay = allTemplates[templateType] || [];
+        let templatesToDisplay = allTemplates[templateType] || [];
+        if (templateType === 'whatsapp' && waChannelFilter !== 'ALL') {
+            if (waChannelFilter === 'WEB') {
+                templatesToDisplay = templatesToDisplay.filter(t => t.channel === 'web' || t.channel === 'both' || !t.channel);
+            } else if (waChannelFilter === 'CLOUD_API') {
+                templatesToDisplay = templatesToDisplay.filter(t => t.channel === 'cloud_api' || t.channel === 'both');
+            }
+        }
 
         return (
             <div>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
                     <div style={{ display: 'flex', background: 'var(--bg-light)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                         <button onClick={() => setTemplateType('sms')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'sms' ? 'var(--bg-card)' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'sms' ? 'var(--primary-color)' : 'var(--text-muted)', boxShadow: templateType === 'sms' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>SMS</button>
                         <button onClick={() => setTemplateType('whatsapp')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'whatsapp' ? 'var(--bg-card)' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'whatsapp' ? 'var(--primary-color)' : 'var(--text-muted)', boxShadow: templateType === 'whatsapp' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>Whatsapp</button>
                         <button onClick={() => setTemplateType('rcs')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'rcs' ? 'var(--bg-card)' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'rcs' ? '#4285F4' : 'var(--text-muted)', boxShadow: templateType === 'rcs' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>RCS</button>
                     </div>
                 </div>
+
+                {/* WhatsApp Channel Sub-Filter Tabs */}
+                {templateType === 'whatsapp' && (
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
+                        {[
+                            { id: 'ALL', label: 'All Templates', count: (allTemplates.whatsapp || []).length },
+                            { id: 'WEB', label: '⚡ WhatsApp Web', count: (allTemplates.whatsapp || []).filter(t => t.channel === 'web' || t.channel === 'both' || !t.channel).length },
+                            { id: 'CLOUD_API', label: '🔵 Meta Cloud API', count: (allTemplates.whatsapp || []).filter(t => t.channel === 'cloud_api' || t.channel === 'both').length }
+                        ].map(filter => (
+                            <button
+                                key={filter.id}
+                                onClick={() => setWaChannelFilter(filter.id)}
+                                style={{
+                                    padding: '6px 16px',
+                                    borderRadius: '20px',
+                                    border: `1.5px solid ${waChannelFilter === filter.id ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                    background: waChannelFilter === filter.id ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-card)',
+                                    color: waChannelFilter === filter.id ? 'var(--primary-color)' : 'var(--text-muted)',
+                                    fontWeight: 700,
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                {filter.label} ({filter.count})
+                            </button>
+                        ))}
+                    </div>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <div style={{ display: 'flex', gap: '12px' }}>
@@ -1237,6 +1340,7 @@ const MessagingSettingsPage = () => {
                     <thead>
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
                             <th style={{ padding: '12px' }}>Template name</th>
+                            <th style={{ padding: '12px' }}>Channel</th>
                             <th style={{ padding: '12px' }}>Status</th>
                             <th style={{ padding: '12px' }}>Dated</th>
                             <th style={{ padding: '12px' }}>Tags</th>
@@ -1248,7 +1352,45 @@ const MessagingSettingsPage = () => {
                     <tbody>
                         {templatesToDisplay.length > 0 ? templatesToDisplay.map((row, i) => (
                             <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>{row.name}</td>
+                                <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>
+                                    <div>{row.name}</div>
+                                    {Array.isArray(row.systemContext) && row.systemContext.length > 0 && (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                            {row.systemContext.map(ctx => (
+                                                <span key={ctx} style={{
+                                                    fontSize: '0.65rem',
+                                                    fontWeight: 700,
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    background: ctx === 'marketing_broadcast' ? '#dcfce7' : '#ede9fe',
+                                                    color: ctx === 'marketing_broadcast' ? '#15803d' : '#6d28d9',
+                                                    border: ctx === 'marketing_broadcast' ? '1px solid #bbf7d0' : '1px solid #ddd6fe'
+                                                }}>
+                                                    {ctx === 'marketing_broadcast' ? '📢 Marketing Broadcast' : ctx.replace(/_/g, ' ')}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </td>
+                                <td style={{ padding: '16px 12px' }}>
+                                    {templateType === 'whatsapp' ? (
+                                        row.channel === 'web' ? (
+                                            <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="fab fa-whatsapp" style={{ color: '#10b981' }}></i> WhatsApp Web
+                                            </span>
+                                        ) : row.channel === 'cloud_api' ? (
+                                            <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="fas fa-cloud" style={{ color: '#3b82f6' }}></i> Meta Cloud API
+                                            </span>
+                                        ) : (
+                                            <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="fas fa-globe" style={{ color: '#8b5cf6' }}></i> All Channels
+                                            </span>
+                                        )
+                                    ) : (
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{templateType.toUpperCase()}</span>
+                                    )}
+                                </td>
                                 <td style={{ padding: '16px 12px' }}>
                                     <span style={{ 
                                         color: row.status === 'APPROVED' ? '#22c55e' : (row.status === 'REJECTED' ? '#ef4444' : (row.status === 'PENDING' ? '#eab308' : '#3b82f6')), 
@@ -1258,7 +1400,7 @@ const MessagingSettingsPage = () => {
                                         borderRadius: '4px',
                                         fontSize: '0.75rem'
                                     }}>
-                                        {row.status ? row.status : 'Local'}
+                                        {row.status ? row.status : (row.channel === 'web' ? 'APPROVED' : 'Local')}
                                     </span>
                                 </td>
                                 <td style={{ padding: '16px 12px' }}>05/02/2026</td>

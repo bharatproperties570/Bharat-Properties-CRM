@@ -1,7 +1,7 @@
 import IntegrationGuard from "../src/utils/IntegrationGuard.js";
 
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
-import { resolveMessageTemplate } from '../utils/templateResolver.js';
+import { resolveMessageTemplate, interpolateTemplateText } from '../utils/templateResolver.js';
 import socialCommentService from '../services/SocialCommentService.js';
 import facebookService from '../services/FacebookService.js';
 import whatsAppService from '../services/WhatsAppService.js';
@@ -15,6 +15,7 @@ import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import Activity from '../models/Activity.js';
 import Contact from '../models/Contact.js';
 import { marketingQueue } from '../src/queues/marketingQueue.js';
+import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
 
 /**
  * POST /api/social/config/enterprise
@@ -128,9 +129,70 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
         console.log(`[SocialController] Dispatching WhatsApp to: ${mobile} (Template: ${templateId || 'None'}, Account: ${targetAccount || 'Default'})`);
 
+        // 🚀 ENTERPRISE BAILEYS / WHATSAPP WEB ROUTING:
+        // If targetAccount is a Baileys WhatsApp Web integration, send directly via WhatsApp Web rules (bypassing Meta):
+        let isBaileys = false;
+        let baileysDoc = null;
+        if (targetAccount) {
+            baileysDoc = await WhatsAppIntegration.findOne({
+                $or: [
+                    { _id: mongoose.Types.ObjectId.isValid(targetAccount) ? targetAccount : null },
+                    { phoneNumberId: targetAccount }
+                ],
+                provider: 'BAILEYS',
+                status: 'ACTIVE'
+            }).lean();
+            if (baileysDoc) isBaileys = true;
+        }
+
         // 1. Dispatch via Service
         let result;
-        if (templateId) {
+        let actualRenderedText = '';
+        if (isBaileys) {
+            console.log(`[SocialController] Routing WhatsApp directly via WhatsApp Web to: ${mobile}`);
+            let outgoingText = message;
+            if (!outgoingText && templateId) {
+                try {
+                    const crmSettings = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                    const localTemplates = crmSettings?.value || [];
+                    const foundTpl = localTemplates.find(t => t.name === templateId || String(t.id) === String(templateId) || t._id === templateId);
+                    if (foundTpl) {
+                        outgoingText = foundTpl.body || foundTpl.content || '';
+                    }
+                } catch (tplErr) {
+                    console.warn('[SocialController] Could not resolve WhatsApp Web template:', tplErr.message);
+                }
+            }
+            if (!outgoingText && Array.isArray(templateComponents) && templateComponents.length > 0) {
+                outgoingText = templateComponents.map(c => typeof c === 'string' ? c : c?.text || '').filter(Boolean).join('\n');
+            }
+
+            // 🌟 Enterprise Interpolation for WhatsApp Web: Replace {{...}} before sending!
+            if (outgoingText && outgoingText.includes('{{')) {
+                try {
+                    const cleanPhone10 = String(mobile).replace(/\D/g, '').slice(-10);
+                    const leadDoc = await Lead.findOne({ mobile: { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean();
+                    const contactDoc = !leadDoc ? await Contact.findOne({ 'phones.number': { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean() : null;
+                    outgoingText = interpolateTemplateText(outgoingText, {
+                        recipient: leadDoc || contactDoc || { mobile },
+                        agent: {
+                            fullName: req.user?.fullName || req.user?.name || 'Bharat Properties Consultant',
+                            mobile: req.user?.phone || req.user?.mobile || '+91 94160 35570',
+                            email: req.user?.email || 'info@bharatproperties.co'
+                        }
+                    });
+                } catch (tplErr) {
+                    console.warn('[SocialController] Baileys variable interpolation error:', tplErr.message);
+                }
+            }
+
+            actualRenderedText = outgoingText || message || caption || '';
+            if (type !== 'text' && mediaUrl) {
+                result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, outgoingText || caption, filename, { integrationId: baileysDoc._id.toString() });
+            } else {
+                result = await WhatsAppService.sendMessage(mobile, outgoingText || 'Hello', { integrationId: baileysDoc._id.toString() });
+            }
+        } else if (templateId) {
             const templates = await WhatsAppService.getTemplates(targetAccount);
             const templateDef = templates.find(t => t.name === templateId);
             
@@ -167,6 +229,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
                 templateDef.components.forEach(compDef => {
                     if (compDef.type === 'BODY') {
+                        let renderedBodyCopy = compDef.text || '';
                         const bodyMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
                         const uniqueVars = Array.from(new Set(bodyMatches.map(m => m.replace(/[{}]/g, '').trim())));
                         console.log(`[WhatsApp/Debug] Body vars needed:`, uniqueVars);
@@ -195,6 +258,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                     finalVal = '-';
                                 }
 
+                                renderedBodyCopy = renderedBodyCopy.replace(new RegExp(`\\{\\{${varName}\\}\\}`, 'gi'), finalVal);
                                 console.log(`[WhatsApp/Debug] Var "${varName}" → "${finalVal.substring(0, 50)}"`);
                                 const param = { type: 'text', text: finalVal };
                                 // Send Meta's exact variable name (as it appears in template) as parameter_name
@@ -203,6 +267,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                             });
                             components.push({ type: 'body', parameters });
                         }
+                        actualRenderedText = renderedBodyCopy;
                     } else if (compDef.type === 'BUTTONS') {
                         compDef.buttons?.forEach((btn, btnIdx) => {
                             if (btn.type === 'URL' && btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
@@ -378,36 +443,85 @@ export const sendWhatsAppMessage = async (req, res, next) => {
         }
 
         if (result && result.success) {
-            // 2. Normalize mobile for Lead lookup
-            const cleanPhone = String(mobile).replace(/\D/g, '').slice(-10);
-            const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
+            try {
+                // 2. Normalize mobile for Lead lookup
+                const cleanPhone = String(mobile).replace(/\D/g, '').slice(-10);
+                const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
 
-            // 3. Log as Activity for Timeline visibility
-            await Activity.create({
-                type: 'WhatsApp',
-                subject: `Sent WhatsApp to ${mobile}`,
-                entityType: lead ? 'Lead' : 'System',
-                entityId: lead ? lead._id : null,
-                description: message || `Sent ${type} media / template: ${templateId}`,
-                status: 'Completed',
-                performedBy: req.user?.fullName || 'System',
-                details: {
-                    platform: 'whatsapp',
-                    direction: 'outgoing',
-                    recipient: mobile,
-                    message: message,
-                    mediaUrl: mediaUrl,
-                    type: type,
-                    templateId: templateId,
-                    messageId: result.messageId,
-                    integrationId: targetAccount || null
-                },
-                dueDate: new Date()
-            });
+                // 3. Resolve exact content sent
+                const finalContent = actualRenderedText || message || (templateId ? `Template: ${templateId}` : `Sent ${type} media`);
+                const templateButtons = templateDef?.components?.find(c => c.type === 'BUTTONS' || c.type === 'buttons')?.buttons || null;
 
-            if (lead) {
-                lead.lastActivityAt = new Date();
-                await lead.save();
+                // Log as Activity for Timeline visibility
+                await Activity.create({
+                    type: 'WhatsApp',
+                    subject: `Sent WhatsApp to ${mobile}`,
+                    entityType: lead ? 'Lead' : 'System',
+                    entityId: lead ? lead._id : null,
+                    description: finalContent,
+                    status: 'Completed',
+                    performedBy: req.user?.fullName || 'System',
+                    details: {
+                        platform: isBaileys ? 'WhatsApp Web' : 'whatsapp',
+                        direction: 'outgoing',
+                        recipient: mobile,
+                        message: finalContent,
+                        renderedBody: finalContent,
+                        mediaUrl: mediaUrl,
+                        type: type,
+                        templateId: templateId,
+                        buttons: templateButtons,
+                        messageId: result.messageId,
+                        integrationId: targetAccount || null
+                    },
+                    dueDate: new Date()
+                });
+
+                // 4. Update Conversation History with actual message
+                try {
+                    const Conversation = mongoose.models.Conversation || (await import('../models/Conversation.js')).default;
+                    await Conversation.findOneAndUpdate(
+                        { phoneNumber: cleanPhone },
+                        {
+                            $push: {
+                                messages: {
+                                    role: 'assistant',
+                                    content: finalContent,
+                                    timestamp: new Date(),
+                                    metadata: {
+                                        messageId: result.messageId,
+                                        type: type,
+                                        templateId: templateId,
+                                        buttons: templateButtons,
+                                        mediaUrl: mediaUrl,
+                                        platform: isBaileys ? 'WhatsApp Web' : 'WhatsApp API',
+                                        status: 'Sent'
+                                    }
+                                }
+                            },
+                            $set: {
+                                updatedAt: new Date(),
+                                status: 'active',
+                                channel: 'whatsapp',
+                                'metadata.unreadCount': 0,
+                                ...(isBaileys && baileysDoc ? { whatsappIntegrationId: baileysDoc._id } : {})
+                            },
+                            $setOnInsert: {
+                                phoneNumber: cleanPhone,
+                                title: lead?.fullName || cleanPhone
+                            }
+                        },
+                        { upsert: true }
+                    );
+                } catch (convErr) {
+                    console.warn('[SocialController] Could not update Conversation history:', convErr.message);
+                }
+
+                if (lead) {
+                    await Lead.findByIdAndUpdate(lead._id, { $set: { lastActivityAt: new Date() } });
+                }
+            } catch (auditErr) {
+                console.error('[SocialController] Error recording post-send activity/lead update:', auditErr.message);
             }
         } else {
             console.error('[SocialController] WhatsApp Service returned failure:', result);
@@ -564,11 +678,10 @@ export const verifyWebhook = async (req, res) => {
  */
 export const receiveWebhook = async (req, res) => {
     try {
-        // WhatsApp Cloud API is handled exclusively by /api/webhooks/whatsapp-live-bot
-        // (or its temporary /api/social/webhook/v2 compatibility alias). Keeping it
-        // out of this Facebook/Instagram handler prevents duplicate CRM side effects.
+        // Enterprise Safe Handshake: Forward WhatsApp Cloud API payloads to live bot processor
         if (req.body?.object === 'whatsapp_business_account') {
-            return res.status(410).json({ error: 'WhatsApp webhook moved to /api/webhooks/whatsapp-live-bot' });
+            const { whatsAppLiveBotWebhook } = await import('./webhook.controller.js');
+            return whatsAppLiveBotWebhook(req, res);
         }
 
         // Respond immediately with 200 to acknowledge receipt (required by Meta)
@@ -1120,7 +1233,6 @@ export const previewMessage = async (req, res) => {
  */
 export const getWhatsAppAccounts = async (req, res) => {
     try {
-        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
         const SystemSetting = mongoose.model('SystemSetting');
         const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
 
@@ -1145,8 +1257,10 @@ export const getWhatsAppAccounts = async (req, res) => {
                 phoneNumberId: i.phoneNumberId,
                 wabaId: i.wabaId,
                 displayPhoneNumber: i.displayPhoneNumber || 'WhatsApp Business',
-                accountLabel: i.accountLabel || (i.connectionType === 'COEXISTENCE' ? `WhatsApp Business App (${i.displayPhoneNumber || ''})` : `WhatsApp Cloud API (${i.displayPhoneNumber || ''})`),
+                accountLabel: i.accountLabel || (i.provider === 'BAILEYS' ? `WhatsApp Web (${i.displayPhoneNumber || ''})` : i.connectionType === 'COEXISTENCE' ? `WhatsApp Business App (${i.displayPhoneNumber || ''})` : `WhatsApp Cloud API (${i.displayPhoneNumber || ''})`),
                 connectionType: i.connectionType,
+                provider: i.provider || (i.connectionType === 'QR_SCANNER' ? 'BAILEYS' : 'META_CLOUD'),
+                onboardingStatus: i.onboardingStatus,
                 isDefault: !!i.isDefault,
                 status: i.status
             });
@@ -1193,26 +1307,34 @@ export const getWhatsAppAccounts = async (req, res) => {
 export const startBaileysConnection = async (req, res) => {
     try {
         const { displayPhoneNumber, accountLabel } = req.body;
-        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
         
-        // Find if one already exists for this phone number, or create new
+        // Find if one already exists for THIS user, or create new user-bound integration
         let integration = await WhatsAppIntegration.findOne({ 
             provider: 'BAILEYS', 
-            phoneNumberId: displayPhoneNumber || 'temp_baileys'
+            connectedBy: req.user._id
         });
 
         if (!integration) {
+            const userName = req.user.fullName || req.user.name || 'Personal';
             integration = await WhatsAppIntegration.create({
                 provider: 'BAILEYS',
-                phoneNumberId: displayPhoneNumber || `baileys_${Date.now()}`,
-                displayPhoneNumber,
-                accountLabel: accountLabel || 'QR WhatsApp Web',
+                phoneNumberId: displayPhoneNumber || `baileys_${req.user._id}_${Date.now()}`,
+                displayPhoneNumber: displayPhoneNumber || '',
+                accountLabel: accountLabel || `${userName} WhatsApp Web`,
                 connectionType: 'QR_SCANNER',
                 onboardingStatus: 'INITIATED',
                 status: 'PENDING_ONBOARDING',
-                connectedBy: req.user._id
+                connectedBy: req.user._id,
+                allowedUsers: [req.user._id]
             });
         } else {
+            // Ensure allowedUsers contains this user for strict per-user isolation
+            if (!integration.allowedUsers || !integration.allowedUsers.includes(req.user._id)) {
+                integration.allowedUsers = [req.user._id];
+            }
+            if (displayPhoneNumber) integration.displayPhoneNumber = displayPhoneNumber;
+            if (accountLabel) integration.accountLabel = accountLabel;
+
             // Clear old auth data to force new QR generation
             const { default: BaileysAuthModel } = await import('../models/BaileysAuth.js');
             await BaileysAuthModel.deleteMany({ sessionId: integration._id.toString() });
@@ -1222,14 +1344,20 @@ export const startBaileysConnection = async (req, res) => {
             integration.failureReason = null;
             await integration.save();
             
-            // Logout and kill old socket
-            const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
-            await BaileysConnectionManager.logout(integration._id.toString());
+            // Logout and kill old socket safely
+            try {
+                const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+                await BaileysConnectionManager.logout(integration._id.toString());
+            } catch (lgErr) {
+                console.warn('[SocialController] Safe logout warning:', lgErr.message);
+            }
         }
 
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
         // This will asynchronously generate the QR and store it in failureReason
-        BaileysConnectionManager.connect(integration._id.toString());
+        BaileysConnectionManager.connect(integration._id.toString()).catch(cErr => {
+            console.error('[SocialController] Connection initialization error:', cErr.message);
+        });
 
         res.json({ success: true, integrationId: integration._id });
     } catch (error) {
@@ -1240,25 +1368,192 @@ export const startBaileysConnection = async (req, res) => {
 
 /**
  * GET /api/social/whatsapp/baileys/status/:id
- * Get the Baileys connection status and QR code
+ * Get the Baileys connection status and QR code with self-healing verification
  */
 export const getBaileysStatus = async (req, res) => {
     try {
-        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || mongoose.model('WhatsAppIntegration');
+        const { default: WhatsAppIntegration } = await import('../models/WhatsAppIntegration.js');
         const integration = await WhatsAppIntegration.findById(req.params.id);
         
         if (!integration) {
             return res.status(404).json({ success: false, error: 'Integration not found' });
         }
 
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+        if (!WhatsAppAccountAuthorizationService.canUserAccessAccount(req.user, integration)) {
+            return res.status(403).json({ success: false, error: 'Unauthorized to access this WhatsApp integration' });
+        }
+
+        let status = integration.status;
+        let onboardingStatus = integration.onboardingStatus;
+        let qrDataUrl = onboardingStatus === 'QR_PENDING' ? integration.failureReason : null;
+
+        // 🚀 ENTERPRISE STATE VERIFICATION:
+        // Check if active socket exists in memory
+        const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+        const sock = BaileysConnectionManager.getSocket(req.params.id);
+
+        if (sock && sock.user && sock.user.id) {
+            status = 'ACTIVE';
+            onboardingStatus = 'CONNECTED';
+            qrDataUrl = null;
+
+            if (integration.status !== 'ACTIVE' || integration.onboardingStatus !== 'CONNECTED') {
+                const phone = sock.user.id.split(':')[0].replace(/\D/g, '');
+                const name = sock.user.name || integration.accountLabel || 'Bharat Properties';
+                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                    status: 'ACTIVE',
+                    onboardingStatus: 'CONNECTED',
+                    displayPhoneNumber: phone,
+                    phoneNumberId: phone,
+                    accountLabel: name,
+                    failureReason: null
+                });
+            }
+        } else if (onboardingStatus !== 'CONNECTED' || status !== 'ACTIVE') {
+            // Check if MongoDB already has creds saved (i.e. scanned earlier)
+            const { useMongoDBAuthState } = await import('../services/baileysQueue/useMongoDBAuthState.js');
+            const { state } = await useMongoDBAuthState(req.params.id);
+            if (state && state.creds && state.creds.me && state.creds.me.id) {
+                status = 'ACTIVE';
+                onboardingStatus = 'CONNECTED';
+                qrDataUrl = null;
+                const phone = state.creds.me.id.split(':')[0].replace(/\D/g, '');
+                const name = state.creds.me.name || integration.accountLabel || 'Bharat Properties';
+                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
+                    status: 'ACTIVE',
+                    onboardingStatus: 'CONNECTED',
+                    displayPhoneNumber: phone,
+                    phoneNumberId: phone,
+                    accountLabel: name,
+                    failureReason: null
+                });
+                // Ensure socket is connected in memory
+                BaileysConnectionManager.connect(req.params.id).catch(() => {});
+            }
+        }
+
         res.json({ 
             success: true, 
-            status: integration.status,
-            onboardingStatus: integration.onboardingStatus,
-            qrDataUrl: integration.onboardingStatus === 'QR_PENDING' ? integration.failureReason : null 
+            status,
+            onboardingStatus,
+            qrDataUrl
         });
     } catch (error) {
         console.error('[SocialController] getBaileysStatus error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * GET /api/social/whatsapp/baileys/groups/:id
+ * Get all participating groups from the Baileys socket
+ */
+export const getBaileysGroups = async (req, res) => {
+    try {
+        const { default: WhatsAppIntegration } = await import('../models/WhatsAppIntegration.js');
+        const integration = await WhatsAppIntegration.findById(req.params.id);
+        if (!integration) {
+            return res.status(404).json({ success: false, error: 'Integration not found' });
+        }
+
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+        if (!WhatsAppAccountAuthorizationService.canUserAccessAccount(req.user, integration)) {
+            return res.status(403).json({ success: false, error: 'Unauthorized to view WhatsApp groups for this account' });
+        }
+
+        const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+        let sock = BaileysConnectionManager.getSocket(req.params.id);
+        
+        if (!sock) {
+            sock = await BaileysConnectionManager.connect(req.params.id).catch(() => null);
+        }
+
+        let formatted = [];
+        let fetchedFromSocket = false;
+
+        if (sock && sock.user && sock.user.id) {
+            try {
+                // 🚀 Enterprise Safeguard: 4.5s socket timeout prevents network freeze & Axios timeouts
+                const fetchPromise = sock.groupFetchAllParticipating();
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('WhatsApp socket query timed out')), 4500)
+                );
+                const groups = await Promise.race([fetchPromise, timeoutPromise]);
+
+                if (groups && typeof groups === 'object') {
+                    formatted = Object.values(groups).map(g => {
+                        if (g.id && g.subject) {
+                            BaileysConnectionManager.setGroupSubject(g.id, g.subject);
+                        }
+                        return {
+                            id: g.id,
+                            subject: g.subject || 'WhatsApp Group',
+                            owner: g.owner || null,
+                            creation: g.creation || null,
+                            participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
+                            desc: g.desc?.toString() || ''
+                        };
+                    });
+                    fetchedFromSocket = true;
+                }
+            } catch (socketErr) {
+                console.warn('[SocialController] sock.groupFetchAllParticipating delayed or failed:', socketErr.message);
+            }
+        }
+
+        // If live socket timed out or is pairing, serve from in-memory cache & DB conversations
+        if (!fetchedFromSocket || formatted.length === 0) {
+            const cachedMap = BaileysConnectionManager.getAllGroupSubjects();
+            const groupList = [];
+            const seenJids = new Set();
+
+            if (cachedMap && cachedMap.size > 0) {
+                for (const [jid, subject] of cachedMap.entries()) {
+                    if (jid.includes('@g.us') && !seenJids.has(jid)) {
+                        seenJids.add(jid);
+                        groupList.push({
+                            id: jid,
+                            subject: subject,
+                            owner: null,
+                            creation: null,
+                            participantsCount: 0,
+                            desc: ''
+                        });
+                    }
+                }
+            }
+
+            // Also check existing group conversations from DB for comprehensive fallback
+            try {
+                const Conversation = (await import('../models/Conversation.js')).default;
+                const dbGroups = await Conversation.find({ channel: 'whatsapp', isGroup: true }).select('phoneNumber title groupName updatedAt').lean();
+                dbGroups.forEach(cg => {
+                    const jid = cg.phoneNumber || cg.metadata?.groupJid;
+                    if (jid && !seenJids.has(jid)) {
+                        seenJids.add(jid);
+                        groupList.push({
+                            id: jid,
+                            subject: cg.groupName || cg.title || 'WhatsApp Group',
+                            owner: null,
+                            creation: null,
+                            participantsCount: 0,
+                            desc: ''
+                        });
+                    }
+                });
+            } catch (dbErr) {
+                console.warn('[SocialController] DB group fallback lookup error:', dbErr.message);
+            }
+
+            if (groupList.length > 0) {
+                formatted = groupList;
+            }
+        }
+
+        res.json({ success: true, data: formatted });
+    } catch (error) {
+        console.error('[SocialController] getBaileysGroups error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };

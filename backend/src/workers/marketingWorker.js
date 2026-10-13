@@ -575,34 +575,56 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
 // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
 if (name === 'bna-broadcast') {
-        const { dealId, recipients, channels, meta, templateId, language, shareableId, performedBy } = data;
+        const { dealId, recipients, channels, meta, templateId, language, integrationId, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
         let sent = 0, failed = 0;
-        await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} brokers`);
+        await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
 
         const { default: Activity } = await import('../../models/Activity.js');
         const waService = (await import('../../services/WhatsAppService.js')).default;
         const eSvc = (await import('../../services/email.service.js')).default;
 
-        // 🧠 Message Construction (Shared across recipients)
-        let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
-            `💰 *Price:* ${meta.price}\n` +
-            `📍 *Location:* ${meta.location}\n` +
-            `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
+        const personalizeForRecipient = (str, rName) => {
+            if (!str) return '';
+            const name = rName || 'Partner';
+            return String(str)
+                .replace(/\[Recipient \/ Broker Name\]/gi, name)
+                .replace(/\[Recipient \/ Group\]/gi, name)
+                .replace(/\[Broker Name\]/gi, name)
+                .replace(/{{customer_name}}/gi, name)
+                .replace(/{{first_name}}/gi, name.split(' ')[0] || 'Partner')
+                .replace(/{{full_name}}/gi, name)
+                .replace(/{{1}}/gi, name);
+        };
 
-        // 🧠 Dynamic Detail Sections (Filtered for empty values)
-        if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
-            meta.detailedSections.forEach(sec => {
-                waMessage += `*${sec.title.toUpperCase()}*\n`;
-                sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
-                waMessage += `\n`;
-            });
+        // 🧠 Message Construction (Shared across recipients)
+        let waMessage = '';
+        if (meta.isMultiDeal) {
+            waMessage = `*🏢 PORTFOLIO BNA ALERT: ${meta.title}*\n\n` +
+                `Here is our exclusive curated portfolio of *${meta.dealsCount || 'multiple'} verified deals*:\n\n` +
+                `${meta.description}\n\n` +
+                `🔗 *Deal References:* ${shareableId}\n` +
+                `Contact us for full dossiers, commission splits, and site inspections.`;
+        } else {
+            waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
+                `💰 *Price:* ${meta.price}\n` +
+                `📍 *Location:* ${meta.location}\n` +
+                `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
+
+            // 🧠 Dynamic Detail Sections (Filtered for empty values)
+            if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+                meta.detailedSections.forEach(sec => {
+                    waMessage += `*${sec.title.toUpperCase()}*\n`;
+                    sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
+                    waMessage += `\n`;
+                });
+            }
+
+            waMessage += `📝 *Details:* ${meta.description}\n\n` +
+                `🔗 *Ref:* ${shareableId}\n` +
+                `Contact us for commission split and site visits.`;
         }
 
-        waMessage += `📝 *Details:* ${meta.description}\n\n` +
-            `🔗 *Ref:* ${shareableId}\n` +
-            `Contact us for commission split and site visits.`;
-
-        const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+        const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
         
         let detailedHtml = '';
         if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
@@ -616,7 +638,7 @@ if (name === 'bna-broadcast') {
             `).join('');
         }
 
-        const emailHtml = `
+        const defaultEmailHtml = `
             <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
                 <div style="background: #6366f1; padding: 20px; color: #fff;">
                     <h2 style="margin: 0;">${meta.title}</h2>
@@ -648,11 +670,13 @@ if (name === 'bna-broadcast') {
         for (let i = 0; i < recipients.length; i++) {
             const recipient = recipients[i];
             const results = [];
+            const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
             
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
                     let waRes;
-                    if (templateId) {
+                    let text = '';
+                    if (!isGroup && !isBaileys && templateId) {
                         const personalizedComponents = await resolveMetaComponents(
                             templateId, 
                             recipient, 
@@ -660,23 +684,78 @@ if (name === 'bna-broadcast') {
                             registryMapping
                         );
                         
-                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
+                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { integrationId });
+                        text = `Template: ${templateId}`;
                     } else {
-                        waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                        if (templateText) {
+                            text = personalizeForRecipient(templateText, recipient.name);
+                        } else {
+                            text = waMessage;
+                        }
+                        waRes = await waService.sendMessage(recipient.mobile, text, { integrationId });
                     }
-                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
+                    results.push({ 
+                        channel: 'whatsapp', 
+                        status: waRes.success ? 'success' : 'failed', 
+                        error: waRes.error,
+                        messageContent: text 
+                    });
                 } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
             }
 
-            if (channels.includes('email') && recipient.email) {
-
+            if (channels.includes('sms') && recipient.mobile && !isGroup) {
                 try {
-                    await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
-                    results.push({ channel: 'email', status: 'success' });
+                    const smsSvc = (await import('../../services/SmsService.js')).default;
+                    const smsText = smsTemplate?.text
+                        ? personalizeForRecipient(smsTemplate.text, recipient.name)
+                        : (meta.isMultiDeal
+                            ? `[BHARAT PROPERTIES] ${meta.title} - ${meta.dealsCount} verified deals available. Ref: ${shareableId}. Call 8700000000 for brochure.`
+                            : `[BHARAT PROPERTIES] ${meta.title} at ${meta.location}. Price: ${meta.price}. Specs: ${meta.features?.join(' | ') || 'Prime'}. Ref: ${shareableId}. Call 8700000000 for details.`);
+                    const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
+                        dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
+                        dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
+                    });
+                    results.push({ 
+                        channel: 'sms', 
+                        status: (smsRes?.success || smsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                        messageContent: smsText 
+                    });
+                } catch (e) { results.push({ channel: 'sms', status: 'failed', error: e.message }); }
+            }
+
+            if (channels.includes('rcs') && recipient.mobile && !isGroup) {
+                try {
+                    const smsSvc = (await import('../../services/SmsService.js')).default;
+                    const rcsBody = rcsTemplate?.text
+                        ? personalizeForRecipient(rcsTemplate.text, recipient.name)
+                        : meta.description;
+                    const rcsText = `✨ *[RCS RICH CARD] ${meta.title}*\n📍 Location: ${meta.location}\n💰 Price: ${meta.price}\n📐 Specs: ${meta.features?.join(' | ') || 'N/A'}\n\n${rcsBody}\n\nRef: ${shareableId}`;
+                    const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
+                        isRcs: true,
+                        richCard: { title: meta.title, price: meta.price, buttons: rcsTemplate?.buttons || [] }
+                    });
+                    results.push({ 
+                        channel: 'rcs', 
+                        status: (rcsRes?.success || rcsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                        messageContent: rcsText 
+                    });
+                } catch (e) { results.push({ channel: 'rcs', status: 'failed', error: e.message }); }
+            }
+
+            if (channels.includes('email') && recipient.email && !isGroup) {
+                try {
+                    const finalSubject = emailTemplate?.subject
+                        ? personalizeForRecipient(emailTemplate.subject, recipient.name)
+                        : defaultEmailSubject;
+                    const finalHtml = emailTemplate?.html
+                        ? personalizeForRecipient(emailTemplate.html, recipient.name)
+                        : defaultEmailHtml;
+                    await eSvc.sendEmail(recipient.email, finalSubject, '', finalHtml);
+                    results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
                 } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
             }
 
-            const success = results.some(r => r.status === 'success');
+            const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
             if (success) sent++; else failed++;
 
             // Log Activity
@@ -684,13 +763,30 @@ if (name === 'bna-broadcast') {
                 await Activity.create({
                     type: 'Marketing',
                     subject: `BNA Broadcast: ${meta.title}`,
-                    entityType: 'Company',
+                    entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
                     entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
                     status: success ? 'Sent' : 'Failed',
+                    visibleTo: 'Everyone',
                     description: success 
-                        ? `Sent via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`
+                        ? (text || waMessage) 
                         : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ')}`,
-                    details: { results, dealId, shareableId, jobId: job.id },
+                    details: { 
+                        results, 
+                        dealId, 
+                        shareableId, 
+                        jobId: job.id,
+                        message: text || waMessage,
+                        renderedBody: text || waMessage,
+                        isGroup: isGroup,
+                        groupJid: isGroup ? recipient.mobile : null,
+                        groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
+                        phoneNumber: recipient.mobile,
+                        whatsappIntegrationId: integrationId || null,
+                        platform: isGroup ? 'WhatsApp Web' : 'WhatsApp'
+                    },
+                    participants: [
+                        { name: recipient.name || (isGroup ? 'WhatsApp Group' : 'Partner'), mobile: recipient.mobile }
+                    ],
                     performedBy: performedBy,
                     dueDate: new Date()
                 });

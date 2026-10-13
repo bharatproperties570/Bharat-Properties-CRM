@@ -1,3 +1,4 @@
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
@@ -48,18 +49,45 @@ import SocialPostModal from '../../components/SocialPostModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
-import MarketingTab from './components/MarketingTab';
 import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
 import DealPriceJourneyCard from '../../components/DealPriceJourneyCard';
 
-const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
+const DealDetailPage = ({ dealId: propDealId, onBack: propOnBack, onNavigate, onAddActivity }) => {
+    const { id: routeDealId } = useParams();
+    const navigate = useNavigate();
+    const dealId = propDealId || routeDealId;
+    const onBack = propOnBack || (() => {
+        if (onNavigate) {
+            onNavigate('deals');
+        } else {
+            navigate('/deals');
+        }
+    });
+
     const { isDark } = useTheme();
     const { user } = useUserContext();
     const { getLookupValue } = usePropertyConfig();
     const { data: dealPayload, isLoading: loading } = useDeal(dealId);
-    const deal = dealPayload?.data || null;
-    const matchingLeads = dealPayload?.matchingLeads || [];
-    const liveScoreData = dealPayload?.liveScore || { score: 0, color: '#94a3b8', label: 'Warm' };
+    
+    // State management for deal, matching leads, and live score
+    const [localDeal, setLocalDeal] = useState(null);
+    const [matchingLeads, setMatchingLeads] = useState([]);
+    const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
+
+    useEffect(() => {
+        if (dealPayload?.data) {
+            setLocalDeal(dealPayload.data);
+        }
+        if (dealPayload?.matchingLeads) {
+            setMatchingLeads(dealPayload.matchingLeads);
+        }
+        if (dealPayload?.liveScore) {
+            setLiveScoreData(dealPayload.liveScore);
+        }
+    }, [dealPayload]);
+
+    const deal = localDeal || dealPayload?.data || dealPayload?.deal || dealPayload?.record || (dealPayload?._id ? dealPayload : null);
+    const setDeal = setLocalDeal;
     
     // Minimum transient UI state for optimistic updates
     const [optimisticStage, setOptimisticStage] = useState(null);
@@ -75,8 +103,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     const activityQueries = useUnifiedActivityQueries([{ type: 'Deal', id: dealId }]);
     const activities = useMemo(() => {
-        return activityQueries[0]?.data || [];
-    }, [activityQueries]);
+        if (activityQueries[0]?.data && activityQueries[0].data.length > 0) {
+            return activityQueries[0].data;
+        }
+        return dealPayload?.activities || [];
+    }, [activityQueries, dealPayload?.activities]);
     const [inventory, setInventory] = useState(null);
     const [allLeads, setAllLeads] = useState([]);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
@@ -126,7 +157,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
-    const [activeCenterTab, setActiveCenterTab] = useState('activities'); // 'activities' or 'marketing'
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [publishFormDescription, setPublishFormDescription] = useState('');
@@ -581,7 +611,31 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             <span style={{ marginLeft: '12px', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Loading Transaction Command Center...</span>
         </div>
     );
-    if (!deal) return <div className="error-state">Deal not found</div>;
+    if (!deal) return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', padding: '32px', textAlign: 'center' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#1e293b', marginBottom: '8px' }}>Deal Record Not Found</h3>
+            <p style={{ fontSize: '0.875rem', color: isDark ? 'var(--text-muted)' : '#64748b', maxWidth: '420px', marginBottom: '24px', lineHeight: 1.5 }}>
+                The requested deal record {dealId ? `(${dealId})` : ''} could not be retrieved from the server, or you do not have permission to access it.
+            </p>
+            <button 
+                onClick={onBack}
+                style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#4f46e5',
+                    color: '#ffffff',
+                    borderRadius: '10px',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    border: 'none',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
+                }}
+            >
+                ← Back to Deals Pipeline
+            </button>
+        </div>
+    );
 
     const isReadOnly = isMarkingLost || deal.stage === 'Closed Won' || deal.stage === 'Closed Lost' || deal.stage === 'Cancelled';
 
@@ -698,82 +752,53 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         minHeight: '100%'
                     }}>
                         <div style={{ padding: '0 20px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', display: 'flex', alignItems: 'center', gap: '24px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
-                            <button 
-                                onClick={() => setActiveCenterTab('activities')}
+                            <div 
                                 style={{ 
                                     padding: '16px 0', 
                                     fontSize: '0.75rem', 
                                     fontWeight: 900, 
-                                    color: activeCenterTab === 'activities' ? '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b', 
+                                    color: '#4f46e5', 
                                     textTransform: 'uppercase', 
                                     letterSpacing: '0.5px',
-                                    borderBottom: activeCenterTab === 'activities' ? '2px solid #4f46e5' : 'none',
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer'
+                                    borderBottom: '2px solid #4f46e5'
                                 }}
                             >
                                 <i className="fas fa-bolt" style={{ marginRight: '8px' }}></i> Activities
-                            </button>
-                            <button 
-                                onClick={() => setActiveCenterTab('marketing')}
-                                style={{ 
-                                    padding: '16px 0', 
-                                    fontSize: '0.75rem', 
-                                    fontWeight: 900, 
-                                    color: activeCenterTab === 'marketing' ? '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b', 
-                                    textTransform: 'uppercase', 
-                                    letterSpacing: '0.5px',
-                                    borderBottom: activeCenterTab === 'marketing' ? '2px solid #4f46e5' : 'none',
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <i className="fas fa-bullhorn" style={{ marginRight: '8px' }}></i> Marketing & BNA
-                            </button>
+                            </div>
                         </div>
                         <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
-                            {activeCenterTab === 'activities' ? (
-                                (() => {
-                                    const relatedEntities = [{ type: 'Deal', id: dealId }];
-                                    if (deal.contactId?._id || deal.contactId) {
-                                        relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+                            {(() => {
+                                const relatedEntities = [{ type: 'Deal', id: dealId }];
+                                if (deal.contactId?._id || deal.contactId) {
+                                    relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+                                }
+                                if (inventory) {
+                                    relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
+                                    if (inventory.owners && Array.isArray(inventory.owners)) {
+                                        inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
                                     }
-                                    if (inventory) {
-                                        relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
-                                        if (inventory.owners && Array.isArray(inventory.owners)) {
-                                            inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
-                                        }
-                                        if (inventory.associates && Array.isArray(inventory.associates)) {
-                                            inventory.associates.forEach(a => {
-                                                const cId = a.contact?._id || a.contact?.id || a.id;
-                                                if (cId) relatedEntities.push({ type: 'Contact', id: cId });
-                                            });
-                                        }
+                                    if (inventory.associates && Array.isArray(inventory.associates)) {
+                                        inventory.associates.forEach(a => {
+                                            const cId = a.contact?._id || a.contact?.id || a.id;
+                                            if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                        });
                                     }
+                                }
 
-                                    return (
-                                        <UnifiedActivitySection 
-                                            deal={deal} 
-                                            activities={activities} 
-                                            fetchDealDetails={() => {}} 
-                                            isReadOnly={isReadOnly}
-                                            entityId={dealId} 
-                                            entityType="Deal" 
-                                            entityData={deal}
-                                            onActivitySaved={() => {}}
-                                            relatedEntities={relatedEntities}
-                                        />
-                                    );
-                                })()
-                            ) : (
-                                <MarketingTab 
-                                    dealId={dealId} 
-                                    deal={deal} 
-                                    onRefresh={() => {}} 
-                                />
-                            )}
+                                return (
+                                    <UnifiedActivitySection 
+                                        deal={deal} 
+                                        activities={activities} 
+                                        fetchDealDetails={() => {}} 
+                                        isReadOnly={isReadOnly}
+                                        entityId={dealId} 
+                                        entityType="Deal" 
+                                        entityData={deal}
+                                        onActivitySaved={() => {}}
+                                        relatedEntities={relatedEntities}
+                                    />
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>

@@ -172,12 +172,12 @@ const InventoryOwnerSection = ({
                         <div key={idx} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ width: '40px', height: '40px', background: owner.role === 'Property Owner' ? '#eff6ff' : '#fefce8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: owner.role === 'Property Owner' ? '#3b82f6' : '#ca8a04', fontWeight: 700 }}>
-                                    {owner.name.charAt(0)}
+                                    {owner.name?.charAt(0) || 'O'}
                                 </div>
                                 <div>
                                     <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>{owner.name}</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                        {owner.role === 'Property Owner' ? 'Owner' : `Associate (${owner.relationship})`} • {owner.mobile}
+                                        {owner.role === 'Property Owner' ? 'Owner' : `Associate (${typeof owner.relationship === 'object' ? (owner.relationship?.lookup_value || owner.relationship?.name || '') : (owner.relationship || '')})`} • {owner.mobile}
                                     </div>
                                 </div>
                             </div>

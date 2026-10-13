@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../context/TriggersContext';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
@@ -200,6 +200,33 @@ const SendMessageModal = ({
         }
     };
 
+    const isCurrentAccountBaileys = useMemo(() => {
+        const acc = whatsappAccounts.find(a => a.id === selectedWhatsAppAccount);
+        return acc?.provider === 'BAILEYS' || acc?.connectionType === 'QR_SCANNER';
+    }, [selectedWhatsAppAccount, whatsappAccounts]);
+
+    const filteredWhatsAppTemplates = useMemo(() => {
+        return (whatsappTemplates || []).filter(t => {
+            const ch = t.channel || (t.status === 'APPROVED' ? 'both' : 'web');
+            if (isCurrentAccountBaileys) {
+                // WhatsApp Web: Show templates marked for 'web', 'both', 'all' or default
+                return ch === 'web' || ch === 'both' || ch === 'all';
+            } else {
+                // Meta Cloud API: Show templates marked for 'cloud_api', 'both', 'all' THAT ARE APPROVED
+                return (ch === 'cloud_api' || ch === 'both' || ch === 'all') && t.status === 'APPROVED';
+            }
+        });
+    }, [isCurrentAccountBaileys, whatsappTemplates]);
+
+    useEffect(() => {
+        if (templateId && templateId !== 'free_text') {
+            const exists = filteredWhatsAppTemplates.some(t => t.name === templateId || String(t.id) === String(templateId));
+            if (!exists) {
+                setTemplateId('free_text');
+            }
+        }
+    }, [isCurrentAccountBaileys, filteredWhatsAppTemplates]);
+
     const handleAddRecipient = (e) => {
         if (e.key === 'Enter' && recipientInput.trim()) {
             e.preventDefault();
@@ -258,25 +285,41 @@ const SendMessageModal = ({
 
         const fetchPreview = async () => {
             if (templateId === 'free_text') {
-                setMessageBody('Free Text Mode: A nicely formatted list of properties will be sent directly as a session message (no Meta templates).');
+                setMessageBody(isCurrentAccountBaileys ? '' : 'Free Text Mode: A nicely formatted list of properties will be sent directly as a session message (no Meta templates).');
                 if (channel === 'WHATSAPP') setWhatsappComponents([]);
                 return;
             }
             try {
-                // If it's SMS or RCS, we could still do local or rely on backend. For 100% enterprise, we send all to backend.
-                // However, SMS/RCS templates might not be fully supported by the new backend method if we only wired whatsappService.previewTemplate.
-                // Wait, whatsappService.previewTemplate uses `whatsapp-config/preview` which handles SMS, WHATSAPP, RCS.
-                
+                const targetTpl = channel === 'SMS' ? smsTemplates.find(t => String(t.id) === String(templateId) || t._id === templateId) 
+                        : channel === 'WHATSAPP' ? (filteredWhatsAppTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId) || whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId))
+                        : rcsTemplatesConst.find(t => String(t.id) === String(templateId));
+
+                if (!targetTpl) return;
+
+                // ⚡ WhatsApp Web fast client token resolution
+                if (channel === 'WHATSAPP' && isCurrentAccountBaileys && (targetTpl.body || targetTpl.content)) {
+                    let directBody = targetTpl.body || targetTpl.content || '';
+                    const r = recipients[0] || {};
+                    const rName = r.name || r.fullName || 'Client';
+                    directBody = directBody
+                        .replace(/\{\{first_name\}\}/gi, rName.split(' ')[0] || rName)
+                        .replace(/\{\{Name\}\}/gi, rName)
+                        .replace(/\{\{client_name\}\}/gi, rName)
+                        .replace(/\{\{lead_name\}\}/gi, rName)
+                        .replace(/\{\{agent_name\}\}/gi, 'Bharat Properties')
+                        .replace(/\{\{agent_mobile\}\}/gi, '+91 99960 00570');
+                    setMessageBody(directBody);
+                    setWhatsappComponents([]);
+                    setIsTemplateModified(false);
+                    return;
+                }
+
                 const payload = {
-                    template: channel === 'SMS' ? smsTemplates.find(t => String(t.id) === String(templateId) || t._id === templateId) 
-                            : channel === 'WHATSAPP' ? whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId)
-                            : rcsTemplatesConst.find(t => String(t.id) === String(templateId)),
+                    template: targetTpl,
                     channel,
                     recipient: recipients[0] || {},
                     properties
                 };
-                
-                if (!payload.template) return;
 
                 const response = await whatsappService.previewTemplate(payload);
                 if (response.success) {
@@ -292,12 +335,15 @@ const SendMessageModal = ({
                 }
             } catch (err) {
                 console.error("Failed to fetch template preview:", err);
-                toast.error("Failed to generate template preview from server.");
+                const targetTpl = whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId);
+                if (targetTpl) {
+                    setMessageBody(targetTpl.body || targetTpl.content || '');
+                }
             }
         };
 
         fetchPreview();
-    }, [isOpen, templateId, channel, whatsappTemplates, smsTemplates, recipients, properties]);
+    }, [isOpen, templateId, channel, whatsappTemplates, filteredWhatsAppTemplates, isCurrentAccountBaileys, smsTemplates, recipients, properties]);
 
     const handleTemplateChange = (e) => {
         setTemplateId(e.target.value);
@@ -557,7 +603,7 @@ const SendMessageModal = ({
                             >
                                 {whatsappAccounts.map(acc => (
                                     <option key={acc.id} value={acc.id}>
-                                        {acc.accountLabel || acc.displayPhoneNumber} {acc.isDefault ? '★ (Default API)' : acc.connectionType === 'COEXISTENCE' ? '📱 (WhatsApp App)' : ''}
+                                        {acc.accountLabel || acc.displayPhoneNumber} {acc.isDefault ? '★ (Default API)' : acc.connectionType === 'COEXISTENCE' ? '📱 (WhatsApp App)' : (acc.connectionType === 'QR_SCANNER' || acc.provider === 'BAILEYS') ? '⚡ (WhatsApp Web)' : ''}
                                     </option>
                                 ))}
                             </select>
@@ -683,17 +729,35 @@ const SendMessageModal = ({
                         {/* ================= WHATSAPP VIEW ================= */}
                         {channel === 'WHATSAPP' && (
                             <div className="animate-fade-in">
-                                <div style={{ marginBottom: '20px' }}>
-                                    <label style={labelStyle}>Select Template</label>
+                                {isCurrentAccountBaileys ? (
+                                    <div style={{ marginBottom: '16px', padding: '12px 14px', background: '#ecfdf5', borderRadius: '10px', border: '1px solid #a7f3d0', fontSize: '0.82rem', color: '#065f46', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fab fa-whatsapp" style={{ color: '#10b981', fontSize: '16px' }}></i>
+                                        <span><strong>WhatsApp Web Active:</strong> Select a WhatsApp Web template below or type a direct custom message!</span>
+                                    </div>
+                                ) : (
+                                    <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#eff6ff', borderRadius: '10px', border: '1px solid #bfdbfe', fontSize: '0.82rem', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-shield-alt" style={{ color: '#3b82f6', fontSize: '15px' }}></i>
+                                        <span><strong>Meta Cloud API Active:</strong> Showing pre-approved business templates.</span>
+                                    </div>
+                                )}
+
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={labelStyle}>
+                                        Select Template {isCurrentAccountBaileys ? '(Optional)' : ''}
+                                    </label>
                                     <select
                                         value={templateId}
                                         onChange={handleTemplateChange}
                                         style={inputStyle}
                                         disabled={isLoadingWhatsApp}
                                     >
-                                        <option value="free_text">No Template (Active Chat Session Only)</option>
-                                        {whatsappTemplates.map(t => (
-                                            <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.language})</option>
+                                        <option value="free_text">
+                                            {isCurrentAccountBaileys ? '— Direct Custom Message (No Template) —' : '— No Template (Active 24h Chat Session Only) —'}
+                                        </option>
+                                        {filteredWhatsAppTemplates.map(t => (
+                                            <option key={t.id || t.name} value={t.name || t.id}>
+                                                {t.name} {t.channel === 'web' ? '⚡ [WhatsApp Web]' : t.channel === 'cloud_api' ? '🔵 [Meta API]' : '🌐 [Universal]'}
+                                            </option>
                                         ))}
                                     </select>
                                 </div>

@@ -16,6 +16,7 @@ const SendMessageModal = lazy(() => import('../../components/SendMessageModal'))
 const ManageTagsModal = lazy(() => import('../../components/ManageTagsModal'));
 const AddQuoteModal = lazy(() => import('../../components/AddQuoteModal'));
 const AddOfferModal = lazy(() => import('../../components/AddOfferModal'));
+import DealBroadcastModal from './components/DealBroadcastModal';
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import ProfessionalMap from '../../components/ProfessionalMap';
@@ -47,7 +48,8 @@ const DealStageChip = ({ stage }) => {
         'Booked': { color: '#10b981', prob: 90 },
     };
     
-    const info = DEAL_STAGES[stage] || DEAL_STAGES['Open'];
+    const stageStr = typeof stage === 'object' ? (stage?.lookup_value || stage?.name || 'Open') : (stage || 'Open');
+    const info = DEAL_STAGES[stageStr] || DEAL_STAGES['Open'];
     return (
         <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -57,7 +59,7 @@ const DealStageChip = ({ stage }) => {
             fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em'
         }}>
             <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: info.color, flexShrink: 0 }} />
-            {stage || 'Open'}
+            {stageStr}
             <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>{info.prob}%</span>
         </span>
     );
@@ -71,6 +73,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const { startCall } = useCall();
     const { getLookupValue, sizes } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearchTerm = useDebounce(searchTerm, 500);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
     const [sortConfig, setSortConfig] = useState({ label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
@@ -148,6 +153,11 @@ function DealsPage({ onNavigate, onAddActivity }) {
         )
     }), [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
 
+    // -- Pagination Reset Logic --
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [debouncedSearchTerm, filters, sortConfig, recordsPerPage]);
+
     const { data: dealsData, isLoading: loading } = useDeals(queryParams);
     const deals = dealsData?.records || [];
     const totalRecords = dealsData?.totalCount || 0;
@@ -156,8 +166,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const updateDealMutation = useUpdateDealMutation({ isPartial: true });
     const deleteDealMutation = useDeleteDealMutation();
     const bulkDeleteMutation = useBulkDeleteDealsMutation();
-        const [currentPage, setCurrentPage] = useState(1);
-    const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [selectedSocialData, setSelectedSocialData] = useState(null);
@@ -171,6 +179,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [selectedDealsForMessage, setSelectedDealsForMessage] = useState([]);
     const [selectedDealsForTags, setSelectedDealsForTags] = useState([]);
     const [selectedDealState, setSelectedDealState] = useState(null);
+    const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
 
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
@@ -183,9 +192,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
         const [activeMapDealId, setActiveMapDealId] = useState(null);
     const [isMapFullscreen, setIsMapFullscreen] = useState(false);
-
-    // --- OPTIMIZATION: Debounced Search Term ---
-    const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
     const toggleSelect = useCallback((id) => {
         setSelectedIds(prev => {
@@ -681,7 +687,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     </>
                                 )}
 
-                                <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
+                                <button
+                                    className="action-btn"
+                                    title="Broadcast Deals (Marketing & BNA)"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        fontWeight: 700
+                                    }}
+                                    onClick={() => setIsBroadcastModalOpen(true)}
+                                >
+                                    <i className="fas fa-bullhorn"></i> Broadcast
+                                </button>
 
                                 <div style={{ marginLeft: 'auto' }}>
                                     <PermissionGate module="deals" action="delete">
@@ -1237,6 +1255,17 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     project={selectedDealState}
                 />
 
+                <DealBroadcastModal
+                    isOpen={isBroadcastModalOpen}
+                    onClose={() => setIsBroadcastModalOpen(false)}
+                    selectedDeals={getSelectedDealsFull()}
+                    dealIds={selectedIds}
+                    onSuccess={() => {
+                        setSelectedIds([]);
+                        setRefreshTrigger(prev => prev + 1);
+                    }}
+                />
+
                 {
                     isAddBookingOpen && (
                         <AddBookingModal
@@ -1646,7 +1675,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {deal.remarks ? (
                     <div className="address-clamp" style={{ fontSize: '0.78rem', color: 'var(--text-main)', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
-                        {deal.remarks}
+                        {renderValue(deal.remarks)}
                     </div>
                 ) : (
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No Remarks</div>

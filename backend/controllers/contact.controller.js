@@ -10,6 +10,9 @@ import Activity from "../models/Activity.js";
 import Deal from "../models/Deal.js";
 import Company from "../models/Company.js";
 import Conversation from "../models/Conversation.js";
+import User from "../models/User.js";
+import Team from "../models/Team.js";
+import ContactGroup from "../models/ContactGroup.js";
 import MergeAudit from "../models/MergeAudit.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { paginate } from "../utils/pagination.js";
@@ -138,14 +141,21 @@ export const getContacts = async (req, res, next) => {
         }
 
         if (search) {
+            const trimmedSearch = String(search).trim();
+            const escapedSearch = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const searchRegex = { $regex: escapedSearch, $options: "i" };
+
             const searchFilter = {
                 $or: [
-                    { name: { $regex: search, $options: "i" } },
-                    { description: { $regex: search, $options: "i" } },
-                    { "phones.number": { $regex: search, $options: "i" } },
-                    { "emails.address": { $regex: search, $options: "i" } }
+                    { name: searchRegex },
+                    { surname: searchRegex },
+                    { "phones.number": searchRegex },
+                    { "emails.address": searchRegex }
                 ]
             };
+            if (/^\d{3,}$/.test(trimmedSearch)) {
+                searchFilter.$or.unshift({ "phones.number": { $regex: trimmedSearch } });
+            }
             // CORRECTED MERGE: Ensure top-level query keys are preserved while wrapping $or
             if (query.$or) {
                 const securityOr = query.$or;
@@ -265,6 +275,16 @@ export const getContacts = async (req, res, next) => {
                             localField: "lead",
                             foreignField: "_id",
                             as: "leadDoc"
+                        }
+                    },
+                    {
+                        $match: {
+                            $or: [
+                                { seller: { $in: contactIds } },
+                                { channelPartner: { $in: contactIds } },
+                                { "leadDoc.contactDetails": { $in: contactIds } },
+                                ...(contactPhonesList.length > 0 ? [{ "leadDoc.mobile": { $in: contactPhonesList } }] : [])
+                            ]
                         }
                     },
                     {

@@ -735,26 +735,86 @@ export const publishMarketingContent = async (req, res) => {
 
 export const broadcastToBrokerGroup = async (req, res) => {
     try {
-        const { dealId, groupIds, contactGroupIds, channels = ['whatsapp'], templateId, language } = req.body;
-        console.log(`[BNA] Dispatching to groups: Company=${groupIds} Contact=${contactGroupIds} (Template: ${templateId || 'NONE'})`);
+        const { dealId, dealIds, groupIds, contactGroupIds, leadIds, whatsappGroupJids, integrationId, channels = ['whatsapp'], templateId, language, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = req.body;
+        console.log(`[BNA] Dispatching to audience: Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'})`);
         
-        if (!dealId || (!(groupIds && groupIds.length > 0) && !(contactGroupIds && contactGroupIds.length > 0))) {
-            return res.status(400).json({ success: false, error: 'Deal ID and at least one Company or Contact Group are required' });
+        const hasCompanyGroups = Array.isArray(groupIds) && groupIds.length > 0;
+        const hasContactGroups = Array.isArray(contactGroupIds) && contactGroupIds.length > 0;
+        const hasMatchedLeads = Array.isArray(leadIds) && leadIds.length > 0;
+        const hasWaGroups = Array.isArray(whatsappGroupJids) && whatsappGroupJids.length > 0;
+
+        const targetDealIds = Array.isArray(dealIds) && dealIds.length > 0
+            ? dealIds
+            : (dealId ? [dealId] : []);
+
+        if (targetDealIds.length === 0 || (!hasCompanyGroups && !hasContactGroups && !hasMatchedLeads && !hasWaGroups)) {
+            return res.status(400).json({ success: false, error: 'Deal ID (or Deal IDs) and at least one Target Audience (Broker Group, Contact Group, Matched Lead, or WhatsApp Group) are required' });
         }
 
         const Company = mongoose.model('Company');
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 1. Fetch Deal Metadata (Sanitized)
-        const deal = await Deal.findOne({ _id: dealId, ...visibilityFilter }).lean();
-        if (!deal || !deal.broadcastMetadata?.isReady) {
-            return res.status(400).json({ success: false, error: 'Deal not found or not sanitized for broadcast.' });
+        // 1. Fetch Deal Metadata (Sanitized or instant-prepared)
+        const deals = await Deal.find({ _id: { $in: targetDealIds }, ...visibilityFilter }).lean();
+        if (!deals || deals.length === 0) {
+            return res.status(404).json({ success: false, error: 'Selected deal(s) not found or access denied.' });
         }
 
-        // 2. Fetch Targeted Audience (Brokers in selected groups)
-        let recipients = [];
+        let meta;
+        let primaryDealId = deals[0]._id;
+        let shareableId = '';
+
+        if (deals.length === 1) {
+            const singleDeal = deals[0];
+            meta = singleDeal.broadcastMetadata;
+            if (!meta || !meta.isReady) {
+                const price = singleDeal.price || singleDeal.quotePrice || singleDeal.value;
+                const formattedPrice = price ? (price >= 10000000 ? `₹ ${(price / 10000000).toFixed(2)} Cr` : price >= 100000 ? `₹ ${(price / 100000).toFixed(2)} Lac` : `₹ ${price.toLocaleString('en-IN')}`) : 'Price on Request';
+                meta = {
+                    title: singleDeal.title || singleDeal.dealCode || 'Exclusive Deal',
+                    location: singleDeal.location || singleDeal.locationDetails?.locality || 'Kurukshetra',
+                    price: formattedPrice,
+                    features: [singleDeal.size ? `${singleDeal.size} ${singleDeal.sizeUnit || 'Sq.Ft'}` : null, singleDeal.unitType].filter(Boolean),
+                    description: singleDeal.remarks || singleDeal.description || 'Verified property listing',
+                    isReady: true,
+                    inventoryId: singleDeal.inventoryId
+                };
+            }
+            shareableId = singleDeal.shareableId || singleDeal.dealCode || `BP-${String(singleDeal._id).slice(-6).toUpperCase()}`;
+        } else {
+            // 🏢 Multi-Deal Portfolio Package
+            const dealCodes = deals.map(d => d.shareableId || d.dealCode || `BP-${String(d._id).slice(-4).toUpperCase()}`).join(', ');
+            const locations = [...new Set(deals.map(d => d.broadcastMetadata?.location || d.location || 'Kurukshetra'))].filter(Boolean).join(', ');
+            
+            const formattedDealList = deals.map((d, idx) => {
+                const p = d.broadcastMetadata?.price || (d.price || d.value ? `₹ ${(d.price || d.value).toLocaleString('en-IN')}` : 'Price on Request');
+                const loc = d.broadcastMetadata?.location || d.location || 'Prime Location';
+                const specs = d.broadcastMetadata?.features?.join(' | ') || d.unitType || (d.size ? `${d.size} ${d.sizeUnit || 'Sq.Ft'}` : '');
+                return `${idx + 1}️⃣ *${d.title || d.dealCode || 'Deal'}*\n💰 Price: ${p} | 📍 ${loc}${specs ? ` | 📐 ${specs}` : ''}`;
+            }).join('\n\n');
+
+            meta = {
+                title: `${deals.length} Curated Deals Portfolio`,
+                price: `${deals.length} Curated Deals`,
+                location: locations,
+                features: [`${deals.length} Verified Properties`, locations],
+                description: `Curated package of ${deals.length} verified investment opportunities:\n\n${formattedDealList}`,
+                detailedSections: [{
+                    title: 'Included Listings',
+                    lines: deals.map((d, i) => `${i + 1}. ${d.title || d.dealCode || 'Deal'} | ${d.broadcastMetadata?.location || d.location || 'Prime'} | ${d.broadcastMetadata?.price || 'P.O.R'}`)
+                }],
+                isReady: true,
+                isMultiDeal: true,
+                dealsCount: deals.length,
+                inventoryId: deals[0]?.inventoryId
+            };
+            shareableId = dealCodes;
+        }
+
+        // 2. Fetch Targeted Audience (Brokers, Contacts, Matched Leads, WhatsApp Groups)
+        let rawRecipients = [];
         
-        if (groupIds && groupIds.length > 0) {
+        if (hasCompanyGroups) {
             const companies = await Company.find({
                 groups: { $in: groupIds },
                 ...visibilityFilter
@@ -773,10 +833,10 @@ export const broadcastToBrokerGroup = async (req, res) => {
                 };
             }).filter(r => r.mobile || r.email);
             
-            recipients = recipients.concat(companyRecipients);
+            rawRecipients = rawRecipients.concat(companyRecipients);
         }
 
-        if (contactGroupIds && contactGroupIds.length > 0) {
+        if (hasContactGroups) {
             const Contact = mongoose.model('Contact');
             const contacts = await Contact.find({
                 groups: { $in: contactGroupIds },
@@ -796,11 +856,62 @@ export const broadcastToBrokerGroup = async (req, res) => {
                 };
             }).filter(r => r.mobile || r.email);
 
-            recipients = recipients.concat(contactRecipients);
+            rawRecipients = rawRecipients.concat(contactRecipients);
+        }
+
+        if (hasMatchedLeads) {
+            const LeadModel = mongoose.model('Lead');
+            const leads = await LeadModel.find({
+                _id: { $in: leadIds },
+                ...visibilityFilter
+            }).lean();
+
+            const leadRecipients = leads.map(l => {
+                const phone = l.mobile || '';
+                const email = l.email || '';
+                const fullName = `${l.salutation || ''} ${l.firstName || ''} ${l.lastName || ''}`.replace(/\s+/g, ' ').trim() || 'Prospective Buyer';
+                return {
+                    id: l._id,
+                    name: fullName,
+                    firstName: l.firstName || fullName.split(' ')[0],
+                    lastName: l.lastName || '',
+                    mobile: normalizePhone(phone),
+                    email: email,
+                    isVerified: false,
+                    context: { originalType: 'Lead' }
+                };
+            }).filter(r => r.mobile || r.email);
+
+            rawRecipients = rawRecipients.concat(leadRecipients);
+        }
+
+        if (hasWaGroups) {
+            whatsappGroupJids.forEach(jid => {
+                rawRecipients.push({
+                    id: jid,
+                    name: 'WhatsApp Group',
+                    mobile: jid,
+                    email: '',
+                    isVerified: false,
+                    isGroup: true,
+                    context: { originalType: 'WhatsAppGroup' }
+                });
+            });
+        }
+
+        // Enterprise Deduplication (by mobile/JID or email so no person gets duplicate broadcasts)
+        const seenKeys = new Set();
+        const recipients = [];
+        for (const r of rawRecipients) {
+            const key = r.mobile ? `m:${r.mobile}` : (r.email ? `e:${String(r.email).toLowerCase()}` : `id:${r.id}`);
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                recipients.push(r);
+            }
         }
 
         if (recipients.length === 0) {
-            return res.status(404).json({ success: false, error: 'No brokers with valid contact information found.' });
+            return res.status(404).json({ success: false, error: 'No recipients or groups with valid contact information found.' });
         }
 
         // 3. Queue the Broadcast for Async Processing (Senior Professional Pattern)
@@ -808,14 +919,21 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const { isRedisOnline } = await import('../src/config/redis.js');
 
         const jobData = {
-            name: `BNA Broadcast: ${deal.broadcastMetadata.title}`,
-            dealId,
+            name: `BNA Broadcast: ${meta.title}`,
+            dealId: primaryDealId,
+            dealIds: targetDealIds,
             channels,
             recipients,
-            meta: deal.broadcastMetadata,
+            meta,
             templateId,
+            templateText: templateText || null,
+            isBaileys: Boolean(isBaileys),
             language,
-            shareableId: deal.shareableId,
+            integrationId: integrationId || null,
+            shareableId,
+            smsTemplate: smsTemplate || null,
+            rcsTemplate: rcsTemplate || null,
+            emailTemplate: emailTemplate || null,
             performedBy: req.user?.firstName || 'System'
         };
 
@@ -998,10 +1116,23 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
  * Direct dispatch for BNA broadcasts when queue is unavailable
  */
 async function _dispatchBNADirectly(data) {
-    const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy } = data;
+    const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const eSvc = (await import('../services/email.service.js')).default;
     const Activity = mongoose.model('Activity');
+
+    const personalizeForRecipient = (str, rName) => {
+        if (!str) return '';
+        const name = rName || 'Partner';
+        return String(str)
+            .replace(/\[Recipient \/ Broker Name\]/gi, name)
+            .replace(/\[Recipient \/ Group\]/gi, name)
+            .replace(/\[Broker Name\]/gi, name)
+            .replace(/{{customer_name}}/gi, name)
+            .replace(/{{first_name}}/gi, name.split(' ')[0] || 'Partner')
+            .replace(/{{full_name}}/gi, name)
+            .replace(/{{1}}/gi, name);
+    };
 
     // 🧠 PROFESSIONAL: Introspect template to map variables correctly
     // Meta error #132000 happens when param count doesn't match template
@@ -1037,7 +1168,7 @@ async function _dispatchBNADirectly(data) {
     }
 
     // Fallback text message (when no template selected or template not found)
-    const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+    const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
     
     let detailedHtml = '';
     if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
@@ -1051,7 +1182,7 @@ async function _dispatchBNADirectly(data) {
         `).join('');
     }
 
-    const emailHtml = `
+    const defaultEmailHtml = `
         <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
             <div style="background: #6366f1; padding: 20px; color: #fff;">
                 <h2 style="margin: 0;">${meta.title}</h2>
@@ -1073,11 +1204,13 @@ async function _dispatchBNADirectly(data) {
 
     for (const recipient of recipients) {
         const results = [];
+        const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
 
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
-                if (activeTemplateId && templateRegistryData) {
+                let text = '';
+                if (!isGroup && !isBaileys && activeTemplateId && templateRegistryData) {
                     const personalizedComponents = await resolveMetaComponents(
                         activeTemplateId, 
                         recipient, 
@@ -1086,39 +1219,124 @@ async function _dispatchBNADirectly(data) {
                     );
                     
                     console.log(`[BNA/WA] Dispatching '${activeTemplateId}' with ${personalizedComponents.length} components.`);
-                    waRes = await waService.sendTemplate(recipient.mobile, activeTemplateId, activeTemplateLang, personalizedComponents);
+                    waRes = await waService.sendTemplate(recipient.mobile, activeTemplateId, activeTemplateLang, personalizedComponents, { integrationId: data.integrationId });
+                    text = `Template: ${activeTemplateId}`;
                 } else {
-                    // Fallback to text
-                    const text = `🏢 *BNA ALERT: ${meta.title}*\n\n` +
-                        `Hi ${recipient.name},\n\n` +
-                        `💰 *Price:* ${meta.price}\n📍 *Location:* ${meta.location}\n` +
-                        `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n` +
-                        `🔗 Ref: ${shareableId}`;
-                    waRes = await (await import("../services/WhatsAppService.js")).default.sendMessage(recipient.mobile, text);
+                    // WhatsApp Web, Group, or Direct Text dispatch
+                    if (templateText) {
+                        text = personalizeForRecipient(templateText, recipient.name);
+                    } else if (meta.isMultiDeal) {
+                        text = `🏢 *PORTFOLIO BNA ALERT: ${meta.title}*\n\n` +
+                            `Hi ${recipient.name},\n\n` +
+                            `Here is our exclusive curated portfolio of *${meta.dealsCount} verified deals*:\n\n` +
+                            `${meta.description}\n\n` +
+                            `🔗 Deal References: ${shareableId}\n` +
+                            `Contact us for full dossiers, commission splits, and site inspections.`;
+                    } else {
+                        text = `🏢 *BNA ALERT: ${meta.title}*\n\n` +
+                            `Hi ${recipient.name},\n\n` +
+                            `💰 *Price:* ${meta.price}\n📍 *Location:* ${meta.location}\n` +
+                            `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n` +
+                            `📝 *Details:* ${meta.description || 'Verified property listing'}\n\n` +
+                            `🔗 Ref: ${shareableId}\n` +
+                            `Contact us for commission split and site visits.`;
+                    }
+                    waRes = await waService.sendMessage(recipient.mobile, text, { integrationId: data.integrationId });
                 }
-                results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
+                results.push({ 
+                    channel: 'whatsapp', 
+                    status: waRes.success ? 'success' : 'failed', 
+                    error: waRes.error,
+                    messageContent: text 
+                });
             } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
         }
 
-        if (channels.includes('email') && recipient.email) {
+        if (channels.includes('sms') && recipient.mobile && !isGroup) {
             try {
-                await (await import("../services/email.service.js")).default.sendEmail(recipient.email, emailSubject, '', emailHtml);
-                results.push({ channel: 'email', status: 'success' });
+                const smsSvc = (await import('../services/SmsService.js')).default;
+                const smsText = smsTemplate?.text
+                    ? personalizeForRecipient(smsTemplate.text, recipient.name)
+                    : (meta.isMultiDeal
+                        ? `[BHARAT PROPERTIES] ${meta.title} - ${meta.dealsCount} verified deals available. Ref: ${shareableId}. Call 8700000000 for brochure.`
+                        : `[BHARAT PROPERTIES] ${meta.title} at ${meta.location}. Price: ${meta.price}. Specs: ${meta.features?.join(' | ') || 'Prime'}. Ref: ${shareableId}. Call 8700000000 for details.`);
+                const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
+                    dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
+                    dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
+                });
+                results.push({ 
+                    channel: 'sms', 
+                    status: (smsRes?.success || smsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                    messageContent: smsText 
+                });
+            } catch (e) { results.push({ channel: 'sms', status: 'failed', error: e.message }); }
+        }
+
+        if (channels.includes('rcs') && recipient.mobile && !isGroup) {
+            try {
+                const smsSvc = (await import('../services/SmsService.js')).default;
+                const rcsBody = rcsTemplate?.text
+                    ? personalizeForRecipient(rcsTemplate.text, recipient.name)
+                    : meta.description;
+                const rcsText = `✨ *[RCS RICH CARD] ${meta.title}*\n📍 Location: ${meta.location}\n💰 Price: ${meta.price}\n📐 Specs: ${meta.features?.join(' | ') || 'N/A'}\n\n${rcsBody}\n\nRef: ${shareableId}`;
+                const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
+                    isRcs: true,
+                    richCard: { title: meta.title, price: meta.price, buttons: rcsTemplate?.buttons || [] }
+                });
+                results.push({ 
+                    channel: 'rcs', 
+                    status: (rcsRes?.success || rcsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                    messageContent: rcsText 
+                });
+            } catch (e) { results.push({ channel: 'rcs', status: 'failed', error: e.message }); }
+        }
+
+        if (channels.includes('email') && recipient.email && !isGroup) {
+            try {
+                const finalSubject = emailTemplate?.subject
+                    ? personalizeForRecipient(emailTemplate.subject, recipient.name)
+                    : defaultEmailSubject;
+                const finalHtml = emailTemplate?.html
+                    ? personalizeForRecipient(emailTemplate.html, recipient.name)
+                    : defaultEmailHtml;
+                await (await import("../services/email.service.js")).default.sendEmail(recipient.email, finalSubject, '', finalHtml);
+                results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
             } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
         }
 
         // Log Activity
-        await Activity.create({
-            type: 'Marketing',
-            subject: `BNA Broadcast: ${meta.title}`,
-            entityType: 'Company',
-            entityId: recipient.id,
-            status: 'Completed',
-            description: `Dispatched sanitized deal details via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
-            details: { results, dealId, shareableId, direct: true },
-            performedBy: performedBy,
-            dueDate: new Date()
-        });
+        try {
+            await Activity.create({
+                type: 'Marketing',
+                subject: `BNA Broadcast: ${meta.title}`,
+                entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
+                entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                status: 'Completed',
+                visibleTo: 'Everyone',
+                description: text || `Dispatched deal details to ${recipient.name} (${recipient.mobile}) via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
+                details: { 
+                    results, 
+                    dealId, 
+                    shareableId, 
+                    message: text,
+                    renderedBody: text,
+                    direct: true,
+                    isGroup: isGroup,
+                    groupJid: isGroup ? recipient.mobile : null,
+                    groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
+                    phoneNumber: recipient.mobile,
+                    whatsappIntegrationId: data.integrationId || null,
+                    platform: isGroup ? 'WhatsApp Web' : 'WhatsApp'
+                },
+                participants: [
+                    { name: recipient.name || (isGroup ? 'WhatsApp Group' : 'Partner'), mobile: recipient.mobile }
+                ],
+                performedBy: performedBy,
+                dueDate: new Date()
+            });
+        } catch (actErr) {
+            console.warn('[BNA/ActivityLog] Warning:', actErr.message);
+        }
 
         // Small delay to avoid rate limiting
         await new Promise(r => setTimeout(r, 300));

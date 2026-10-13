@@ -1628,7 +1628,9 @@ const LeadMatchingPage = ({ onNavigate}) => {
                         >
                             <option value="free_text">No Template (Active Chat Session Only)</option>
                             {marketingTemplates.map(t => (
-                                <option key={t.id || t.name} value={t.name || t.id}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
+                                <option key={t.id || t.name} value={t.name || t.id}>
+                                    {t.channel === 'web' ? '⚡ ' : t.channel === 'cloud_api' ? '🔵 ' : ''}{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})
+                                </option>
                             ))}
                         </select>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>

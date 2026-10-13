@@ -1,14 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUserContext } from '../../context/UserContext';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
 const LoginPage = () => {
-    const { login } = useUserContext();
+    const { login, token } = useUserContext();
+    const navigate = useNavigate();
     const [formData, setFormData] = useState({ email: '', password: '' });
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+
+    // Auto-redirect to CRM dashboard if already authenticated
+    useEffect(() => {
+        if (token) {
+            navigate('/', { replace: true });
+        }
+    }, [token, navigate]);
 
     // Dynamic Wallpaper Logic: Night view starts at 6:30 PM (18:30)
     const currentHour = new Date().getHours();
@@ -23,6 +32,7 @@ const LoginPage = () => {
         setLoading(false);
         if (result.success) {
             toast.success('Access Granted. Welcome back.');
+            navigate('/', { replace: true });
         } else {
             toast.error(result.error || 'Authentication failed');
         }

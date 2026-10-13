@@ -73,6 +73,25 @@ class WhatsAppAccountAuthorizationService {
         const allowedRoles = Array.isArray(account.allowedRoles) ? account.allowedRoles : [];
         const allowedDepartments = Array.isArray(account.allowedDepartments) ? account.allowedDepartments : [];
         const allowedUsers = Array.isArray(account.allowedUsers) ? account.allowedUsers : [];
+        const connectedById = String(account.connectedBy?._id || account.connectedBy || '');
+
+        // 🌟 ENTERPRISE RULE: Baileys (WhatsApp Web) accounts are strictly per-user personal channels
+        if (account.provider === 'BAILEYS' || account.connectionType === 'QR_SCANNER') {
+            // 1. If user is the creator/owner of this WhatsApp Web session, they have access
+            if (connectedById && connectedById === userId) {
+                return true;
+            }
+            // 2. If user is explicitly listed in allowedUsers, they have access
+            if (allowedUsers.some(u => String(u?._id || u || '') === userId)) {
+                return true;
+            }
+            // 3. System Admins can view/manage all accounts for monitoring
+            if (this.isAdmin(user)) {
+                return true;
+            }
+            // 4. Otherwise, strictly isolated from other non-admin users
+            return false;
+        }
 
         const hasRoleRestrictions = allowedRoles.length > 0;
         const hasDeptRestrictions = allowedDepartments.length > 0;
@@ -112,7 +131,7 @@ class WhatsAppAccountAuthorizationService {
         }
 
         // 5. Account has NO restrictions configured:
-        // - If it's the Default (Main API) account: Allow for backward compatibility
+        // - If it's the Default (Main API) account: Allow for all authenticated users (company central channel)
         if (account.isDefault || account.id === 'legacy_default' || account._id === 'legacy_default') {
             return true;
         }

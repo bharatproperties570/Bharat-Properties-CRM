@@ -6,7 +6,7 @@ import config from "../config/env.js";
 export const authenticate = async (req, res, next) => {
     console.log(`[AUTH_AUDIT] Authenticating request: ${req.method} ${req.url}`);
     try {
-        const token = req.headers.authorization?.split(" ")[1];
+        const token = req.headers.authorization?.split(" ")[1] || req.query?.token || req.cookies?.token;
 
         if (!token) {
             throw new AppError("No token provided", 401);

@@ -19,6 +19,9 @@ import Contact from "../models/Contact.js";
 import Lookup from "../models/Lookup.js";
 import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
+import { interpolateTemplateText } from "../utils/templateResolver.js";
+import RealtimeHub from "../services/RealtimeHub.js";
+import { BaileysConnectionManager } from "../services/baileysQueue/BaileysConnectionManager.js";
 
 /**
  * Enterprise Enrichment Layer:
@@ -1440,11 +1443,44 @@ export const sendReply = async (req, res) => {
         const smsSvc = (await import('../services/SmsService.js')).default;
 
         const cleanPhone = normalizePhone(phoneNumber);
-        const targetAccount = integrationId || fromPhoneNumberId || null;
+        let targetAccount = integrationId || fromPhoneNumberId || null;
+        const isGroup = cleanPhone.includes('@g.us');
+
+        const normChannel = String(channel || '').toLowerCase().trim();
+        const isWhatsAppWeb = normChannel === 'whatsapp_web' || normChannel === 'wa_web' || (isGroup && normChannel !== 'sms' && normChannel !== 'rcs');
+        const isWhatsAppAPI = normChannel === 'whatsapp_api' || normChannel === 'wa_api' || (normChannel === 'whatsapp' && !isWhatsAppWeb);
+        const isWhatsApp = isWhatsAppWeb || isWhatsAppAPI;
+
+        // Auto-resolve accounts based on provider selection
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+        if (isWhatsAppWeb) {
+            let baileysAcc = null;
+            if (targetAccount && mongoose.Types.ObjectId.isValid(targetAccount)) {
+                baileysAcc = await WhatsAppIntegration.findOne({ _id: targetAccount, provider: 'BAILEYS', status: 'ACTIVE' }).lean();
+            }
+            if (!baileysAcc) {
+                baileysAcc = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).lean();
+            }
+            if (baileysAcc) {
+                targetAccount = baileysAcc._id.toString();
+            }
+        } else if (isWhatsAppAPI) {
+            let metaAcc = null;
+            if (targetAccount && mongoose.Types.ObjectId.isValid(targetAccount)) {
+                metaAcc = await WhatsAppIntegration.findOne({ _id: targetAccount, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+            }
+            if (!metaAcc) {
+                metaAcc = await WhatsAppIntegration.findOne({ provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+            }
+            if (metaAcc) {
+                targetAccount = metaAcc._id.toString();
+            }
+        }
+
         let dispatchResult = { success: false, error: "Initialization error" };
 
         // 🛡️ Enterprise RBAC Check for WhatsApp Outbound
-        if (channel.toLowerCase() === 'whatsapp') {
+        if (isWhatsApp) {
             const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
             const authCheck = await WhatsAppAccountAuthorizationService.assertCanSend(req.user, targetAccount);
             if (!authCheck.authorized) {
@@ -1452,25 +1488,52 @@ export const sendReply = async (req, res) => {
             }
         }
 
+        // 🌟 Enterprise Variable Interpolation before dispatching
+        let outgoingMessage = message;
+        if (outgoingMessage && outgoingMessage.includes('{{')) {
+            try {
+                const cleanPhone10 = cleanPhone.replace(/\D/g, '').slice(-10);
+                const leadDoc = await Lead.findOne({ mobile: { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean();
+                const contactDoc = !leadDoc ? await Contact.findOne({ 'phones.number': { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean() : null;
+                outgoingMessage = interpolateTemplateText(outgoingMessage, {
+                    recipient: leadDoc || contactDoc || { mobile: cleanPhone },
+                    agent: {
+                        fullName: req.user?.fullName || req.user?.name || 'Bharat Properties Consultant',
+                        mobile: req.user?.phone || req.user?.mobile || '+91 94160 35570',
+                        email: req.user?.email || 'info@bharatproperties.co'
+                    }
+                });
+            } catch (tplErr) {
+                console.warn('[ActivityController/sendReply] Variable interpolation error:', tplErr.message);
+            }
+        }
+
+        const dispatchOpts = {
+            provider: isWhatsAppWeb ? 'BAILEYS' : 'META',
+            channel: isWhatsAppWeb ? 'whatsapp_web' : 'whatsapp_api',
+            platform: isWhatsAppWeb ? 'WhatsApp Web' : 'Direct',
+            integrationId: targetAccount
+        };
+
         try {
-            if (channel.toLowerCase() === 'whatsapp') {
+            if (isWhatsApp) {
                 if (attachment) {
                     // Send Media/Special Message
                     dispatchResult = await waService.sendMedia(
                         cleanPhone,
                         attachment.type,
                         attachment.url,
-                        attachment.caption || message,
+                        attachment.caption || outgoingMessage,
                         attachment.filename,
-                        { ...attachment, integrationId: targetAccount } // Pass whole object for location/contacts + integrationId
+                        { ...attachment, ...dispatchOpts }
                     );
                 } else {
-                    dispatchResult = await waService.sendMessage(cleanPhone, message, { integrationId: targetAccount });
+                    dispatchResult = await waService.sendMessage(cleanPhone, outgoingMessage, dispatchOpts);
                 }
-            } else if (channel.toLowerCase() === 'sms') {
-                dispatchResult = await smsSvc.sendSms(cleanPhone, message, { entityId, entityType });
+            } else if (normChannel === 'sms') {
+                dispatchResult = await smsSvc.sendSms(cleanPhone, outgoingMessage, { entityId, entityType });
             } else {
-                dispatchResult = await waService.sendMessage(cleanPhone, message, { integrationId: targetAccount });
+                dispatchResult = await waService.sendMessage(cleanPhone, outgoingMessage, dispatchOpts);
             }
         } catch (dispatchError) {
             console.error(`[EnterpriseHub] Dispatch Engine CRASH:`, dispatchError);
@@ -1483,19 +1546,29 @@ export const sendReply = async (req, res) => {
 
         // 2. Log Activity
         const activity = await Activity.create({
-            type: 'Messaging',
-            subject: `Reply via ${channel.toUpperCase()}${attachment ? ` (${attachment.type})` : ''}`,
-            description: message || `Sent ${attachment.type}`,
+            type: isWhatsApp ? 'WhatsApp' : 'Messaging',
+            subject: `Reply via ${isWhatsAppWeb ? 'WhatsApp Web' : isWhatsAppAPI ? 'WhatsApp API' : channel.toUpperCase()}${attachment ? ` (${attachment.type})` : ''}`,
+            description: outgoingMessage || `Sent ${attachment?.type || 'message'}`,
             entityType: entityType || 'Unknown',
             entityId: entityId || null,
             dueDate: new Date(),
             status: 'Completed',
+            visibleTo: 'Everyone',
             details: {
                 direction: 'Outgoing',
-                platform: channel === 'whatsapp' ? 'WhatsApp' : 'SMS',
+                platform: isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS'),
+                provider: isWhatsAppWeb ? 'BAILEYS' : (isWhatsAppAPI ? 'META' : undefined),
+                channel: isWhatsAppWeb ? 'whatsapp_web' : (isWhatsAppAPI ? 'whatsapp_api' : normChannel),
+                message: outgoingMessage,
+                text: outgoingMessage,
+                renderedBody: outgoingMessage,
+                from: targetAccount || null,
+                to: cleanPhone,
                 messageId: dispatchResult.messageId || dispatchResult.sid,
                 isManualReply: true,
                 phoneNumber: cleanPhone,
+                isGroup: isGroup,
+                groupJid: isGroup ? cleanPhone : null,
                 attachment: attachment || null,
                 whatsappIntegrationId: targetAccount || null
             },
@@ -1504,23 +1577,20 @@ export const sendReply = async (req, res) => {
         });
 
         // 3. Update Conversation History
-        const displayMsg = message || `Sent ${attachment?.type || 'file'}`;
+        const displayMsg = outgoingMessage || `Sent ${attachment?.type || 'file'}`;
 
-        const convFilter = { phoneNumber: cleanPhone };
-        if (targetAccount) {
-            const existingConv = await Conversation.findOne({
-                phoneNumber: cleanPhone,
-                $or: [
-                    { whatsappIntegrationId: targetAccount },
-                    { businessPhoneNumberId: targetAccount },
-                    { whatsappIntegrationId: null },
-                    { whatsappIntegrationId: { $exists: false } }
-                ]
-            }).sort({ updatedAt: -1 });
+        const clean10 = cleanPhone.replace(/\D/g, '').slice(-10);
+        const convPhoneVariants = isGroup
+            ? [cleanPhone]
+            : [cleanPhone, '91' + clean10, '+91' + clean10, clean10];
 
-            if (existingConv) {
-                convFilter._id = existingConv._id;
-            }
+        let convFilter = { phoneNumber: { $in: convPhoneVariants } };
+        const existingConv = await Conversation.findOne(convFilter).sort({ updatedAt: -1 });
+
+        if (existingConv) {
+            convFilter = { _id: existingConv._id };
+        } else {
+            convFilter = { phoneNumber: cleanPhone };
         }
 
         await Conversation.findOneAndUpdate(
@@ -1531,17 +1601,75 @@ export const sendReply = async (req, res) => {
                         role: 'assistant',
                         content: displayMsg,
                         timestamp: new Date(),
-                        metadata: attachment ? { attachment } : null
+                        metadata: {
+                            attachment: attachment || null,
+                            whatsappIntegrationId: targetAccount || null,
+                            platform: isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS'),
+                            provider: isWhatsAppWeb ? 'BAILEYS' : (isWhatsAppAPI ? 'META' : undefined),
+                            channel: isWhatsAppWeb ? 'whatsapp_web' : (isWhatsAppAPI ? 'whatsapp_api' : normChannel)
+                        }
                     }
                 },
                 $set: {
                     status: 'handed_off',
                     updatedAt: new Date(),
+                    isGroup: isGroup,
+                    channel: isWhatsApp ? 'whatsapp' : normChannel,
+                    'metadata.unreadCount': 0,
+                    'metadata.platform': isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS'),
+                    'metadata.provider': isWhatsAppWeb ? 'BAILEYS' : (isWhatsAppAPI ? 'META' : undefined),
                     ...(targetAccount ? { whatsappIntegrationId: targetAccount } : {})
+                },
+                $setOnInsert: {
+                    phoneNumber: cleanPhone
                 }
             },
             { upsert: true }
         );
+
+        // ⚡ Enterprise Real-Time Broadcast to all active client tabs
+        try {
+            RealtimeHub.emitMessage({
+                phone: cleanPhone,
+                channel: isWhatsApp ? 'WhatsApp' : 'SMS',
+                platform: isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS'),
+                provider: isWhatsAppWeb ? 'BAILEYS' : (isWhatsAppAPI ? 'META' : undefined),
+                message: {
+                    id: dispatchResult.messageId || dispatchResult.sid || activity._id.toString(),
+                    sender: 'agent',
+                    fromMe: true,
+                    text: displayMsg,
+                    time: new Date().toISOString(),
+                    timestamp: new Date().toISOString(),
+                    status: 'delivered',
+                    metadata: {
+                        attachment: attachment || null,
+                        whatsappIntegrationId: targetAccount || null,
+                        platform: isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS'),
+                        provider: isWhatsAppWeb ? 'BAILEYS' : (isWhatsAppAPI ? 'META' : undefined)
+                    }
+                },
+                streamItem: {
+                    _id: activity._id,
+                    type: isWhatsApp ? 'WhatsApp' : 'Messaging',
+                    via: isWhatsApp ? 'WhatsApp' : 'SMS',
+                    subject: activity.subject,
+                    description: `You: ${displayMsg}`,
+                    snippet: `You: ${displayMsg}`,
+                    participant: cleanPhone,
+                    phone: cleanPhone,
+                    phoneNumber: cleanPhone,
+                    outcome: 'Delivered',
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toISOString(),
+                    platform: isWhatsAppWeb ? 'WhatsApp Web' : (isWhatsAppAPI ? 'Direct' : 'SMS Gateway'),
+                    isGroup: isGroup,
+                    whatsappIntegrationId: targetAccount || null
+                }
+            });
+        } catch (emitErr) {
+            console.error('[sendReply] RealtimeHub emit error:', emitErr.message);
+        }
 
         res.json({ success: true, data: activity });
     } catch (error) {
@@ -1583,94 +1711,174 @@ export const getMessagingActivities = async (req, res) => {
         };
 
         if (channel !== 'all') {
-            if (channel === 'Voice') query.type = { $in: ['Voice', 'voice', 'Call', 'call'] };
-            else if (channel === 'Email') query.type = { $in: ['Email', 'email', 'Marketing', 'marketing'] };
-            else if (channel === 'WhatsApp') query.type = { $in: ['WhatsApp', 'whatsapp', 'Marketing', 'marketing'] };
-            else if (channel === 'SMS') query.type = { $in: ['SMS', 'sms', 'Marketing', 'marketing'] };
-            else query.type = channel;
+            if (channel === 'Voice') {
+                query.$and.push({ type: { $in: ['Voice', 'voice', 'Call', 'call'] } });
+            } else if (channel === 'Email') {
+                query.$and.push({
+                    $or: [
+                        { type: { $in: ['Email', 'email'] } },
+                        { $and: [{ type: { $in: ['Marketing', 'marketing'] } }, { 'details.results.channel': 'email' }] }
+                    ]
+                });
+            } else if (channel === 'WhatsApp') {
+                query.$and.push({
+                    $or: [
+                        { type: { $in: ['WhatsApp', 'whatsapp'] } },
+                        { 'details.platform': { $regex: /^whatsapp$/i } }
+                    ]
+                });
+            } else if (channel === 'WhatsApp_API') {
+                query.$and.push({
+                    $and: [
+                        { $or: [
+                            { type: { $in: ['WhatsApp', 'whatsapp'] } },
+                            { 'details.platform': { $regex: /^whatsapp$/i } }
+                        ]},
+                        { 'details.platform': { $ne: 'WhatsApp Web' } },
+                        { 'details.isGroup': { $ne: true } },
+                        { 'details.groupJid': { $exists: false } }
+                    ]
+                });
+            } else if (channel === 'WhatsApp_Web') {
+                query.$and.push({
+                    $and: [
+                        { $or: [
+                            { type: { $in: ['WhatsApp', 'whatsapp'] } },
+                            { 'details.platform': { $regex: /^whatsapp/i } }
+                        ]},
+                        { $or: [
+                            { 'details.platform': 'WhatsApp Web' },
+                            { 'details.whatsappIntegrationId': { $exists: true, $ne: null } },
+                            { 'details.isGroup': true },
+                            { 'details.groupJid': { $exists: true, $ne: null } }
+                        ]}
+                    ]
+                });
+            } else if (channel === 'WAGroups') {
+                query.$and.push({
+                    $or: [
+                        { 'details.isGroup': true },
+                        { 'details.groupJid': { $exists: true, $ne: null } }
+                    ]
+                });
+            } else if (channel === 'SMS') {
+                query.$and.push({
+                    $or: [
+                        { type: { $in: ['SMS', 'sms'] } },
+                        { $and: [{ type: { $in: ['Marketing', 'marketing'] } }, { 'details.results.channel': 'sms' }] }
+                    ]
+                });
+            } else {
+                query.$and.push({ type: channel });
+            }
         }
 
         // Fetch larger batch for grouping but limited to manageable size
+        const convFilter = (channel === 'all')
+            ? {}
+            : (channel === 'WhatsApp_API'
+                ? { 
+                    channel: { $in: ['whatsapp', 'WhatsApp'] }, 
+                    isGroup: { $ne: true }, 
+                    $or: [{ whatsappIntegrationId: { $exists: false } }, { whatsappIntegrationId: null }],
+                    phoneNumber: { $not: /@g\.us$/ }
+                  }
+                : (channel === 'WhatsApp_Web'
+                    ? { 
+                        channel: { $in: ['whatsapp', 'WhatsApp'] }, 
+                        $or: [
+                            { isGroup: true }, 
+                            { whatsappIntegrationId: { $exists: true, $ne: null } },
+                            { phoneNumber: /@g\.us$/ }
+                        ] 
+                      }
+                    : (channel === 'WAGroups'
+                        ? { 
+                            channel: { $in: ['whatsapp', 'WhatsApp'] }, 
+                            $or: [{ isGroup: true }, { phoneNumber: /@g\.us$/ }] 
+                          }
+                        : (['Web_Chat', 'website_chat'].includes(channel)
+                            ? { channel: 'website_chat' }
+                            : { _id: null })
+                      )
+                  )
+              );
+
         const [activities, rawConversations, rawSmsLogs] = await Promise.all([
             Activity.find(query).sort({ createdAt: -1 }).limit(800).lean(),
-            Conversation.find(channel === 'all' || channel === 'WhatsApp' ? {} : { _id: null }).sort({ updatedAt: -1 }).limit(100).lean(),
+            Conversation.find(convFilter).sort({ updatedAt: -1 }).limit(100).lean(),
             SmsLog.find(channel === 'all' || channel === 'SMS' ? {} : { _id: null }).sort({ sentAt: -1 }).limit(100).lean()
         ]);
 
-        // 2. High-Performance Identity Mapping (O(1) Access)
-        const identifierSet = new Set();
-        const entityIdSet = new Set();
-
-        const collectIdentifiers = (phone, email, eId) => {
-            if (phone) identifierSet.add(normalizePhone(phone));
-            if (email) identifierSet.add(email.toLowerCase());
-            if (eId && mongoose.Types.ObjectId.isValid(eId)) entityIdSet.add(eId.toString());
-        };
-
-        activities.forEach(a => {
-            collectIdentifiers(a.details?.phoneNumber || a.participants?.[0]?.mobile, a.details?.email || a.participants?.[0]?.email, a.entityId);
-        });
-        rawConversations.forEach(c => collectIdentifiers(c.phoneNumber, null, c.lead || c.contact));
-        rawSmsLogs.forEach(l => collectIdentifiers(l.to, null, l.entityId));
-
-        const uniqueIdentifiers = Array.from(identifierSet);
-        const uniqueEntityIds = Array.from(entityIdSet).map(id => new mongoose.Types.ObjectId(id));
-
-        // Parallel Identity Lookup
-        const [leads, contacts] = await Promise.all([
-            Lead.find({ $or: [{ mobile: { $in: uniqueIdentifiers } }, { email: { $in: uniqueIdentifiers } }, { _id: { $in: uniqueEntityIds } }] }).select('firstName lastName fullName mobile email').lean(),
-            Contact.find({ $or: [{ 'phones.number': { $in: uniqueIdentifiers } }, { 'emails.address': { $in: uniqueIdentifiers } }, { _id: { $in: uniqueEntityIds } }] }).select('name phones emails').lean()
-        ]);
-
-        const identityMap = new Map();
-        const identifierToNameMap = new Map();
-
-        leads.forEach(l => {
-            const name = l.fullName || `${l.firstName} ${l.lastName}`.trim();
-            identityMap.set(l._id.toString(), { name, model: 'Lead', phone: l.mobile });
-            if (l.mobile) identifierToNameMap.set(normalizePhone(l.mobile), name);
-            if (l.email) identifierToNameMap.set(l.email.toLowerCase(), name);
-        });
-        contacts.forEach(c => {
-            const name = c.name;
-            identityMap.set(c._id.toString(), { name, model: 'Contact', phone: c.phones?.[0]?.number });
-            c.phones?.forEach(p => { if (p.number) identifierToNameMap.set(normalizePhone(p.number), name); });
-            c.emails?.forEach(e => { if (e.address) identifierToNameMap.set(e.address.toLowerCase(), name); });
-        });
-
-        // 3. Thread Correlation Mapping
-        const convLookupMap = new Map();
-        rawConversations.forEach(c => convLookupMap.set(normalizePhone(c.phoneNumber), c));
-
-        // 4. Unified Stream Construction (Map-based Grouping)
+        // 2. High-Performance Grouping First (Reduce 1,000+ items to ~50 conversation threads)
         const conversationsMap = new Map();
 
-        const getParticipantName = (identifier, entityId, fallback) => {
-            if (entityId && identityMap.has(entityId.toString())) return identityMap.get(entityId.toString()).name;
-            if (identifierToNameMap.has(identifier)) return identifierToNameMap.get(identifier);
-            return fallback || identifier;
-        };
-
-        // 4.1 Process Activities
+        // 2.1 Process Activities
         activities.forEach(a => {
-            const phone = normalizePhone(a.details?.phoneNumber || a.participants?.[0]?.mobile || '');
+            const rawActPhone = a.details?.phoneNumber || a.details?.from || a.details?.to || a.details?.recipient || a.details?.senderPhone || a.participants?.[0]?.mobile || (a.details?.mobileId ? a.details.mobileId.split('_')[0] : '');
+            const phone = normalizePhone(rawActPhone);
             const email = (a.details?.email || a.participants?.[0]?.email || '').toLowerCase();
             const identifier = phone || email;
             if (!identifier) return;
 
-            const via = ['Call', 'Voice', 'call', 'voice'].includes(a.type) ? 'Voice' : (['Email', 'email'].includes(a.type) ? 'Email' : (['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' ? 'WhatsApp' : 'SMS'));
+            const isGroupItem = Boolean(a.details?.isGroup || a.details?.groupJid || (phone && phone.includes('@g.us')) || (rawActPhone && rawActPhone.includes('@g.us')));
+
+            let via = 'SMS';
+            if (isGroupItem) {
+                via = 'WhatsApp';
+            } else if (['Call', 'Voice', 'call', 'voice'].includes(a.type)) {
+                via = 'Voice';
+            } else if (['Email', 'email'].includes(a.type) || a.details?.results?.some(r => r.channel === 'email')) {
+                via = 'Email';
+            } else if (['WhatsApp', 'whatsapp'].includes(a.type) || 
+                       ['whatsapp', 'whatsapp web'].includes(a.details?.platform?.toLowerCase()) ||
+                       a.details?.whatsappIntegrationId ||
+                       a.details?.results?.some(r => r.channel === 'whatsapp')) {
+                via = 'WhatsApp';
+            } else if (['website chat', 'web chat', 'webchat'].includes((a.type || '').toLowerCase()) || ['website', 'web chat'].includes(a.details?.platform?.toLowerCase())) {
+                via = 'Web Chat';
+            } else if (['SMS', 'sms'].includes(a.type) || a.details?.results?.some(r => r.channel === 'sms')) {
+                via = 'SMS';
+            }
+
             let key = `${identifier}_${via}`;
             if (via === 'WhatsApp') {
                 const bizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId || 'default';
                 key = `${identifier}_WhatsApp_${bizId}`;
             }
 
-            const isOutbound = (a.details?.direction || '').toLowerCase() === 'outbound' || (a.subject||'').toLowerCase().includes('outgoing') || ['Sent', 'Delivered'].includes(a.outcome || a.status);
+            const isOutbound = (a.details?.direction || '').toLowerCase() === 'outbound' || (a.details?.direction || '').toLowerCase() === 'outgoing' || (a.subject||'').toLowerCase().includes('outgoing') || ['Sent', 'Delivered'].includes(a.outcome || a.status);
             const prefix = isOutbound ? 'You: ' : 'Customer: ';
-            let baseSnippet = a.description || a.subject || '';
+            let baseSnippet = a.details?.renderedBody || a.details?.message || a.details?.text || a.description || a.subject || '';
+            if (/^Sent via\s+/i.test(baseSnippet.trim()) && a.subject && !/^Sent via\s+/i.test(a.subject.trim())) {
+                baseSnippet = a.subject;
+            }
             const snippet = (baseSnippet.startsWith('You: ') || baseSnippet.startsWith('Customer: ')) ? baseSnippet : prefix + baseSnippet;
 
-            if (!conversationsMap.has(key) || new Date(a.createdAt) > new Date(conversationsMap.get(key).timestamp)) {
+            let resolvedGroupName = null;
+            if (isGroupItem) {
+                resolvedGroupName = a.details?.groupName || 
+                                    (a.participants?.[0]?.name && !a.participants[0].name.includes('@g.us') ? a.participants[0].name : null);
+                if (!resolvedGroupName) {
+                    try {
+                        resolvedGroupName = BaileysConnectionManager.getGroupSubject(phone) || BaileysConnectionManager.getGroupSubject(rawActPhone);
+                    } catch (e) {}
+                }
+                if (!resolvedGroupName && a.subject && a.subject.startsWith('Group WhatsApp: ')) {
+                    const rawSubj = a.subject.replace('Group WhatsApp: ', '').trim();
+                    if (!rawSubj.includes('@g.us')) resolvedGroupName = rawSubj;
+                }
+            }
+
+            const hasPrelinkedEntity = !!(a.entityId && a.entityType && !['Unknown', 'System'].includes(a.entityType));
+            const initialParticipantName = isGroupItem
+                ? (resolvedGroupName || (a.participants?.[0]?.name && !a.participants[0].name.includes('@g.us') ? a.participants[0].name : null) || 'WhatsApp Group')
+                : (a.participants?.[0]?.name || identifier);
+
+            const actualActTime = a.details?.deliveredAt || a.details?.sentAt || a.details?.timestamp || a.performedAt || a.createdAt;
+
+            if (!conversationsMap.has(key) || new Date(actualActTime) > new Date(conversationsMap.get(key).timestamp)) {
+                const isWaWeb = isGroupItem || (via === 'WhatsApp' && (a.details?.whatsappIntegrationId || a.details?.platform === 'WhatsApp Web'));
                 conversationsMap.set(key, {
                     _id: a._id,
                     type: a.type,
@@ -1678,64 +1886,125 @@ export const getMessagingActivities = async (req, res) => {
                     subject: a.subject,
                     description: snippet,
                     snippet: snippet,
-                    entityType: a.entityType,
-                    entityId: a.entityId,
-                    participant: getParticipantName(identifier, a.entityId, a.participants?.[0]?.name),
+                    entityType: a.entityType !== 'Unknown' ? a.entityType : null,
+                    entityId: a.entityId || null,
+                    participant: initialParticipantName,
                     phone: phone,
                     phoneNumber: phone,
                     email: email,
-                    isMatched: !!(a.entityId && a.entityType !== 'Unknown'),
+                    isMatched: hasPrelinkedEntity,
                     outcome: a.details?.status || a.outcome || a.status || 'Delivered',
-                    timestamp: a.createdAt,
-                    date: a.createdAt,
+                    timestamp: actualActTime,
+                    date: actualActTime,
+                    platform: isGroupItem ? 'WhatsApp Web' : (a.details?.platform || (isWaWeb ? 'WhatsApp Web' : 'Direct')),
+                    isGroup: isGroupItem,
+                    groupJid: isGroupItem ? (a.details?.groupJid || phone) : null,
+                    groupName: isGroupItem ? (resolvedGroupName || initialParticipantName) : null,
                     whatsappIntegrationId: a.details?.whatsappIntegrationId || null,
                     businessPhoneNumberId: a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId || null,
-                    // 🚀 Ultra-Fast: Don't send thread in list view
                     thread: []
                 });
             }
         });
 
-        // 4.2 Process SMS Logs & Conversations
+        // 2.2 Process SMS Logs
         rawSmsLogs.forEach(log => {
             const phone = normalizePhone(log.to);
             const key = `${phone}_SMS`;
+            const hasPrelinkedEntity = !!log.entityId;
+
             if (!conversationsMap.has(key) || new Date(log.sentAt) > new Date(conversationsMap.get(key).timestamp)) {
                 conversationsMap.set(key, {
                     _id: log._id, type: 'Messaging', via: 'SMS', subject: 'Outgoing SMS',
-                    description: log.message, snippet: log.message, entityType: log.entityType, entityId: log.entityId,
-                    participant: getParticipantName(phone, log.entityId), phone, phoneNumber: phone,
-                    isMatched: !!log.entityId, outcome: log.status, timestamp: log.sentAt, date: log.sentAt,
+                    description: log.message, snippet: log.message,
+                    entityType: log.entityType || null,
+                    entityId: log.entityId || null,
+                    participant: phone, phone, phoneNumber: phone,
+                    isMatched: hasPrelinkedEntity, outcome: log.status, timestamp: log.sentAt, date: log.sentAt,
+                    platform: 'SMS Gateway',
+                    isGroup: false,
                     thread: []
                 });
             }
         });
 
+        // 2.3 Process Raw Conversations
         rawConversations.forEach(c => {
-            const phone = normalizePhone(c.phoneNumber);
-            const bizId = c.businessPhoneNumberId || 'default';
-            const key = `${phone}_WhatsApp_${bizId}`;
-            const existingActivity = conversationsMap.get(key);
+            const isWebChat = c.channel === 'website_chat';
+            let phone = normalizePhone(c.phoneNumber);
 
-            if (!existingActivity || new Date(c.updatedAt) > new Date(existingActivity.timestamp)) {
-                const lastMsg = c.messages?.[c.messages.length - 1];
-                let snippet = 'Conversation started';
+            let extractedName = null;
+            if (!phone && c.messages && c.messages.length > 0) {
+                for (const m of c.messages) {
+                    if (m.content) {
+                        const contactMatch = m.content.match(/Name=([^,\n]+),\s*Mobile=(\+?\d+)/i);
+                        if (contactMatch) {
+                            extractedName = contactMatch[1].trim();
+                            phone = normalizePhone(contactMatch[2]);
+                            break;
+                        }
+                        const numMatch = m.content.match(/(?:\+91|91)?([6-9]\d{9})/);
+                        if (numMatch && !phone) {
+                            phone = normalizePhone(numMatch[1]);
+                        }
+                    }
+                }
+            }
+
+            const bizId = c.businessPhoneNumberId || 'default';
+            const via = isWebChat ? 'Web Chat' : 'WhatsApp';
+            const type = isWebChat ? 'Website Chat' : 'WhatsApp';
+            const subject = isWebChat ? 'Website Live Chat' : 'WhatsApp Chat';
+            const platform = isWebChat ? 'Website' : (c.whatsappIntegrationId ? 'WhatsApp Web' : 'Direct');
+
+            const identifier = phone || (isWebChat ? (c.metadata?.sessionId || c._id.toString()) : '');
+            if (!identifier) return;
+
+            const key = isWebChat ? `${identifier}_WebChat` : `${phone}_WhatsApp_${bizId}`;
+            const existingActivity = conversationsMap.get(key);
+            const lastMsg = c.messages?.[c.messages.length - 1];
+            const actualMsgTime = lastMsg?.timestamp || lastMsg?.createdAt || c.metadata?.lastMessageAt || c.createdAt;
+
+            if (!existingActivity || new Date(actualMsgTime) > new Date(existingActivity.timestamp)) {
+                let snippet = isWebChat ? 'Website chat started' : 'Conversation started';
 
                 if (lastMsg) {
                     const prefix = lastMsg.role === 'user' ? 'Customer: ' : 'You: ';
                     snippet = prefix + (lastMsg.content || '');
                 } else if (existingActivity) {
-                    // Preserve the real activity snippet if the conversation itself lacks message history
-                    snippet = existingActivity.snippet || existingActivity.description || 'Conversation started';
+                    snippet = existingActivity.snippet || existingActivity.description || snippet;
                 }
 
+                let defaultName = phone;
+                if (isWebChat) {
+                    defaultName = extractedName || c.title || `Website Visitor #${(c.metadata?.sessionId || c._id.toString()).slice(-4)}`;
+                } else if (c.isGroup) {
+                    defaultName = c.title || phone;
+                } else if (!phone) {
+                    defaultName = 'Unknown';
+                }
+
+                const hasPrelinkedEntity = !!(c.lead || c.contact);
+                const participantName = existingActivity?.participant || (c.lead ? 'Lead' : (c.contact ? 'Contact' : defaultName));
+
                 conversationsMap.set(key, {
-                    _id: c._id, type: 'WhatsApp', via: 'WhatsApp', subject: 'WhatsApp Chat',
-                    description: snippet, snippet: snippet,
-                    entityType: c.lead ? 'Lead' : 'Contact', entityId: c.lead || c.contact,
-                    participant: existingActivity?.participant || getParticipantName(phone, c.lead || c.contact),
-                    phone, phoneNumber: phone,
-                    isMatched: !!(c.lead || c.contact), outcome: c.status || 'Active', timestamp: c.updatedAt, date: c.updatedAt,
+                    _id: c._id,
+                    type,
+                    via,
+                    subject,
+                    description: snippet,
+                    snippet: snippet,
+                    entityType: c.lead ? 'Lead' : (c.contact ? 'Contact' : null),
+                    entityId: c.lead || c.contact || null,
+                    participant: participantName,
+                    phone: phone || (isWebChat ? 'Website Chat' : ''),
+                    phoneNumber: phone || (isWebChat ? 'Website Chat' : ''),
+                    isMatched: hasPrelinkedEntity,
+                    outcome: c.status || 'Active',
+                    timestamp: actualMsgTime,
+                    date: actualMsgTime,
+                    platform,
+                    isGroup: !!c.isGroup,
                     whatsappIntegrationId: c.whatsappIntegrationId || null,
                     businessPhoneNumberId: c.businessPhoneNumberId || null,
                     businessPhoneNumber: c.businessPhoneNumber || null,
@@ -1744,15 +2013,156 @@ export const getMessagingActivities = async (req, res) => {
             }
         });
 
+        // 3. Ultra-Fast Identity Lookup (ONLY for the distinct ~50 conversation threads)
+        const identifierSet = new Set();
+        const entityIdSet = new Set();
+
+        for (const item of conversationsMap.values()) {
+            if (item.phone) identifierSet.add(item.phone);
+            if (item.phoneNumber) identifierSet.add(item.phoneNumber);
+            if (item.email) identifierSet.add(item.email.toLowerCase());
+            if (item.entityId && mongoose.Types.ObjectId.isValid(item.entityId)) {
+                entityIdSet.add(item.entityId.toString());
+            }
+        }
+
+        const uniqueIdentifiers = Array.from(identifierSet);
+        const uniqueEntityIds = Array.from(entityIdSet).map(id => new mongoose.Types.ObjectId(id));
+
+        // Generate only exact clean10 and +91 variants (cuts search space by 80%)
+        const searchIdentifiers = new Set(uniqueIdentifiers);
+        uniqueIdentifiers.forEach(id => {
+            const clean10 = id.replace(/\D/g, '').slice(-10);
+            if (clean10 && clean10.length === 10) {
+                searchIdentifiers.add(clean10);
+                searchIdentifiers.add('+91' + clean10);
+            }
+        });
+        const allSearchIdentifiers = Array.from(searchIdentifiers);
+
+        // Targeted Parallel Lookup with partial index compliance
+        const [leads, contacts] = await Promise.all([
+            allSearchIdentifiers.length || uniqueIdentifiers.length || uniqueEntityIds.length
+                ? Lead.find({
+                    $or: [
+                        { mobile: { $in: allSearchIdentifiers } },
+                        { email: { $in: uniqueIdentifiers } },
+                        { _id: { $in: uniqueEntityIds } }
+                    ]
+                }).select('firstName lastName fullName mobile email').lean()
+                : Promise.resolve([]),
+            allSearchIdentifiers.length || uniqueIdentifiers.length || uniqueEntityIds.length
+                ? Contact.find({
+                    isDeleted: { $ne: true },
+                    isMerged: { $ne: true },
+                    $or: [
+                        { 'phones.number': { $in: allSearchIdentifiers } },
+                        { 'emails.address': { $in: uniqueIdentifiers } },
+                        { _id: { $in: uniqueEntityIds } }
+                    ]
+                }).select('name phones emails').lean()
+                : Promise.resolve([])
+        ]);
+
+        const identityMap = new Map();
+        const identifierToNameMap = new Map();
+
+        leads.forEach(l => {
+            const name = l.fullName || `${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Lead';
+            const data = { name, entityId: l._id, entityType: 'Lead', phone: l.mobile, email: l.email };
+            identityMap.set(l._id.toString(), data);
+            if (l.mobile) {
+                const norm = normalizePhone(l.mobile);
+                const clean10 = norm.replace(/\D/g, '').slice(-10);
+                if (clean10) identifierToNameMap.set(clean10, data);
+                identifierToNameMap.set(norm, data);
+                identifierToNameMap.set(l.mobile, data);
+            }
+            if (l.email) identifierToNameMap.set(l.email.toLowerCase(), data);
+        });
+
+        contacts.forEach(c => {
+            const name = c.name || 'Contact';
+            const primaryPhone = c.phones?.[0]?.number;
+            const primaryEmail = c.emails?.[0]?.address;
+            const data = { name, entityId: c._id, entityType: 'Contact', phone: primaryPhone, email: primaryEmail };
+            identityMap.set(c._id.toString(), data);
+            c.phones?.forEach(p => {
+                if (p.number) {
+                    const norm = normalizePhone(p.number);
+                    const clean10 = norm.replace(/\D/g, '').slice(-10);
+                    if (clean10) identifierToNameMap.set(clean10, data);
+                    identifierToNameMap.set(norm, data);
+                    identifierToNameMap.set(p.number, data);
+                }
+            });
+            c.emails?.forEach(e => {
+                if (e.address) identifierToNameMap.set(e.address.toLowerCase(), data);
+            });
+        });
+
+        // 4. Enrich conversation heads with resolved entity matches
+        const resolveEntityMatch = (identifier, phone, email, entityId) => {
+            if (entityId && identityMap.has(entityId.toString())) {
+                return identityMap.get(entityId.toString());
+            }
+            const clean10 = phone ? phone.replace(/\D/g, '').slice(-10) : '';
+            if (clean10 && identifierToNameMap.has(clean10)) {
+                return identifierToNameMap.get(clean10);
+            }
+            if (phone && identifierToNameMap.has(phone)) {
+                return identifierToNameMap.get(phone);
+            }
+            if (email && identifierToNameMap.has(email)) {
+                return identifierToNameMap.get(email);
+            }
+            if (identifier && identifierToNameMap.has(identifier)) {
+                return identifierToNameMap.get(identifier);
+            }
+            return null;
+        };
+
+        for (const item of conversationsMap.values()) {
+            const matched = resolveEntityMatch(item.phone || item.email, item.phone, item.email, item.entityId);
+            if (matched) {
+                if (!item.isGroup) {
+                    item.participant = matched.name || item.participant;
+                }
+                item.entityType = matched.entityType || item.entityType;
+                item.entityId = matched.entityId || item.entityId;
+                item.isMatched = true;
+            }
+        }
+
         // 5. Final Filtering, Sort & Paginate
         let unified = Array.from(conversationsMap.values());
 
+        // Strict Enterprise Channel Filter on the unified conversationsMap
+        if (channel !== 'all') {
+            if (channel === 'Voice') {
+                unified = unified.filter(i => i.via === 'Voice' || ['Call', 'call', 'Voice', 'voice'].includes(i.type));
+            } else if (channel === 'SMS') {
+                unified = unified.filter(i => i.via === 'SMS');
+            } else if (channel === 'Email') {
+                unified = unified.filter(i => i.via === 'Email');
+            } else if (channel === 'WhatsApp_API') {
+                unified = unified.filter(i => (i.via === 'WhatsApp' || i.type === 'WhatsApp') && i.platform !== 'WhatsApp Web' && !i.isGroup && !i.details?.isGroup && !(i.phone && i.phone.includes('@g.us')) && !(i.phoneNumber && i.phoneNumber.includes('@g.us')));
+            } else if (channel === 'WhatsApp_Web') {
+                unified = unified.filter(i => (i.via === 'WhatsApp' || i.type === 'WhatsApp') && (i.platform === 'WhatsApp Web' || i.whatsappIntegrationId || i.isGroup || i.details?.isGroup || (i.phone && i.phone.includes('@g.us'))));
+            } else if (channel === 'WAGroups') {
+                unified = unified.filter(i => i.isGroup || i.details?.isGroup || (i.phone && i.phone.includes('@g.us')));
+            } else if (['Web_Chat', 'website_chat'].includes(channel)) {
+                unified = unified.filter(i => i.via === 'Web Chat');
+            }
+        }
+
         if (subTab === 'matched') unified = unified.filter(i => i.isMatched);
         else if (subTab === 'unmatched') unified = unified.filter(i => !i.isMatched);
+        else if (subTab === 'groups') unified = unified.filter(i => i.isGroup || i.details?.isGroup || (i.phone && i.phone.includes('@g.us')));
 
         if (search) {
             const s = search.toLowerCase();
-            unified = unified.filter(i => i.participant.toLowerCase().includes(s) || i.phone.includes(s) || (i.description || '').toLowerCase().includes(s));
+            unified = unified.filter(i => (i.participant || '').toLowerCase().includes(s) || (i.phone || '').includes(s) || (i.description || '').toLowerCase().includes(s));
         }
 
         unified.sort((a, b) => (new Date(a.timestamp) - new Date(b.timestamp)) * sortOrder);
@@ -1761,12 +2171,10 @@ export const getMessagingActivities = async (req, res) => {
         const startIndex = (page - 1) * limit;
         const paginatedData = unified.slice(startIndex, startIndex + Number(limit));
 
-        // 6. Global KPI Counts (Fast count)
-        const [totalStreams, matchedStreams, failedStreams] = await Promise.all([
-            Activity.countDocuments(query),
-            Activity.countDocuments({ ...query, $or: [{ entityId: { $exists: true, $ne: null } }, { 'details.isMatched': true }] }),
-            Activity.countDocuments({ ...query, outcome: 'Failed' })
-        ]);
+        // 6. Global KPI Counts (O(1) in-memory calculation from unified streams)
+        const totalStreams = unified.length;
+        const matchedStreams = unified.filter(i => i.isMatched).length;
+        const failedStreams = unified.filter(i => i.outcome === 'Failed' || i.status === 'Failed').length;
 
         res.json({
             success: true,
@@ -1822,81 +2230,502 @@ export const getThreadHistory = async (req, res) => {
             } catch (e) {}
         }
 
-        // Build Conversation Query
-        let convQuery = { phoneNumber: phone };
-        const isWhatsAppChannel = via ? (via.toLowerCase() === 'whatsapp') : true;
+        // Build Multi-Format Phone & Identity Variants (Enterprise Omnichannel Correlation)
+        const isGroup = identifier.includes('@g.us');
+        const cleanPhone10 = phone ? String(phone).replace(/\D/g, '').slice(-10) : '';
+        const phoneRegex = cleanPhone10 ? new RegExp(cleanPhone10 + '$') : null;
 
-        if (isWhatsAppChannel && (targetBizPhoneId || targetIntegrationId)) {
-            if (targetBizPhoneId && targetIntegrationId) {
-                convQuery.$or = [
-                    { businessPhoneNumberId: targetBizPhoneId },
-                    { whatsappIntegrationId: targetIntegrationId }
-                ];
-            } else if (targetBizPhoneId) {
-                convQuery.businessPhoneNumberId = targetBizPhoneId;
-            } else if (targetIntegrationId) {
-                convQuery.whatsappIntegrationId = targetIntegrationId;
-            }
+        const phoneVariants = new Set([identifier, phone]);
+        if (cleanPhone10 && cleanPhone10.length === 10) {
+            phoneVariants.add(cleanPhone10);
+            phoneVariants.add('+91' + cleanPhone10);
+            phoneVariants.add('91' + cleanPhone10);
+            phoneVariants.add('0' + cleanPhone10);
+            phoneVariants.add('+91 ' + cleanPhone10);
+        }
+        const phoneVariantList = Array.from(phoneVariants);
+
+        // Build Conversation Query
+        const phoneFilters = isGroup 
+            ? [{ phoneNumber: identifier }] 
+            : [
+                { phoneNumber: { $in: phoneVariantList } },
+                ...(phoneRegex ? [{ phoneNumber: phoneRegex }] : []),
+                ...(mongoose.Types.ObjectId.isValid(identifier) ? [{ _id: new mongoose.Types.ObjectId(identifier) }] : []),
+                { 'metadata.sessionId': identifier }
+              ];
+        let convQuery = { $or: phoneFilters };
+
+        const reqVia = (via || '').trim().toLowerCase();
+        const isWhatsApp = ['whatsapp', 'whatsapp_api', 'whatsapp_web'].includes(reqVia) || !via;
+        const isWebChat = ['web chat', 'web_chat', 'website_chat'].includes(reqVia);
+        const isSMS = reqVia === 'sms';
+        const isVoice = ['voice', 'call'].includes(reqVia);
+        const isEmail = reqVia === 'email';
+
+        if (isWebChat) {
+            convQuery = { $and: [convQuery, { channel: 'website_chat' }] };
+        } else if (isWhatsApp && via) {
+            const accFilters = [{ channel: { $in: ['whatsapp', 'WhatsApp'] } }];
+            if (targetBizPhoneId) accFilters.push({ businessPhoneNumberId: targetBizPhoneId });
+            if (targetIntegrationId) accFilters.push({ whatsappIntegrationId: targetIntegrationId });
+            convQuery = { $and: [convQuery, ...accFilters] };
+        } else if (isSMS) {
+            convQuery = { $and: [convQuery, { channel: 'sms' }] };
+        } else if (isVoice || isEmail) {
+            convQuery = { _id: null };
         }
 
-        // 1. Fetch relevant records in parallel
-        const [activities, conversations] = await Promise.all([
+        // 1. Fetch relevant records in parallel with comprehensive omnichannel match
+        const activityMatchConditions = isGroup
+            ? [
+                { 'details.groupJid': identifier },
+                { 'details.phoneNumber': identifier },
+                { 'details.to': identifier },
+                { 'details.from': identifier },
+                { 'participants.mobile': identifier }
+              ]
+            : [
+                { 'details.phoneNumber': { $in: phoneVariantList } },
+                { 'details.from': { $in: phoneVariantList } },
+                { 'details.to': { $in: phoneVariantList } },
+                { 'details.recipient': { $in: phoneVariantList } },
+                { 'details.senderPhone': { $in: phoneVariantList } },
+                { 'participants.mobile': { $in: phoneVariantList } },
+                ...(phoneRegex ? [
+                    { 'details.phoneNumber': phoneRegex },
+                    { 'details.from': phoneRegex },
+                    { 'details.to': phoneRegex },
+                    { 'participants.mobile': phoneRegex }
+                ] : []),
+                ...(email ? [
+                    { 'details.email': email },
+                    { 'participants.email': email }
+                ] : [])
+            ];
+
+        const [activities, conversations, templatesDoc, matchedLead, matchedContact] = await Promise.all([
             Activity.find({
                 $and: [
-                    { ...visibilityFilter },
-                    { $or: [
-                        { 'details.phoneNumber': phone },
-                        { 'details.phoneNumber': identifier },
-                        { 'details.email': email },
-                        { 'participants.mobile': phone },
-                        { 'participants.email': email }
-                    ]}
+                    {
+                        $or: [
+                            { ...visibilityFilter },
+                            { assignedTo: { $exists: false } },
+                            { visibleTo: 'Everyone' }
+                        ]
+                    },
+                    { $or: activityMatchConditions }
                 ]
             }).sort({ createdAt: 1 }).lean(),
-            Conversation.find(convQuery).lean()
+            Conversation.find(convQuery).lean(),
+            mongoose.models.SystemSetting ? mongoose.models.SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean().catch(() => null) : null,
+            phoneRegex ? Lead.findOne({ mobile: phoneRegex }).populate('assignedTo', 'fullName name mobile phone email').lean() : null,
+            phoneRegex ? Contact.findOne({ 'phones.number': phoneRegex }).populate('assignedTo', 'fullName name mobile phone email').lean() : null
         ]);
 
-        // 2. Unify and Sort
-        let filteredActivities = activities;
-        if (isWhatsAppChannel && (targetBizPhoneId || targetIntegrationId)) {
-            filteredActivities = activities.filter(a => {
-                const isWa = ['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' || a.details?.platform === 'whatsapp';
-                if (!isWa) return true;
-                const aBizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId;
-                const aIntId = a.details?.whatsappIntegrationId || a.details?.integrationId;
-                if (aBizId && targetBizPhoneId && String(aBizId) !== targetBizPhoneId) {
-                    return false;
-                }
-                if (aIntId && targetIntegrationId && String(aIntId) !== targetIntegrationId) {
-                    return false;
-                }
-                return true;
-            });
+        // Collect linked Deal IDs for any marketing broadcasts
+        const linkedDealIds = (activities || [])
+            .map(a => a.details?.dealId)
+            .filter(id => id && mongoose.Types.ObjectId.isValid(id));
+        const dealMap = new Map();
+        if (linkedDealIds.length > 0) {
+            try {
+                const deals = await Deal.find({ _id: { $in: linkedDealIds } }).lean();
+                deals.forEach(d => dealMap.set(d._id.toString(), d));
+            } catch (dErr) {}
         }
 
-        let thread = filteredActivities.map(a => {
-            let text = a.description || a.subject;
+        const recipientContext = {
+            firstName: matchedLead?.firstName || (matchedContact?.name ? matchedContact.name.split(' ')[0] : '') || '',
+            lastName: matchedLead?.lastName || matchedContact?.surname || '',
+            name: (matchedLead ? `${matchedLead.firstName || ''} ${matchedLead.lastName || ''}`.trim() : matchedContact?.name) || '',
+            mobile: matchedLead?.mobile || matchedContact?.phones?.[0]?.number || phone,
+            phone: phone,
+            email: matchedLead?.email || matchedContact?.emails?.[0]?.address || email,
+            requirement: matchedLead?.requirement || matchedLead?.requirementType || '',
+            location: matchedLead?.location || matchedLead?.locCity || '',
+            budget: matchedLead?.budget || matchedLead?.budgetMin || '',
+            status: matchedLead?.status || ''
+        };
+
+        const agentContext = {
+            fullName: matchedLead?.assignedTo?.fullName || matchedLead?.assignedTo?.name || matchedContact?.assignedTo?.fullName || req.user?.fullName || 'Bharat Properties Consultant',
+            mobile: matchedLead?.assignedTo?.mobile || matchedLead?.assignedTo?.phone || req.user?.phone || '+91 94160 35570',
+            email: matchedLead?.assignedTo?.email || req.user?.email || 'info@bharatproperties.co'
+        };
+
+        // Build fast template lookup cache
+        const templateMap = new Map();
+        if (templatesDoc?.value && Array.isArray(templatesDoc.value)) {
+            templatesDoc.value.forEach(t => {
+                if (t.name) templateMap.set(String(t.name).trim().toLowerCase(), t);
+                if (t.id) templateMap.set(String(t.id).trim().toLowerCase(), t);
+                if (t._id) templateMap.set(String(t._id).trim().toLowerCase(), t);
+            });
+        }
+        const defaultTemplates = [
+            {
+                name: 'property_owner_feedback',
+                body: 'Hello {{OwnerName}},\n\nThis is {{EmployeeName}} from Bharat Properties.\n\nRegarding your {{PropertyType}}:\n\n📋 Discussion Summary: {{DiscussionSummary}}\n\nFor any queries, contact us at {{EmployeeMobile}}.\n\nThank you for your time!',
+                components: [
+                    { type: 'HEADER', format: 'IMAGE' },
+                    { type: 'BODY', text: 'Hello {{OwnerName}},\n\nThis is {{EmployeeName}} from Bharat Properties.\n\nRegarding your {{PropertyType}}:\n\n📋 Discussion Summary: {{DiscussionSummary}}\n\nFor any queries, contact us at {{EmployeeMobile}}.\n\nThank you for your time!' },
+                    { type: 'BUTTONS', buttons: [
+                        { type: 'QUICK_REPLY', text: 'Update Feedback' },
+                        { type: 'QUICK_REPLY', text: 'Status is Correct' }
+                    ]}
+                ]
+            },
+            {
+                name: 'welcome_lead',
+                body: 'Namaste! Welcome to Bharat Properties.\nThank you for reaching out to us. Our property advisor will connect with you shortly with prime options matching your requirements.',
+                components: [
+                    { type: 'HEADER', format: 'TEXT', text: 'Namaste & Welcome' },
+                    { type: 'BODY', text: 'Namaste! Welcome to Bharat Properties.\nThank you for reaching out to us. Our property advisor will connect with you shortly with prime options matching your requirements.' },
+                    { type: 'FOOTER', text: 'Bharat Properties • Client Success' }
+                ]
+            },
+            {
+                name: 'lead_match_full_v1',
+                body: 'Hi {{1}} 👋\n\nBased on your specific requirement, our AI Match Center has identified a highly suitable property for you:\n\n{{2}}\n\nAre you interested in scheduling a site visit or receiving more details?',
+                components: [
+                    { type: 'HEADER', format: 'TEXT', text: '🌟 Premium Property Match' },
+                    { type: 'BODY', text: 'Hi {{1}} 👋\n\nBased on your specific requirement, our AI Match Center has identified a highly suitable property for you:\n\n{{2}}\n\nAre you interested in scheduling a site visit or receiving more details?' },
+                    { type: 'FOOTER', text: 'Bharat Properties • Enterprise CRM' },
+                    { type: 'BUTTONS', buttons: [
+                        { type: 'QUICK_REPLY', text: '✅ Yes, send details' },
+                        { type: 'QUICK_REPLY', text: '📅 Schedule Visit' }
+                    ]}
+                ]
+            },
+            {
+                name: 'sample_property_launch',
+                body: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs!',
+                components: [
+                    { type: 'HEADER', format: 'TEXT', text: 'New Project Launch' },
+                    { type: 'BODY', text: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs!' }
+                ]
+            },
+            {
+                name: 'property_match_alert',
+                body: 'Hi {{1}}! 🏠\n\nWe found an exclusive property match that aligns perfectly with your requirements:\n\n{{2}}\n\nWould you like to schedule a priority site visit or receive more details?\n\nBest regards,\n{{3}}\nBharat Properties',
+                components: [
+                    { type: 'HEADER', format: 'TEXT', text: '🏠 Exclusive Property Match' },
+                    { type: 'BODY', text: 'Hi {{1}}! 🏠\n\nWe found an exclusive property match that aligns perfectly with your requirements:\n\n{{2}}\n\nWould you like to schedule a priority site visit or receive more details?\n\nBest regards,\n{{3}}\nBharat Properties' },
+                    { type: 'BUTTONS', buttons: [
+                        { type: 'QUICK_REPLY', text: '📅 Schedule Visit' },
+                        { type: 'QUICK_REPLY', text: 'ℹ️ More Info' }
+                    ]}
+                ]
+            },
+            {
+                name: 'fb_interested_hot_wa',
+                body: "Hi {owner}, great to hear from you regarding {{unit_number}}! I'm finalizing the details for our {{due_date}} meeting. Please keep the original documents ready.",
+                components: [
+                    { type: 'BODY', text: "Hi {owner}, great to hear from you regarding {{unit_number}}! I'm finalizing the details for our {{due_date}} meeting. Please keep the original documents ready." }
+                ]
+            },
+            {
+                name: 'fb_interested_warm_wa',
+                body: "Hi {owner}, thank you for your time discussing {{unit_number}}. I've noted your interest for {{lead_status}}. I will share some market comparisons shortly.",
+                components: [
+                    { type: 'BODY', text: "Hi {owner}, thank you for your time discussing {{unit_number}}. I've noted your interest for {{lead_status}}. I will share some market comparisons shortly." }
+                ]
+            }
+        ];
+        defaultTemplates.forEach(t => {
+            if (!templateMap.has(t.name.toLowerCase())) {
+                templateMap.set(t.name.toLowerCase(), t);
+            }
+        });
+
+        // 🚀 Enterprise Helper: Resolve comprehensive media, button, header, and footer metadata
+        const resolveMessageMetadata = (details, rawText) => {
+            const d = details || {};
+            const searchKey = (d.templateId || (rawText && rawText.match(/template:\s*([a-zA-Z0-9_\-]+)/i)?.[1]) || rawText || '').trim().toLowerCase();
+            const matchedTpl = searchKey ? templateMap.get(searchKey) : null;
+
+            // 1. Resolve Attachment (Image, Document, Video, Audio, Location, Contacts, Catalogue)
+            let attachment = d.attachment || null;
+            if (!attachment) {
+                if (d.mediaUrl || d.url || d.fileUrl || d.imageUrl) {
+                    const mediaUrl = d.mediaUrl || d.url || d.fileUrl || d.imageUrl;
+                    const type = d.type || (mediaUrl.match(/\.(jpeg|jpg|png|gif|webp)/i) ? 'image' : (mediaUrl.match(/\.(mp4|mov|avi)/i) ? 'video' : (mediaUrl.match(/\.(mp3|ogg|wav|m4a)/i) ? 'audio' : 'document')));
+                    attachment = {
+                        type,
+                        url: mediaUrl,
+                        filename: d.filename || d.fileName || (type === 'document' ? 'Document' : ''),
+                        caption: d.caption || '',
+                        mimeType: d.mimeType
+                    };
+                } else if (d.location) {
+                    attachment = {
+                        type: 'location',
+                        location: d.location
+                    };
+                } else if (d.contacts || d.contact) {
+                    attachment = {
+                        type: 'contacts',
+                        contacts: Array.isArray(d.contacts) ? d.contacts : [d.contact]
+                    };
+                } else if (d.catalogue || d.product) {
+                    attachment = {
+                        type: 'catalogue',
+                        catalogue: d.catalogue || d.product
+                    };
+                }
+            }
+
+            // 2. Resolve Buttons (API Buttons, Quick Replies, Call-to-Actions, Flows)
+            let buttons = d.buttons || d.interactive?.action?.buttons || null;
+            if (!buttons && matchedTpl?.components) {
+                const btnComp = matchedTpl.components.find(c => c.type === 'BUTTONS' || c.type === 'buttons');
+                if (btnComp?.buttons) {
+                    buttons = btnComp.buttons;
+                }
+            }
+
+            // 3. Resolve Header & Footer
+            let header = d.header || null;
+            let footer = d.footer || null;
+            if (matchedTpl?.components) {
+                const headComp = matchedTpl.components.find(c => c.type === 'HEADER' || c.type === 'header');
+                if (headComp && !header) {
+                    header = {
+                        format: headComp.format || 'TEXT',
+                        text: headComp.text,
+                        url: headComp.url || headComp[headComp.format?.toLowerCase()]?.link
+                    };
+                }
+                const footComp = matchedTpl.components.find(c => c.type === 'FOOTER' || c.type === 'footer');
+                if (footComp && !footer) {
+                    footer = footComp.text;
+                }
+            }
+
+            return {
+                ...d,
+                attachment,
+                buttons,
+                header,
+                footer,
+                templateId: d.templateId || (matchedTpl ? matchedTpl.name : null)
+            };
+        };
+
+        const resolveActivityText = (a) => {
+            // 1. Highest priority: detailed rendered message or message text
+            let text = a.details?.renderedBody || a.details?.message || a.details?.text || a.description || a.subject || '';
+
+            // 2. Marketing results WhatsApp content
             if (a.type?.toLowerCase() === 'marketing' && a.details?.results) {
                 const waRes = a.details.results.find(r => r.channel === 'whatsapp');
                 if (waRes && waRes.messageContent) {
                     text = waRes.messageContent;
                 }
             }
+
+            // 3. Resolve Deal Broadcast if text is a placeholder like "Sent via whatsapp" or matches "Sent via..."
+            const isSentViaPlaceholder = !text || /^Sent via\s+/i.test(text.trim()) || text.trim().toLowerCase() === 'sent via whatsapp';
+            if (isSentViaPlaceholder && a.details?.dealId && dealMap.has(String(a.details.dealId))) {
+                const d = dealMap.get(String(a.details.dealId));
+                const meta = d.broadcastMetadata;
+                if (meta) {
+                    const features = (meta.features || []).filter(f => !String(f).includes('[object Object]'));
+                    let waMsg = `*🏢 BROKER UPDATE: ${meta.title || d.projectName || 'Property Deal'}*\n\n` +
+                        `💰 *Price:* ${meta.price || d.priceInWords || ''}\n` +
+                        `📍 *Location:* ${meta.location || 'Kurukshetra'}\n` +
+                        (features.length > 0 ? `📐 *Specs:* ${features.join(' | ')}\n\n` : '\n');
+                    if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+                        meta.detailedSections.forEach(sec => {
+                            waMsg += `*${sec.title.toUpperCase()}*\n`;
+                            (sec.lines || []).forEach(l => { waMsg += `• ${l}\n`; });
+                            waMsg += `\n`;
+                        });
+                    }
+                    if (meta.description) {
+                        waMsg += `📝 *Details:* ${meta.description}\n\n`;
+                    }
+                    waMsg += `🔗 *Ref:* ${d.shareableId || a.details?.shareableId || 'BP-DEAL'}\n` +
+                        `Contact us for commission split and site visits.`;
+                    text = waMsg;
+                }
+            } else if (isSentViaPlaceholder && a.subject && !/^Sent via\s+/i.test(a.subject.trim())) {
+                text = a.subject;
+            }
+
+            // 4. Strip administrative / synthetic logger prefixes
+            text = text.replace(/^Auto WhatsApp dispatched to [^:]+:\s*/i, '');
+            text = text.replace(/^Synced from mobile[:.]\s*/i, '');
+
+            // Clean format for Call logs if viewed in Voice / All channel
+            if (a.type?.toLowerCase() === 'call' || ['mobile', 'call', 'voice'].includes(a.details?.platform?.toLowerCase())) {
+                const isIncomingCall = (a.details?.direction || '').toLowerCase().includes('in') || (a.subject || '').toLowerCase().includes('incoming');
+                const dir = isIncomingCall ? 'Incoming Call' : 'Outgoing Call';
+                let dur = a.details?.duration;
+                if (!dur && a.description) {
+                    const m = a.description.match(/Duration:\s*(\d+s?)/i);
+                    if (m) dur = m[1];
+                }
+                const durStr = dur ? ` (${String(dur).endsWith('s') ? dur : dur + 's'})` : '';
+                text = `📞 ${dir}${durStr}`;
+            }
+
+            // 4. Check if text is just a template ID or placeholder log
+            const templateId = a.details?.templateId || (text.match(/template:\s*([a-zA-Z0-9_\-]+)/i)?.[1]) || null;
+            const isPlaceholder = !text || 
+                /^Sent (?:text|template|image|document|video) media \/ template:/i.test(text) ||
+                templateMap.has(text.trim().toLowerCase()) ||
+                (templateId && text.trim().toLowerCase() === String(templateId).trim().toLowerCase());
+
+            if (templateId || isPlaceholder) {
+                const searchKey = (templateId || text).trim().toLowerCase();
+                const matchedTpl = templateMap.get(searchKey);
+                if (matchedTpl) {
+                    let tplBody = matchedTpl.body || matchedTpl.content || '';
+                    if (!tplBody && matchedTpl.components) {
+                        const bodyComp = matchedTpl.components.find(c => c.type === 'BODY');
+                        if (bodyComp?.text) tplBody = bodyComp.text;
+                    }
+
+                    if (tplBody) {
+                        // Interpolate variables if present in details
+                        let rendered = tplBody;
+                        const params = a.details?.templateComponents || a.details?.parameters || [];
+                        if (Array.isArray(params)) {
+                            params.forEach((p, idx) => {
+                                const val = typeof p === 'string' ? p : (p?.text || '');
+                                if (val) {
+                                    rendered = rendered.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, 'g'), val);
+                                    if (p?.parameter_name) {
+                                        rendered = rendered.replace(new RegExp(`\\{\\{${p.parameter_name}\\}\\}`, 'gi'), val);
+                                    }
+                                }
+                            });
+                        }
+                        if (a.details?.namedParams && typeof a.details.namedParams === 'object') {
+                            Object.entries(a.details.namedParams).forEach(([k, v]) => {
+                                rendered = rendered.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'gi'), String(v));
+                            });
+                        }
+                        text = rendered;
+                    }
+                }
+            }
+
+            // 5. Enterprise Universal Variable Interpolation (Resolves any surviving raw placeholders)
+            if (text && text.includes('{{')) {
+                const actRecipient = { ...recipientContext };
+                if (a.participants?.[0]?.name && !actRecipient.name) {
+                    actRecipient.name = a.participants[0].name;
+                    actRecipient.firstName = a.participants[0].name.split(' ')[0];
+                }
+                const actAgent = { ...agentContext };
+                if (a.performedBy && !a.performedBy.toLowerCase().includes('system')) {
+                    actAgent.fullName = a.performedBy;
+                }
+                text = interpolateTemplateText(text, {
+                    recipient: actRecipient,
+                    agent: actAgent,
+                    activity: a
+                });
+            }
+
+            return text;
+        };
+
+        // 2. Unify and Sort — Strict Enterprise Channel Isolation
+        let filteredActivities = activities.filter(a => {
+            const aType = (a.type || '').toLowerCase();
+            const aPlatform = (a.details?.platform || '').toLowerCase();
+
+            if (isWhatsApp && via) {
+                const isWa = ['whatsapp'].includes(aType) || 
+                             ['whatsapp', 'whatsapp web'].includes(aPlatform) ||
+                             (aType === 'marketing' && a.details?.results?.some(r => r.channel === 'whatsapp'));
+                if (!isWa) return false;
+
+                const aBizId = a.details?.businessPhoneNumberId || a.details?.whatsappPhoneNumberId;
+                const aIntId = a.details?.whatsappIntegrationId || a.details?.integrationId;
+                if (aBizId && targetBizPhoneId && String(aBizId) !== targetBizPhoneId) return false;
+                if (aIntId && targetIntegrationId && String(aIntId) !== targetIntegrationId) return false;
+                return true;
+            }
+
+            if (isWebChat) {
+                return ['website chat', 'web chat', 'webchat'].includes(aType) || 
+                       ['website', 'web chat', 'webchat'].includes(aPlatform);
+            }
+
+            if (isSMS) {
+                return ['sms'].includes(aType) || 
+                       ['sms', 'sms gateway'].includes(aPlatform) ||
+                       (aType === 'marketing' && a.details?.results?.some(r => r.channel === 'sms'));
+            }
+
+            if (isVoice) {
+                return ['call', 'voice'].includes(aType) || ['call', 'voice', 'mobile'].includes(aPlatform);
+            }
+
+            if (isEmail) {
+                return ['email'].includes(aType) || ['email'].includes(aPlatform);
+            }
+
+            // If via is 'all' or empty: exclude system tasks, site visits, and raw mobile syncs from chat
+            return ['whatsapp', 'sms', 'email', 'call', 'voice', 'website chat', 'marketing'].includes(aType) ||
+                   ['whatsapp', 'whatsapp web', 'sms', 'sms gateway', 'mobile', 'website'].includes(aPlatform);
+        });
+
+        let thread = filteredActivities.map(a => {
+            const text = resolveActivityText(a);
+            const isIncoming = (a.details?.direction || '').toLowerCase().includes('in');
+            const isHexId = (val) => Boolean(val && /^[0-9a-fA-F]{24}$/.test(String(val).trim()));
+            const senderName = isIncoming
+                ? ((!isHexId(a.performedBy) && a.performedBy !== 'System' ? a.performedBy : null) || a.participants?.[0]?.name || recipientContext.name || a.details?.senderName || 'Customer')
+                : ((!isHexId(a.performedBy) ? a.performedBy : null) || 'Agent');
+
             return {
-                sender: (a.details?.direction || '').toLowerCase().includes('in') ? 'customer' : 'agent',
+                id: a._id,
+                sender: isIncoming ? 'customer' : 'agent',
+                senderName: senderName,
                 text: text,
-                time: a.createdAt,
-                metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
+                time: a.createdAt || a.performedAt,
+                status: a.details?.status || a.outcome || (isIncoming ? 'Received' : 'Delivered'),
+                metadata: resolveMessageMetadata(a.details, a.details?.message || a.description || a.subject)
             };
         });
 
-        if (conversations.length > 0) {
-            const aiMsgs = conversations.flatMap(c => (c.messages || []).map(m => ({
-                sender: m.role === 'user' ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
-                text: m.content,
-                time: m.timestamp,
-                metadata: m.metadata
-            })));
+        const matchingConvs = conversations.filter(c => {
+            const cChan = (c.channel || '').toLowerCase();
+            if (isWebChat) return cChan === 'website_chat';
+            if (isWhatsApp && via) return ['whatsapp'].includes(cChan);
+            if (isSMS) return cChan === 'sms';
+            if (isVoice || isEmail) return false;
+            return true;
+        });
+
+        if (matchingConvs.length > 0) {
+            const aiMsgs = matchingConvs.flatMap(c => (c.messages || []).map(m => {
+                const isIncoming = m.role === 'user';
+                let contentText = m.content || '';
+                if (contentText && contentText.includes('{{')) {
+                    contentText = interpolateTemplateText(contentText, {
+                        recipient: recipientContext,
+                        agent: agentContext
+                    });
+                }
+                return {
+                    id: m._id,
+                    sender: isIncoming ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
+                    senderName: isIncoming
+                        ? (m.metadata?.participant || c.metadata?.senderName || recipientContext.name || 'Member')
+                        : (m.role === 'assistant' ? 'AI Bot' : 'Agent'),
+                    text: contentText,
+                    time: m.timestamp,
+                    status: m.metadata?.status || 'Delivered',
+                    metadata: resolveMessageMetadata(m.metadata, contentText)
+                };
+            }));
             thread = [...thread, ...aiMsgs];
         }
 
@@ -2009,4 +2838,34 @@ export const getPublicActivityDetails = async (req, res) => {
         console.error("[getPublicActivityDetails] Error:", error);
         res.status(500).json({ success: false, message: "Server Error" });
     }
+};
+
+/**
+ * @desc    Establish real-time SSE stream for CRM Communication Hub
+ * @route   GET /api/activities/stream-live
+ */
+export const liveStreamSSE = (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    // Initial ping
+    res.write(`event: CONNECTED\ndata: ${JSON.stringify({ status: 'connected', user: req.user?._id, time: new Date() })}\n\n`);
+
+    RealtimeHub.addClient(res, req.user);
+
+    // Heartbeat every 25s to keep connection alive through proxies
+    const heartbeat = setInterval(() => {
+        try {
+            res.write(': ping\n\n');
+        } catch (e) {
+            clearInterval(heartbeat);
+        }
+    }, 25000);
+
+    req.on('close', () => {
+        clearInterval(heartbeat);
+    });
 };

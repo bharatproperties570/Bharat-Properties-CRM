@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
 import Contact from '../models/Contact.js';
 import Conversation from '../models/Conversation.js';
+import Activity from '../models/Activity.js';
+import RealtimeHub from './RealtimeHub.js';
 
 export const resolveIntegration = async (phone_number_id, waba_id) => {
     if (phone_number_id) {
@@ -109,6 +111,60 @@ export const processMessageEchoes = async (echoes, phone_number_id, waba_id) => 
                 }
             }
         );
+
+        // 3. Log Activity for Communication Hub timeline
+        try {
+            await Activity.create({
+                type: 'WhatsApp',
+                subject: 'WhatsApp Outbound (Mobile Coexistence)',
+                description: textContent,
+                status: 'Completed',
+                performedBy: 'Agent (WhatsApp Business App)',
+                dueDate: msgObj.timestamp,
+                performedAt: msgObj.timestamp,
+                details: {
+                    direction: 'Outgoing',
+                    phoneNumber: customerMobile,
+                    to: customerMobile,
+                    message: textContent,
+                    text: textContent,
+                    renderedBody: textContent,
+                    platform: 'Direct',
+                    provider: 'META',
+                    source: 'smb_message_echo',
+                    waId: echo.id,
+                    businessPhoneNumberId: integration.phoneNumberId,
+                    whatsappIntegrationId: integration._id
+                }
+            });
+        } catch (actErr) {
+            console.error('[WhatsAppCoexistence] Activity log error:', actErr.message);
+        }
+
+        // 4. Real-time broadcast to client tabs
+        try {
+            RealtimeHub.emitMessage({
+                phone: customerMobile,
+                channel: 'WhatsApp',
+                message: {
+                    id: echo.id,
+                    sender: 'agent',
+                    fromMe: true,
+                    text: textContent,
+                    time: msgObj.timestamp.toISOString(),
+                    timestamp: msgObj.timestamp.toISOString(),
+                    status: 'sent',
+                    metadata: {
+                        waId: echo.id,
+                        source: 'smb_message_echo',
+                        businessPhoneNumberId: integration.phoneNumberId,
+                        integrationId: integration._id
+                    }
+                }
+            });
+        } catch (rtErr) {
+            console.error('[WhatsAppCoexistence] RealtimeHub emit error:', rtErr.message);
+        }
     }
 };
 

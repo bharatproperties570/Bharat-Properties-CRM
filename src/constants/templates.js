@@ -14,7 +14,8 @@ export const emailTemplates = [
         name: 'Top Matches Priority',
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
-        tags: ['Leads', 'Priority'],
+        tags: ['Leads', 'Priority', 'Broadcast'],
+        systemContext: ['marketing_broadcast'],
         subject: '🔥 Exclusive Selection: Top property matches for you!',
         content: `Dear {{first_name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{property_list_default}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
@@ -44,9 +45,10 @@ export const emailTemplates = [
         name: 'Market Update / Re-engagement',
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
-        tags: ['Re-engagement'],
-        subject: '💎 New inventory just landed! | Are you still looking in {{property_location}}?',
-        content: `Hi {{first_name}},<br><br>It's been a while since we last spoke! I wanted to give you a quick heads-up that some <strong>exclusive new inventory</strong> has just opened up in {{property_location}} that matches your previous preferences.<br><br>Before these hit the public portals, would you like to see the details?<br><br>Looking forward to reconnecting.<br><br>Best regards,<br>{{agent_name}}`,
+        tags: ['Re-engagement', 'Broadcast'],
+        systemContext: ['marketing_broadcast'],
+        subject: '💎 New inventory just landed! | Exclusive Deal in {{property_location}}',
+        content: `Hi {{first_name}},<br><br>It's been a while since we last spoke! I wanted to give you a quick heads-up that some <strong>exclusive new inventory</strong> has just opened up in {{property_location}} that matches your preferences.<br><br>{{property_list_default}}<br><br>Before these hit the public portals, would you like to see the full dossier?<br><br>Looking forward to reconnecting.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -76,7 +78,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Deal Match', 'Priority', 'Leads'],
         subject: '🏠 Exclusive Property Match Found for You | {{project_name}}',
-        systemContext: ['deal_match', 'deal_match_modal'],
+        systemContext: ['deal_match', 'deal_match_modal', 'marketing_broadcast'],
         content: `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 640px; margin: 0 auto; background: #f8fafc;">
 
   <!-- Header Banner -->
@@ -348,6 +350,7 @@ export const whatsappTemplates = [
     {
         id: 1,
         name: 'Property Presentation',
+        systemContext: ['marketing_broadcast'],
         content: `Hi {{first_name}}! 🏠
 
 I found a *{{property_category}}* that matches your requirement perfectly!
@@ -370,6 +373,7 @@ Bharat Properties
     {
         id: 2,
         name: 'Property Portfolio',
+        systemContext: ['marketing_broadcast'],
         content: `Hi {{first_name}},
 
 As discussed, I've curated a portfolio of *{{properties_count}} premium properties* specifically matching your requirements. 🏠💼
@@ -391,6 +395,7 @@ Bharat Properties
     {
         id: 3,
         name: 'Exclusive Deal Alert',
+        systemContext: ['marketing_broadcast'],
         content: `🔥 *EXCLUSIVE OPPORTUNITY* 🔥
 
 Hi {{first_name}},
@@ -517,6 +522,7 @@ Bharat Properties`,
     {
         id: 8,
         name: 'Price Drop Alert',
+        systemContext: ['marketing_broadcast'],
         content: `🔔 *PRICE DROP ALERT!* 🔔
 
 Hi {{first_name}},
@@ -643,7 +649,7 @@ Bharat Properties
     {
         id: 'tpl_deal_match_wa',
         name: 'Deal Property Match',
-        systemContext: ['deal_match', 'deal_match_modal'],
+        systemContext: ['deal_match', 'deal_match_modal', 'marketing_broadcast'],
         category: 'UTILITY',
         language: 'en',
         content: `Dear {{first_name}},\n\nWe have identified a property that aligns with your criteria.\n\nProject: {{project_name}}\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease let us know if you would like to schedule a viewing or require further details.\n\nRegards,\n{{agent_name}}\nBharat Properties`,
@@ -716,62 +722,86 @@ export const smsTemplates = [
     {
         id: 1,
         name: 'Property Alert',
-        body: 'Hi {{first_name}}, New {{property_category}} available in {{property_location}}! Size: {{property_size}}, Price: Rs{{property_price}}. Visit: {{property_list_dtl}}. Call {{agent_mobile}} - Bharat Properties',
+        systemContext: ['marketing_broadcast'],
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000101',
+        body: 'Hi {{first_name}}, New {{property_category}} available in {{property_location}}! Size: {{property_size}}, Price: {{property_price}}. Details: {{property_list_dtl}}. Call {{agent_mobile}} - Bharat Properties',
         tags: ['Property', 'Alert']
     },
     {
         id: 2,
         name: 'Site Visit Confirmation',
-        body: 'Hi {{first_name}}, Your site visit for {{property_category}} at {{property_location}} is confirmed for {{property_size}}. Agent {{property_price}} will meet you. Call {{property_list_dtl}} for changes. - Bharat Properties',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000102',
+        body: 'Hi {{first_name}}, Your site visit for {{property_category}} at {{property_location}} is confirmed for {{due_date}}. Agent {{agent_name}} will meet you. Call {{agent_mobile}} for changes. - Bharat Properties',
         tags: ['Site Visit', 'Confirmation']
     },
     {
         id: 3,
         name: 'Quick Follow-up',
-        body: 'Hi {{first_name}}, Following up on {{property_category}} in {{property_location}}. Still interested? We have {{property_size}} similar options. Reply YES or call {{property_price}} - {{property_list_dtl}}, Bharat Properties',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000103',
+        body: 'Hi {{first_name}}, Following up on {{property_category}} in {{property_location}}. Still interested? We have {{properties_count}} similar options. Reply YES or call {{agent_mobile}} - Bharat Properties',
         tags: ['Follow-up']
     },
     {
         id: 4,
         name: 'Document Reminder',
-        body: 'Hi {{first_name}}, Reminder: Please submit {{property_category}} for {{property_location}} booking by {{property_size}}. WhatsApp docs to {{property_price}} or email {{property_list_dtl}}. - Bharat Properties',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000104',
+        body: 'Hi {{first_name}}, Reminder: Please submit documents for {{property_location}} booking by {{due_date}}. WhatsApp docs to {{agent_mobile}} or email {{agent_email}}. - Bharat Properties',
         tags: ['Documentation', 'Reminder']
     },
     {
         id: 5,
         name: 'Payment Due',
-        body: 'Hi {{first_name}}, Payment reminder for {{property_category}}: Rs{{property_location}} due on {{property_size}}. Pay via {{property_price}}. Confirm at {{property_list_dtl}}. Thank you! - Bharat Properties',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000105',
+        body: 'Hi {{first_name}}, Payment reminder for {{project_name}}: {{property_price}} due on {{due_date}}. Confirm at {{agent_mobile}}. Thank you! - Bharat Properties',
         tags: ['Payment', 'Reminder']
     },
     {
         id: 6,
         name: 'Price Drop Alert',
-        body: 'PRICE DROP! {{first_name}} in {{property_category}} now Rs{{property_location}} (was Rs{{property_size}}). Save Rs{{property_price}}! Limited time. Call {{property_list_dtl}} NOW - {{agent_mobile}}, Bharat Properties',
+        systemContext: ['marketing_broadcast'],
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000106',
+        body: 'PRICE DROP! {{property_category}} in {{property_location}} ({{property_size}}) now available at {{property_price}}! Limited time deal. Call {{agent_mobile}} NOW - Bharat Properties',
         tags: ['Price Drop', 'Urgent']
     },
     {
         id: 7,
         name: 'Welcome SMS',
-        body: 'Welcome {{first_name}}! I am {{property_category}}, your property consultant at Bharat Properties. Looking for {{property_location}}? Call/WhatsApp {{property_size}} anytime. Lets find your dream home!',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000107',
+        body: 'Welcome {{first_name}}! I am {{agent_name}}, your property consultant at Bharat Properties. Looking in {{property_location}}? Call/WhatsApp {{agent_mobile}} anytime. Lets find your dream home!',
         tags: ['Welcome', 'Onboarding']
     },
     {
         id: 8,
         name: 'Deal Closure',
-        body: 'Congratulations {{first_name}}! Your {{property_category}} booking in {{property_location}} is confirmed. Booking ID: {{property_size}}. Next steps: {{property_price}}. Contact {{property_list_dtl}} - Bharat Properties',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000108',
+        body: 'Congratulations {{first_name}}! Your {{property_category}} booking in {{property_location}} is confirmed. Contact {{agent_mobile}} - Bharat Properties',
         tags: ['Closure', 'Confirmation']
     },
     {
         id: 9,
         name: 'Exclusive Offer',
-        body: 'EXCLUSIVE for you {{first_name}}! {{property_category}} in {{property_location}} - {{property_size}} match! Rs{{property_price}}, {{property_list_dtl}}. Book visit: {{agent_mobile}}. Offer ends {{due_date}} - Bharat Properties',
+        systemContext: ['marketing_broadcast'],
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000109',
+        body: 'EXCLUSIVE for you {{first_name}}! {{property_category}} in {{property_location}} ({{property_size}}) at {{property_price}}. Book visit: {{agent_mobile}}. - Bharat Properties',
         tags: ['Offer', 'Exclusive']
     },
     {
         id: 10,
         name: 'Deal Property Match',
+        dltHeaderId: 'BHRPRP',
+        dltTemplateId: '170716890000110',
         body: 'EXCLUSIVE MATCH 🌟 Hi {{first_name}}, we found a highly sought-after {{property_size}} unit at {{project_name}}, {{property_location}} matching your exact criteria! 🔑 Premium inventory, moving fast at {{property_price}}. Reply YES or call us ASAP to secure a priority viewing! - Bharat Properties',
-        tags: ['Deal Match', 'Priority'], systemContext: ['deal_match', 'deal_match_modal']
+        tags: ['Deal Match', 'Priority'],
+        systemContext: ['deal_match', 'deal_match_modal', 'marketing_broadcast']
     },
     {
         id: 'fb_interested_hot_sms',
@@ -833,7 +863,8 @@ export const rcsTemplates = [
     {
         id: 1,
         name: 'Premium Property Showcase',
-        body: 'Discover Your Dream Home 🏠\n\n{{first_name}} in {{property_category}}\n\nSize: {{property_location}}\nPrice: ₹{{property_size}}\nHighlights: {{property_price}}\n\nExclusive viewing slots available!',
+        systemContext: ['marketing_broadcast'],
+        body: 'Discover Your Dream Home 🏠\n\nHi {{first_name}}, explore our curated {{property_category}} at {{project_name}}!\n\n📍 Location: {{property_location}}\n📐 Size: {{property_size}}\n💰 Price: {{property_price}}\n\nExclusive viewing slots available!',
         media: { type: 'image', url: 'property_image_url' },
         buttons: [
             { type: 'URL', text: 'View Details', url: '{{property_list_dtl}}' },
@@ -845,11 +876,12 @@ export const rcsTemplates = [
     {
         id: 2,
         name: 'New Project Launch',
-        body: '🚀 NEW LAUNCH: {{first_name}}\n\n{{property_category}}\n\n✨ Features:\n{{property_location}}\n\n💎 Early Bird Offer:\n{{property_size}}\n\nLimited units available!',
+        systemContext: ['marketing_broadcast'],
+        body: '🚀 NEW LAUNCH: {{project_name}}\n\nHi {{first_name}}, priority inventory now open for {{property_category}}!\n\n✨ Location: {{property_location}}\n📐 Size: {{property_size}}\n💎 Offer Price: {{property_price}}\n\nLimited units available!',
         media: { type: 'image', url: 'project_banner_url' },
         buttons: [
-            { type: 'URL', text: 'View Brochure', url: '{{property_price}}' },
-            { type: 'PHONE', text: 'Call Now', phone: '{{property_list_dtl}}' },
+            { type: 'URL', text: 'View Brochure', url: '{{property_list_dtl}}' },
+            { type: 'PHONE', text: 'Call Now', phone: '{{agent_mobile}}' },
             { type: 'REPLY', text: 'Get Price List', reply: 'PRICE_LIST' }
         ],
         tags: ['Launch', 'Marketing']
@@ -906,7 +938,8 @@ export const rcsTemplates = [
     {
         id: 7,
         name: 'Exclusive Deal Alert',
-        body: '🔥 EXCLUSIVE MATCH!\n\n{{first_name}}, we found your perfect property!\n\n{{property_category}} in {{property_location}}\nMatch Score: {{property_size}}%\n\nPrice: ₹{{property_price}}\n\n⚡ High demand - Act fast!',
+        systemContext: ['marketing_broadcast'],
+        body: '🔥 EXCLUSIVE MATCH!\n\n{{first_name}}, we found your perfect property!\n\n{{property_category}} in {{property_location}}\nSize: {{property_size}}\n\nPrice: {{property_price}}\n\n⚡ High demand - Act fast!',
         media: { type: 'image', url: 'property_highlight_url' },
         buttons: [
             { type: 'URL', text: 'Full Details', url: '{{property_list_dtl}}' },
@@ -952,12 +985,11 @@ export const rcsTemplates = [
             { type: 'PHONE', text: 'Call Us', phone: '{{property_location}}' }
         ],
         tags: ['Feedback', 'Relationship']
-    }
-, 
+    },
     {
         id: 'tpl_deal_match_rcs',
         name: 'Deal Property Match',
-        systemContext: ['deal_match', 'deal_match_modal'],
+        systemContext: ['deal_match', 'deal_match_modal', 'marketing_broadcast'],
         body: 'Property Match Found 🏠\n\nDear {{first_name}},\n\nWe found a unit in {{project_name}} matching your requirements.\n\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease review and let us know your thoughts.',
         media: { type: 'image', url: 'property_exterior_url' },
         buttons: [

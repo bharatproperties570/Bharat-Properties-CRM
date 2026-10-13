@@ -209,7 +209,7 @@ const DealDetailHeader = ({
                         <span className="mx-2 opacity-30">|</span>
                         <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         <span className="mx-2 opacity-30">|</span>
-                        Source: <span style={{ color: isDark ? 'var(--text-main)' : '#1e293b', fontWeight: 700 }}>{getLookupValue('Source', deal.source) || deal.source || 'Walk-in'}</span>
+                        Source: <span style={{ color: isDark ? 'var(--text-main)' : '#1e293b', fontWeight: 700 }}>{renderValue(getLookupValue('Source', deal.source) || deal.source, 'Walk-in')}</span>
                     </p>
                 </div>
             </div>
@@ -449,10 +449,10 @@ const DealDetailHeader = ({
             }}>
                 <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', whiteSpace: 'nowrap' }}>
-                        {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
+                        {renderValue(deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || deal.assignedTo, 'Unassigned')}
                     </span>
                     <span style={{ fontSize: '0.65rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b', whiteSpace: 'nowrap' }}>
-                        {deal.team?.name || getLookupValue('Team', deal.assignedTo?.team) || 'Standard Team'}
+                        {renderValue(deal.team?.name || getLookupValue('Team', deal.assignedTo?.team), 'Standard Team')}
                     </span>
                 </div>
 

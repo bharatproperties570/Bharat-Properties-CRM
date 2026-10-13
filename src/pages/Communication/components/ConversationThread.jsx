@@ -118,17 +118,17 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                                 {/* 🚀 Rich Media Renderer */}
                                 {msg.metadata?.attachment && (
                                     <div style={{ marginBottom: msg.text ? '8px' : 0 }}>
-                                        {msg.metadata.attachment.type === 'image' && (
+                                        {msg.metadata.attachment.type === 'image' && msg.metadata.attachment.url && (
                                             <img src={msg.metadata.attachment.url} alt="Shared" style={{ maxWidth: '100%', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => window.open(msg.metadata.attachment.url)} />
                                         )}
                                         {msg.metadata.attachment.type === 'video' && (
-                                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', cursor: msg.metadata.attachment.url ? 'pointer' : 'default' }} onClick={() => msg.metadata.attachment.url && window.open(msg.metadata.attachment.url)}>
                                                 <i className="fas fa-play-circle" style={{ fontSize: '1.5rem' }}></i>
                                                 <span>Video File</span>
                                             </div>
                                         )}
                                         {msg.metadata.attachment.type === 'document' && (
-                                            <a href={msg.metadata.attachment.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', color: msg.sender==='customer' ? '#cbd5e1' : '#fff', textDecoration: 'none', background: 'rgba(255,255,255,0.1)', padding: '8px', borderRadius: '6px' }}>
+                                            <a href={msg.metadata.attachment.url || '#'} target={msg.metadata.attachment.url ? '_blank' : '_self'} rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', color: msg.sender==='customer' ? '#cbd5e1' : '#fff', textDecoration: 'none', background: 'rgba(255,255,255,0.1)', padding: '8px', borderRadius: '6px' }}>
                                                 <i className="fas fa-file-alt"></i>
                                                 <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{msg.metadata.attachment.filename || 'Document'}</span>
                                             </a>
@@ -139,10 +139,12 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                                                     <div style={{ fontWeight: 700, fontSize: '0.75rem' }}>📍 {msg.metadata.attachment.location?.name || 'Location Shared'}</div>
                                                     <div style={{ fontSize: '0.68rem', opacity: 0.8, marginTop: '2px' }}>{msg.metadata.attachment.location?.address}</div>
                                                 </div>
-                                                <a href={`https://www.google.com/maps/search/?api=1&query=${msg.metadata.attachment.location?.latitude},${msg.metadata.attachment.location?.longitude}`} target="_blank" rel="noreferrer" 
-                                                    style={{ display: 'block', textAlign: 'center', padding: '6px', background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.7rem', fontWeight: 800, textDecoration: 'none' }}>
-                                                    VIEW ON MAP
-                                                </a>
+                                                {msg.metadata.attachment.location?.latitude && (
+                                                    <a href={`https://www.google.com/maps/search/?api=1&query=${msg.metadata.attachment.location.latitude},${msg.metadata.attachment.location.longitude}`} target="_blank" rel="noreferrer" 
+                                                        style={{ display: 'block', textAlign: 'center', padding: '6px', background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.7rem', fontWeight: 800, textDecoration: 'none' }}>
+                                                        VIEW ON MAP
+                                                    </a>
+                                                )}
                                             </div>
                                         )}
                                         {msg.metadata.attachment.type === 'contacts' && (

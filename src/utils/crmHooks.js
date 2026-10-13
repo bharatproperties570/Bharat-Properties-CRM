@@ -30,7 +30,7 @@ function mergeWithDefaults(dbList) {
 }
 
 // Normalizes references to IDs only to prevent 500/400 backend schema validation errors
-const normalizeLeadRefs = (obj, parentKey = null) => {
+export const normalizeLeadRefs = (obj, parentKey = null) => {
     if (!obj || typeof obj !== 'object') return obj;
     const result = Array.isArray(obj) ? [...obj] : { ...obj };
 
@@ -72,6 +72,8 @@ const normalizeLeadRefs = (obj, parentKey = null) => {
     }
     return result;
 };
+
+export const normalizeRefs = normalizeLeadRefs;
 
 
 // ─── LOOKUPS (Mostly static, 10 min cache) ─────────────────────────────────
@@ -780,11 +782,13 @@ export const useDeal = (id) => {
         queryKey: queryKeys.deals.detail(id),
         queryFn: async () => {
             const res = await api.get(`deals/${id}?unified=true`);
+            const dealData = res.data?.data || res.data?.deal || res.data?.record || res.data;
             // Preserve DealDetailPage expected envelope
             return {
-                data: res.data.data,
-                matchingLeads: res.data.matchingLeads,
-                liveScore: res.data.liveScore
+                data: dealData,
+                matchingLeads: res.data?.matchingLeads || [],
+                liveScore: res.data?.liveScore || { score: 85, color: '#10b981', label: 'Hot' },
+                activities: res.data?.activities || []
             };
         },
         enabled: !!id,

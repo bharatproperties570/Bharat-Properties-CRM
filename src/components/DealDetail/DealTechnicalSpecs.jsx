@@ -64,10 +64,10 @@ const DealTechnicalSpecs = ({ deal, getLookupValue, getStrictLookupValue }) => {
                 <div style={gridStyle}>
                     <SpecItem label="Category" value={renderValue(getLookupValue('Category', data.category))} icon="tag" />
                     <SpecItem label="Subcategory" value={renderValue(getLookupValue('SubCategory', data.subCategory))} icon="tags" />
-                    <SpecItem label="Unit Type" value={renderValue(getLookupValue('UnitType', data.unitType)) || data.unitType} icon="shapes" />
+                    <SpecItem label="Unit Type" value={renderValue(getLookupValue('UnitType', data.unitType) || data.unitType)} icon="shapes" />
                     <SpecItem label="Direction" value={renderValue(getLookupValue('Orientation', data.direction))} icon="location-arrow" />
                     <SpecItem label="Facing" value={renderValue(getLookupValue('Facing', data.facing))} icon="expand-arrows-alt" />
-                    <SpecItem label="Road Width" value={renderValue(getLookupValue('RoadWidth', data.roadWidth)) || (data.roadWidth ? `${data.roadWidth} Mtr.` : '-')} icon="road" />
+                    <SpecItem label="Road Width" value={renderValue(getLookupValue('RoadWidth', data.roadWidth) || (data.roadWidth ? `${renderValue(data.roadWidth)} Mtr.` : '-'))} icon="road" />
                     <SpecItem label="Ownership" value={renderValue(data.ownership)} icon="id-card" />
                 </div>
 

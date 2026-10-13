@@ -168,7 +168,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 locationSearch: property.locationSearch || property.location || '',
                 status: resolveField(property.status, 'Status') || 'Active',
                 intent: resolveField(property.intent, 'Intent') || 'Sell',
-                subCategory: property.subCategory?._id || property.subCategory?.id || resolveField(property.subCategory, 'SubCategory'),
+                subCategory: resolveField(property.subCategory, 'SubCategory') || property.subCategory?._id || property.subCategory?.id || '',
                 direction: property.direction ? (property.direction._id || property.direction.id || property.direction) : '',
                 facing: property.facing ? (property.facing._id || property.facing.id || property.facing) : '',
                 roadWidth: property.roadWidth ? (property.roadWidth._id || property.roadWidth.id || property.roadWidth) : '',
@@ -204,10 +204,10 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                     location: property.address?.location?.name || property.address?.location?._id || property.address?.location || '',
                     tehsil: property.address?.tehsil?.name || property.address?.tehsil?._id || property.address?.tehsil || '',
                     postOffice: property.address?.postOffice?.name || property.address?.postOffice?._id || property.address?.postOffice || '',
-                    pincode: property.address?.pincode?.name || property.address?.pincode?._id || property.address?.pincode || property.address?.zip || '',
+                    pincode: property.address?.pincode?.lookup_value || property.address?.pincode?.name || property.address?.pincode?._id || property.address?.pincode || property.address?.zip || '',
                     hNo: property.address?.hNo || '',
                     street: property.address?.street || '',
-                    area: property.address?.area || ''
+                    area: property.address?.area?.lookup_value || property.address?.area?.name || property.address?.area || ''
                 }
                 };
                 initialFormData.current = JSON.parse(JSON.stringify(newFormData));

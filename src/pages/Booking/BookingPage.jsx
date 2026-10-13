@@ -103,6 +103,13 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     raw: b.lead || {}
                 }
             },
+            property: {
+                unit: b.property?.unitNumber || b.property?.title || b.unitNo || 'Unit N/A',
+                project: b.property?.projectId?.name || b.projectName || '—',
+                type: b.property?.propertyCategory || b.property?.propertyType || '',
+                size: b.property?.size || '',
+                raw: b.property || {}
+            },
             propertyDetails: {
                 name: b.property?.title || b.property?.unitNumber || 'Property Details Missing',
                 location: b.property?.projectId?.name || 'Project Name Missing',
@@ -114,8 +121,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 dealValue: b.totalDealAmount || 0,
                 agreementAmount: b.agreementAmount || 0,
                 paidAmount: b.totalPaidAmount || 0,
+                totalPaidAmount: b.totalPaidAmount || 0,
                 commissionPercent: b.commissionPercent || 0,
                 commissionAmount: b.totalCommissionAmount || 0,
+                commissionTotal: b.totalCommissionAmount || 0,
                 commissionReceived: b.commissionReceived || 0,
                 commissionPending: (b.totalCommissionAmount || 0) - (b.commissionReceived || 0)
             },
@@ -219,8 +228,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
         // Fallback to page-local computation
         const data = bookings;
         const totalDeals = data.filter(b => b.stage !== 'Cancelled').length;
-        const totalValue = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
-        const pendingComm = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
+        const totalValue = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + (b.financials?.dealValue || 0) : sum, 0);
+        const pendingComm = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + (b.financials?.commissionPending || 0) : sum, 0);
         const atRiskDeals = data.filter(b => ['At Risk', 'Delayed', 'Critical'].includes(b.health)).length;
         return { totalDeals, totalValue, pendingComm, atRiskDeals, criticalCount: 0 };
     }, [bookings, dashStats]);
@@ -230,12 +239,13 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
         const data = bookings;
         return data.filter(item => {
             const matchesTab = activeTab === 'All' || item.stage === activeTab;
-            const searchLower = searchTerm.toLowerCase();
+            const searchLower = (searchTerm || '').toLowerCase();
             const matchesSearch =
-                item.customer.buyer.name.toLowerCase().includes(searchLower) ||
-                item.customer.seller.name.toLowerCase().includes(searchLower) ||
-                item.property.project.toLowerCase().includes(searchLower) ||
-                item.id.toLowerCase().includes(searchLower);
+                (item.customer?.buyer?.name || '').toLowerCase().includes(searchLower) ||
+                (item.customer?.seller?.name || '').toLowerCase().includes(searchLower) ||
+                (item.property?.project || item.propertyDetails?.location || '').toLowerCase().includes(searchLower) ||
+                (item.property?.unit || item.propertyDetails?.name || '').toLowerCase().includes(searchLower) ||
+                (item.id || '').toLowerCase().includes(searchLower);
             return matchesTab && matchesSearch;
         });
     }, [activeTab, searchTerm, bookings]);
@@ -606,8 +616,9 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 const stageStyle = getStageColor(item.stage);
                                 const healthColor = getHealthColor(item.health);
                                 const isSelected = selectedIds.includes(item.id);
-                                const dealPaidPercent = Math.min(((item.financials.totalPaidAmount || 0) / (item.financials.dealValue || 1)) * 100, 100);
-                                const commPaidPercent = item.financials.commissionTotal > 0 ? Math.min(((item.financials.commissionReceived || 0) / item.financials.commissionTotal) * 100, 100) : 0;
+                                const dealPaidPercent = Math.min(((item.financials?.totalPaidAmount || item.financials?.paidAmount || 0) / (item.financials?.dealValue || 1)) * 100, 100);
+                                const commTotal = item.financials?.commissionTotal || item.financials?.commissionAmount || 0;
+                                const commPaidPercent = commTotal > 0 ? Math.min(((item.financials?.commissionReceived || 0) / commTotal) * 100, 100) : 0;
                                 const urgencyColor = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444', Critical: '#dc2626' };
 
                                 return (
@@ -629,32 +640,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         <div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <div style={{ width: '24px', height: '24px', background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff', color: isDark ? '#818cf8' : '#4338ca', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.buyer.avatar}</div>
+                                                    <div style={{ width: '24px', height: '24px', background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff', color: isDark ? '#818cf8' : '#4338ca', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer?.buyer?.avatar || 'B'}</div>
                                                     <div>
-                                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>{item.customer.buyer.name}</div>
+                                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>{item.customer?.buyer?.name || 'N/A'}</div>
                                                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Buyer</div>
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8, borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
-                                                    <div style={{ width: '20px', height: '20px', background: 'var(--bg-gray)', color: 'var(--text-muted)', borderRadius: '50%', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.seller.avatar}</div>
+                                                    <div style={{ width: '20px', height: '20px', background: 'var(--bg-gray)', color: 'var(--text-muted)', borderRadius: '50%', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer?.seller?.avatar || 'S'}</div>
                                                     <div>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>{item.customer.seller.name}</div>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>{item.customer?.seller?.name || 'N/A'}</div>
                                                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Seller</div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                         <div>
-                                            <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '2px' }}>{item.property.unit}</div>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{item.property.project}</div>
+                                            <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '2px' }}>{item.property?.unit || item.propertyDetails?.name || '—'}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{item.property?.project || item.propertyDetails?.location || '—'}</div>
                                         </div>
                                         <div style={{ paddingRight: '20px' }}>
                                             <div style={{ marginBottom: '8px' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Val: {formatCurrency(item.financials.dealValue)}</span><span>{Math.round(dealPaidPercent)}%</span></div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Val: {formatCurrency(item.financials?.dealValue || 0)}</span><span>{Math.round(dealPaidPercent)}%</span></div>
                                                 <div style={{ width: '100%', height: '6px', background: isDark ? 'var(--border-color)' : '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${dealPaidPercent}%`, height: '100%', background: '#0ea5e9', borderRadius: '3px' }}></div></div>
                                             </div>
                                             <div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Comm: {formatCurrency(item.financials.commissionTotal)}</span><span>{Math.round(commPaidPercent)}%</span></div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Comm: {formatCurrency(item.financials?.commissionTotal || item.financials?.commissionAmount || 0)}</span><span>{Math.round(commPaidPercent)}%</span></div>
                                                 <div style={{ width: '100%', height: '6px', background: isDark ? 'var(--border-color)' : '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${commPaidPercent}%`, height: '100%', background: '#10b981', borderRadius: '3px' }}></div></div>
                                             </div>
                                         </div>

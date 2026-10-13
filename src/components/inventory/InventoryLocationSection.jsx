@@ -250,6 +250,8 @@ ${coords.map(c => `${c[0]},${c[1]},0`).join('\n')}
                     address={formData.address}
                     onChange={onAddressChange}
                     disabledFields={disabledAddressFields}
+                    hideCard={true}
+                    hideHeader={true}
                 />
             </div>
         </div>

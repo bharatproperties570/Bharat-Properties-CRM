@@ -132,7 +132,8 @@ const ProfilePage = () => {
             flexDirection: 'column',
             background: '#f1f5f9',
             height: '100%',
-            overflow: 'hidden'
+            overflowY: 'auto',
+            overflowX: 'hidden'
         }}>
 
             {/* Page Header - Compact */}
@@ -161,12 +162,13 @@ const ProfilePage = () => {
             <div className="profile-main-grid" style={{
                 flex: 1,
                 display: 'grid',
-                gridTemplateColumns: '300px 1fr 350px',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
                 gap: '20px',
                 padding: '20px',
                 height: 'calc(100% - 64px)',
                 boxSizing: 'border-box',
-                overflowY: 'auto'
+                overflowY: 'auto',
+                overflowX: 'hidden'
             }}>
 
                 {/* Column 1: Identity & Bio */}
@@ -422,8 +424,8 @@ const ProfilePage = () => {
                         </div>
                     </div>
                     
-                    {/* Secondary WhatsApp Scanner */}
-                    <WhatsAppQRConnect onComplete={() => toast.success("WhatsApp QR successfully linked.")} />
+                    {/* WhatsApp Web */}
+                    <WhatsAppQRConnect onComplete={() => toast.success("WhatsApp Web successfully linked.")} />
                 </div>
 
             </div>

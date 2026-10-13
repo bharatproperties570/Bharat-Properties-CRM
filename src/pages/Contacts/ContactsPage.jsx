@@ -400,21 +400,35 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const searchTerm = searchParams.get('search') || "";
+  const [searchInput, setSearchInput] = useState(searchParams.get('search') || "");
+  const debouncedSearchTerm = useDebounce(searchInput, 400);
+
+  // Sync search input if URL changes externally
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || "";
+    if (urlSearch !== searchInput) {
+      setSearchInput(urlSearch);
+    }
+  }, [searchParams.get('search')]);
+
+  // Update URL searchParams only when debounced search settles
+  useEffect(() => {
+    const currentUrlSearch = searchParams.get('search') || "";
+    if (debouncedSearchTerm !== currentUrlSearch) {
+      const params = new URLSearchParams(searchParams);
+      if (debouncedSearchTerm) params.set('search', debouncedSearchTerm);
+      else params.delete('search');
+      params.set('page', '1');
+      setSearchParams(params, { replace: true });
+    }
+  }, [debouncedSearchTerm]);
+
   const currentPage = parseInt(searchParams.get('page')) || 1;
   const recordsPerPage = parseInt(searchParams.get('limit')) || 25;
   const viewMode = searchParams.get('view') || "list";
   const sortBy = searchParams.get('sortBy') || "createdAt";
   const sortOrder = parseInt(searchParams.get('sortOrder')) || -1;
   const sortConfig = { by: sortBy, order: sortOrder, label: sortBy === 'createdAt' ? 'Newest First' : sortBy };
-
-  const setSearchTerm = (term) => {
-      const params = new URLSearchParams(searchParams);
-      if (term) params.set('search', term);
-      else params.delete('search');
-      params.set('page', '1');
-      setSearchParams(params, { replace: true });
-  };
   
   const setCurrentPage = (page) => {
       const params = new URLSearchParams(searchParams);
@@ -463,8 +477,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     
     const { data: teams = [] } = useTeams();
   const { getLookupValue } = usePropertyConfig();
-
-  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -792,8 +804,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
                   {viewMode === "card" && <input type="checkbox" checked={isAllSelected} ref={(input) => { if (input) input.indeterminate = isIndeterminate; }} onChange={toggleSelectAll} style={{ cursor: "pointer" }} />}
                   <div style={{ position: "relative", width: "350px" }}>
-                    <input type="text" className="search-input-premium" placeholder="Search by name, phone or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                    <i className={`fas fa-search search-icon-premium ${searchTerm ? "active" : ""}`}></i>
+                    <input type="text" className="search-input-premium" placeholder="Search by name, phone or email..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+                    {searchInput ? (
+                      <i 
+                        className="fas fa-times search-icon-premium active" 
+                        style={{ cursor: "pointer" }} 
+                        title="Clear search"
+                        onClick={() => setSearchInput("")}
+                      ></i>
+                    ) : (
+                      <i className="fas fa-search search-icon-premium"></i>
+                    )}
                   </div>
                 </div>
 

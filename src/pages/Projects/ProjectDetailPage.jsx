@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
@@ -13,7 +14,18 @@ import SocialPostModal from '../../components/SocialPostModal';
 import BulkInventoryModal from '../../components/inventory/BulkInventoryModal';
 import AddInventoryModal from '../../components/AddInventoryModal';
 
-const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
+const ProjectDetailPage = ({ projectId: propProjectId, onBack: propOnBack, onNavigate, onEditProject }) => {
+    const { id: routeProjectId } = useParams();
+    const navigate = useNavigate();
+    const projectId = propProjectId || routeProjectId;
+    const onBack = propOnBack || (() => {
+        if (onNavigate) {
+            onNavigate('projects');
+        } else {
+            navigate('/projects');
+        }
+    });
+
     const { isDark } = useTheme();
     const { getLookupValue } = usePropertyConfig();
     const { data: projectQuery, isFetching: loading, refetch: fetchProjectDetails } = useProject(projectId);

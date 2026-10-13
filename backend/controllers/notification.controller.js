@@ -3,6 +3,10 @@ import NotificationSetting from "../models/NotificationSetting.js";
 import Activity from "../models/Activity.js";
 import mongoose from "mongoose";
 
+// 🚀 Enterprise Optimization: Throttle reminder checks per user (at most once every 10 min)
+const reminderGenerationCache = new Map();
+const REMINDER_THROTTLE_MS = 10 * 60 * 1000;
+
 // @desc    Get user's notifications
 // @route   GET /api/notifications
 export const getNotifications = async (req, res) => {
@@ -14,12 +18,18 @@ export const getNotifications = async (req, res) => {
         }
 
         const userId = new mongoose.Types.ObjectId(rawUserId);
-        console.log(`[NotificationController] Fetching for User: ${userId}`);
 
-        // Generate today's activity reminders (site visits, calls, meetings, tasks)
-        await generateTodayActivityReminders(userId);
+        // 🚀 Enterprise Performance: Run reminders asynchronously in background if throttle expired,
+        // NEVER block the HTTP GET request.
+        const lastReminderRun = reminderGenerationCache.get(userId.toString());
+        if (!lastReminderRun || Date.now() - lastReminderRun > REMINDER_THROTTLE_MS) {
+            reminderGenerationCache.set(userId.toString(), Date.now());
+            generateTodayActivityReminders(userId).catch(err =>
+                console.error("[NotificationController] Background reminders failed:", err.message)
+            );
+        }
 
-        // 🌟 SENIOR TWEAK: Filter notifications based on user preferences
+        // 🌟 Filter notifications based on user preferences
         const settings = await NotificationSetting.findOne({ user: userId }).lean();
         console.log(`[NotificationController] Settings found: ${!!settings}`);
         const presets = settings?.presets || new Map();
@@ -112,22 +122,30 @@ const generateTodayActivityReminders = async (userId) => {
 
         console.log(`[Notifications] Generating today's reminders (${startOfDay.toISOString()} - ${endOfDay.toISOString()}) for user ${userId}`);
 
-        // Fetch today's activities — show assigned-to-me AND unassigned (org level)
         const activities = await Activity.find({
-            $and: [
-                { dueDate: { $gte: startOfDay, $lte: endOfDay } },
-                { status: { $regex: /pending|open|scheduled|site visit/i } },
-                {
-                    $or: [
-                        { assignedTo: userId },
-                        { assignedTo: { $exists: false } },
-                        { assignedTo: null }
-                    ]
-                }
+            dueDate: { $gte: startOfDay, $lte: endOfDay },
+            status: { $regex: /pending|open|scheduled|site visit/i },
+            $or: [
+                { assignedTo: userId },
+                { assignedTo: { $exists: false } },
+                { assignedTo: null }
             ]
         }).lean();
 
-        console.log(`[Notifications] Found ${activities.length} activities for today`);
+        if (!activities || activities.length === 0) return;
+
+        // 🚀 Enterprise Optimization: Batch check existing reminders in 1 query instead of N sequential calls
+        const actIds = activities.map(a => a._id);
+        const existingReminders = await Notification.find({
+            user: userId,
+            type: 'reminder',
+            'metadata.activityId': { $in: actIds },
+            createdAt: { $gte: startOfDay }
+        }).select('metadata.activityId').lean();
+
+        const existingActIdSet = new Set(
+            existingReminders.map(r => r.metadata?.activityId?.toString()).filter(Boolean)
+        );
 
         const ACTIVITY_ICONS = {
             'Site Visit': '🏠',
@@ -139,44 +157,40 @@ const generateTodayActivityReminders = async (userId) => {
             'Messaging': '💬',
         };
 
+        const toInsert = [];
         for (const act of activities) {
-            // Deduplicate: don't create the same notification twice per day
-            const exists = await Notification.findOne({
+            if (existingActIdSet.has(act._id.toString())) continue;
+
+            const icon = ACTIVITY_ICONS[act.type] || '📌';
+            const timeStr = act.dueTime ? ` at ${act.dueTime}` : '';
+            const subjectStr = act.subject || 'Reminder';
+
+            let contactName = '';
+            if (act.relatedTo && act.relatedTo.length > 0) {
+                contactName = act.relatedTo[0]?.name || '';
+            }
+            const withStr = contactName ? ` with ${contactName}` : '';
+            const locationStr = act.details?.location ? ` @ ${act.details.location}` : '';
+
+            toInsert.push({
                 user: userId,
                 type: 'reminder',
-                'metadata.activityId': act._id,
-                createdAt: { $gte: startOfDay }
-            });
-
-            if (!exists) {
-                const icon = ACTIVITY_ICONS[act.type] || '📌';
-                const timeStr = act.dueTime ? ` at ${act.dueTime}` : '';
-                const subjectStr = act.subject || 'Reminder';
-
-                let contactName = '';
-                if (act.relatedTo && act.relatedTo.length > 0) {
-                    contactName = act.relatedTo[0]?.name || '';
+                title: `${icon} Today's ${act.type || 'Activity'}${timeStr}`,
+                message: `${subjectStr}${withStr}${locationStr}`,
+                link: `/activities`,
+                isRead: false,
+                metadata: {
+                    activityId: act._id,
+                    activityType: act.type,
+                    entityType: act.entityType,
+                    entityId: act.entityId,
                 }
-                const withStr = contactName ? ` with ${contactName}` : '';
-                const locationStr = act.details?.location ? ` @ ${act.details.location}` : '';
+            });
+        }
 
-                await Notification.create({
-                    user: userId,
-                    type: 'reminder',
-                    title: `${icon} Today's ${act.type || 'Activity'}${timeStr}`,
-                    message: `${subjectStr}${withStr}${locationStr}`,
-                    link: `/activities`,
-                    isRead: false,
-                    metadata: {
-                        activityId: act._id,
-                        activityType: act.type,
-                        entityType: act.entityType,
-                        entityId: act.entityId,
-                    }
-                });
-
-                console.log(`[Notifications] Created reminder → ${act.type}: ${subjectStr} (${act._id})`);
-            }
+        if (toInsert.length > 0) {
+            await Notification.insertMany(toInsert);
+            console.log(`[Notifications] Batch created ${toInsert.length} reminder(s) for user ${userId}`);
         }
     } catch (err) {
         console.error("[NotificationController] generateTodayActivityReminders failed:", err);

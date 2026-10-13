@@ -112,8 +112,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
     const [currentAddressType, setCurrentAddressType] = useState('registeredOffice');
-    const [showOnlyRequired, setShowOnlyRequired] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+    const [showOnlyRequired, setShowOnlyRequired] = useState(false);
     const [activeBranchIndex, setActiveBranchIndex] = useState(0);
     const [activeSiteIndex, setActiveSiteIndex] = useState(0);
 
@@ -545,49 +549,56 @@ const [formData, setFormData] = useState({
         }
     };
 
-    // Style Constants
+    // Enterprise Broadcast Design Styles
     const inputStyle = {
         width: '100%',
-        padding: '10px 12px',
-        borderRadius: '8px',
-        border: '1px solid #e2e8f0',
-        fontSize: '0.9rem',
+        padding: '9px 12px',
+        borderRadius: '10px',
+        border: '1.5px solid #e2e8f0',
+        fontSize: '0.86rem',
+        fontWeight: 500,
         outline: 'none',
         color: '#1e293b',
-        transition: 'all 0.2s',
-        height: '42px',
+        transition: 'all 0.15s ease',
+        height: '40px',
         boxSizing: 'border-box',
         backgroundColor: '#fff'
     };
 
     const labelStyle = {
-        fontSize: '0.85rem',
-        fontWeight: 600,
-        color: '#475569',
-        marginBottom: '6px',
-        display: 'block'
+        fontSize: '0.72rem',
+        fontWeight: 700,
+        color: '#64748b',
+        marginBottom: '8px',
+        display: 'block',
+        textTransform: 'uppercase',
+        letterSpacing: '0.4px'
     };
 
     const customSelectStyle = {
         ...inputStyle,
         appearance: 'none',
-        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
         backgroundRepeat: 'no-repeat',
         backgroundPosition: 'right 12px center',
-        backgroundSize: '12px'
+        backgroundSize: '10px',
+        paddingRight: '32px',
+        cursor: 'pointer'
     };
 
     const buttonStyle = {
-        cancel: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' },
-        secondary: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' },
-        primary: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.2)' },
-        success: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#10b981', color: '#fff', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)' }
+        cancel: { padding: '9px 20px', borderRadius: '10px', border: '1.5px solid #fecaca', background: '#fff', color: '#ef4444', fontWeight: 700, fontSize: '0.86rem', cursor: 'pointer', transition: 'all 0.15s' },
+        secondary: { padding: '9px 20px', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.86rem', cursor: 'pointer', transition: 'all 0.15s' },
+        primary: { padding: '9px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', fontWeight: 700, fontSize: '0.86rem', cursor: 'pointer', transition: 'all 0.15s', boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)' },
+        success: { padding: '9px 22px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #059669 0%, #047857 100%)', color: '#fff', fontWeight: 700, fontSize: '0.86rem', cursor: 'pointer', transition: 'all 0.15s', boxShadow: '0 2px 6px rgba(5, 150, 105, 0.3)' }
     };
 
     const addButtonStyle = {
-        width: '42px', height: '42px', borderRadius: '8px', border: '1.5px solid #e2e8f0',
-        background: '#fff', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', flexShrink: 0
+        width: '40px', height: '40px', borderRadius: '10px', border: '1.5px solid #e2e8f0',
+        background: '#f8fafc', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s'
     };
 
     const renderBasicDetails = () => (
@@ -899,6 +910,8 @@ const [formData, setFormData] = useState({
                         title="" // Title handled by parent header
                         address={addr}
                         onChange={onAddressUpdate}
+                        hideCard={true}
+                        hideHeader={true}
                     />
                 </div>
             </div>
@@ -1124,19 +1137,50 @@ const [formData, setFormData] = useState({
     if (!isOpen) return null;
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, animation: 'fadeIn 0.2s ease-out' }} onClick={onClose}>
-            <div style={{ background: '#fff', width: '950px', maxWidth: '95vw', maxHeight: '92vh', borderRadius: '24px', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(6px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, animation: 'fadeIn 0.2s ease-out', padding: '16px' }} onClick={onClose}>
+            <div style={{ background: '#fff', width: '960px', maxWidth: '96vw', maxHeight: 'min(90vh, 880px)', borderRadius: '20px', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px -15px rgba(0,0,0,0.3)', overflow: 'hidden', border: '1px solid #e2e8f0' }} onClick={e => e.stopPropagation()}>
                 {/* Header */}
-                <div style={{ padding: '24px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                            {isEdit ? 'Update Company' : 'Create New Company'}
-                        </h2>
+                <div style={{ padding: '18px 28px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{
+                            width: '42px', height: '42px', borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)', color: '#fff',
+                            flexShrink: 0
+                        }}>
+                            <i className={`fas ${isEdit ? 'fa-building-circle-check' : 'fa-building'}`} style={{ fontSize: '18px' }}></i>
+                        </div>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>
+                                    {isEdit ? 'Update Company' : 'Create New Company'}
+                                </h2>
+                                <span style={{
+                                    fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                                    background: isEdit ? '#fef3c7' : '#ecfdf5',
+                                    color: isEdit ? '#92400e' : '#065f46',
+                                    border: isEdit ? '1px solid #fde68a' : '1px solid #a7f3d0'
+                                }}>
+                                    {isEdit ? 'EDIT MODE' : 'NEW RECORD'}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: '#64748b', fontWeight: 600, marginTop: '3px' }}>
+                                <i className="far fa-clock" style={{ color: '#10b981', fontSize: '11px' }}></i>
+                                <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                                <span style={{ opacity: 0.4 }}>•</span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1e293b' }}>
+                                    {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                             <input
                                 type="checkbox"
+                                id="showOnlyRequiredCompany"
                                 checked={showOnlyRequired}
                                 onChange={e => {
                                     setShowOnlyRequired(e.target.checked);
@@ -1144,13 +1188,27 @@ const [formData, setFormData] = useState({
                                 }}
                                 style={{ cursor: 'pointer' }}
                             />
-                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>Show Required Only</span>
+                            <label htmlFor="showOnlyRequiredCompany" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#64748b', cursor: 'pointer', userSelect: 'none' }}>
+                                Show Required Only
+                            </label>
                         </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #e2e8f0',
+                                background: '#f8fafc', color: '#64748b', display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s'
+                            }}
+                            title="Close"
+                        >
+                            <i className="fas fa-times" style={{ fontSize: '14px' }}></i>
+                        </button>
                     </div>
                 </div>
 
                 {!showOnlyRequired && (
-                    <div style={{ padding: '0 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '32px', background: '#fff' }}>
+                    <div style={{ padding: '0 28px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '28px', background: '#fff', flexShrink: 0 }}>
                         {[
                             { id: 'basic', label: 'Basic Details', icon: 'fa-info-circle' },
                             { id: 'address', label: 'Office Locations', icon: 'fa-map-marker-alt' },
@@ -1160,8 +1218,8 @@ const [formData, setFormData] = useState({
                                 key={tab.id}
                                 onClick={() => setCurrentTab(tab.id)}
                                 style={{
-                                    padding: '16px 4px',
-                                    fontSize: '0.95rem',
+                                    padding: '14px 4px',
+                                    fontSize: '0.9rem',
                                     fontWeight: currentTab === tab.id ? 700 : 500,
                                     color: currentTab === tab.id ? '#10b981' : '#64748b',
                                     borderBottom: `3px solid ${currentTab === tab.id ? '#10b981' : 'transparent'}`,
@@ -1170,25 +1228,22 @@ const [formData, setFormData] = useState({
                                     display: 'flex', alignItems: 'center', gap: '8px'
                                 }}
                             >
-                                <i className={`fas ${tab.icon}`} style={{ fontSize: '0.9rem' }}></i>
+                                <i className={`fas ${tab.icon}`} style={{ fontSize: '0.85rem' }}></i>
                                 {tab.label}
                             </div>
                         ))}
-                        <div style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8', fontStyle: 'italic' }}>
-                            <i className="far fa-clock"></i> {currentTime.toLocaleDateString()} {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
                     </div>
                 )}
 
                 {/* Content */}
-                <div style={{ flex: 1, padding: '32px', overflowY: 'auto', background: '#f8fafc' }}>
+                <div className="no-scrollbar" style={{ flex: 1, padding: '24px 28px', overflowY: 'auto', background: '#f8fafc', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                     {currentTab === 'basic' && renderBasicDetails()}
                     {currentTab === 'address' && renderAddress()}
                     {currentTab === 'employee' && renderEmployees()}
                 </div>
 
                 {/* Footer */}
-                <div style={{ padding: '16px 32px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                <div style={{ padding: '16px 28px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', flexShrink: 0 }}>
                     <button style={buttonStyle.cancel} onClick={onClose}>Cancel</button>
 
                     <div style={{ display: 'flex', gap: '12px' }}>
@@ -1207,10 +1262,7 @@ const [formData, setFormData] = useState({
 
             <style>{`
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-                ::-webkit-scrollbar { width: 6px; }
-                ::-webkit-scrollbar-track { background: #f8fafc; }
-                ::-webkit-scrollbar-thumb { background: #cbd5e1; borderRadius: 3px; }
-                ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+                .no-scrollbar::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
             `}</style>
         </div>
     );

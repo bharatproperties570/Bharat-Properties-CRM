@@ -498,7 +498,7 @@ const InventoryUnitSection = ({
                         <select style={customSelectStyle} value={formData.ownership} onChange={e => setFormData(prev => ({ ...prev, ownership: e.target.value }))}>
                             <option value="">Select Ownership</option>
                             {(masterFields?.ownerships || []).map((own, i) => {
-                                const ownName = typeof own === 'object' ? own.name : own;
+                                const ownName = typeof own === 'object' ? (own.lookup_value || own.name || own._id) : own;
                                 const ownVal = typeof own === 'object' ? (own._id || own.id || ownName) : ownName;
                                 return <option key={ownVal || i} value={ownName}>{ownName}</option>;
                             })}
@@ -523,7 +523,7 @@ const InventoryUnitSection = ({
                         <label style={labelStyle}>Built-up Type (Dependent on Sub Category)</label>
                         <select
                             style={!formData.subCategory ? customSelectStyleDisabled : customSelectStyle}
-                            value={formData.builtupType}
+                            value={renderValue(formData.builtupType)}
                             disabled={!formData.subCategory}
                             onChange={e => setFormData(prev => ({ ...prev, builtupType: e.target.value }))}
                         >
@@ -538,8 +538,8 @@ const InventoryUnitSection = ({
                                 </option>
                             ))}
                             {/* Professional Fallback: Ensure saved data is visible even if not in the current sub-category list */}
-                            {formData.builtupType && !builtUpTypes.some(t => t.name === formData.builtupType) && (
-                                <option value={formData.builtupType}>{formData.builtupType}</option>
+                            {formData.builtupType && !builtUpTypes.some(t => t.name === renderValue(formData.builtupType)) && (
+                                <option value={renderValue(formData.builtupType)}>{renderValue(formData.builtupType)}</option>
                             )}
                         </select>
                     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import {  useTeams , useActiveUsers } from '../utils/crmHooks';
+import { useTeams , useActiveUsers } from '../utils/crmHooks';
 import toast from "react-hot-toast";
+import { useTheme } from "../context/ThemeContext";
 
 import { api } from "../utils/api";
 
@@ -24,50 +25,9 @@ const FALLBACK_MOBILE_TYPES = ["Personal", "Work", "Home"];
 const FALLBACK_EMAIL_TYPES = ["Personal", "Work"];
 
 // Duplicate Popup Component (Restyled for Side Panel)
-const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => {
+const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue, isDark }) => {
   if (!contacts || contacts.length === 0) {
-    return (
-      <div
-        style={{
-          padding: "40px 20px",
-          textAlign: "center",
-          color: "#94a3b8",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "12px",
-        }}
-      >
-        <div
-          style={{
-            width: "48px",
-            height: "48px",
-            background: "#f1f5f9",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#cbd5e1",
-          }}
-        >
-          <i className="fas fa-search" style={{ fontSize: "1.2rem" }}></i>
-        </div>
-        <div>
-          <h4
-            style={{
-              margin: "0 0 4px 0",
-              fontSize: "0.95rem",
-              color: "#64748b",
-            }}
-          >
-            No Duplicates
-          </h4>
-          <p style={{ margin: 0, fontSize: "0.8rem" }}>
-            Similar contacts will appear here
-          </p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -75,28 +35,28 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "16px",
-        padding: "16px",
+        gap: "10px",
+        padding: "12px",
       }}
     >
       {isBlocked && (
         <div style={{
-          padding: '12px',
+          padding: '10px 12px',
           background: '#fef2f2',
           borderRadius: '8px',
           border: '1px solid #fca5a5',
           color: '#b91c1c',
-          fontSize: '0.85rem',
+          fontSize: '0.78rem',
           fontWeight: 600,
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '10px'
+          gap: '8px'
         }}>
-          <i className="fas fa-ban" style={{ marginTop: '3px' }}></i>
+          <i className="fas fa-ban" style={{ marginTop: '2px', fontSize: '13px' }}></i>
           <div>
-            <div>Action Blocked</div>
-            <div style={{ fontSize: '0.8rem', fontWeight: 400, marginTop: '2px' }}>
-              A critical duplicate rule prevents saving this record.
+            <div style={{ fontWeight: 800 }}>Action Blocked</div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 500, marginTop: '2px' }}>
+              Duplicate rule prevents creating duplicate contact.
             </div>
           </div>
         </div>
@@ -104,32 +64,34 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
 
       <div
         style={{
-          padding: "8px 12px",
-          background: isBlocked ? "#fff1f2" : "#e0f2fe",
-          borderRadius: "6px",
-          border: isBlocked ? "1px solid #fecaca" : "1px solid #bae6fd",
-          fontSize: "0.8rem",
-          fontWeight: 600,
-          color: isBlocked ? "#991b1b" : "#0369a1",
+          padding: "6px 10px",
+          background: isBlocked ? "#fee2e2" : (isDark ? "rgba(245, 158, 11, 0.15)" : "#fef3c7"),
+          borderRadius: "8px",
+          border: isBlocked ? "1px solid #fca5a5" : (isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #fde68a"),
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          color: isBlocked ? "#b91c1c" : (isDark ? "#fbbf24" : "#92400e"),
           display: "flex",
           alignItems: "center",
-          gap: "8px",
+          gap: "6px",
         }}
       >
-        <i className={`fas ${isBlocked ? "fa-times-circle" : "fa-exclamation-circle"}`}></i>
+        <i className={`fas ${isBlocked ? "fa-times-circle" : "fa-exclamation-triangle"}`}></i>
         {contacts.length} Similar Record{contacts.length > 1 ? "s" : ""} Found
       </div>
       {contacts.map((contact, index) => (
         <div
           key={index}
           style={{
-            background: "#fff",
-            borderRadius: "8px",
-            border: "1px solid #e2e8f0",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
-            padding: "12px",
-            transition: "transform 0.2s",
-            ":hover": { transform: "translateY(-2px)" },
+            background: isDark ? "rgba(255, 255, 255, 0.04)" : "#fff",
+            borderRadius: "10px",
+            border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            transition: "all 0.2s",
           }}
         >
           <div
@@ -137,20 +99,20 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-start',
-              marginBottom: '4px'
+              gap: '6px'
             }}
           >
-            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
+            <div style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', fontSize: '0.85rem' }}>
               {renderValue(contact.title, "")} {contact.firstName || contact.name} {contact.lastName || contact.surname}
             </div>
             {contact.matchedEntityType && (
               <span style={{
-                fontSize: '0.65rem',
+                fontSize: '0.62rem',
                 fontWeight: 800,
                 textTransform: 'uppercase',
                 background: contact.matchedEntityType === 'Lead' ? '#fdf4ff' : '#eff6ff',
                 color: contact.matchedEntityType === 'Lead' ? '#d946ef' : '#3b82f6',
-                padding: '2px 6px',
+                padding: '1px 6px',
                 borderRadius: '4px',
                 border: `1px solid ${contact.matchedEntityType === 'Lead' ? '#f0abfc' : '#bfdbfe'}`
               }}>
@@ -161,28 +123,30 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
           {contact.company && (
             <div
               style={{
-                fontSize: "0.8rem",
-                color: "#64748b",
-                marginBottom: "8px",
+                fontSize: "0.75rem",
+                color: isDark ? "var(--text-muted)" : "#64748b",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px"
               }}
             >
-              <i className="fas fa-building" style={{ width: "16px" }}></i>{" "}
-              {contact.company}
+              <i className="fas fa-building" style={{ fontSize: "11px", color: "#94a3b8" }}></i>
+              <span>{renderValue(contact.company)}</span>
             </div>
           )}
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: "4px",
-              marginBottom: "12px",
+              gap: "3px",
+              margin: "2px 0 6px 0",
             }}
           >
             {contact.phones?.[0] && (
               <div
                 style={{
-                  fontSize: "0.8rem",
-                  color: "#475569",
+                  fontSize: "0.75rem",
+                  color: isDark ? "#cbd5e1" : "#475569",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
@@ -190,7 +154,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
               >
                 <i
                   className="fas fa-phone"
-                  style={{ fontSize: "0.7rem", color: "#94a3b8" }}
+                  style={{ fontSize: "10px", color: "#94a3b8" }}
                 ></i>
                 {contact.phones[0].number}
               </div>
@@ -198,8 +162,8 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
             {contact.emails?.[0] && (
               <div
                 style={{
-                  fontSize: "0.8rem",
-                  color: "#475569",
+                  fontSize: "0.75rem",
+                  color: isDark ? "#cbd5e1" : "#475569",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
@@ -207,7 +171,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
               >
                 <i
                   className="fas fa-envelope"
-                  style={{ fontSize: "0.7rem", color: "#94a3b8" }}
+                  style={{ fontSize: "10px", color: "#94a3b8" }}
                 ></i>
                 {contact.emails[0].address}
               </div>
@@ -222,30 +186,22 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => 
               }}
               style={{
                 width: "100%",
-                padding: "8px",
-                background: "#eff6ff",
+                padding: "6px",
+                background: isDark ? "rgba(59, 130, 246, 0.15)" : "#eff6ff",
                 border: "1px solid #3b82f6",
-                color: "#2563eb",
+                color: isDark ? "#93c5fd" : "#2563eb",
                 borderRadius: "6px",
-                fontSize: "0.8rem",
-                fontWeight: 600,
+                fontSize: "0.72rem",
+                fontWeight: 700,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "6px",
+                gap: "5px",
                 transition: "all 0.2s",
               }}
-              onMouseEnter={(e) => {
-                e.target.style.background = "#3b82f6";
-                e.target.style.color = "#fff";
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = "#eff6ff";
-                e.target.style.color = "#2563eb";
-              }}
             >
-              <i className="fas fa-sync-alt"></i> Update Form with this
+              <i className="fas fa-sync-alt" style={{ fontSize: "11px" }}></i> Update Form with this
             </button>
           )}
         </div>
@@ -270,6 +226,7 @@ const AddContactModal = ({
   mode = "add",
   entityType = "contact",
 }) => {
+  const { isDark } = useTheme();
   const { leadMasterFields, getLookupId, getLookupValue } =
     usePropertyConfig();
   const {
@@ -331,6 +288,10 @@ const AddContactModal = ({
 
 
   const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [similarContacts, setSimilarContacts] = useState([]);
 
 
@@ -339,28 +300,29 @@ const AddContactModal = ({
   // Professional Dropdown Style
   const customSelectStyle = {
     width: "100%",
-    padding: "10px 12px",
-    paddingRight: "30px", // Space for arrow
+    padding: "7px 11px",
+    paddingRight: "28px", // Space for arrow
     borderRadius: "8px",
-    border: "1px solid #e2e8f0",
-    fontSize: "0.9rem",
+    border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1",
+    fontSize: "0.82rem",
+    fontWeight: 600,
     outline: "none",
-    background: "#f8fafc",
-    color: "#475569",
+    background: isDark ? "rgba(255, 255, 255, 0.04)" : "#fff",
+    color: isDark ? "var(--text-main)" : "#1e293b",
     appearance: "none",
     WebkitAppearance: "none",
     MozAppearance: "none",
-    backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+    backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
     backgroundRepeat: "no-repeat",
-    backgroundPosition: "right 12px center",
-    backgroundSize: "12px",
+    backgroundPosition: "right 10px center",
+    backgroundSize: "10px",
   };
   const customSelectStyleDisabled = {
     ...customSelectStyle,
-    background: "#f1f5f9",
+    background: isDark ? "rgba(255, 255, 255, 0.02)" : "#f1f5f9",
     cursor: "not-allowed",
-    color: "#94a3b8",
-    backgroundImage: "none", // No arrow for disabled
+    color: isDark ? "rgba(255,255,255,0.3)" : "#94a3b8",
+    backgroundImage: "none",
   };
 
   useEffect(() => {
@@ -933,30 +895,37 @@ const AddContactModal = ({
     toast.success("Form updated with suggested contact details");
   };
 
-  // Styles (Reused from backup)
+  // Styles (Enterprise Compact & Themed)
   const overlayStyle = {
     position: "fixed",
     top: 0,
     left: 0,
     width: "100%",
     height: "100%",
-    backgroundColor: "rgba(15, 23, 42, 0.4)",
-    backdropFilter: "blur(4px)",
+    backgroundColor: "rgba(15, 23, 42, 0.65)",
+    backdropFilter: "blur(6px)",
     zIndex: 1000,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    padding: "16px",
   };
 
   const modalStyle = {
-    width: "90%",
-    maxWidth: "1100px",
-    height: "90vh",
-    backgroundColor: "#fff",
+    width: "95%",
+    maxWidth: showSuggestions ? "1040px" : "800px",
+    height: "min(88vh, 850px)",
+    minHeight: "480px",
+    backgroundColor: isDark ? "#0f172a" : "#fff",
     borderRadius: "16px",
-    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+    border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
+    boxShadow: isDark
+      ? "0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255,255,255,0.08)"
+      : "0 25px 50px -12px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(0,0,0,0.05)",
     display: "flex",
     overflow: "hidden",
+    position: "relative",
+    transition: "max-width 0.25s ease",
   };
 
   const leftPaneStyle = {
@@ -964,69 +933,90 @@ const AddContactModal = ({
     display: "flex",
     flexDirection: "column",
     height: "100%",
-    borderRight: "1px solid #e2e8f0",
+    minHeight: 0,
+    minWidth: 0,
+    overflow: "hidden",
+    borderRight: showSuggestions
+      ? (isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0")
+      : "none",
   };
+
   const rightPaneStyle = {
-    width: "300px",
-    backgroundColor: "#f8fafc",
+    width: "280px",
+    backgroundColor: isDark ? "rgba(15, 23, 42, 0.6)" : "#f8fafc",
     display: "flex",
     flexDirection: "column",
     height: "100%",
+    minHeight: 0,
+    overflow: "hidden",
   };
 
   const tabStyle = (active) => ({
-    padding: "8px 20px",
-    borderRadius: "9999px",
-    fontSize: "0.9rem",
-    fontWeight: 600,
+    padding: "6px 16px",
+    borderRadius: "8px",
+    fontSize: "0.78rem",
+    fontWeight: active ? 800 : 600,
     cursor: "pointer",
     transition: "all 0.2s",
     border: "none",
     outline: "none",
-    backgroundColor: active ? "#fff" : "transparent",
-    color: active ? "#0f172a" : "#64748b",
+    background: active ? (isDark ? "rgba(255, 255, 255, 0.12)" : "#fff") : "transparent",
+    color: active ? (isDark ? "#fff" : "#0f172a") : (isDark ? "var(--text-muted)" : "#64748b"),
     boxShadow: active ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
     display: "flex",
     alignItems: "center",
-    gap: "8px",
   });
 
   const buttonStyle = {
     cancel: {
-      padding: "10px 24px",
+      padding: "8px 18px",
       borderRadius: "8px",
-      border: "1px solid #fecaca",
-      background: "#fff",
-      color: "#ef4444",
-      fontWeight: 600,
+      border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #e2e8f0",
+      background: isDark ? "transparent" : "#fff",
+      color: isDark ? "var(--text-muted)" : "#64748b",
+      fontWeight: 700,
+      fontSize: "0.8rem",
       cursor: "pointer",
+      transition: "all 0.2s",
     },
     secondary: {
-      padding: "10px 24px",
+      padding: "8px 18px",
       borderRadius: "8px",
-      border: "1px solid #cbd5e1",
-      background: "#fff",
-      color: "#334155",
-      fontWeight: 600,
+      border: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1",
+      background: isDark ? "rgba(255, 255, 255, 0.04)" : "#fff",
+      color: isDark ? "var(--text-main)" : "#334155",
+      fontWeight: 700,
+      fontSize: "0.8rem",
       cursor: "pointer",
+      transition: "all 0.2s",
     },
     primary: {
-      padding: "10px 24px",
+      padding: "8px 20px",
       borderRadius: "8px",
       border: "none",
-      background: "#3b82f6",
+      background: "linear-gradient(135deg, #3b82f6, #4f46e5)",
       color: "#fff",
-      fontWeight: 600,
+      fontWeight: 700,
+      fontSize: "0.8rem",
       cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(59, 130, 246, 0.3)",
+      display: "flex",
+      alignItems: "center",
+      transition: "all 0.2s",
     },
     success: {
-      padding: "10px 24px",
+      padding: "8px 22px",
       borderRadius: "8px",
       border: "none",
-      background: "#22c55e",
+      background: "linear-gradient(135deg, #10b981, #059669)",
       color: "#fff",
-      fontWeight: 600,
+      fontWeight: 800,
+      fontSize: "0.82rem",
       cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
+      display: "flex",
+      alignItems: "center",
+      transition: "all 0.2s",
     },
   };
 
@@ -1074,93 +1064,195 @@ const AddContactModal = ({
 
   return (
     <div style={overlayStyle}>
+      {/* Invisible Scrollbar Rule */}
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none !important;
+          width: 0px !important;
+          height: 0px !important;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
+        }
+      `}</style>
+
       <div style={modalStyle}>
         {/* Left Pane - Form Content */}
         <div style={leftPaneStyle}>
           {/* Header */}
           <div
             style={{
-              padding: "20px 24px",
-              borderBottom: "1px solid #f1f5f9",
+              padding: "14px 20px",
+              borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+              background: isDark ? "rgba(15, 23, 42, 0.8)" : "#fff",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              flexShrink: 0,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <h2
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div
                 style={{
-                  margin: 0,
-                  fontSize: "1.25rem",
-                  fontWeight: 700,
-                  color: "#0f172a",
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "10px",
+                  background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
                 }}
               >
-                {mode === "edit" ? `Update Contact` : `Add Contact`}
-              </h2>
-              <span
-                style={{
-                  fontSize: "0.8rem",
-                  color: "#64748b",
-                  marginTop: "2px",
-                  fontWeight: 500,
-                }}
-              >
-                {currentTime.toLocaleDateString("en-GB", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}{" "}
-                |{" "}
-                {currentTime.toLocaleTimeString("en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                  hour12: true,
-                })}
-              </span>
+                <i className={`fas ${mode === "edit" ? "fa-user-pen" : "fa-user-plus"}`} style={{ fontSize: "15px" }}></i>
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: "1.05rem",
+                      fontWeight: 800,
+                      color: isDark ? "var(--text-main)" : "#0f172a",
+                      letterSpacing: "0.2px",
+                    }}
+                  >
+                    {mode === "edit" ? "Update Contact" : "Add New Contact"}
+                  </h2>
+                  <span
+                    style={{
+                      fontSize: "0.65rem",
+                      fontWeight: 700,
+                      padding: "2px 7px",
+                      borderRadius: "6px",
+                      background: mode === "edit" ? "#e0e7ff" : "#ecfdf5",
+                      color: mode === "edit" ? "#4338ca" : "#065f46",
+                    }}
+                  >
+                    {mode === "edit" ? "EDIT MODE" : "NEW RECORD"}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, marginTop: '3px' }}>
+                  <i className="far fa-clock" style={{ color: '#3b82f6', fontSize: '11px' }}></i>
+                  <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  <span style={{ opacity: 0.4 }}>•</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                    {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <input
-                type="checkbox"
-                checked={showOnlyRequired}
-                onChange={(e) => {
-                  setShowOnlyRequired(e.target.checked);
-                  if (e.target.checked) {
-                    setCurrentTab("basic");
-                  }
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {/* Required Only Switch */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOnlyRequired((prev) => !prev);
+                  if (!showOnlyRequired) setCurrentTab("basic");
                 }}
-              />
-              <label>Show required only</label>
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "5px 12px",
+                  borderRadius: "20px",
+                  border: showOnlyRequired
+                    ? "1px solid #3b82f6"
+                    : (isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #cbd5e1"),
+                  background: showOnlyRequired ? "rgba(59, 130, 246, 0.12)" : "transparent",
+                  color: showOnlyRequired ? "#3b82f6" : (isDark ? "var(--text-muted)" : "#64748b"),
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                <i className={`fas ${showOnlyRequired ? "fa-check-circle" : "fa-circle"}`} style={{ fontSize: "10px" }}></i>
+                <span>Required Only</span>
+              </button>
+
+              {/* Duplicate Badge */}
+              {similarContacts.length > 0 && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "4px 10px",
+                    borderRadius: "20px",
+                    background: isBlocked ? "#fee2e2" : "#fef3c7",
+                    color: isBlocked ? "#b91c1c" : "#92400e",
+                    border: isBlocked ? "1px solid #fca5a5" : "1px solid #fde68a",
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                  }}
+                >
+                  <i className={`fas ${isBlocked ? "fa-ban" : "fa-exclamation-triangle"}`}></i>
+                  {similarContacts.length} Duplicate{similarContacts.length > 1 ? "s" : ""}
+                </span>
+              )}
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
+                  color: isDark ? "var(--text-muted)" : "#64748b",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.2s",
+                }}
+                title="Close Modal"
+              >
+                <i className="fas fa-times" style={{ fontSize: "14px" }}></i>
+              </button>
             </div>
           </div>
 
           {/* Tabs */}
           {!showOnlyRequired && (
-            <div style={{ padding: "16px 32px 0 32px", background: "#fff" }}>
+            <div
+              style={{
+                padding: "10px 20px 0 20px",
+                background: isDark ? "rgba(15, 23, 42, 0.4)" : "#fff",
+                borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid #f1f5f9",
+                flexShrink: 0,
+              }}
+            >
               <div
                 style={{
-                  display: "flex",
-                  gap: "8px",
-                  padding: "4px",
-                  background: "#f1f5f9",
-                  borderRadius: "9999px",
-                  width: "fit-content",
+                  display: "inline-flex",
+                  gap: "4px",
+                  padding: "3px",
+                  background: isDark ? "rgba(255, 255, 255, 0.05)" : "#f1f5f9",
+                  borderRadius: "10px",
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
                 }}
               >
                 <button
+                  type="button"
                   onClick={() => setCurrentTab("basic")}
                   style={tabStyle(currentTab === "basic")}
                 >
-                  <i className="fas fa-info-circle"></i> Basic Details
+                  <i className="fas fa-id-card" style={{ marginRight: "6px" }}></i> Basic & Contact Info
                 </button>
                 <button
+                  type="button"
                   onClick={() => setCurrentTab("personal")}
                   style={tabStyle(currentTab === "personal")}
                 >
-                  <i className="fas fa-user"></i> Personal
+                  <i className="fas fa-user-gear" style={{ marginRight: "6px" }}></i> Personal & Bio Info
                 </button>
-
               </div>
             </div>
           )}
@@ -1170,9 +1262,12 @@ const AddContactModal = ({
             className="no-scrollbar"
             style={{
               flex: 1,
-              padding: "24px 32px 40px 32px",
+              minHeight: 0,
+              padding: "16px 20px 24px 20px",
               overflowY: "auto",
-              background: "#f8fafc",
+              background: isDark ? "rgba(15, 23, 42, 0.3)" : "#f8fafc",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
             }}
           >
             {currentTab === "basic" ? (
@@ -1239,37 +1334,46 @@ const AddContactModal = ({
           {/* Footer */}
           <div
             style={{
-              padding: "16px 24px",
-              borderTop: "1px solid #f1f5f9",
-              background: "#f8fafc",
+              padding: "12px 20px",
+              borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+              background: isDark ? "rgba(15, 23, 42, 0.8)" : "#f8fafc",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              flexShrink: 0,
             }}
           >
             <button onClick={onClose} style={buttonStyle.cancel}>
               Cancel
             </button>
-            <div style={{ display: "flex", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "10px" }}>
               {/* Previous Button - Hide on first tab */}
               {currentTab !== "basic" && (
                 <button onClick={handlePrev} style={buttonStyle.secondary}>
-                  Previous
+                  <i className="fas fa-arrow-left" style={{ marginRight: "6px" }}></i> Previous
                 </button>
               )}
 
               {/* Next/Save Button */}
               {currentTab !== "personal" && !showOnlyRequired ? (
                 <button onClick={handleNext} style={buttonStyle.primary}>
-                  Next
+                  Next <i className="fas fa-arrow-right" style={{ marginLeft: "6px" }}></i>
                 </button>
               ) : (
                 <button
                   onClick={handleSave}
-                  style={isBlocked ? { ...buttonStyle.success, opacity: 0.5, cursor: 'not-allowed', background: '#94a3b8' } : buttonStyle.success}
+                  style={isBlocked || isSaving ? { ...buttonStyle.success, opacity: 0.6, cursor: "not-allowed" } : buttonStyle.success}
                   disabled={isBlocked || isSaving}
                 >
-                  Save
+                  {isSaving ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin" style={{ marginRight: "6px" }}></i> Saving...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-check" style={{ marginRight: "6px" }}></i> {mode === "edit" ? "Update Contact" : "Save Contact"}
+                    </>
+                  )}
                 </button>
               )}
             </div>
@@ -1280,21 +1384,57 @@ const AddContactModal = ({
         {
           showSuggestions && (
             <div style={rightPaneStyle}>
-              <div style={{ padding: "20px", borderBottom: "1px solid #e2e8f0" }}>
-                <h3>Suggestions</h3>
+              <div
+                style={{
+                  padding: "12px 16px",
+                  borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <i className="fas fa-clone" style={{ color: isBlocked ? "#ef4444" : "#f59e0b", fontSize: "14px" }}></i>
+                  <span style={{ fontSize: "0.82rem", fontWeight: 800, color: isDark ? "var(--text-main)" : "#0f172a" }}>
+                    Duplicate Matches
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: "0.68rem",
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    background: isBlocked ? "#fee2e2" : "#fef3c7",
+                    color: isBlocked ? "#b91c1c" : "#92400e",
+                  }}
+                >
+                  {similarContacts.length} Found
+                </span>
               </div>
-              <div style={{ flex: 1, padding: "20px" }}>
+              <div
+                className="no-scrollbar"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: "auto",
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
+              >
                 <DuplicateResults
                   contacts={similarContacts}
                   onUpdate={handlePopulateForm}
                   isBlocked={isBlocked}
                   getLookupValue={getLookupValue}
+                  isDark={isDark}
                 />
               </div>
             </div>
           )
         }
-      </div >
+      </div>
     </div >
   );
 };

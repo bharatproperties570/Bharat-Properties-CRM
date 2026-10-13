@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTheme } from '../context/ThemeContext';
 
 const ContactPersonalSection = React.memo(function ContactPersonalSection({
   formData,
@@ -33,6 +34,8 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
   professionSubCategories,
   designation,
 }) {
+  const { isDark } = useTheme();
+
   const selectedCompanyObj = allCompanies.find((c) => c.name === formData.company);
   const branchOffices = selectedCompanyObj?.addresses?.["Branch Office"] || [];
   const siteOffices = selectedCompanyObj?.addresses?.["Site Office"] || [];
@@ -53,61 +56,80 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
       : []),
   ];
 
+  const cardStyle = {
+    background: isDark ? "rgba(255, 255, 255, 0.03)" : "#fff",
+    padding: "16px 18px",
+    borderRadius: "12px",
+    border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+  };
+
+  const headerStyle = {
+    margin: "0 0 14px 0",
+    fontSize: "0.85rem",
+    fontWeight: 800,
+    color: isDark ? "var(--text-main)" : "#0f172a",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    paddingBottom: "10px",
+    borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid #f1f5f9"
+  };
+
+  const subHeaderStyle = {
+    fontSize: "0.8rem",
+    fontWeight: 700,
+    color: isDark ? "var(--text-main)" : "#475569",
+    margin: "14px 0 10px 0",
+    paddingTop: "12px",
+    borderTop: isDark ? "1px dashed rgba(255, 255, 255, 0.08)" : "1px dashed #e2e8f0",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px"
+  };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: "0.72rem",
+    fontWeight: 700,
+    color: isDark ? "var(--text-muted)" : "#64748b",
+    marginBottom: "6px",
+    textTransform: "uppercase",
+    letterSpacing: "0.03em"
+  };
+
+  const inputStyle = {
+    width: "100%",
+    padding: "7px 11px",
+    borderRadius: "8px",
+    border: isDark ? "1px solid rgba(255, 255, 255, 0.15)" : "1px solid #cbd5e1",
+    background: isDark ? "#1e293b" : "#fff",
+    color: isDark ? "var(--text-main)" : "#1e293b",
+    fontSize: "0.82rem",
+    outline: "none",
+    boxSizing: "border-box"
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       {/* Personal Basic Info */}
-      <div
-        style={{
-          background: "#fff",
-          padding: "24px",
-          borderRadius: "12px",
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-        }}
-      >
-        <h3
-          style={{
-            margin: "0 0 20px 0",
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "#0f172a",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            paddingBottom: "12px",
-            borderBottom: "1px solid #f1f5f9",
-          }}
-        >
-          <i
-            className="fas fa-user-clock"
-            style={{ color: "#ec4899" }}
-          ></i>{" "}
+      <div style={cardStyle}>
+        <h3 style={headerStyle}>
+          <i className="fas fa-user-clock" style={{ color: "#ec4899" }}></i>
           Bio Details
         </h3>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-            gap: "20px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "12px",
           }}
         >
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                fontWeight: 500,
-                color: "#64748b",
-                marginBottom: "8px",
-              }}
-            >
-              Gender
-            </label>
+            <label style={labelStyle}>Gender</label>
             <select
               value={formData.gender}
-              onChange={(e) =>
-                handleInputChange("gender", e.target.value)
-              }
+              onChange={(e) => handleInputChange("gender", e.target.value)}
               style={customSelectStyle}
             >
               <option value="">Select Gender</option>
@@ -117,22 +139,10 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </select>
           </div>
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                fontWeight: 500,
-                color: "#64748b",
-                marginBottom: "8px",
-              }}
-            >
-              Marital Status
-            </label>
+            <label style={labelStyle}>Marital Status</label>
             <select
               value={formData.maritalStatus}
-              onChange={(e) =>
-                handleInputChange("maritalStatus", e.target.value)
-              }
+              onChange={(e) => handleInputChange("maritalStatus", e.target.value)}
               style={customSelectStyle}
             >
               <option value="">Select Status</option>
@@ -143,95 +153,41 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </select>
           </div>
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                fontWeight: 500,
-                color: "#64748b",
-                marginBottom: "8px",
-              }}
-            >
-              Date of Birth
-            </label>
+            <label style={labelStyle}>Date of Birth</label>
             <input
               type="date"
               value={formData.birthDate}
-              onChange={(e) =>
-                handleInputChange("birthDate", e.target.value)
-              }
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.9rem",
-                outline: "none",
-                color: "#1e293b",
-              }}
+              onChange={(e) => handleInputChange("birthDate", e.target.value)}
+              style={inputStyle}
             />
           </div>
           {formData.maritalStatus === "Married" && (
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "#64748b",
-                  marginBottom: "8px",
-                }}
-              >
-                Anniversary Date
-              </label>
+              <label style={labelStyle}>Anniversary Date</label>
               <input
                 type="date"
                 value={formData.anniversaryDate}
-                onChange={(e) =>
-                  handleInputChange("anniversaryDate", e.target.value)
-                }
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
-                  outline: "none",
-                  color: "#1e293b",
-                }}
+                onChange={(e) => handleInputChange("anniversaryDate", e.target.value)}
+                style={inputStyle}
               />
             </div>
           )}
         </div>
 
         {/* Social Presence */}
-        <h3
-          style={{
-            margin: "20px 0 20px 0",
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "#0f172a",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            paddingTop: "16px",
-            borderTop: "1px dashed #e2e8f0",
-          }}
-        >
-          <i
-            className="fas fa-hashtag"
-            style={{ color: "#ec4899" }}
-          ></i>{" "}
+        <div style={subHeaderStyle}>
+          <i className="fas fa-hashtag" style={{ color: "#ec4899" }}></i>
           Social Presence
-        </h3>
+        </div>
         {formData.socialMedia.map((social, index) => (
           <div
             key={index}
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(140px, 160px) 1fr 40px",
-              gap: "12px",
-              marginBottom: "12px",
+              gridTemplateColumns: "minmax(140px, 160px) 1fr 34px",
+              gap: "10px",
+              marginBottom: "8px",
+              alignItems: "center"
             }}
           >
             <select
@@ -267,12 +223,7 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                 newSocial[index].url = e.target.value;
                 handleInputChange("socialMedia", newSocial);
               }}
-              style={{
-                padding: "10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontSize: "0.9rem",
-              }}
+              style={inputStyle}
             />
             <button
               type="button"
@@ -290,16 +241,22 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                 }
               }}
               style={{
-                borderRadius: "6px",
+                height: "32px",
+                width: "34px",
+                borderRadius: "8px",
                 border: "none",
-                background: index === 0 ? "#eff6ff" : "#fef2f2",
+                background: index === 0 
+                  ? (isDark ? "rgba(59, 130, 246, 0.2)" : "#eff6ff") 
+                  : (isDark ? "rgba(239, 68, 68, 0.2)" : "#fef2f2"),
                 color: index === 0 ? "#3b82f6" : "#ef4444",
                 cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.8rem"
               }}
             >
-              <i
-                className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-              ></i>
+              <i className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}></i>
             </button>
           </div>
         ))}
@@ -307,53 +264,20 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
 
       {/* Professional Details Card */}
       {!showOnlyRequired && (
-        <div
-          style={{
-            background: "#fff",
-            padding: "24px",
-            borderRadius: "12px",
-            border: "1px solid #e2e8f0",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 20px 0",
-              fontSize: "1rem",
-              fontWeight: 600,
-              color: "#0f172a",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              paddingBottom: "12px",
-              borderBottom: "1px solid #f1f5f9",
-            }}
-          >
-            <i
-              className="fas fa-briefcase"
-              style={{ color: "#0ea5e9" }}
-            ></i>{" "}
+        <div style={cardStyle}>
+          <h3 style={headerStyle}>
+            <i className="fas fa-briefcase" style={{ color: "#0ea5e9" }}></i>
             Professional Details
           </h3>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "20px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "12px",
             }}
           >
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "#64748b",
-                  marginBottom: "8px",
-                }}
-              >
-                Profession Category
-              </label>
+              <label style={labelStyle}>Profession Category</label>
               <select
                 value={formData.professionCategory}
                 onFocus={async () => {
@@ -365,10 +289,7 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                   }
                 }}
                 onChange={(e) => {
-                  handleInputChange(
-                    "professionCategory",
-                    e.target.value,
-                  );
+                  handleInputChange("professionCategory", e.target.value);
                   handleInputChange("professionSubCategory", "");
                   handleInputChange("designation", "");
                 }}
@@ -384,24 +305,11 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </div>
 
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "#64748b",
-                  marginBottom: "8px",
-                }}
-              >
-                Sub-Category
-              </label>
+              <label style={labelStyle}>Sub-Category</label>
               <select
                 value={formData.professionSubCategory}
                 onChange={(e) => {
-                  handleInputChange(
-                    "professionSubCategory",
-                    e.target.value,
-                  );
+                  handleInputChange("professionSubCategory", e.target.value);
                   handleInputChange("designation", "");
                 }}
                 style={
@@ -422,25 +330,10 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </div>
 
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "#64748b",
-                  marginBottom: "8px",
-                }}
-              >
-                Designation
-              </label>
+              <label style={labelStyle}>Designation</label>
               <select
                 value={formData.designation}
-                onChange={(e) =>
-                  handleInputChange(
-                    "designation",
-                    e.target.value,
-                  )
-                }
+                onChange={(e) => handleInputChange("designation", e.target.value)}
                 style={
                   !formData.professionSubCategory
                     ? customSelectStyleDisabled
@@ -459,17 +352,7 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </div>
 
             <div style={{ position: "relative" }}>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "#64748b",
-                  marginBottom: "8px",
-                }}
-              >
-                Company
-              </label>
+              <label style={labelStyle}>Company</label>
               <div style={{ position: "relative" }}>
                 <input
                   type="text"
@@ -485,21 +368,10 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                     setShowCompanyDropdown(true);
                   }}
                   onBlur={() =>
-                    setTimeout(
-                      () => setShowCompanyDropdown(false),
-                      200,
-                    )
+                    setTimeout(() => setShowCompanyDropdown(false), 200)
                   }
                   placeholder="Select or Type New Company"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "0.9rem",
-                    outline: "none",
-                    color: "#1e293b",
-                  }}
+                  style={inputStyle}
                   autoComplete="off"
                 />
                 {showCompanyDropdown && (
@@ -509,31 +381,24 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                       top: "100%",
                       left: 0,
                       right: 0,
-                      background: "#fff",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: "6px",
+                      background: isDark ? "#1e293b" : "#fff",
+                      border: isDark ? "1px solid rgba(255, 255, 255, 0.15)" : "1px solid #cbd5e1",
+                      borderRadius: "8px",
                       marginTop: "4px",
                       zIndex: 50,
-                      maxHeight: "200px",
+                      maxHeight: "180px",
                       overflowY: "auto",
-                      boxShadow:
-                        "0 4px 6px -1px rgba(0,0,0,0.1)",
+                      boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
                     }}
                   >
                     {(() => {
                       const filtered = companyList.filter((c) =>
-                        c
-                          .toLowerCase()
-                          .includes(
-                            companySearch.toLowerCase(),
-                          ),
+                        c.toLowerCase().includes(companySearch.toLowerCase()),
                       );
                       const showAddNew =
                         companySearch &&
                         !companyList.some(
-                          (c) =>
-                            c.toLowerCase() ===
-                            companySearch.toLowerCase(),
+                          (c) => c.toLowerCase() === companySearch.toLowerCase(),
                         );
 
                       return (
@@ -542,23 +407,17 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                             <div
                               key={comp}
                               onMouseDown={() => {
-                                handleInputChange(
-                                  "company",
-                                  comp,
-                                );
-                                handleInputChange(
-                                  "workOffice",
-                                  "",
-                                );
+                                handleInputChange("company", comp);
+                                handleInputChange("workOffice", "");
                                 setShowCompanyDropdown(false);
                               }}
                               style={{
-                                padding: "10px 12px",
+                                padding: "8px 12px",
                                 cursor: "pointer",
-                                fontSize: "0.9rem",
-                                color: "#334155",
+                                fontSize: "0.82rem",
+                                color: isDark ? "var(--text-main)" : "#334155",
                               }}
-                              className="hover:bg-slate-50"
+                              className="hover:bg-slate-50 dark:hover:bg-slate-800"
                             >
                               {comp}
                             </div>
@@ -566,29 +425,19 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                           {showAddNew && (
                             <div
                               onMouseDown={() => {
-                                const newCompany =
-                                  companySearch;
-                                setCompanyList((prev) => [
-                                  ...prev,
-                                  newCompany,
-                                ]);
-                                handleInputChange(
-                                  "company",
-                                  newCompany,
-                                );
-                                handleInputChange(
-                                  "workOffice",
-                                  "",
-                                );
+                                const newCompany = companySearch;
+                                setCompanyList((prev) => [...prev, newCompany]);
+                                handleInputChange("company", newCompany);
+                                handleInputChange("workOffice", "");
                                 setShowCompanyDropdown(false);
                               }}
                               style={{
-                                padding: "10px 12px",
+                                padding: "8px 12px",
                                 cursor: "pointer",
-                                fontSize: "0.9rem",
+                                fontSize: "0.82rem",
                                 color: "#2563eb",
-                                borderTop: "1px dashed #e2e8f0",
-                                background: "#eff6ff",
+                                borderTop: isDark ? "1px dashed rgba(255, 255, 255, 0.1)" : "1px dashed #e2e8f0",
+                                background: isDark ? "rgba(37, 99, 235, 0.1)" : "#eff6ff",
                               }}
                             >
                               + Add "{companySearch}"
@@ -603,54 +452,47 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
             </div>
 
             {hasMultipleOffices && (
-              <div style={{ gridColumn: "span 2" }}>
+              <div style={{ gridColumn: "1 / -1" }}>
                 <label
                   style={{
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
                     color: "#10b981",
-                    marginBottom: "10px",
+                    marginBottom: "8px",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
+                    gap: "6px",
+                    textTransform: "uppercase"
                   }}
                 >
-                  <i className="fas fa-map-marker-alt"></i>{" "}
-                  Associated Office / Branch
+                  <i className="fas fa-map-marker-alt"></i> Associated Office / Branch
                 </label>
                 <div
                   style={{
                     display: "flex",
                     flexWrap: "wrap",
-                    gap: "10px",
+                    gap: "8px",
                   }}
                 >
                   {officeOptions.map((opt, idx) => (
                     <button
                       key={idx}
-                      onClick={() =>
-                        handleInputChange(
-                          "workOffice",
-                          opt.value,
-                        )
-                      }
+                      type="button"
+                      onClick={() => handleInputChange("workOffice", opt.value)}
                       style={{
-                        padding: "8px 16px",
+                        padding: "6px 12px",
                         borderRadius: "20px",
-                        border: `1.5px solid ${formData.workOffice === opt.value ? "#10b981" : "#e2e8f0"}`,
+                        border: `1.5px solid ${formData.workOffice === opt.value ? "#10b981" : (isDark ? "rgba(255, 255, 255, 0.15)" : "#e2e8f0")}`,
                         background:
                           formData.workOffice === opt.value
-                            ? "#ecfdf5"
-                            : "#fff",
+                            ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ecfdf5")
+                            : (isDark ? "transparent" : "#fff"),
                         color:
                           formData.workOffice === opt.value
-                            ? "#047857"
-                            : "#64748b",
-                        fontSize: "0.85rem",
-                        fontWeight:
-                          formData.workOffice === opt.value
-                            ? 700
-                            : 500,
+                            ? "#10b981"
+                            : (isDark ? "var(--text-muted)" : "#64748b"),
+                        fontSize: "0.78rem",
+                        fontWeight: formData.workOffice === opt.value ? 700 : 500,
                         cursor: "pointer",
                         transition: "all 0.2s",
                         display: "flex",
@@ -673,68 +515,29 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
 
       {/* Education & Financial Details Card */}
       {!showOnlyRequired && (
-        <div
-          style={{
-            background: "#fff",
-            padding: "24px",
-            borderRadius: "12px",
-            border: "1px solid #e2e8f0",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 20px 0",
-              fontSize: "1rem",
-              fontWeight: 600,
-              color: "#0f172a",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              paddingBottom: "12px",
-              borderBottom: "1px solid #f1f5f9",
-            }}
-          >
-            <i
-              className="fas fa-coins"
-              style={{ color: "#eab308" }}
-            ></i>{" "}
+        <div style={cardStyle}>
+          <h3 style={headerStyle}>
+            <i className="fas fa-coins" style={{ color: "#eab308" }}></i>
             Education & Financial Details
           </h3>
 
-          <h4
-            style={{
-              fontSize: "0.9rem",
-              color: "#475569",
-              marginBottom: "12px",
-            }}
-          >
+          <div style={{ ...subHeaderStyle, marginTop: 0, paddingTop: 0, borderTop: "none" }}>
+            <i className="fas fa-graduation-cap" style={{ color: "#3b82f6" }}></i>
             Education History
-          </h4>
+          </div>
           {formData.educations.map((edu, index) => {
             return (
               <div
                 key={index}
                 style={{
                   display: "grid",
-                  gridTemplateColumns:
-                    "minmax(120px, 1fr) 1fr 2fr 40px",
-                  gap: "12px",
-                  marginBottom: "12px",
-                  alignItems: "end",
+                  gridTemplateColumns: "minmax(120px, 1fr) 1fr 1.5fr 34px",
+                  gap: "10px",
+                  marginBottom: "8px",
+                  alignItems: "center",
                 }}
               >
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: "#64748b",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Level
-                  </label>
                   <select
                     value={edu.education}
                     onFocus={async () => {
@@ -762,16 +565,6 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                   </select>
                 </div>
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: "#64748b",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Degree/Course
-                  </label>
                   <select
                     value={edu.degree}
                     onFocus={async () => {
@@ -803,32 +596,16 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                   </select>
                 </div>
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.8rem",
-                      color: "#64748b",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    Institute
-                  </label>
                   <input
                     type="text"
-                    placeholder="School/University"
+                    placeholder="School / University"
                     value={edu.school}
                     onChange={(e) => {
                       const newEdu = [...formData.educations];
                       newEdu[index].school = e.target.value;
                       handleInputChange("educations", newEdu);
                     }}
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      borderRadius: "6px",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "0.9rem",
-                    }}
+                    style={inputStyle}
                   />
                 </div>
                 <button
@@ -847,41 +624,40 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                     }
                   }}
                   style={{
-                    height: "40px",
-                    borderRadius: "6px",
+                    height: "32px",
+                    width: "34px",
+                    borderRadius: "8px",
                     border: "none",
-                    background: index === 0 ? "#eff6ff" : "#fef2f2",
+                    background: index === 0 
+                      ? (isDark ? "rgba(59, 130, 246, 0.2)" : "#eff6ff") 
+                      : (isDark ? "rgba(239, 68, 68, 0.2)" : "#fef2f2"),
                     color: index === 0 ? "#3b82f6" : "#ef4444",
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.8rem"
                   }}
                 >
-                  <i
-                    className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-                  ></i>
+                  <i className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}></i>
                 </button>
               </div>
             );
           })}
 
-          <h4
-            style={{
-              fontSize: "0.9rem",
-              color: "#475569",
-              margin: "20px 0 12px 0",
-              paddingTop: "16px",
-              borderTop: "1px dashed #e2e8f0",
-            }}
-          >
+          <div style={subHeaderStyle}>
+            <i className="fas fa-hand-holding-usd" style={{ color: "#10b981" }}></i>
             Annual Income Source
-          </h4>
+          </div>
           {formData.incomes.map((inc, index) => (
             <div
               key={index}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 40px",
-                gap: "12px",
-                marginBottom: "12px",
+                gridTemplateColumns: "1fr 1fr 34px",
+                gap: "10px",
+                marginBottom: "8px",
+                alignItems: "center"
               }}
             >
               <select
@@ -910,19 +686,14 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
               </select>
               <input
                 type="number"
-                placeholder="Amount"
+                placeholder="Amount (₹)"
                 value={inc.amount}
                 onChange={(e) => {
                   const newInc = [...formData.incomes];
                   newInc[index].amount = e.target.value;
                   handleInputChange("incomes", newInc);
                 }}
-                style={{
-                  padding: "10px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
-                }}
+                style={inputStyle}
               />
               <button
                 type="button"
@@ -940,39 +711,39 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                   }
                 }}
                 style={{
-                  borderRadius: "6px",
+                  height: "32px",
+                  width: "34px",
+                  borderRadius: "8px",
                   border: "none",
-                  background: index === 0 ? "#eff6ff" : "#fef2f2",
+                  background: index === 0 
+                    ? (isDark ? "rgba(59, 130, 246, 0.2)" : "#eff6ff") 
+                    : (isDark ? "rgba(239, 68, 68, 0.2)" : "#fef2f2"),
                   color: index === 0 ? "#3b82f6" : "#ef4444",
                   cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.8rem"
                 }}
               >
-                <i
-                  className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-                ></i>
+                <i className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}></i>
               </button>
             </div>
           ))}
 
-          <h4
-            style={{
-              fontSize: "0.9rem",
-              color: "#475569",
-              margin: "20px 0 12px 0",
-              paddingTop: "16px",
-              borderTop: "1px dashed #e2e8f0",
-            }}
-          >
+          <div style={subHeaderStyle}>
+            <i className="fas fa-file-invoice-dollar" style={{ color: "#f59e0b" }}></i>
             Existing Loans
-          </h4>
+          </div>
           {formData.loans.map((loan, index) => (
             <div
               key={index}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr 40px",
-                gap: "12px",
-                marginBottom: "12px",
+                gridTemplateColumns: "1fr 1fr 1fr 34px",
+                gap: "10px",
+                marginBottom: "8px",
+                alignItems: "center"
               }}
             >
               <select
@@ -992,7 +763,7 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                 }}
                 style={customSelectStyle}
               >
-                <option value="">Type</option>
+                <option value="">Loan Type</option>
                 {loan_type.map((l) => (
                   <option key={l._id} value={l._id}>
                     {l.lookup_value}
@@ -1025,19 +796,14 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
               </select>
               <input
                 type="number"
-                placeholder="Amount"
+                placeholder="Loan Amount (₹)"
                 value={loan.loanAmount}
                 onChange={(e) => {
                   const newLoans = [...formData.loans];
                   newLoans[index].loanAmount = e.target.value;
                   handleInputChange("loans", newLoans);
                 }}
-                style={{
-                  padding: "10px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
-                }}
+                style={inputStyle}
               />
               <button
                 type="button"
@@ -1055,16 +821,22 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
                   }
                 }}
                 style={{
-                  borderRadius: "6px",
+                  height: "32px",
+                  width: "34px",
+                  borderRadius: "8px",
                   border: "none",
-                  background: index === 0 ? "#eff6ff" : "#fef2f2",
+                  background: index === 0 
+                    ? (isDark ? "rgba(59, 130, 246, 0.2)" : "#eff6ff") 
+                    : (isDark ? "rgba(239, 68, 68, 0.2)" : "#fef2f2"),
                   color: index === 0 ? "#3b82f6" : "#ef4444",
                   cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.8rem"
                 }}
               >
-                <i
-                  className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-                ></i>
+                <i className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}></i>
               </button>
             </div>
           ))}
@@ -1072,53 +844,21 @@ const ContactPersonalSection = React.memo(function ContactPersonalSection({
       )}
 
       {/* Remarks */}
-      <div
-        style={{
-          background: "#fff",
-          padding: "24px",
-          borderRadius: "12px",
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-        }}
-      >
-        <h3
-          style={{
-            margin: "0 0 20px 0",
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "#0f172a",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            paddingBottom: "12px",
-            borderBottom: "1px solid #f1f5f9",
-          }}
-        >
-          <i
-            className="fas fa-sticky-note"
-            style={{ color: "#64748b" }}
-          ></i>{" "}
+      <div style={cardStyle}>
+        <h3 style={headerStyle}>
+          <i className="fas fa-sticky-note" style={{ color: "#64748b" }}></i>
           Remarks
         </h3>
         <div>
           <textarea
             value={formData.description}
-            onChange={(e) =>
-              handleInputChange("description", e.target.value)
-            }
+            onChange={(e) => handleInputChange("description", e.target.value)}
             placeholder="Enter any additional remarks about this contact..."
             style={{
-              width: "100%",
-              minHeight: "80px",
-              padding: "10px 12px",
-              borderRadius: "6px",
-              border: "1px solid #cbd5e1",
-              fontSize: "0.9rem",
-              outline: "none",
-              color: "#1e293b",
+              ...inputStyle,
+              minHeight: "70px",
               resize: "vertical",
-              fontFamily: "inherit",
-              boxSizing: "border-box",
+              fontFamily: "inherit"
             }}
           />
         </div>

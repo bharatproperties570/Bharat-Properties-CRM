@@ -183,3 +183,40 @@ mongodb-database-tools-*/
 
 # Runtime cache files
 backend/cache/*.json
+
+# Scratch, test dumps and archives
+*.tar.gz
+*.patch
+mock-bin/
+temp*.js
+temp.js
+debug.js
+print_err.js
+final_hooks*.js
+recovered_hooks*.js
+perfect_hooks*.js
+*.txt
+*.list
+backend/.temp_token
+backend/test-*.js
+backend/test_*.js
+backend/test_*.mjs
+*.mjs
+*.py
+fix_*.js
+patch_*.js
+test*.sh
+test*.js
+test_*.js
+debug_*.js
+old_*.js
+*.sh
+redis-stable/
+suite_results*.json
+release-manifest*.json
+git_state*.json
+test.json
+test_file
+*.bak
+
+

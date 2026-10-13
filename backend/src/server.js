@@ -1,3 +1,8 @@
+import dns from 'node:dns';
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
 import connectDB from "./config/db.js";
 import config from "./config/env.js";
 import mongoose from "mongoose";
@@ -22,9 +27,18 @@ const logStartup = (msg) => {
 };
 
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err);
+    console.error('[Enterprise] Uncaught Exception:', err);
     logStartup(`❌ Uncaught Exception: ${err.message}\n${err.stack}`);
+    // Do not kill server on non-critical transient errors (e.g. MongoDB replica reconnect or socket drops)
+    if (err.name === 'MongoServerSelectionError' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+        console.warn('⚠️ Transient network/MongoDB exception caught, maintaining process availability.');
+        return;
+    }
     process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Enterprise] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 async function startServer() {
@@ -88,9 +102,6 @@ async function startServer() {
         const { intakeWorker } = await import("../services/intakeQueue/IntakeQueue.js");
         const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
         const { baileysWorker } = await import("../services/baileysQueue/baileysWorker.js");
-        const { BaileysConnectionManager } = await import("../services/baileysQueue/BaileysConnectionManager.js");
-
-        BaileysConnectionManager.initializeAll();
 
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,

@@ -1,10 +1,52 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { useProjects, useLookups, useLookupMutations } from '../utils/crmHooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { PROJECTS_LIST } from '../constants/projectConstants';
 
-import { api, lookupsAPI, systemSettingsAPI, safeStorage } from '../utils/api';
+import { api, lookupsAPI, systemSettingsAPI, safeStorage, attachSafeLookupIterator } from '../utils/api';
+
+const normalizeCachedSetting = (key, parsed) => {
+    if (!parsed || typeof parsed !== 'object') return parsed;
+    attachSafeLookupIterator(parsed);
+    const toStrArray = (arr) => Array.isArray(arr)
+        ? arr.map(item => (item && typeof item === 'object') ? String(item.lookup_value || item.name || item.label || item.value || item._id || '') : String(item ?? '')).filter(Boolean)
+        : arr;
+
+    if (key === 'masterFields') {
+        const stringKeys = ['facings', 'directions', 'roadWidths', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'unitTypes', 'zoneNames', 'numberOfOwners', 'floorLevels', 'floorPlans', 'soilTypes', 'currentCrops', 'ownerships', 'pincodes', 'furnishingStatuses', 'constructionStatuses', 'parkingTypes', 'statuses', 'sources', 'documents', 'images', 'videos', 'propertyOwnerFeedback', 'followUpActions'];
+        const copy = { ...parsed };
+        stringKeys.forEach(k => {
+            if (Array.isArray(copy[k])) copy[k] = toStrArray(copy[k]);
+        });
+        return copy;
+    }
+    if (key === 'leadMasterFields') {
+        const stringKeys = ['transactionTypes', 'fundingTypes', 'furnishingStatuses', 'timelines'];
+        const copy = { ...parsed };
+        stringKeys.forEach(k => {
+            if (Array.isArray(copy[k])) copy[k] = toStrArray(copy[k]);
+        });
+        return copy;
+    }
+    if (key === 'dealMasterFields') {
+        const stringKeys = ['dealTypes', 'buyerTypes', 'closureReasons'];
+        const copy = { ...parsed };
+        stringKeys.forEach(k => {
+            if (Array.isArray(copy[k])) copy[k] = toStrArray(copy[k]);
+        });
+        return copy;
+    }
+    if (key === 'projectMasterFields') {
+        const stringKeys = ['approvals', 'approvalAuthorities', 'projectStatuses', 'Statuses', 'parkingTypes', 'unitTypes', 'balconyDirections', 'roadWidths', 'images', 'floors', 'videos'];
+        const copy = { ...parsed };
+        stringKeys.forEach(k => {
+            if (Array.isArray(copy[k])) copy[k] = toStrArray(copy[k]);
+        });
+        return copy;
+    }
+    return parsed;
+};
 
 if (typeof window !== 'undefined') {
     // Force clear old cache to load new requiredForms mappings
@@ -89,7 +131,7 @@ export const PropertyConfigProvider = ({ children }) => {
         const [storedValue, setStoredValue] = useState(() => {
             try {
                 const item = safeStorage.getItem(key);
-                return item ? JSON.parse(item) : initialValue;
+                return item ? normalizeCachedSetting(key, JSON.parse(item)) : initialValue;
             } catch (error) {
                 console.error(error);
                 return initialValue;
@@ -99,7 +141,8 @@ export const PropertyConfigProvider = ({ children }) => {
         const setValue = useCallback((value, skipSync = false) => {
             try {
                 setStoredValue(prev => {
-                    const valueToStore = value instanceof Function ? value(prev) : value;
+                    const rawValueToStore = value instanceof Function ? value(prev) : value;
+                    const valueToStore = normalizeCachedSetting(key, rawValueToStore);
                     safeStorage.setItem(key, JSON.stringify(valueToStore));
 
                     // Sync to Backend unless skipSync is true
@@ -153,7 +196,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const [sizes, setSizes] = useState(() => {
         try {
             const cached = localStorage.getItem('bp_sizes_cache');
-            return cached ? JSON.parse(cached) : [];
+            return cached ? attachSafeLookupIterator(JSON.parse(cached)) : [];
         } catch { return []; }
     });
 
@@ -1278,12 +1321,18 @@ export const PropertyConfigProvider = ({ children }) => {
     // This eliminates the O(n * m) nested loops that cause UI lag in tables
     const lookupMap = React.useMemo(() => {
         const map = new Map();
+        const toPrimitiveStr = (v) => {
+            if (v === null || v === undefined) return '';
+            if (typeof v === 'object') return String(v.lookup_value || v.name || v.label || v.value || '');
+            return String(v);
+        };
         // 1. Add all lookups across all categories
         Object.values(lookups).forEach(categoryLookups => {
             if (Array.isArray(categoryLookups)) {
                 categoryLookups.forEach(l => {
                     const id = l._id || l.id;
-                    if (id) map.set(id.toString(), l.lookup_value);
+                    const strVal = toPrimitiveStr(l.lookup_value);
+                    if (id && strVal) map.set(id.toString(), strVal);
                 });
             }
         });
@@ -1291,14 +1340,16 @@ export const PropertyConfigProvider = ({ children }) => {
         if (Array.isArray(projects)) {
             projects.forEach(p => {
                 const id = p._id || p.id;
-                if (id) map.set(id.toString(), p.name || p.projectName || p.title);
+                const strVal = toPrimitiveStr(p.name || p.projectName || p.title);
+                if (id && strVal) map.set(id.toString(), strVal);
             });
         }
         // 3. Add all sizes (Specialized Lookup Category)
         if (Array.isArray(sizes)) {
             sizes.forEach(s => {
                 const id = s._id || s.id;
-                if (id) map.set(id.toString(), s.name || s.lookup_value);
+                const strVal = toPrimitiveStr(s.name || s.lookup_value);
+                if (id && strVal) map.set(id.toString(), strVal);
             });
         }
 
@@ -1306,7 +1357,7 @@ export const PropertyConfigProvider = ({ children }) => {
         const crawlConfig = (obj) => {
             if (!obj || typeof obj !== 'object') return;
             const id = obj.id || obj._id;
-            const name = obj.name || obj.label || obj.lookup_value;
+            const name = toPrimitiveStr(obj.name || obj.label || obj.lookup_value);
             if (id && name && typeof id === 'string' && id.length === 24) {
                 if (!map.has(id)) map.set(id, name);
             }
@@ -1512,23 +1563,30 @@ export const PropertyConfigProvider = ({ children }) => {
     const getLookupValue = useCallback((type, id) => {
         if (id === null || id === undefined) return null;
 
-        const idStrNormalized = typeof id === 'object' && id && id.toString ? id.toString() : String(id);
+        const idStrNormalized = typeof id === 'object' && id && id._id ? String(id._id) : String(id);
         if (idStrNormalized === '69cfec103dc8a3ece367942d') {
             return 'Vacant';
         }
 
         // Case A: ID is already a populated object
         if (typeof id === 'object') {
-            const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
+            let val = id.lookup_value || id.name || id.label || id.value || id.displayName;
+            if (val && typeof val === 'object') {
+                val = val.lookup_value || val.name || val.label || val.value || val.displayName;
+            }
             if (val !== undefined && val !== null && typeof val !== 'object') {
                 const valStr = String(val);
                 // If the label itself is a 24-char ID, resolve from lookupMap
                 if (/^[0-9a-fA-F]{24}$/.test(valStr)) {
                     const resolved = lookupMap.get(valStr);
                     if (resolved) return String(resolved);
+                    if (id._id && lookupMap.has(String(id._id))) return String(lookupMap.get(String(id._id)));
                     return null;
                 }
                 return valStr;
+            }
+            if (id._id && lookupMap.has(String(id._id))) {
+                return String(lookupMap.get(String(id._id)));
             }
             const strRepresentation = typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : null;
             if (strRepresentation && /^[0-9a-fA-F]{24}$/.test(strRepresentation)) {
@@ -1663,26 +1721,32 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     }, [rawLookups, setMasterFields, setLeadMasterFields, setCompanyMasterFields, setSizesWithCache]);
 
+    const lookupsRef = useRef(lookups);
+    lookupsRef.current = lookups;
+    const hasLoadedConfigsRef = useRef(false);
+
     // Legacy compat stub bridging to TanStack cache invalidation
     const refreshLookups = useCallback(async () => {
         try {
             console.log('[PropertyConfigContext] Triggering cache invalidation for lookups...');
             await queryClient.invalidateQueries({ queryKey: ['lookups'] });
-            return lookups; // Return current local state for legacy awaiters
+            return queryClient.getQueryData(['lookups']) || lookupsRef.current || {};
         } catch (error) {
             console.error('[PropertyConfigContext] Failed to invalidate lookups:', error);
             return {};
         }
-    }, [queryClient, lookups]);
+    }, [queryClient]);
 
-    // Load all configurations from backend on mount
+    // Load all configurations from backend on mount (once per session)
     useEffect(() => {
+        if (hasLoadedConfigsRef.current) return;
         const loadAllConfigs = async () => {
             const token = localStorage.getItem('authToken');
             if (!token) {
                 setIsLoading(false);
                 return;
             }
+            hasLoadedConfigsRef.current = true;
             try {
                 // 1. LOAD LOOKUPS FIRST (Primary source for normalized fields)
                 const fetchedLookups = await refreshLookups();
@@ -1726,6 +1790,21 @@ export const PropertyConfigProvider = ({ children }) => {
                     console.log(`[PropertyConfigContext] Processing ${settingsList.length} settings...`);
 
                     // Map settings to state (Aligned with useSystemSetting camelCase keys)
+                    const toStrList = (arr) => Array.isArray(arr)
+                        ? arr.map(item => (item && typeof item === 'object') ? (item.lookup_value || item.name || item.label || item.value || item._id || '') : String(item ?? '')).filter(Boolean)
+                        : [];
+
+                    const normalizeDictStringArrays = (obj, stringArrayKeys) => {
+                        if (!obj || typeof obj !== 'object') return obj;
+                        const copy = { ...obj };
+                        stringArrayKeys.forEach(k => {
+                            if (Array.isArray(copy[k])) {
+                                copy[k] = toStrList(copy[k]);
+                            }
+                        });
+                        return copy;
+                    };
+
                     const foundKeys = new Set();
                     settingsList.forEach(setting => {
                         console.log(`[PropertyConfigContext] Syncing key: ${setting.key}`);
@@ -1736,8 +1815,10 @@ export const PropertyConfigProvider = ({ children }) => {
                                 break;
                             case 'masterFields': 
                                 setMasterFields(prev => {
-                                    const merged = { ...prev, ...setting.value };
-                                    const lookupKeys = ['facings', 'directions', 'roadWidths', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'unitTypes', 'relations', 'zoneNames', 'numberOfOwners', 'floorLevels', 'floorPlans', 'soilTypes', 'currentCrops'];
+                                    const stringKeys = ['facings', 'directions', 'roadWidths', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'unitTypes', 'zoneNames', 'numberOfOwners', 'floorLevels', 'floorPlans', 'soilTypes', 'currentCrops', 'ownerships', 'pincodes', 'furnishingStatuses', 'constructionStatuses', 'parkingTypes'];
+                                    const normalizedIncoming = normalizeDictStringArrays(setting.value, stringKeys);
+                                    const merged = { ...prev, ...normalizedIncoming };
+                                    const lookupKeys = ['facings', 'directions', 'roadWidths', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'unitTypes', 'relations', 'zoneNames', 'numberOfOwners', 'floorLevels', 'floorPlans', 'soilTypes', 'currentCrops', 'ownerships', 'pincodes', 'titles'];
                                     lookupKeys.forEach(k => {
                                         if (prev[k] && prev[k].length > 0) merged[k] = prev[k];
                                     });
@@ -1747,12 +1828,22 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'projectMasterFields': 
                                 setProjectMasterFields({
                                     ...defaultProjectMasterFields,
-                                    ...setting.value
+                                    ...normalizeDictStringArrays(setting.value, ['approvals', 'Statuses', 'parkingTypes', 'unitTypes', 'balconyDirections', 'roadWidths'])
                                 }, true); 
                                 break;
                             case 'projectAmenities': setProjectAmenities(setting.value, true); break;
                             case 'leadMasterFields': 
-                                setLeadMasterFields(setting.value, true); 
+                                setLeadMasterFields(prev => {
+                                    const normalizedIncoming = normalizeDictStringArrays(setting.value, ['transactionTypes', 'fundingTypes', 'furnishingStatuses', 'timelines']);
+                                    return {
+                                        ...prev,
+                                        ...normalizedIncoming,
+                                        transactionTypes: (prev.transactionTypes && prev.transactionTypes.length > 0) ? prev.transactionTypes : (normalizedIncoming?.transactionTypes || []),
+                                        fundingTypes: (prev.fundingTypes && prev.fundingTypes.length > 0) ? prev.fundingTypes : (normalizedIncoming?.fundingTypes || []),
+                                        furnishingStatuses: (prev.furnishingStatuses && prev.furnishingStatuses.length > 0) ? prev.furnishingStatuses : (normalizedIncoming?.furnishingStatuses || []),
+                                        timelines: (prev.timelines && prev.timelines.length > 0) ? prev.timelines : (normalizedIncoming?.timelines || [])
+                                    };
+                                }, true); 
                                 break;
                             case 'scoringConfig': setScoringConfig(setting.value, true); break;
                             case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
@@ -1775,7 +1866,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'forecastConfig': setForecastConfig(setting.value, true); break;
                             case 'dealHealthConfig': setDealHealthConfig(setting.value, true); break;
                             case 'intentSignals': setIntentSignals(setting.value, true); break;
-                            case 'dealMasterFields': setDealMasterFields(setting.value, true); break;
+                            case 'dealMasterFields': setDealMasterFields(normalizeDictStringArrays(setting.value, ['dealTypes', 'buyerTypes', 'closureReasons']), true); break;
 
                             case 'dynamic_projects': 
                                 console.log('[PropertyConfigContext] Syncing dynamic_projects:', setting.value);

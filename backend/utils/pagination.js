@@ -1,4 +1,7 @@
 import '../models/Lookup.js'; // Ensure Lookup model is registered for population
+import '../models/User.js';
+import '../models/Team.js';
+import '../models/ContactGroup.js';
 
 /**
  * Enterprise Pagination Utility

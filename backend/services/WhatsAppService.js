@@ -107,9 +107,33 @@ class WhatsAppService {
         return null;
     }
 
+    async _getBaileysConfig(integrationIdOrPhoneId = null) {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+        let integration = null;
+        if (integrationIdOrPhoneId) {
+            const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
+                ? { _id: integrationIdOrPhoneId, provider: 'BAILEYS', status: 'ACTIVE' }
+                : { phoneNumberId: String(integrationIdOrPhoneId), provider: 'BAILEYS', status: 'ACTIVE' };
+            integration = await WhatsAppIntegration.findOne(query).lean();
+        }
+        if (!integration) {
+            integration = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).lean();
+        }
+        if (!integration) {
+            throw new Error("Active WhatsApp Web account not found. Please connect your WhatsApp Web in Profile settings.");
+        }
+        return {
+            integrationId: integration._id,
+            displayPhoneNumber: integration.displayPhoneNumber,
+            accountLabel: integration.accountLabel || 'Bharat Properties WhatsApp Web',
+            connectionType: integration.connectionType,
+            provider: 'BAILEYS'
+        };
+    }
+
     /**
      * Send a standard text message
-     * @param {string} mobile - Recipient phone number
+     * @param {string} mobile - Recipient phone number or group JID
      * @param {string} message - Text body
      * @param {Object} [options] - Optional settings { integrationId, phoneId }
      */
@@ -120,12 +144,44 @@ class WhatsAppService {
         }
 
         const targetAccount = typeof options === 'string' ? options : (options?.integrationId || options?.phoneId || null);
+        const isGroupTarget = String(mobile || '').includes('@g.us');
+        const opt = typeof options === 'object' ? (options || {}) : {};
+        const isBaileysRequested = opt.provider === 'BAILEYS' || 
+            opt.channel === 'whatsapp_web' || 
+            opt.useBaileys === true ||
+            opt.platform === 'WhatsApp Web';
+        const isMetaRequested = opt.provider === 'META' || 
+            opt.channel === 'whatsapp_api' || 
+            opt.useMeta === true ||
+            opt.platform === 'Direct' ||
+            opt.platform === 'WhatsApp Cloud API';
+
         let config;
         try {
-            config = await this._getMetaConfig(targetAccount);
+            if (isGroupTarget) {
+                // WhatsApp Groups are strictly routed to WhatsApp Web (Baileys)
+                config = await this._getBaileysConfig(targetAccount);
+            } else if (isBaileysRequested && !isMetaRequested) {
+                // Explicitly routed to WhatsApp Web (Baileys scanner)
+                config = await this._getBaileysConfig(targetAccount);
+            } else if (isMetaRequested && !isBaileysRequested) {
+                // Explicitly routed to Meta Cloud API
+                config = await this._getMetaConfig(targetAccount);
+            } else {
+                // Fallback: try Meta first, but if not configured/fails, fallback to Baileys
+                try {
+                    config = await this._getMetaConfig(targetAccount);
+                } catch (metaErr) {
+                    try {
+                        config = await this._getBaileysConfig(targetAccount);
+                    } catch (_) {
+                        throw metaErr;
+                    }
+                }
+            }
         } catch (err) {
             console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
-            return { success: false, error: err.message, provider: 'meta' };
+            return { success: false, error: err.message, provider: (isGroupTarget || isBaileysRequested) ? 'baileys' : 'meta' };
         }
         if (config) {
             if (config.provider === 'BAILEYS') {
@@ -178,15 +234,48 @@ class WhatsAppService {
         const { type = 'text', mediaUrl } = options;
         try {
             const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
-            const sock = BaileysConnectionManager.getSocket(config.integrationId.toString());
+            let sock = BaileysConnectionManager.getSocket(config.integrationId.toString());
             
+            if (!sock) {
+                try {
+                    sock = await BaileysConnectionManager.connect(config.integrationId.toString());
+                } catch (connErr) {
+                    console.error('[WhatsAppService/Baileys] Socket connect error:', connErr.message);
+                }
+            }
+
             if (!sock) {
                 return { success: false, error: 'WhatsApp socket not connected or still pairing', provider: 'baileys' };
             }
+            if (!sock.user || !sock.user.id) {
+                return { success: false, error: 'WhatsApp Web is not fully connected. Please scan the QR code in Profile page.', provider: 'baileys' };
+            }
 
-            let jid = mobile;
+            if (!sock.ws || !sock.ws.isOpen) {
+                if (sock.ws && sock.ws.isConnecting) {
+                    try {
+                        await Promise.race([
+                            sock.waitForSocketOpen(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Wait timeout')), 4000))
+                        ]);
+                    } catch (waitErr) {}
+                }
+                if (!sock.ws || !sock.ws.isOpen) {
+                    return { 
+                        success: false, 
+                        error: 'WhatsApp Web socket is currently reconnecting or offline. Please check connection in Profile.', 
+                        provider: 'baileys' 
+                    };
+                }
+            }
+
+            let jid = String(mobile || '').trim();
             if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us')) {
-                jid = `${mobile.replace(/\D/g, '')}@s.whatsapp.net`;
+                const normalized = this._normalizeTarget(jid);
+                if (!normalized) {
+                    return { success: false, error: 'Invalid phone number format for WhatsApp', provider: 'baileys' };
+                }
+                jid = `${normalized}@s.whatsapp.net`;
             }
             
             let content = { text: message || '' };
@@ -195,14 +284,31 @@ class WhatsAppService {
                 if (type === 'video') mimetype = 'video/mp4';
                 else if (type === 'document') mimetype = 'application/pdf';
                 
+                let mediaSource = { url: mediaUrl };
+                if (mediaUrl.startsWith('/uploads/') || mediaUrl.startsWith('uploads/')) {
+                    const path = await import('path');
+                    const fs = await import('fs');
+                    const localPath = path.resolve(process.cwd(), mediaUrl.replace(/^\//, ''));
+                    if (fs.existsSync(localPath)) {
+                        mediaSource = fs.readFileSync(localPath);
+                    }
+                }
+
                 content = {
-                    [type === 'image' ? 'image' : type === 'document' ? 'document' : 'video']: { url: mediaUrl },
+                    [type === 'image' ? 'image' : type === 'document' ? 'document' : 'video']: mediaSource,
                     caption: message || ''
                 };
-                if (type === 'document') content.mimetype = mimetype;
+                if (type === 'document') {
+                    content.mimetype = mimetype;
+                    if (options.filename) content.fileName = options.filename;
+                }
             }
 
-            const sentMsg = await sock.sendMessage(jid, content);
+            const sendPromise = sock.sendMessage(jid, content);
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('WhatsApp Web send timed out after 15 seconds. Please check device connectivity.')), 15000)
+            );
+            const sentMsg = await Promise.race([sendPromise, timeoutPromise]);
 
             return { 
                 success: true, 
@@ -389,12 +495,40 @@ class WhatsAppService {
         }
 
         const targetAccount = extraOptions?.integrationId || extraOptions?.phoneId || null;
+        const isGroupTarget = String(mobile || '').includes('@g.us');
+        const opt = typeof extraOptions === 'object' ? (extraOptions || {}) : {};
+        const isBaileysRequested = opt.provider === 'BAILEYS' || 
+            opt.channel === 'whatsapp_web' || 
+            opt.useBaileys === true ||
+            opt.platform === 'WhatsApp Web';
+        const isMetaRequested = opt.provider === 'META' || 
+            opt.channel === 'whatsapp_api' || 
+            opt.useMeta === true ||
+            opt.platform === 'Direct' ||
+            opt.platform === 'WhatsApp Cloud API';
+
         let metaConfig;
         try {
-            metaConfig = await this._getMetaConfig(targetAccount);
+            if (isGroupTarget) {
+                metaConfig = await this._getBaileysConfig(targetAccount);
+            } else if (isBaileysRequested && !isMetaRequested) {
+                metaConfig = await this._getBaileysConfig(targetAccount);
+            } else if (isMetaRequested && !isBaileysRequested) {
+                metaConfig = await this._getMetaConfig(targetAccount);
+            } else {
+                try {
+                    metaConfig = await this._getMetaConfig(targetAccount);
+                } catch (metaErr) {
+                    try {
+                        metaConfig = await this._getBaileysConfig(targetAccount);
+                    } catch (_) {
+                        throw metaErr;
+                    }
+                }
+            }
         } catch (err) {
             console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
-            return { success: false, error: err.message, provider: 'meta' };
+            return { success: false, error: err.message, provider: (isGroupTarget || isBaileysRequested) ? 'baileys' : 'meta' };
         }
         if (metaConfig) {
             if (metaConfig.provider === 'BAILEYS') {
@@ -469,8 +603,9 @@ class WhatsAppService {
             const fs = await import('fs');
             const FormData = (await import('form-data')).default;
             
+            const fileBuffer = fs.readFileSync(filePath);
             const form = new FormData();
-            form.append('file', fs.createReadStream(filePath));
+            form.append('file', fileBuffer, { filename: filePath.split('/').pop() });
             form.append('messaging_product', 'whatsapp');
             form.append('type', type);
 

@@ -21,7 +21,7 @@ connectDB().then(() => {
     app.listen(PORT, () => {
         console.log(`🚀 CRM Backend running on port ${PORT}`);
         
-        // Initialize WhatsApp Scanner Connections
+        // Initialize WhatsApp Web Connections
         BaileysConnectionManager.initializeAll();
 
         // Initialize Auto-Aging Engine

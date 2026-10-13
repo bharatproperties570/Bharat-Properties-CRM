@@ -284,3 +284,169 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         rcsActions: channel === 'RCS' ? (template.buttons || []) : undefined
     };
 };
+
+/**
+ * Enterprise Variable Interpolator:
+ * Resolves all template variables (named and positional) against Recipient, Agent, Property, and Activity data.
+ */
+export const interpolateTemplateText = (rawText, { recipient = {}, agent = {}, property = {}, activity = {} } = {}) => {
+    if (!rawText || typeof rawText !== 'string') return rawText || '';
+
+    // If text does not contain any template brackets, return early
+    if (!rawText.includes('{{')) return rawText;
+
+    // 1. Recipient Normalization
+    const rawFullName = recipient?.name || (recipient?.firstName ? `${recipient.firstName} ${recipient.lastName || ''}`.trim() : '') || '';
+    const cleanFullName = rawFullName && !/^[0-9a-fA-F]{24}$/.test(rawFullName) ? rawFullName : (activity.performedBy && !activity.performedBy.includes('System') ? activity.performedBy : 'Customer');
+    const firstName = recipient?.firstName || (cleanFullName.split(' ')[0] && cleanFullName.split(' ')[0] !== 'Customer' ? cleanFullName.split(' ')[0] : cleanFullName);
+    const recipientPhone = recipient?.mobile || recipient?.phone || activity.details?.phoneNumber || activity.details?.recipient || '';
+    const recipientEmail = recipient?.email || activity.details?.email || '';
+    
+    let requirement = recipient?.requirement || recipient?.requirementType || '';
+    if (!requirement || /^[0-9a-fA-F]{24}$/.test(requirement)) {
+        requirement = property?.propertyType || property?.projectName || 'Residential Plot';
+    }
+
+    const location = property?.location || recipient?.location || recipient?.locCity || 'Sector 4, Kurukshetra';
+    const budget = recipient?.budget || recipient?.budgetMin || recipient?.budgetMax || 'Attractive Price';
+
+    // 2. Agent Normalization
+    let agentName = agent?.fullName || agent?.name || '';
+    if (!agentName && activity.performedBy && !activity.performedBy.toLowerCase().includes('system')) {
+        agentName = activity.performedBy;
+    }
+    if (!agentName) agentName = 'Bharat Properties Consultant';
+
+    const agentPhone = agent?.mobile || agent?.phone || '+91 94160 35570';
+    const agentEmail = agent?.email || 'info@bharatproperties.co';
+
+    // 3. Property Normalization
+    const projectName = property?.projectName || 'Kohinoor City';
+    const unitNo = property?.unitNo || 'Unit 1';
+    const propertyType = property?.propertyType || property?.category || requirement;
+    const propertySize = property?.size || '250 Sq. Yd.';
+    const propertyPrice = property?.price || 'Attractive Price (On Request)';
+    const propertyLink = property?.link || 'https://bharatproperties.co';
+
+    // 4. Activity & Discussion Normalization
+    const discussionSummary = activity.details?.summary || activity.details?.discussionSummary || activity.details?.message || activity.subject || 'Discussion held regarding property requirements.';
+    const activityDate = activity.dueDate ? new Date(activity.dueDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const activityTime = activity.dueDate ? new Date(activity.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Convenient Time';
+
+    let result = rawText;
+
+    // Helper map of case-insensitive named replacements
+    const namedMap = {
+        'agentname': agentName,
+        'agent_name': agentName,
+        'employeename': agentName,
+        'employee_name': agentName,
+        'consultantname': agentName,
+        
+        'agentphone': agentPhone,
+        'agent_phone': agentPhone,
+        'agentmobile': agentPhone,
+        'agent_mobile': agentPhone,
+        'employeemobile': agentPhone,
+        'employee_mobile': agentPhone,
+        
+        'agentemail': agentEmail,
+        'agent_email': agentEmail,
+        'company_name': 'Bharat Properties',
+        
+        'ownername': cleanFullName,
+        'owner_name': cleanFullName,
+        'leadname': cleanFullName,
+        'lead_name': cleanFullName,
+        'customername': cleanFullName,
+        'customer_name': cleanFullName,
+        'fullname': cleanFullName,
+        'full_name': cleanFullName,
+        'firstname': firstName,
+        'first_name': firstName,
+        'name': cleanFullName,
+        'phone': recipientPhone,
+        'mobile': recipientPhone,
+        'email': recipientEmail,
+        
+        'propertytype': propertyType,
+        'property_type': propertyType,
+        'property_category': propertyType,
+        'subcategory': propertyType,
+        'property_subcategory': propertyType,
+        'projectname': projectName,
+        'project_name': projectName,
+        'unitnumber': unitNo,
+        'unit_number': unitNo,
+        'property_location': location,
+        'preferred_city': location,
+        'preferred_area': location,
+        'property_size': propertySize,
+        'size_label': propertySize,
+        'property_price': propertyPrice,
+        'price': propertyPrice,
+        'amount': propertyPrice,
+        'budget_max': budget,
+        
+        'discussionsummary': discussionSummary,
+        'discussion_summary': discussionSummary,
+        'activity_summary': discussionSummary,
+        'activity_location': location || 'Sector 4, Kurukshetra',
+        'location': location || 'Sector 4, Kurukshetra',
+        'meeting_agenda': discussionSummary,
+        'activity_type': activity.type || 'WhatsApp Update',
+        'activity_date': activityDate,
+        'activity_time': activityTime,
+        'due_date': activityDate,
+        'lead_status': recipient?.status || 'Active',
+        'lead_stage': recipient?.stage || 'Negotiation',
+        'intent': recipient?.intent || 'High',
+        'transaction_type': 'Purchase',
+        'document_list': '• Aadhaar Card\n• PAN Card\n• Address Proof'
+    };
+
+    // Replace named variables (case-insensitive)
+    result = result.replace(/\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g, (match, p1) => {
+        const key = p1.toLowerCase();
+        if (namedMap[key] !== undefined) {
+            return namedMap[key];
+        }
+        return match;
+    });
+
+    // Replace numbered placeholders ({{1}}, {{2}}, etc.)
+    result = result.replace(/\{\{(\d+)\}\}/g, (match, num) => {
+        const n = parseInt(num, 10);
+        switch (n) {
+            case 1:
+                return firstName || cleanFullName;
+            case 2:
+                // Check if template context is a link or requirement
+                if (/view details here:\s*\*?\{\{2\}\}\*?/i.test(rawText) || /check out our new project/i.test(rawText)) {
+                    return projectName;
+                }
+                return requirement;
+            case 3:
+                return location;
+            case 4:
+                return propertySize;
+            case 5:
+                return propertyPrice;
+            case 6:
+                return agentName;
+            case 7:
+                return agentPhone;
+            default:
+                return '-';
+        }
+    });
+
+    // Cleanse any raw 24-character ObjectIds that might have crept into texts
+    result = result.replace(/\b[0-9a-fA-F]{24}\b/g, propertyType);
+
+    // Final Enterprise Pass: Guarantee no raw placeholders remain exposed
+    result = result.replace(/\{\{[^}]+\}\}/g, '');
+
+    return result;
+};
+

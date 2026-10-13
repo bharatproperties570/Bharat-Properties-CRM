@@ -118,7 +118,7 @@ export const InboundMessageService = {
                             }
                         },
                         $inc: { 'metadata.unreadCount': 1 },
-                        $set: updateSe
+                        $set: updateSet
                     },
                     { new: true, session }
                 );
@@ -160,6 +160,9 @@ export const InboundMessageService = {
                     details: {
                         direction: 'inbound',
                         phoneNumber: mobile,
+                        message: text,
+                        text: text,
+                        renderedBody: text,
                         platform: 'whatsapp',
                         attachment: attachment || null,
                         isMatched: !!(lead || contact),

@@ -1,5 +1,4 @@
 import { useTheme } from '../../context/ThemeContext';
-import {  useTeams , useUsers } from '../../utils/crmHooks';
 import { useState, useCallback, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { useUserContext } from '../../context/UserContext';
@@ -8,8 +7,14 @@ import { useCall } from '../../context/CallContext';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
-
-import { useInventories } from '../../utils/crmHooks';
+import { 
+    useTeams, 
+    useUsers, 
+    useInventories, 
+    useUpdateInventoryMutation, 
+    useDeleteInventoryMutation, 
+    useBulkDeleteInventoryMutation 
+} from '../../utils/crmHooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../utils/queryClient';
 import useDebounce from '../../hooks/useDebounce';

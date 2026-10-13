@@ -12,9 +12,13 @@
  */
 export const normalizePhone = (phone) => {
     if (!phone) return '';
+    const phoneStr = String(phone).trim();
+    if (phoneStr.includes('@g.us') || phoneStr.includes('@s.whatsapp.net')) {
+        return phoneStr;
+    }
     
     // Clean all non-numeric
-    let cleaned = String(phone).replace(/\D/g, '');
+    let cleaned = phoneStr.replace(/\D/g, '');
     
     // For Indian gateways, 10 digits is often safer for Transactional routes
     // If it's 12 digits starting with 91, strip the 91

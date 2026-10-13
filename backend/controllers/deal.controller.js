@@ -1018,21 +1018,24 @@ export const sanitizeDeal = async (req, res) => {
         // Resolve core fields
         const catName = await resolveValue(deal.category) || "Property";
         const intentName = await resolveValue(deal.intent) || "Deal";
-        const projName = deal.projectName || (await resolveValue(proj.name)) || proj.name || "Prime Project";
-        const displayLocation = await resolveValue(deal.location) || await resolveValue(inv.address?.locality) || await resolveValue(inv.address?.location) || deal.location || "Sector 4, Kurukshetra";
+        const projName = (await resolveValue(deal.projectName)) || (await resolveValue(proj.name)) || "Prime Project";
+        const unitTypeName = (await resolveValue(deal.unitType)) || (await resolveValue(inv.unitType)) || "";
+        const sizeUnitName = (await resolveValue(deal.sizeUnit)) || (await resolveValue(inv.sizeUnit)) || "Sq.Ft";
+        const remarksText = await resolveValue(deal.remarks);
+        const displayLocation = await resolveValue(deal.location) || await resolveValue(inv.address?.locality) || await resolveValue(inv.address?.location) || "Sector 4, Kurukshetra";
 
         // 🧠 SENIOR PROFESSIONAL: Comprehensive Spec Extraction
         // We aggregate standard fields and custom specs from both Deal and Inventory
         const unitSpecSource = {
             category: await resolveValue(deal.category || inv.category),
             subCategory: await resolveValue(deal.subCategory || inv.subCategory),
-            unitType: await resolveValue(deal.unitType || inv.unitType),
+            unitType: unitTypeName || null,
             direction: await resolveValue(deal.direction || inv.direction),
             orientation: await resolveValue(deal.orientation || inv.orientation),
             facing: await resolveValue(deal.facing || inv.facing),
             roadWidth: await resolveValue(deal.roadWidth || inv.roadWidth),
-            ownership: deal.ownership || inv.ownership,
-            sizeLabel: deal.sizeLabel || inv.sizeLabel || (inv.sizeConfig ? await resolveValue(inv.sizeConfig) : null),
+            ownership: await resolveValue(deal.ownership || inv.ownership),
+            sizeLabel: (await resolveValue(deal.sizeLabel || inv.sizeLabel)) || (inv.sizeConfig ? await resolveValue(inv.sizeConfig) : null),
             width: deal.width || deal.frontage || inv.width || inv.frontage,
             length: deal.length || deal.depth || inv.length || inv.depth,
             ...((deal.unitSpecification?.toObject ? deal.unitSpecification.toObject() : deal.unitSpecification) || {}),
@@ -1040,9 +1043,9 @@ export const sanitizeDeal = async (req, res) => {
         };
 
         const locIntelSource = {
-            sector: inv.sector || (await resolveValue(inv.address?.locality)),
+            sector: (await resolveValue(inv.sector)) || (await resolveValue(inv.address?.locality)),
             city: await resolveValue(inv.address?.city),
-            landmark: inv.address?.landmark,
+            landmark: await resolveValue(inv.address?.landmark),
             ...(deal.locationIntelligence || inv.locationIntelligence || {})
         };
 
@@ -1056,7 +1059,7 @@ export const sanitizeDeal = async (req, res) => {
             for (const [k, v] of Object.entries(obj)) {
                 if (blacklist.includes(k)) continue;
                 const resolvedVal = await resolveValue(v);
-                if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false || resolvedVal === '-') continue;
+                if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false || resolvedVal === '-' || typeof resolvedVal === 'object') continue;
 
                 const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
                 resolvedLines.push(`${label}: ${resolvedVal}`);
@@ -1070,24 +1073,24 @@ export const sanitizeDeal = async (req, res) => {
             builtup.length > 0 ? {
                 title: "Built-up Details",
                 lines: await Promise.all(builtup.map(async b => {
-                    const floor = b.floor || 'Floor';
+                    const floor = (await resolveValue(b.floor)) || 'Floor';
                     const area = b.totalArea || b.area || '';
-                    const unit = b.unit || 'Sq.Ft';
+                    const unit = (await resolveValue(b.unit)) || 'Sq.Ft';
                     return `${floor}: ${area} ${unit}`;
                 }))
             } : null
         ].filter(Boolean);
 
         deal.broadcastMetadata = {
-            title: `${projName} | ${deal.unitType || catName} for ${intentName}`,
-            description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${displayLocation}. High potential for ${intentName}.`,
+            title: `${projName} | ${unitTypeName || catName} for ${intentName}`,
+            description: remarksText || `Excellent ${unitTypeName} ${catName} available in ${displayLocation}. High potential for ${intentName}.`,
             price: formattedPrice,
             location: displayLocation,
             images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
             features: [
-                `${deal.size || inv.size || ''} ${deal.sizeUnit || inv.sizeUnit || 'Sq.Ft'}`,
-                deal.unitType || (await resolveValue(inv.unitType)),
-                deal.block ? `Block ${deal.block}` : (inv.block ? `Block ${inv.block}` : null),
+                (deal.size || inv.size) ? `${deal.size || inv.size} ${sizeUnitName}` : null,
+                unitTypeName || null,
+                deal.block ? `Block ${await resolveValue(deal.block)}` : (inv.block ? `Block ${await resolveValue(inv.block)}` : null),
                 unitSpecSource.orientation ? `Facing ${unitSpecSource.orientation}` : null,
                 unitSpecSource.facing ? `Facing ${unitSpecSource.facing}` : null,
                 unitSpecSource.roadWidth ? `${unitSpecSource.roadWidth} Road` : null

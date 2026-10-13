@@ -33,6 +33,7 @@ import fs from 'fs';
 import DealVerificationService from '../services/DealVerificationService.js';
 import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
 import { autoTriggerStageChange } from './activity.controller.js';
+import RealtimeHub from '../services/RealtimeHub.js';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
 export const captureLeadWebhook = async (req, res) => {
@@ -261,7 +262,7 @@ export const reserveInboundMessage = async ({ mobile, message, text, attachment,
                 }
             },
             $inc: { 'metadata.unreadCount': 1 },
-            $set: updateSe
+            $set: updateSet
         },
         { new: true }
     );
@@ -433,6 +434,11 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] },
                         { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } }
                     );
+                    RealtimeHub.emitStatusUpdate({
+                        messageId: status.id,
+                        status: status.status,
+                        phone: status.recipient_id
+                    });
                 }
                 for (const change of extractCoexistenceChanges(req.body)) {
                     const waba_id = req.body.entry?.[0]?.id;
@@ -475,6 +481,47 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 const result = await InboundMessageService.processInboundMessageTx(message, value);
                 if (result && !result.success && (result.reason === 'missing_mobile' || result.reason === 'empty_payload')) {
                     return res.sendStatus(400);
+                }
+
+                // ⚡ Enterprise Real-Time Broadcast to all active client tabs
+                try {
+                    const cleanMobile = normalizePhone(mobile);
+                    const msgIsoTime = new Date(Number(message.timestamp || 0) * 1000 || Date.now()).toISOString();
+                    RealtimeHub.emitMessage({
+                        phone: cleanMobile,
+                        channel: 'WhatsApp',
+                        message: {
+                            id: message.id,
+                            sender: 'customer',
+                            fromMe: false,
+                            text: text,
+                            time: msgIsoTime,
+                            timestamp: msgIsoTime,
+                            status: 'received',
+                            metadata: {
+                                attachment: attachment || null,
+                                businessPhoneNumberId: value?.metadata?.phone_number_id || null
+                            }
+                        },
+                        streamItem: {
+                            type: 'WhatsApp',
+                            via: 'WhatsApp',
+                            subject: 'Incoming WhatsApp',
+                            description: 'Customer: ' + text,
+                            snippet: 'Customer: ' + text,
+                            participant: cleanMobile,
+                            phone: cleanMobile,
+                            phoneNumber: cleanMobile,
+                            outcome: 'Delivered',
+                            timestamp: msgIsoTime,
+                            date: msgIsoTime,
+                            platform: 'Direct',
+                            isGroup: false,
+                            businessPhoneNumberId: value?.metadata?.phone_number_id || null
+                        }
+                    });
+                } catch (rtErr) {
+                    console.error('[WhatsApp Webhook] RealtimeHub emit error:', rtErr.message);
                 }
             }
         }
@@ -562,6 +609,40 @@ export const websiteLiveBotWebhook = async (req, res) => {
         // Add User Message
         conversation.messages.push({ role: 'user', content: message });
         await conversation.save();
+
+        // ⚡ Real-Time Push to CRM
+        try {
+            const chatPhone = mobile ? normalizePhone(mobile) : sessionId;
+            RealtimeHub.emitMessage({
+                phone: chatPhone,
+                channel: 'Web Chat',
+                message: {
+                    id: conversation._id.toString(),
+                    sender: 'customer',
+                    fromMe: false,
+                    text: message,
+                    time: new Date().toISOString(),
+                    timestamp: new Date().toISOString(),
+                    status: 'received',
+                    senderName: name || 'Website Visitor'
+                },
+                streamItem: {
+                    type: 'Web Chat',
+                    via: 'Web Chat',
+                    subject: `Website Chat: ${message.substring(0, 40)}`,
+                    description: `Customer: ${message}`,
+                    snippet: `Customer: ${message}`,
+                    participant: name || 'Website Visitor',
+                    phone: chatPhone,
+                    phoneNumber: chatPhone,
+                    outcome: 'Delivered',
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toISOString(),
+                    platform: 'Website Chat',
+                    isGroup: false
+                }
+            });
+        } catch (rtErr) {}
 
         // Formal Activity Log (Only if identity is known)
         if (entityId) {

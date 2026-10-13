@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Conversation from '../models/Conversation.js';
 
 import { getVisibilityFilter } from '../utils/visibility.js';
@@ -102,10 +103,38 @@ export const getUnreadConversations = async (req, res) => {
                 { path: 'contact', select: 'name phones' }
             ],
             { 'metadata.lastMessageAt': -1, updatedAt: -1 },
-            20
+            50
         );
+
+        // Strict enterprise check: A conversation is only truly unread if the LAST message was from the customer (role === 'user')
+        const trulyUnread = [];
+        const staleIdsToHeal = [];
+
+        for (const c of conversations) {
+            const msgs = c.messages || [];
+            if (msgs.length === 0) {
+                staleIdsToHeal.push(c._id);
+                continue;
+            }
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg && lastMsg.role === 'user') {
+                trulyUnread.push(c);
+            } else {
+                // Outbound reply was already sent by agent/bot, so clear unreadCount
+                staleIdsToHeal.push(c._id);
+            }
+        }
+
+        // Auto-heal stale unread counts in background
+        if (staleIdsToHeal.length > 0) {
+            Conversation.updateMany(
+                { _id: { $in: staleIdsToHeal } },
+                { $set: { 'metadata.unreadCount': 0 } },
+                { timestamps: false }
+            ).catch(err => console.warn('[ConversationController] Auto-heal error:', err.message));
+        }
             
-        res.status(200).json({ success: true, data: conversations });
+        res.status(200).json({ success: true, data: trulyUnread });
     } catch (error) {
         console.error("Failed to fetch unread conversations:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -115,14 +144,27 @@ export const getUnreadConversations = async (req, res) => {
 export const markConversationAsRead = async (req, res) => {
     try {
         const { id } = req.params;
-        const conversation = await Conversation.findByIdAndUpdate(
-            id,
+        const isObjId = mongoose.Types.ObjectId.isValid(id);
+        const query = isObjId ? { _id: id } : { phoneNumber: id };
+
+        const conversation = await Conversation.findOneAndUpdate(
+            query,
             { $set: { 'metadata.unreadCount': 0 } },
-            { new: true }
+            { new: true, timestamps: false }
         );
         
         if (!conversation) {
-            return res.status(404).json({ success: false, message: "Conversation not found" });
+            // Also try with phone normalization if not found
+            const cleanPhone = String(id).replace(/\D/g, '').slice(-10);
+            const fallbackConv = await Conversation.findOneAndUpdate(
+                { phoneNumber: { $regex: cleanPhone + '$' } },
+                { $set: { 'metadata.unreadCount': 0 } },
+                { new: true, timestamps: false }
+            );
+            if (!fallbackConv) {
+                return res.status(404).json({ success: false, message: "Conversation not found" });
+            }
+            return res.status(200).json({ success: true, data: fallbackConv });
         }
         
         res.status(200).json({ success: true, data: conversation });
@@ -131,3 +173,4 @@ export const markConversationAsRead = async (req, res) => {
         res.status(500).json({ success: false, message: "Internal server error" });
     }
 };
+

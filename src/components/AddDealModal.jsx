@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {  useTeams , useActiveUsers } from '../utils/crmHooks';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useTeams, useActiveUsers, useAddDealMutation, useUpdateDealMutation } from '../utils/crmHooks';
+import { useTheme } from '../context/ThemeContext';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
@@ -12,6 +13,7 @@ import toast from 'react-hot-toast';
 import whatsappService from '../services/whatsappService';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
+    const { isDark } = useTheme();
     const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
@@ -21,12 +23,18 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const { data: teams = [] } = useTeams();
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
+    const addDealMutation = useAddDealMutation();
+    const updateDealMutation = useUpdateDealMutation({ isPartial: true });
 
-    
+    const [currentTab, setCurrentTab] = useState('property');
     const [isSaving, setIsSaving] = useState(false);
 
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
     const [projects, setProjects] = useState([]);
     const [units, setUnits] = useState([]);
     const [isLoadingProjects, setIsLoadingProjects] = useState(false);
@@ -214,23 +222,36 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 return priceObj;
             };
 
-            const intent = deal.intent || 'Sell';
+            const rawIntent = renderValue(deal.intent);
+            const intent = (rawIntent && rawIntent !== '-') ? rawIntent : 'Sell';
             const inventoryPrice = intent === 'Rent' ? deal.rentPrice : (intent === 'Lease' ? deal.leasePrice : deal.price || deal.sellPrice);
             const initialPrice = getPriceValue(inventoryPrice);
+
+            const cleanStr = (val, fallback = '') => {
+                const s = renderValue(val);
+                return s !== '-' ? s : fallback;
+            };
 
             setFormData(prev => {
                 const newOwner = typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner);
                 const newAssociate = typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact);
                 
-                const finalPrice = initialPrice || deal.price || prev.price;
-                const finalQuotePrice = deal.quotePrice || prev.quotePrice;
+                const finalPrice = initialPrice || getPriceValue(deal.price) || prev.price;
+                const finalQuotePrice = getPriceValue(deal.quotePrice) || prev.quotePrice;
 
                 const updated = {
                     ...prev,
                     ...deal,
-                    projectName: deal.projectName || prev.projectName,
-                    block: deal.block || prev.block,
-                    unitNo: deal.unitNo || prev.unitNo,
+                    projectName: cleanStr(deal.projectName, prev.projectName),
+                    block: cleanStr(deal.block, prev.block),
+                    unitNo: cleanStr(deal.unitNo, prev.unitNo),
+                    unitType: cleanStr(deal.unitType, prev.unitType),
+                    location: cleanStr(deal.location, prev.location),
+                    size: cleanStr(deal.size, prev.size),
+                    sizeUnit: cleanStr(deal.sizeUnit, prev.sizeUnit),
+                    source: cleanStr(deal.source, prev.source),
+                    dealType: cleanStr(deal.dealType, prev.dealType),
+                    transactionType: cleanStr(deal.transactionType, prev.transactionType),
                     price: finalPrice,
                     priceInWords: numberToIndianWords(finalPrice),
                     quotePrice: finalQuotePrice,
@@ -240,10 +261,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     associatedContact: newAssociate,
                     assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
                     team: normalizeId(deal.team) || prev.team,
-                    category: getLookupValue('Category', deal.category) || deal.category,
-                    subCategory: getLookupValue('SubCategory', deal.subCategory) || deal.subCategory,
-                    propertyType: getLookupValue('PropertyType', deal.propertyType) || deal.propertyType,
-                    status: deal.status || 'Open',
+                    category: getLookupValue('Category', deal.category) || cleanStr(deal.category, ''),
+                    subCategory: getLookupValue('SubCategory', deal.subCategory) || cleanStr(deal.subCategory, ''),
+                    propertyType: getLookupValue('PropertyType', deal.propertyType) || cleanStr(deal.propertyType, ''),
+                    status: cleanStr(deal.status, 'Open') || 'Open',
                     description: deal.description || deal.websiteMetadata?.description || prev.description || '',
                     isOwnerSelected: !!newOwner._id || !!newOwner.name,
                     isAssociateSelected: !!newAssociate._id || !!newAssociate.name,
@@ -279,8 +300,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     };
 
     const handleProjectChange = useCallback((projectName) => {
-        const project = projects.find(p => p.name === projectName);
-        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : b.name) : [];
+        const project = projects.find(p => renderValue(p.name) === projectName);
+        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : renderValue(b)).filter(b => b && b !== '-') : [];
         const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
 
         let assignedTo = formData.assignedTo;
@@ -309,24 +330,27 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
     const handleUnitChange = useCallback((unitNo) => {
         const unit = units.find(i =>
-            (i.unitNo === unitNo || i.unitNumber === unitNo)
+            (renderValue(i.unitNo) === unitNo || renderValue(i.unitNumber) === unitNo)
         );
 
         if (unit) {
-
+            const cleanStr = (val, fallback = '') => {
+                const s = renderValue(val);
+                return s !== '-' ? s : fallback;
+            };
 
             setFormData(prev => {
-                const newSize = unit.size || prev.size;
+                const newSize = cleanStr(unit.size, prev.size);
 
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
                     unitNo,
                     inventoryId: unit._id,
-                    propertyType: getLookupValue('PropertyType', unit.type || unit.category) || prev.propertyType,
-                    category: getLookupValue('Category', unit.category) || '',
-                    subCategory: getLookupValue('SubCategory', unit.subCategory) || '',
+                    propertyType: getLookupValue('PropertyType', unit.type || unit.category) || cleanStr(unit.type || unit.category, prev.propertyType),
+                    category: getLookupValue('Category', unit.category) || cleanStr(unit.category, ''),
+                    subCategory: getLookupValue('SubCategory', unit.subCategory) || cleanStr(unit.subCategory, ''),
                     size: newSize,
-                    sizeUnit: unit.sizeUnit || prev.sizeUnit,
+                    sizeUnit: cleanStr(unit.sizeUnit, prev.sizeUnit),
 
                     // Detailed Data Inheritance
                     unitSpecification: {
@@ -355,15 +379,15 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
                     owner: {
                         _id: unit.owners?.[0]?._id || null,
-                        name: unit.owners?.[0]?.name || unit.ownerName || '',
-                        phone: unit.owners?.[0]?.phones?.[0]?.number || unit.owners?.[0]?.phone || unit.ownerPhone || '',
-                        email: unit.owners?.[0]?.emails?.[0]?.address || unit.owners?.[0]?.email || unit.ownerEmail || ''
+                        name: cleanStr(unit.owners?.[0]?.name || unit.ownerName, ''),
+                        phone: cleanStr(unit.owners?.[0]?.phones?.[0]?.number || unit.owners?.[0]?.phone || unit.ownerPhone, ''),
+                        email: cleanStr(unit.owners?.[0]?.emails?.[0]?.address || unit.owners?.[0]?.email || unit.ownerEmail, '')
                     },
                     associatedContact: {
                         _id: unit.associates?.[0]?.contact?._id || unit.associates?.[0]?._id || null,
-                        name: unit.associates?.[0]?.contact?.name || unit.associates?.[0]?.name || unit.associatedContact || '',
-                        phone: unit.associates?.[0]?.contact?.phones?.[0]?.number || unit.associates?.[0]?.mobile || unit.associatedPhone || '',
-                        email: unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail || ''
+                        name: cleanStr(unit.associates?.[0]?.contact?.name || unit.associates?.[0]?.name || unit.associatedContact, ''),
+                        phone: cleanStr(unit.associates?.[0]?.contact?.phones?.[0]?.number || unit.associates?.[0]?.mobile || unit.associatedPhone, ''),
+                        email: cleanStr(unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail, '')
                     },
                     isOwnerSelected: (unit.owners?.[0]?._id || unit.ownerName) ? true : false,
                     isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false
@@ -494,12 +518,20 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     useEffect(() => {
         const fetchProjects = async () => {
             if (restrictToProperties && restrictToProperties.length > 0) {
-                // Derive projects from restricted list
-                const projectNames = [...new Set(restrictToProperties.map(p => p.area))].filter(Boolean);
+                // Derive projects from restricted list (safely extracting lookup strings)
+                const getAreaName = (p) => {
+                    const v = renderValue(p.projectName || p.area || p.address?.area);
+                    return v !== '-' ? v : '';
+                };
+                const getBlockName = (p) => {
+                    const v = renderValue(p.block || p.location || p.address?.locality);
+                    return v !== '-' ? v : '';
+                };
+                const projectNames = [...new Set(restrictToProperties.map(getAreaName))].filter(Boolean);
                 const derivedProjects = projectNames.map(name => ({
                     _id: name,
                     name: name,
-                    blocks: [...new Set(restrictToProperties.filter(p => p.area === name).map(p => p.location))].filter(Boolean)
+                    blocks: [...new Set(restrictToProperties.filter(p => getAreaName(p) === name).map(getBlockName))].filter(Boolean)
                 }));
                 setProjects(derivedProjects);
                 return;
@@ -531,10 +563,12 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             if (restrictToProperties && restrictToProperties.length > 0) {
                 // Filter units from restricted list
-                const filteredUnits = restrictToProperties.filter(p =>
-                    p.area === formData.projectName &&
-                    (!formData.block || p.location === formData.block)
-                );
+                const filteredUnits = restrictToProperties.filter(p => {
+                    const areaName = renderValue(p.projectName || p.area || p.address?.area);
+                    const blockName = renderValue(p.block || p.location || p.address?.locality);
+                    return areaName === formData.projectName &&
+                        (!formData.block || blockName === formData.block);
+                });
                 setUnits(filteredUnits);
                 return;
             }
@@ -790,752 +824,1217 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         }
     };
 
-    const sectionStyle = {
-        background: '#fff',
-        padding: '24px',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        marginBottom: '24px'
+    const ent = {
+        card: {
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+            padding: '20px 22px',
+            borderRadius: '16px',
+            border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1.5px solid #e2e8f0',
+            boxShadow: isDark ? 'none' : '0 1px 4px rgba(0, 0, 0, 0.03)',
+            marginBottom: '18px'
+        },
+        sectionHeader: (color) => ({
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+            paddingBottom: '12px',
+            borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid #f1f5f9'
+        }),
+        iconBadge: (color) => ({
+            width: '32px',
+            height: '32px',
+            borderRadius: '10px',
+            background: color + (isDark ? '25' : '15'),
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: color,
+            flexShrink: 0,
+            fontSize: '14px'
+        }),
+        sectionTitle: {
+            margin: 0,
+            fontSize: '0.9rem',
+            fontWeight: 800,
+            color: isDark ? '#f1f5f9' : '#0f172a',
+            letterSpacing: '-0.01em'
+        },
+        sectionSubtitle: {
+            margin: '2px 0 0 0',
+            fontSize: '0.74rem',
+            color: isDark ? '#94a3b8' : '#64748b',
+            fontWeight: 500
+        },
+        label: {
+            display: 'block',
+            fontSize: '0.71rem',
+            fontWeight: 800,
+            color: isDark ? '#94a3b8' : '#64748b',
+            marginBottom: '6px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.45px'
+        },
+        input: {
+            width: '100%',
+            padding: '9px 12px',
+            borderRadius: '10px',
+            border: isDark ? '1.5px solid rgba(255, 255, 255, 0.12)' : '1.5px solid #e2e8f0',
+            fontSize: '0.84rem',
+            fontWeight: 500,
+            outline: 'none',
+            color: isDark ? '#f1f5f9' : '#1e293b',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+            height: '40px',
+            boxSizing: 'border-box',
+            transition: 'all 0.15s ease'
+        },
+        select: {
+            width: '100%',
+            padding: '9px 12px',
+            borderRadius: '10px',
+            border: isDark ? '1.5px solid rgba(255, 255, 255, 0.12)' : '1.5px solid #e2e8f0',
+            fontSize: '0.84rem',
+            fontWeight: 500,
+            outline: 'none',
+            color: isDark ? '#f1f5f9' : '#1e293b',
+            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+            height: '40px',
+            boxSizing: 'border-box',
+            transition: 'all 0.15s ease',
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            MozAppearance: 'none',
+            backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'right 12px center',
+            backgroundSize: '10px',
+            paddingRight: '32px',
+            cursor: 'pointer'
+        },
+        selectDisabled: {
+            width: '100%',
+            padding: '9px 12px',
+            borderRadius: '10px',
+            border: isDark ? '1.5px solid rgba(255, 255, 255, 0.05)' : '1.5px solid #f1f5f9',
+            fontSize: '0.84rem',
+            fontWeight: 500,
+            outline: 'none',
+            color: isDark ? '#64748b' : '#94a3b8',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc',
+            height: '40px',
+            boxSizing: 'border-box',
+            cursor: 'not-allowed',
+            backgroundImage: 'none'
+        }
     };
 
-    const labelStyle = {
-        display: 'block',
-        fontSize: '0.85rem',
-        fontWeight: 600,
-        color: '#64748b',
-        marginBottom: '8px'
+    const TABS = [
+        { id: 'property', label: 'Property & Unit', icon: 'fas fa-city', color: '#3b82f6' },
+        { id: 'commercials', label: 'Pricing & Commercials', icon: 'fas fa-sack-dollar', color: '#10b981' },
+        { id: 'terms', label: 'Deal Terms & Stage', icon: 'fas fa-file-contract', color: '#8b5cf6' },
+        { id: 'marketing', label: 'Omnichannel Marketing', icon: 'fas fa-rocket', color: '#f59e0b' },
+        { id: 'assignment', label: 'Assignment & Notes', icon: 'fas fa-users-gear', color: '#06b6d4' },
+        { id: 'all', label: 'All Details', icon: 'fas fa-table-cells', color: '#64748b' },
+    ];
+
+    const handleNextTab = () => {
+        const idx = TABS.findIndex(t => t.id === currentTab);
+        if (idx >= 0 && idx < TABS.length - 2) {
+            setCurrentTab(TABS[idx + 1].id);
+        } else if (idx === TABS.length - 2) {
+            setCurrentTab(TABS[0].id);
+        }
     };
 
-    const inputStyle = {
-        width: '100%',
-        padding: '10px 12px',
-        borderRadius: '8px',
-        border: '1px solid #cbd5e1',
-        fontSize: '0.9rem',
-        outline: 'none',
-        transition: 'border-color 0.2s'
+    const handlePrevTab = () => {
+        const idx = TABS.findIndex(t => t.id === currentTab);
+        if (idx > 0) {
+            setCurrentTab(TABS[idx - 1].id);
+        }
     };
-
-    const selectStyle = {
-        ...inputStyle,
-        appearance: 'none',
-        cursor: 'pointer'
-    };
-
-    const customSelectStyleDisabled = { ...selectStyle, background: '#f1f5f9', cursor: 'not-allowed', color: '#94a3b8' };
 
     if (!isOpen) return null;
 
-    return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-            <div style={{ background: '#fff', width: '90%', maxWidth: '900px', height: '85vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
-                {/* Header */}
-                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-handshake" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
-                        </div>
-                        <div>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                                {title || (deal ? 'Update Deal' : 'Add New Deal')}
-                            </h2>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                    {currentTime.toLocaleString()}
-                                </span>
-                                {deal && (
-                                    <>
-                                        <span style={{ color: '#e2e8f0' }}>|</span>
-                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#2563eb', backgroundColor: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
-                                            {String(formData.projectName)} - {String(formData.unitNo)}
-                                        </span>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+    // Sub-renderer: Property & Unit Section
+    const renderPropertySection = () => (
+        <div style={ent.card}>
+            <div style={ent.sectionHeader('#3b82f6')}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={ent.iconBadge('#3b82f6')}>
+                        <i className="fas fa-city"></i>
+                    </div>
+                    <div>
+                        <h4 style={ent.sectionTitle}>Property & Unit Configuration</h4>
+                        <p style={ent.sectionSubtitle}>Select intent, project hierarchy, unit, and auto-inherit registered details</p>
                     </div>
                 </div>
+                {formData.unitNo && (
+                    <span style={{
+                        fontSize: '0.73rem', fontWeight: 800, padding: '3px 10px', borderRadius: '6px',
+                        background: isDark ? 'rgba(59,130,246,0.2)' : '#eff6ff',
+                        color: '#3b82f6', border: '1px solid #bfdbfe'
+                    }}>
+                        UNIT #{formData.unitNo} SELECTED
+                    </span>
+                )}
+            </div>
 
-                {/* Body */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: '#f8fafc' }}>
-                    <div style={sectionStyle}>
-                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Property & Intent</h4>
-                        {/* Intent Group (Full Width) - Moved to Top */}
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={labelStyle}>I want to</label>
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                {[
-                                    { label: 'Sell', icon: 'fas fa-tag' },
-                                    { label: 'Rent', icon: 'fas fa-key' },
-                                    { label: 'Lease', icon: 'fas fa-file-signature' }
-                                ].map(option => (
-                                    <button
-                                        key={option.label}
-                                        onClick={() => handleInputChange('intent', option.label)}
-                                        style={{
-                                            flex: 1,
-                                            padding: '12px',
-                                            borderRadius: '10px',
-                                            border: `2px solid ${formData.intent === option.label ? '#2563eb' : '#e2e8f0'}`,
-                                            background: formData.intent === option.label ? '#eff6ff' : '#fff',
-                                            color: formData.intent === option.label ? '#2563eb' : '#64748b',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            fontSize: '0.9rem',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '8px',
-                                            transition: 'all 0.2s'
-                                        }}
-                                    >
-                                        <i className={option.icon}></i>
-                                        {option.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Project Details Group (Inline - 3 Columns) */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
-                            <div>
-                                <label style={labelStyle}>Project Name</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.projectName}
-                                    onChange={e => handleProjectChange(e.target.value)}
-                                    disabled={isLoadingProjects}
-                                >
-                                    <option value="">{isLoadingProjects ? 'Loading...' : 'Select Project'}</option>
-                                    {projects.map(p => (
-                                        <option 
-                                            key={p._id || p.id} 
-                                            value={p.name}
-                                            selected={formData.projectName && p.name && p.name.trim().toLowerCase() === formData.projectName.trim().toLowerCase()}
-                                        >
-                                            {p.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Block</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.block}
-                                    onChange={e => {
-                                        const block = e.target.value;
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            block,
-                                            unitNo: '', // RESET UNIT WHEN BLOCK CHANGES
-                                            propertyType: '',
-                                            size: '',
-                                            owner: { name: '', phone: '', email: '' },
-                                            associatedContact: { name: '', phone: '', email: '' }
-                                        }));
-                                    }}
-                                    disabled={!formData.projectName}
-                                >
-                                    <option value="">{isLoadingUnits ? 'Refreshing Units...' : 'Select Block'}</option>
-                                    {projects.find(p => p.name === formData.projectName)?.blocks?.map(block => (
-                                        <option key={typeof block === 'string' ? block : block.name} value={typeof block === 'string' ? block : block.name}>
-                                            {typeof block === 'string' ? block : block.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Unit Number</label>
-                                <select
-                                    style={!formData.block ? customSelectStyleDisabled : selectStyle}
-                                    value={formData.unitNo}
-                                    disabled={!formData.block || isLoadingUnits}
-                                    onChange={e => handleUnitChange(e.target.value)}
-                                >
-                                    <option value="">{isLoadingUnits ? 'Loading units...' : 'Select Unit'}</option>
-                                    {units.map(unit => (
-                                        <option key={unit._id} value={unit.unitNo || unit.unitNumber}>{unit.unitNo || unit.unitNumber}</option>
-                                    ))
-                                    }
-                                </select>
-                            </div>
-                        </div>
-
-
-                        {/* Owner & Associate Details (Read-only with Selection) */}
-                        {formData.unitNo && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
-                                {/* Owner Selection Card */}
-                                <div
-                                    onClick={() => handleInputChange('isOwnerSelected', !formData.isOwnerSelected)}
-                                    style={{
-                                        padding: '12px 16px', borderRadius: '12px', border: `2px solid ${formData.isOwnerSelected ? '#2563eb' : '#e2e8f0'}`,
-                                        background: formData.isOwnerSelected ? '#eff6ff' : '#fff', cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
-                                    }}
-                                >
-                                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
-                                        <input type="checkbox" checked={formData.isOwnerSelected} readOnly style={{ width: '18px', height: '18px', accentColor: '#2563eb' }} />
-                                    </div>
-                                    <label style={{ ...labelStyle, marginBottom: '12px', color: formData.isOwnerSelected ? '#2563eb' : '#64748b' }}>
-                                        <i className="fas fa-user-tie mr-2"></i> Property Owner
-                                    </label>
-                                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{formData.owner.name || 'N/A'}</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>{formData.owner.phone || 'N/A'}</div>
-                                </div>
-
-                                {/* Associate Selection Card */}
-                                <div
-                                    onClick={() => handleInputChange('isAssociateSelected', !formData.isAssociateSelected)}
-                                    style={{
-                                        padding: '12px 16px', borderRadius: '12px', border: `2px solid ${formData.isAssociateSelected ? '#2563eb' : '#e2e8f0'}`,
-                                        background: formData.isAssociateSelected ? '#eff6ff' : '#fff', cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
-                                    }}
-                                >
-                                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
-                                        <input type="checkbox" checked={formData.isAssociateSelected} readOnly style={{ width: '18px', height: '18px', accentColor: '#2563eb' }} />
-                                    </div>
-                                    <label style={{ ...labelStyle, marginBottom: '12px', color: formData.isAssociateSelected ? '#2563eb' : '#64748b' }}>
-                                        <i className="fas fa-user-friends mr-2"></i> Associated Contact (Dealer)
-                                    </label>
-                                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{formData.associatedContact.name || 'N/A'}</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>{formData.associatedContact.phone || 'N/A'}</div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div style={sectionStyle}>
-                        {isFormLocked && (
-                            <div style={{
-                                backgroundColor: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px',
-                                padding: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px',
-                                animation: 'slideDown 0.3s ease-out'
-                            }}>
-                                <div style={{ backgroundColor: '#ef4444', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
-                                    <i className="fas fa-exclamation-triangle"></i>
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <h5 style={{ margin: '0 0 4px 0', color: '#991b1b', fontWeight: 700, fontSize: '0.95rem' }}>Duplicate Deal Detected</h5>
-                                    <p style={{ margin: 0, color: '#b91c1c', fontSize: '0.85rem', fontWeight: 500 }}>
-                                        A "Sell" deal already exists for this unit. Pricing and key fields are locked to prevent duplicates. 
-                                        {duplicateDeal.dealId && <span style={{ marginLeft: '5px', fontWeight: 700 }}>(Ref: {duplicateDeal.dealId})</span>}
-                                    </p>
-                                </div>
-                                <button 
-                                    onClick={() => setFormData(prev => ({ ...prev, intent: 'Rent' }))}
-                                    style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: '#fff', color: '#ef4444', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
-                                >
-                                    Switch to Rent
-                                </button>
-                            </div>
-                        )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Pricing</h4>
-                                {formData.size && (
-                                    <span style={{ fontSize: '0.8rem', color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #c7d2fe' }}>
-                                        <i className="fas fa-expand-arrows-alt mr-1"></i> Size: {renderValue(formData.size)}
-                                    </span>
-                                )}
-                                {(formData.unitSpecification?.sizeLabel || formData.sizeLabel) && (
-                                    <span style={{ fontSize: '0.8rem', color: '#8b5cf6', background: '#f5f3ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #ddd6fe' }}>
-                                        <i className="fas fa-ruler-combined mr-1"></i> Label: {renderValue(getLookupValue('Size', formData.unitSpecification?.sizeLabel || formData.sizeLabel))}
-                                    </span>
-                                )}
-                                {formData.propertyType && (
-                                    <span style={{ fontSize: '0.8rem', color: '#0284c7', background: '#f0f9ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #bae6fd' }}>
-                                        <i className="fas fa-tag mr-1"></i> Type: {renderValue(formData.propertyType)}
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-                                    <button
-                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
-                                        style={{
-                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
-                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Total' ? '#fff' : 'transparent',
-                                            color: formData.pricingMode === 'Total' ? '#0f172a' : '#64748b',
-                                            boxShadow: formData.pricingMode === 'Total' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                                        }}
-                                    >
-                                        Total Amount
-                                    </button>
-                                    <button
-                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
-                                        style={{
-                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
-                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Rate' ? '#fff' : 'transparent',
-                                            color: formData.pricingMode === 'Rate' ? '#0f172a' : '#64748b',
-                                            boxShadow: formData.pricingMode === 'Rate' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                                        }}
-                                    >
-                                        Price Per Unit
-                                    </button>
-                                </div>
-                                {formData.pricingMode === 'Rate' && (
-                                    <select
-                                        value={formData.priceUnit}
-                                        onChange={(e) => handleMetricChange(e.target.value)}
-                                        style={{
-                                            padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem',
-                                            fontWeight: 600, backgroundColor: '#fff', color: '#0f172a', outline: 'none', cursor: 'pointer'
-                                        }}
-                                    >
-                                        {Object.keys(METRIC_FACTORS).map(metric => (
-                                            <option key={metric} value={metric}>{metric}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Expected Price Row */}
-                        <div style={{ marginBottom: '24px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
-                                <label style={{ ...labelStyle, marginBottom: 0 }}>
-                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent' : 'Expected Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
-                                </label>
-                                {formData.priceInWords && (
-                                    <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 500, fontStyle: 'italic' }}>
-                                        ({formData.priceInWords} Rupees Only)
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{ position: 'relative' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
-                                    value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
-                                    onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
-                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
-                                    readOnly={isFormLocked}
-                                />
-                                {formData.pricingMode === 'Total' && formData.ratePrice && (
-                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                        ₹{formData.ratePrice}/{unitLabel}
-                                    </div>
-                                )}
-                                {formData.pricingMode === 'Rate' && formData.price && (
-                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#16a34a', fontWeight: 700, background: '#f0fdf4', padding: '4px 10px', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
-                                        TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.price)}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Quote Price Row */}
-                        <div style={{ marginBottom: '24px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
-                                <label style={{ ...labelStyle, marginBottom: 0 }}>
-                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent' : 'Quote Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
-                                </label>
-                                {formData.quotePriceInWords && (
-                                    <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 500, fontStyle: 'italic' }}>
-                                        ({formData.quotePriceInWords} Rupees Only)
-                                    </span>
-                                )}
-                            </div>
-                            <div style={{ position: 'relative' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
-                                    value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
-                                    onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
-                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
-                                    readOnly={isFormLocked}
-                                />
-                                {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
-                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                        ₹{formData.quoteRatePrice}/{unitLabel}
-                                    </div>
-                                )}
-                                {formData.pricingMode === 'Rate' && formData.quotePrice && (
-                                    <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#2563eb', fontWeight: 700, background: '#eff6ff', padding: '4px 10px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
-                                        TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.quotePrice)}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        {/* Rent Specific Fields */}
-                        {(formData.intent === 'Rent' || formData.intent === 'Lease') && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '24px', animation: 'fadeIn 0.3s ease-in-out' }}>
-                                <div>
-                                    <label style={labelStyle}>Security Amount</label>
-                                    <input
-                                        type="number"
-                                        style={inputStyle}
-                                        value={formData.securityDeposit}
-                                        onChange={e => handleInputChange('securityDeposit', e.target.value)}
-                                        placeholder="Enter Security"
-                                    />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Term (Months)</label>
-                                    <input
-                                        type="number"
-                                        style={inputStyle}
-                                        value={formData.leaseTermMonths}
-                                        onChange={e => handleInputChange('leaseTermMonths', e.target.value)}
-                                        placeholder="Lease Period"
-                                    />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Lock-in (Months)</label>
-                                    <input
-                                        type="number"
-                                        style={inputStyle}
-                                        value={formData.lockInMonths}
-                                        onChange={e => handleInputChange('lockInMonths', e.target.value)}
-                                        placeholder="Lock-in Period"
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Negotiable Checkboxes */}
-                        <div style={{ display: 'flex', gap: '24px', marginTop: '20px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={formData.pricingNature.negotiable}
-                                    onChange={() => handlePricingNatureChange('negotiable')}
-                                    style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
-                                />
-                                Negotiable
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={formData.pricingNature.fixed}
-                                    onChange={() => handlePricingNatureChange('fixed')}
-                                    style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
-                                />
-                                Fixed Price
-                            </label>
-                        </div>
-                    </div>
-
-                    {/* New Fields Section: Deal Type, Transaction Type, Source */}
-                    <div style={sectionStyle}>
-                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Deal Details</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                            <div>
-                                <label style={labelStyle}>Deal Status</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.status}
-                                    onChange={e => handleInputChange('status', e.target.value)}
-                                >
-                                    <option value="Open">Open</option>
-                                    <option value="Quote">Quote</option>
-                                    <option value="Negotiation">Negotiation</option>
-                                    <option value="Booked">Booked</option>
-                                    <option value="Won">Won</option>
-                                    <option value="Lost">Lost</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Deal Type</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.dealType}
-                                    onChange={e => handleInputChange('dealType', e.target.value)}
-                                >
-                                    {dealMasterFields?.dealTypes?.map(type => (
-                                        <option key={type} value={type}>{type}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Source</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.source}
-                                    onChange={e => handleInputChange('source', e.target.value)}
-                                >
-                                    <option value="Walk-in">Walk-in</option>
-                                    <option value="Newspaper">Newspaper</option>
-                                    <option value="99acres">99acres</option>
-                                    <option value="Social Media">Social Media</option>
-                                    <option value="Cold Calling">Cold Calling</option>
-                                    <option value="Own Website">Own Website</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Transaction Type</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.transactionType}
-                                    onChange={e => handleInputChange('transactionType', e.target.value)}
-                                >
-                                    <option value="Full White">Full White</option>
-                                    <option value="Collector Rate">Collector Rate</option>
-                                    <option value="Flexible">Flexible</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Flexible Percentage Bar */}
-                        {formData.transactionType === 'Flexible' && (
-                            <div style={{ marginTop: '20px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ ...labelStyle, marginBottom: 0 }}>White Component</label>
-                                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#2563eb' }}>{formData.flexiblePercentage}%</span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    value={formData.flexiblePercentage}
-                                    onChange={e => handleInputChange('flexiblePercentage', e.target.value)}
-                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#2563eb' }}
-                                />
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.75rem', color: '#64748b' }}>
-                                    <span>0% (Full Cash)</span>
-                                    <span>100% (Full White)</span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Marketing Command Center Section */}
-                    <div style={{ marginBottom: '30px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-                            <div style={{ background: '#EEF2FF', padding: '10px', borderRadius: '12px' }}>
-                                <i className="fas fa-rocket" style={{ color: '#6366f1', fontSize: '1.2rem' }}></i>
-                            </div>
-                            <div>
-                                <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Marketing Command Center</h4>
-                                <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Select platforms to automatically publish this deal. Our AI engine will generate platform-specific content.</p>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
-                            <div style={sectionStyle}>
-                                <h5 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>📢 Publish On</h5>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
-                                    {[
-                                        { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
-                                        { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
-                                        { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
-                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
-                                        { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
-                                        { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#000000' }
-                                    ].map(platform => (
-                                        <button
-                                            key={platform.id}
-                                            type="button"
-                                            onClick={() => handleNestedInputChange('publishOn', platform.id, !formData.publishOn[platform.id])}
-                                            style={{
-                                                display: 'flex', alignItems: 'center', gap: '8px', padding: '10px',
-                                                borderRadius: '8px', border: `1px solid ${formData.publishOn[platform.id] ? platform.color : '#e2e8f0'}`,
-                                                background: formData.publishOn[platform.id] ? `${platform.color}15` : '#fff',
-                                                cursor: 'pointer', transition: 'all 0.2s',
-                                                color: formData.publishOn[platform.id] ? platform.color : '#64748b',
-                                                fontSize: '0.85rem'
-                                            }}
-                                        >
-                                            <i className={platform.icon}></i>
-                                            <span style={{ fontWeight: 600 }}>{platform.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {formData.publishOn.website && (
-                                    <div style={{
-                                        marginTop: '15px',
-                                        padding: '12px 16px',
-                                        borderRadius: '10px',
-                                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                                        border: '1px solid #e2e8f0',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
-                                        animation: 'fadeIn 0.3s ease-in-out'
-                                    }}>
-                                        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Website Privacy & Display Settings
-                                        </h5>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                <div>
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Unit Number</span>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Show the exact unit number on the public website.</span>
-                                                </div>
-                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={formData.websiteMetadata?.shareUnitNumber !== false}
-                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareUnitNumber', e.target.checked)}
-                                                        style={{ opacity: 0, width: 0, height: 0 }}
-                                                    />
-                                                    <span className="slider round" style={{
-                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                                        backgroundColor: (formData.websiteMetadata?.shareUnitNumber !== false) ? '#2563eb' : '#cbd5e1',
-                                                        transition: '.4s', borderRadius: '20px'
-                                                    }}>
-                                                        <span style={{
-                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareUnitNumber !== false) ? '22px' : '3px', bottom: '3px',
-                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
-                                                        }} />
-                                                    </span>
-                                                </label>
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
-                                                <div>
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Map Location</span>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Share precise geographical latitude/longitude on website maps.</span>
-                                                </div>
-                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={formData.websiteMetadata?.shareLocation !== false}
-                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareLocation', e.target.checked)}
-                                                        style={{ opacity: 0, width: 0, height: 0 }}
-                                                    />
-                                                    <span className="slider round" style={{
-                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                                        backgroundColor: (formData.websiteMetadata?.shareLocation !== false) ? '#2563eb' : '#cbd5e1',
-                                                        transition: '.4s', borderRadius: '20px'
-                                                    }}>
-                                                        <span style={{
-                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareLocation !== false) ? '22px' : '3px', bottom: '3px',
-                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
-                                                        }} />
-                                                    </span>
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={sectionStyle}>
-                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>System Assignment</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                            <div>
-                                <label style={labelStyle}>Team</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.team}
-                                    onChange={e => {
-                                        const newTeam = e.target.value;
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            team: newTeam,
-                                            assignedTo: '' // Reset assigned agent when team changes
-                                        }));
-                                    }}
-                                >
-                                    <option value="">Select Team</option>
-                                    {teams?.map(team => (
-                                        <option key={team._id} value={team._id}>{team.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Assign</label>
-                                <select
-                                    style={selectStyle}
-                                    value={formData.assignedTo}
-                                    onChange={e => handleInputChange('assignedTo', e.target.value)}
-                                >
-                                    <option value="">Select Agent</option>
-                                    {users
-                                        .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
-                                        .map(user => (
-                                            <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                                        ))
-                                    }
-                                </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Visibility</label>
-                                <select style={selectStyle} value={formData.visibleTo} onChange={e => handleInputChange('visibleTo', e.target.value)}>
-                                    <option value="Private">Private</option>
-                                    <option value="Team">Team</option>
-                                    <option value="Everyone">Everyone</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                        <div style={sectionStyle}>
-                            <label style={labelStyle}>Notes / Remarks</label>
-                            <textarea
-                                style={{ ...inputStyle, minHeight: '100px', resize: 'vertical' }}
-                                value={formData.remarks}
-                                onChange={e => handleInputChange('remarks', e.target.value)}
-                                placeholder="Any additional information..."
-                            />
-                        </div>
-
-                        {/* Premium AI-Assisted Website Listing Description Box */}
-                        <div style={{ ...sectionStyle, border: '1px solid #cbd5e1', background: '#f8fafc', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '150px', height: '150px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <label style={{ ...labelStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', fontWeight: 700 }}>
-                                    <i className="fas fa-globe text-blue-600" style={{ fontSize: '1rem' }}></i> Public Website Listing Description
-                                </label>
-                                <button
-                                    type="button"
-                                    onClick={handleGenerateAiDescription}
-                                    disabled={isGeneratingAi}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        padding: '6px 12px',
-                                        borderRadius: '8px',
-                                        border: '1px solid #c7d2fe',
-                                        background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
-                                        color: '#4f46e5',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        cursor: 'pointer',
-                                        boxShadow: '0 2px 4px rgba(79, 70, 229, 0.1)',
-                                        transition: 'all 0.2s',
-                                        opacity: isGeneratingAi ? 0.7 : 1
-                                    }}
-                                >
-                                    <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
-                                    {isGeneratingAi ? "Generating listing..." : "Generate with AI"}
-                                </button>
-                            </div>
-                            
-                            <textarea
-                                style={{ ...inputStyle, minHeight: '180px', resize: 'vertical', background: '#fff', border: '1px solid #cbd5e1', lineHeight: '1.5' }}
-                                value={formData.description}
-                                onChange={e => handleInputChange('description', e.target.value)}
-                                placeholder="Write a premium description for the public website. (Tip: Use the AI Generator above to draft an engaging, high-converting listing automatically using your selected property details!)"
-                            />
-                            
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                                <i className="fas fa-info-circle text-blue-500"></i>
-                                <span>This description will be published to the public portal for prospective buyers.</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Footer */}
-                <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        style={{
-                            padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer',
-                            opacity: isSaving ? 0.7 : 1
-                        }}
-                    >
-                        {isSaving ? 'Saving...' : (deal ? 'Update Deal' : 'Create Deal')}
-                    </button>
+            {/* Intent Segmented Control */}
+            <div style={{ marginBottom: '18px' }}>
+                <label style={ent.label}>Deal Intent</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                    {[
+                        { label: 'Sell', icon: 'fas fa-tag', color: '#2563eb' },
+                        { label: 'Rent', icon: 'fas fa-key', color: '#10b981' },
+                        { label: 'Lease', icon: 'fas fa-file-signature', color: '#8b5cf6' }
+                    ].map(option => {
+                        const active = formData.intent === option.label;
+                        return (
+                            <button
+                                key={option.label}
+                                type="button"
+                                onClick={() => handleInputChange('intent', option.label)}
+                                style={{
+                                    padding: '11px 16px',
+                                    borderRadius: '10px',
+                                    border: `2px solid ${active ? option.color : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                    background: active ? (isDark ? `${option.color}25` : `${option.color}10`) : (isDark ? 'rgba(255,255,255,0.03)' : '#ffffff'),
+                                    color: active ? option.color : (isDark ? '#94a3b8' : '#64748b'),
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    fontSize: '0.86rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.15s ease',
+                                    boxShadow: active ? `0 2px 8px ${option.color}20` : 'none'
+                                }}
+                            >
+                                <i className={option.icon}></i>
+                                <span>{option.label}</span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
+
+            {/* Project, Block, Unit Hierarchy */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '14px', marginBottom: '18px' }}>
+                <div>
+                    <label style={ent.label}>Project Name</label>
+                    <select
+                        style={ent.select}
+                        value={formData.projectName}
+                        onChange={e => handleProjectChange(e.target.value)}
+                        disabled={isLoadingProjects}
+                    >
+                        <option value="">{isLoadingProjects ? 'Loading Projects...' : 'Select Project'}</option>
+                        {projects.map(p => {
+                            const pName = renderValue(p.name) !== '-' ? renderValue(p.name) : '';
+                            return (
+                                <option key={p._id || p.id || pName} value={pName}>
+                                    {pName}
+                                </option>
+                            );
+                        })}
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Block / Sector</label>
+                    <select
+                        style={formData.projectName ? ent.select : ent.selectDisabled}
+                        value={formData.block}
+                        onChange={e => {
+                            const block = e.target.value;
+                            setFormData(prev => ({
+                                ...prev,
+                                block,
+                                unitNo: '',
+                                propertyType: '',
+                                size: '',
+                                owner: { name: '', phone: '', email: '' },
+                                associatedContact: { name: '', phone: '', email: '' }
+                            }));
+                        }}
+                        disabled={!formData.projectName}
+                    >
+                        <option value="">{isLoadingUnits ? 'Refreshing...' : 'Select Block'}</option>
+                        {projects.find(p => renderValue(p.name) === formData.projectName)?.blocks?.map(block => {
+                            const bName = typeof block === 'string' ? block : renderValue(block);
+                            if (!bName || bName === '-') return null;
+                            return (
+                                <option key={bName} value={bName}>
+                                    {bName}
+                                </option>
+                            );
+                        })}
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Unit Number</label>
+                    <select
+                        style={(!formData.block || isLoadingUnits) ? ent.selectDisabled : ent.select}
+                        value={formData.unitNo}
+                        disabled={!formData.block || isLoadingUnits}
+                        onChange={e => handleUnitChange(e.target.value)}
+                    >
+                        <option value="">{isLoadingUnits ? 'Loading Units...' : 'Select Unit'}</option>
+                        {units.map(unit => {
+                            const uNo = renderValue(unit.unitNo || unit.unitNumber);
+                            return (
+                                <option key={unit._id || uNo} value={uNo}>{uNo}</option>
+                            );
+                        })}
+                    </select>
+                </div>
+            </div>
+
+            {/* Inherited Specifications Chips */}
+            {(formData.size || formData.propertyType || formData.category || formData.unitSpecification?.facing) && (
+                <div style={{
+                    padding: '12px 14px', borderRadius: '12px',
+                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                    border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid #f1f5f9',
+                    display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '18px'
+                }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', marginRight: '4px' }}>
+                        Inherited Specs:
+                    </span>
+                    {formData.size && (
+                        <span style={{ fontSize: '0.74rem', color: '#4f46e5', background: isDark ? 'rgba(79,70,229,0.15)' : '#eef2ff', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #c7d2fe' }}>
+                            <i className="fas fa-expand-arrows-alt mr-1"></i> {renderValue(formData.size)} {formData.sizeUnit || ''}
+                        </span>
+                    )}
+                    {formData.propertyType && (
+                        <span style={{ fontSize: '0.74rem', color: '#0284c7', background: isDark ? 'rgba(2,132,199,0.15)' : '#f0f9ff', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bae6fd' }}>
+                            <i className="fas fa-building mr-1"></i> {renderValue(formData.propertyType)}
+                        </span>
+                    )}
+                    {formData.category && (
+                        <span style={{ fontSize: '0.74rem', color: '#059669', background: isDark ? 'rgba(5,150,105,0.15)' : '#ecfdf5', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #a7f3d0' }}>
+                            <i className="fas fa-layer-group mr-1"></i> {renderValue(formData.category)}
+                        </span>
+                    )}
+                    {formData.unitSpecification?.facing && (
+                        <span style={{ fontSize: '0.74rem', color: '#d97706', background: isDark ? 'rgba(217,119,6,0.15)' : '#fffbeb', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #fde68a' }}>
+                            <i className="fas fa-compass mr-1"></i> Facing: {renderValue(formData.unitSpecification.facing)}
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {/* Owner & Associate Selection Cards */}
+            {formData.unitNo && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', paddingTop: '16px', borderTop: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #f1f5f9' }}>
+                    {/* Property Owner */}
+                    <div
+                        onClick={() => handleInputChange('isOwnerSelected', !formData.isOwnerSelected)}
+                        style={{
+                            padding: '12px 14px', borderRadius: '12px',
+                            border: `2px solid ${formData.isOwnerSelected ? '#2563eb' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                            background: formData.isOwnerSelected ? (isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                            cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative'
+                        }}
+                    >
+                        <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                            <input type="checkbox" checked={formData.isOwnerSelected} readOnly style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                        </div>
+                        <label style={{ ...ent.label, marginBottom: '6px', color: formData.isOwnerSelected ? '#2563eb' : (isDark ? '#94a3b8' : '#64748b') }}>
+                            <i className="fas fa-user-tie mr-1"></i> Property Owner
+                        </label>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                            {renderValue(formData.owner?.name) !== '-' ? renderValue(formData.owner?.name) : 'No Registered Owner'}
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                            {renderValue(formData.owner?.phone) !== '-' ? renderValue(formData.owner?.phone) : 'No phone linked'}
+                        </div>
+                    </div>
+
+                    {/* Associated Dealer */}
+                    <div
+                        onClick={() => handleInputChange('isAssociateSelected', !formData.isAssociateSelected)}
+                        style={{
+                            padding: '12px 14px', borderRadius: '12px',
+                            border: `2px solid ${formData.isAssociateSelected ? '#2563eb' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                            background: formData.isAssociateSelected ? (isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                            cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative'
+                        }}
+                    >
+                        <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                            <input type="checkbox" checked={formData.isAssociateSelected} readOnly style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                        </div>
+                        <label style={{ ...ent.label, marginBottom: '6px', color: formData.isAssociateSelected ? '#2563eb' : (isDark ? '#94a3b8' : '#64748b') }}>
+                            <i className="fas fa-user-friends mr-1"></i> Associated Contact (Dealer)
+                        </label>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                            {renderValue(formData.associatedContact?.name) !== '-' ? renderValue(formData.associatedContact?.name) : 'No Dealer Linked'}
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                            {renderValue(formData.associatedContact?.phone) !== '-' ? renderValue(formData.associatedContact?.phone) : 'No phone linked'}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-    </div>
+    );
+
+    // Sub-renderer: Commercials & Pricing Section
+    const renderCommercialsSection = () => (
+        <div style={ent.card}>
+            <div style={ent.sectionHeader('#10b981')}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={ent.iconBadge('#10b981')}>
+                        <i className="fas fa-sack-dollar"></i>
+                    </div>
+                    <div>
+                        <h4 style={ent.sectionTitle}>Commercials & Financials</h4>
+                        <p style={ent.sectionSubtitle}>Expected valuation, quote price, rate conversion, and lease contracts</p>
+                    </div>
+                </div>
+
+                {/* Pricing Mode Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
+                            style={{
+                                padding: '5px 12px', borderRadius: '6px', border: 'none', fontSize: '0.78rem', fontWeight: 700,
+                                cursor: 'pointer',
+                                backgroundColor: formData.pricingMode === 'Total' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                                color: formData.pricingMode === 'Total' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                                boxShadow: formData.pricingMode === 'Total' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            Total Amount
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
+                            style={{
+                                padding: '5px 12px', borderRadius: '6px', border: 'none', fontSize: '0.78rem', fontWeight: 700,
+                                cursor: 'pointer',
+                                backgroundColor: formData.pricingMode === 'Rate' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                                color: formData.pricingMode === 'Rate' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                                boxShadow: formData.pricingMode === 'Rate' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            Rate / Unit
+                        </button>
+                    </div>
+                    {formData.pricingMode === 'Rate' && (
+                        <select
+                            value={formData.priceUnit}
+                            onChange={(e) => handleMetricChange(e.target.value)}
+                            style={{
+                                padding: '5px 10px', borderRadius: '8px',
+                                border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e2e8f0',
+                                fontSize: '0.78rem', fontWeight: 700,
+                                backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                                color: isDark ? '#f1f5f9' : '#0f172a',
+                                outline: 'none', cursor: 'pointer'
+                            }}
+                        >
+                            {Object.keys(METRIC_FACTORS).map(metric => (
+                                <option key={metric} value={metric}>{metric}</option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+            </div>
+
+            {/* Expected Price Row */}
+            <div style={{ marginBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <label style={{ ...ent.label, marginBottom: 0 }}>
+                        {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent' : 'Expected Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                    </label>
+                    {formData.priceInWords && (
+                        <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 700, fontStyle: 'italic' }}>
+                            ({formData.priceInWords} Rupees Only)
+                        </span>
+                    )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                    <input
+                        style={{
+                            ...ent.input,
+                            paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px'
+                        }}
+                        value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
+                        onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
+                        placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
+                    />
+                    {formData.pricingMode === 'Total' && formData.ratePrice && (
+                        <div style={{
+                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                            fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 700,
+                            background: isDark ? 'rgba(255,255,255,0.06)' : '#f8fafc',
+                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'
+                        }}>
+                            ₹{formData.ratePrice}/{unitLabel}
+                        </div>
+                    )}
+                    {formData.pricingMode === 'Rate' && formData.price && (
+                        <div style={{
+                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                            fontSize: '0.72rem', color: '#16a34a', fontWeight: 800,
+                            background: isDark ? 'rgba(22,163,74,0.15)' : '#f0fdf4',
+                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(22,163,74,0.3)' : '1px solid #bbf7d0'
+                        }}>
+                            TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.price)}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Quote Price Row */}
+            <div style={{ marginBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <label style={{ ...ent.label, marginBottom: 0 }}>
+                        {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent' : 'Quote Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                    </label>
+                    {formData.quotePriceInWords && (
+                        <span style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, fontStyle: 'italic' }}>
+                            ({formData.quotePriceInWords} Rupees Only)
+                        </span>
+                    )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                    <input
+                        style={{
+                            ...ent.input,
+                            paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px'
+                        }}
+                        value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
+                        onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
+                        placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
+                    />
+                    {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
+                        <div style={{
+                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                            fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 700,
+                            background: isDark ? 'rgba(255,255,255,0.06)' : '#f8fafc',
+                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'
+                        }}>
+                            ₹{formData.quoteRatePrice}/{unitLabel}
+                        </div>
+                    )}
+                    {formData.pricingMode === 'Rate' && formData.quotePrice && (
+                        <div style={{
+                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                            fontSize: '0.72rem', color: '#2563eb', fontWeight: 800,
+                            background: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff',
+                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(37,99,235,0.3)' : '1px solid #bfdbfe'
+                        }}>
+                            TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.quotePrice)}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Rent Specific Fields */}
+            {(formData.intent === 'Rent' || formData.intent === 'Lease') && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '18px' }}>
+                    <div>
+                        <label style={ent.label}>Security Deposit</label>
+                        <input
+                            type="number"
+                            style={ent.input}
+                            value={formData.securityDeposit}
+                            onChange={e => handleInputChange('securityDeposit', e.target.value)}
+                            placeholder="Security Amount (₹)"
+                        />
+                    </div>
+                    <div>
+                        <label style={ent.label}>Lease Term (Months)</label>
+                        <input
+                            type="number"
+                            style={ent.input}
+                            value={formData.leaseTermMonths}
+                            onChange={e => handleInputChange('leaseTermMonths', e.target.value)}
+                            placeholder="Duration in Months"
+                        />
+                    </div>
+                    <div>
+                        <label style={ent.label}>Lock-in Period (Months)</label>
+                        <input
+                            type="number"
+                            style={ent.input}
+                            value={formData.lockInMonths}
+                            onChange={e => handleInputChange('lockInMonths', e.target.value)}
+                            placeholder="Lock-in Months"
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Pricing Nature Checkboxes */}
+            <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155' }}>
+                    <input
+                        type="checkbox"
+                        checked={formData.pricingNature.negotiable}
+                        onChange={() => handlePricingNatureChange('negotiable')}
+                        style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                    />
+                    Price is Negotiable
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700, color: isDark ? '#cbd5e1' : '#334155' }}>
+                    <input
+                        type="checkbox"
+                        checked={formData.pricingNature.fixed}
+                        onChange={() => handlePricingNatureChange('fixed')}
+                        style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                    />
+                    Strictly Fixed Price
+                </label>
+            </div>
+
+            {/* Live Matched Buyer Audience Card */}
+            {liveMatchCount !== null && liveMatchCount > 0 && (
+                <div style={{
+                    marginTop: '18px', padding: '12px 16px', borderRadius: '12px',
+                    background: isDark ? 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(59,130,246,0.12) 100%)' : 'linear-gradient(135deg, #ecfdf5 0%, #eff6ff 100%)',
+                    border: isDark ? '1px solid rgba(16,185,129,0.3)' : '1px solid #bbf7d0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '32px', height: '32px', borderRadius: '8px',
+                            background: '#10b981', color: '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem'
+                        }}>
+                            <i className="fas fa-crosshairs"></i>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a' }}>
+                                Enterprise Match Engine Active
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                {liveMatchCount} buyer leads in CRM match this budget and property criteria.
+                            </div>
+                        </div>
+                    </div>
+                    <span style={{
+                        fontSize: '0.76rem', fontWeight: 800, padding: '4px 10px', borderRadius: '6px',
+                        background: isDark ? 'rgba(16,185,129,0.2)' : '#d1fae5', color: isDark ? '#34d399' : '#047857'
+                    }}>
+                        🎯 {liveMatchCount} Ready Buyers
+                    </span>
+                </div>
+            )}
+        </div>
+    );
+
+    // Sub-renderer: Deal Terms & Stages Section
+    const renderTermsSection = () => (
+        <div style={ent.card}>
+            <div style={ent.sectionHeader('#8b5cf6')}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={ent.iconBadge('#8b5cf6')}>
+                        <i className="fas fa-file-contract"></i>
+                    </div>
+                    <div>
+                        <h4 style={ent.sectionTitle}>Deal Terms & Registry Configuration</h4>
+                        <p style={ent.sectionSubtitle}>Stage pipeline, legal case status, transaction mix, and acquisition source</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '16px' }}>
+                <div>
+                    <label style={ent.label}>Deal Status</label>
+                    <select
+                        style={ent.select}
+                        value={formData.status}
+                        onChange={e => handleInputChange('status', e.target.value)}
+                    >
+                        <option value="Open">Open</option>
+                        <option value="Quote">Quote</option>
+                        <option value="Negotiation">Negotiation</option>
+                        <option value="Booked">Booked</option>
+                        <option value="Won">Won</option>
+                        <option value="Lost">Lost</option>
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Deal Type</label>
+                    <select
+                        style={ent.select}
+                        value={formData.dealType}
+                        onChange={e => handleInputChange('dealType', e.target.value)}
+                    >
+                        {dealMasterFields?.dealTypes?.map(type => {
+                            const tVal = typeof type === 'string' ? type : renderValue(type);
+                            return (
+                                <option key={tVal} value={tVal}>{tVal}</option>
+                            );
+                        })}
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Source</label>
+                    <select
+                        style={ent.select}
+                        value={formData.source}
+                        onChange={e => handleInputChange('source', e.target.value)}
+                    >
+                        <option value="Walk-in">Walk-in</option>
+                        <option value="Newspaper">Newspaper</option>
+                        <option value="99acres">99acres</option>
+                        <option value="Social Media">Social Media</option>
+                        <option value="Cold Calling">Cold Calling</option>
+                        <option value="Own Website">Own Website</option>
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Transaction Type</label>
+                    <select
+                        style={ent.select}
+                        value={formData.transactionType}
+                        onChange={e => handleInputChange('transactionType', e.target.value)}
+                    >
+                        <option value="Full White">Full White</option>
+                        <option value="Collector Rate">Collector Rate</option>
+                        <option value="Flexible">Flexible</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Flexible White Component Slider */}
+            {formData.transactionType === 'Flexible' && (
+                <div style={{
+                    marginTop: '16px', padding: '14px 16px', borderRadius: '12px',
+                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                    border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e2e8f0'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label style={{ ...ent.label, marginBottom: 0 }}>White Component Allocation</label>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#2563eb' }}>{formData.flexiblePercentage}%</span>
+                    </div>
+                    <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={formData.flexiblePercentage}
+                        onChange={e => handleInputChange('flexiblePercentage', e.target.value)}
+                        style={{ width: '100%', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                        <span>0% (Full Cash Component)</span>
+                        <span>100% (Full White Registry)</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+
+    // Sub-renderer: Omnichannel Marketing Section
+    const renderMarketingSection = () => (
+        <div style={ent.card}>
+            <div style={ent.sectionHeader('#f59e0b')}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={ent.iconBadge('#f59e0b')}>
+                        <i className="fas fa-rocket"></i>
+                    </div>
+                    <div>
+                        <h4 style={ent.sectionTitle}>Omnichannel Marketing Command Center</h4>
+                        <p style={ent.sectionSubtitle}>Auto-syndicate listing across web portals, social feeds, and AI copywriter</p>
+                    </div>
+                </div>
+            </div>
+
+            <label style={ent.label}>Syndicate & Publish On</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '10px', marginBottom: '18px' }}>
+                {[
+                    { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
+                    { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
+                    { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
+                    { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
+                    { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
+                    { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#0f172a' }
+                ].map(platform => {
+                    const active = formData.publishOn[platform.id];
+                    return (
+                        <button
+                            key={platform.id}
+                            type="button"
+                            onClick={() => handleNestedInputChange('publishOn', platform.id, !active)}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 8px',
+                                borderRadius: '10px',
+                                border: `1.5px solid ${active ? platform.color : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                background: active ? (isDark ? `${platform.color}25` : `${platform.color}12`) : (isDark ? 'rgba(255,255,255,0.03)' : '#ffffff'),
+                                cursor: 'pointer', transition: 'all 0.15s ease',
+                                color: active ? (isDark ? '#ffffff' : platform.color) : (isDark ? '#94a3b8' : '#64748b'),
+                                fontSize: '0.8rem', fontWeight: 700
+                            }}
+                        >
+                            <i className={platform.icon} style={{ color: active ? platform.color : 'inherit' }}></i>
+                            <span>{platform.label}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Website Privacy Settings */}
+            {formData.publishOn.website && (
+                <div style={{
+                    marginBottom: '18px', padding: '14px 16px', borderRadius: '12px',
+                    background: isDark ? 'rgba(37,99,235,0.08)' : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                    border: isDark ? '1px solid rgba(37,99,235,0.2)' : '1px solid #e2e8f0'
+                }}>
+                    <h5 style={{ margin: '0 0 10px 0', fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#93c5fd' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Public Website Privacy Controls
+                    </h5>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                            <input
+                                type="checkbox"
+                                checked={formData.websiteMetadata?.shareUnitNumber !== false}
+                                onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareUnitNumber', e.target.checked)}
+                                style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                            />
+                            <span>Display Exact Unit Number on Website</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                            <input
+                                type="checkbox"
+                                checked={formData.websiteMetadata?.shareLocation !== false}
+                                onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareLocation', e.target.checked)}
+                                style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
+                            />
+                            <span>Display Interactive Map Location on Website</span>
+                        </label>
+                    </div>
+                </div>
+            )}
+
+            {/* AI-Assisted Website Listing Description */}
+            <div style={{
+                borderRadius: '12px', padding: '16px',
+                background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #cbd5e1',
+                position: 'relative'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <label style={{ ...ent.label, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className="fas fa-globe text-blue-500"></i> Public Website Listing Description
+                    </label>
+                    <button
+                        type="button"
+                        onClick={handleGenerateAiDescription}
+                        disabled={isGeneratingAi}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '6px 12px', borderRadius: '8px',
+                            border: '1px solid #c7d2fe',
+                            background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
+                            color: '#4f46e5', fontSize: '0.74rem', fontWeight: 800,
+                            cursor: 'pointer', transition: 'all 0.15s ease',
+                            opacity: isGeneratingAi ? 0.7 : 1
+                        }}
+                    >
+                        <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+                        <span>{isGeneratingAi ? "Drafting Listing..." : "Generate with AI"}</span>
+                    </button>
+                </div>
+                <textarea
+                    style={{
+                        ...ent.input,
+                        minHeight: '120px',
+                        resize: 'vertical',
+                        lineHeight: '1.5',
+                        height: 'auto'
+                    }}
+                    value={formData.description}
+                    onChange={e => handleInputChange('description', e.target.value)}
+                    placeholder="Draft an engaging, high-converting property overview for the public website. (Tip: Click 'Generate with AI' to generate automatically using selected unit attributes!)"
+                />
+            </div>
+        </div>
+    );
+
+    // Sub-renderer: System Assignment & Notes Section
+    const renderAssignmentSection = () => (
+        <div style={ent.card}>
+            <div style={ent.sectionHeader('#06b6d4')}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={ent.iconBadge('#06b6d4')}>
+                        <i className="fas fa-users-gear"></i>
+                    </div>
+                    <div>
+                        <h4 style={ent.sectionTitle}>Internal Ownership & System Settings</h4>
+                        <p style={ent.sectionSubtitle}>Assign internal sales team, lead executive, access scope, and private remarks</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '18px' }}>
+                <div>
+                    <label style={ent.label}>Assigned Team</label>
+                    <select
+                        style={ent.select}
+                        value={formData.team}
+                        onChange={e => {
+                            const newTeam = e.target.value;
+                            setFormData(prev => ({
+                                ...prev,
+                                team: newTeam,
+                                assignedTo: ''
+                            }));
+                        }}
+                    >
+                        <option value="">Select Team</option>
+                        {teams?.map(team => (
+                            <option key={team._id} value={team._id}>{team.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Assigned Agent</label>
+                    <select
+                        style={ent.select}
+                        value={formData.assignedTo}
+                        onChange={e => handleInputChange('assignedTo', e.target.value)}
+                    >
+                        <option value="">Select Agent</option>
+                        {users
+                            .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                            .map(user => (
+                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                            ))
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label style={ent.label}>Record Visibility</label>
+                    <select
+                        style={ent.select}
+                        value={formData.visibleTo}
+                        onChange={e => handleInputChange('visibleTo', e.target.value)}
+                    >
+                        <option value="Private">Private</option>
+                        <option value="Team">Team</option>
+                        <option value="Everyone">Everyone</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label style={ent.label}>Internal Remarks & Audit Notes</label>
+                <textarea
+                    style={{
+                        ...ent.input,
+                        minHeight: '90px',
+                        resize: 'vertical',
+                        lineHeight: '1.4',
+                        height: 'auto'
+                    }}
+                    value={formData.remarks}
+                    onChange={e => handleInputChange('remarks', e.target.value)}
+                    placeholder="Internal team notes, negotiation background, broker commissions, or special terms..."
+                />
+            </div>
+        </div>
+    );
+
+    return (
+        <div
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                zIndex: 1000,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backdropFilter: 'blur(8px)',
+                padding: '16px'
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    background: isDark ? '#0f172a' : '#ffffff',
+                    width: '960px',
+                    maxWidth: '96vw',
+                    maxHeight: 'min(92vh, 920px)',
+                    height: 'min(92vh, 920px)',
+                    borderRadius: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.4)',
+                    border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                    color: isDark ? '#f1f5f9' : '#0f172a'
+                }}
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Enterprise Header */}
+                <div style={{
+                    padding: '16px 24px',
+                    borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: isDark ? 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)' : 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{
+                            width: '42px', height: '42px', borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)', color: '#fff',
+                            flexShrink: 0, fontSize: '18px'
+                        }}>
+                            <i className="fas fa-handshake"></i>
+                        </div>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h2 style={{ fontSize: '1.18rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a', margin: 0, letterSpacing: '-0.01em' }}>
+                                    {title || (deal ? 'Update Deal' : 'Add New Deal')}
+                                </h2>
+                                <span style={{
+                                    fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                                    background: deal ? (isDark ? 'rgba(245,158,11,0.2)' : '#fef3c7') : (isDark ? 'rgba(59,130,246,0.2)' : '#eff6ff'),
+                                    color: deal ? '#d97706' : '#2563eb',
+                                    border: deal ? '1px solid #fde68a' : '1px solid #bfdbfe'
+                                }}>
+                                    {deal ? 'EDIT MODE' : 'NEW RECORD'}
+                                </span>
+                                {(formData.projectName || formData.unitNo) && (
+                                    <span style={{
+                                        fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#93c5fd' : '#2563eb',
+                                        background: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff',
+                                        padding: '2px 8px', borderRadius: '6px', border: '1px solid #bfdbfe'
+                                    }}>
+                                        {[renderValue(formData.projectName), renderValue(formData.unitNo)].filter(v => v && v !== '-').join(' • ')}
+                                    </span>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600, marginTop: '3px' }}>
+                                <i className="far fa-clock" style={{ color: '#2563eb', fontSize: '11px' }}></i>
+                                <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                <span style={{ opacity: 0.4 }}>•</span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#e2e8f0' : '#1e293b' }}>
+                                    {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {/* Live Matched Count Badge */}
+                        {liveMatchCount !== null && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '5px 12px', borderRadius: '20px',
+                                background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                                border: isDark ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid #a7f3d0',
+                                color: isDark ? '#34d399' : '#059669',
+                                fontSize: '0.74rem', fontWeight: 800
+                            }}>
+                                <i className={isLiveMatching ? "fas fa-spinner fa-spin" : "fas fa-bullseye"}></i>
+                                <span>{isLiveMatching ? 'Matching...' : `🎯 ${liveMatchCount} Matched Leads`}</span>
+                            </div>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                                background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc',
+                                color: isDark ? '#cbd5e1' : '#64748b',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', transition: 'all 0.15s'
+                            }}
+                            title="Close"
+                        >
+                            <i className="fas fa-times" style={{ fontSize: '14px' }}></i>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Tab Navigation Bar */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 24px',
+                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                    borderBottom: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e2e8f0',
+                    overflowX: 'auto',
+                    flexShrink: 0
+                }} className="no-scrollbar">
+                    {TABS.map(tab => {
+                        const active = currentTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setCurrentTab(tab.id)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 14px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    background: active ? (isDark ? 'rgba(37,99,235,0.2)' : '#ffffff') : 'transparent',
+                                    color: active ? (isDark ? '#60a5fa' : '#2563eb') : (isDark ? '#94a3b8' : '#64748b'),
+                                    boxShadow: active ? (isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)') : 'none',
+                                    fontWeight: active ? 800 : 600,
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <i className={tab.icon} style={{ color: active ? tab.color : 'inherit', fontSize: '13px' }}></i>
+                                <span>{tab.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Modal Body */}
+                <div
+                    className="no-scrollbar"
+                    style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '20px 24px',
+                        background: isDark ? '#0b1329' : '#f8fafc',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
+                    }}
+                >
+                    {currentTab === 'property' && renderPropertySection()}
+                    {currentTab === 'commercials' && renderCommercialsSection()}
+                    {currentTab === 'terms' && renderTermsSection()}
+                    {currentTab === 'marketing' && renderMarketingSection()}
+                    {currentTab === 'assignment' && renderAssignmentSection()}
+                    {currentTab === 'all' && (
+                        <div>
+                            {renderPropertySection()}
+                            {renderCommercialsSection()}
+                            {renderTermsSection()}
+                            {renderMarketingSection()}
+                            {renderAssignmentSection()}
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer pinned at bottom */}
+                <div style={{
+                    padding: '14px 24px',
+                    borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: isDark ? '#0f172a' : '#ffffff',
+                    flexShrink: 0
+                }}>
+                    {/* Left: Summary / Match Indicator */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {liveMatchCount !== null && (
+                            <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                <i className="fas fa-bullseye text-blue-500 mr-1"></i>
+                                <span>{liveMatchCount} buyer leads ready for this deal</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                padding: '9px 20px', borderRadius: '10px',
+                                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+                                color: isDark ? '#cbd5e1' : '#475569',
+                                fontWeight: 700, fontSize: '0.82rem',
+                                cursor: 'pointer', transition: 'all 0.15s'
+                            }}
+                        >
+                            Cancel
+                        </button>
+
+                        {currentTab !== 'property' && currentTab !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={handlePrevTab}
+                                style={{
+                                    padding: '9px 18px', borderRadius: '10px',
+                                    border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                                    background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+                                    color: isDark ? '#cbd5e1' : '#475569',
+                                    fontWeight: 700, fontSize: '0.82rem',
+                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <i className="fas fa-arrow-left"></i>
+                                <span>Previous</span>
+                            </button>
+                        )}
+
+                        {currentTab !== 'assignment' && currentTab !== 'all' && (
+                            <button
+                                type="button"
+                                onClick={handleNextTab}
+                                style={{
+                                    padding: '9px 20px', borderRadius: '10px',
+                                    border: 'none',
+                                    background: isDark ? 'rgba(37,99,235,0.2)' : '#eff6ff',
+                                    color: '#2563eb',
+                                    fontWeight: 800, fontSize: '0.82rem',
+                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <span>Next</span>
+                                <i className="fas fa-arrow-right"></i>
+                            </button>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            style={{
+                                padding: '9px 26px', borderRadius: '10px',
+                                border: 'none',
+                                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                                color: '#ffffff', fontWeight: 800, fontSize: '0.84rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.3)',
+                                transition: 'all 0.15s ease',
+                                opacity: isSaving ? 0.7 : 1,
+                                display: 'flex', alignItems: 'center', gap: '8px'
+                            }}
+                        >
+                            {isSaving && <i className="fas fa-spinner fa-spin"></i>}
+                            <span>{isSaving ? 'Saving...' : (deal ? 'Update Deal' : 'Create Deal')}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <style>{`
+                .no-scrollbar::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+                .no-scrollbar { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+            `}</style>
+        </div>
     );
 };
 

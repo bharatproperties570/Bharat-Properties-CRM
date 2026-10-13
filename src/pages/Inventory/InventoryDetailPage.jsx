@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 import { useInventoryActions } from '../../hooks/useInventoryActions';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useInventory, useInventoryMatches } from '../../utils/crmHooks';
+import { useInventory, useInventoryMatches, useUpdateInventoryMutation } from '../../utils/crmHooks';
 import { queryKeys } from '../../utils/queryClient';
 
 
@@ -40,8 +40,9 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AddBuiltupDetailsModal from '../../components/modals/AddBuiltupDetailsModal';
 
-export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, onNavigate }) {
-    const { id: inventoryId } = useParams();
+export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, onNavigate, inventoryId: propInventoryId }) {
+    const { id: routeInventoryId } = useParams();
+    const inventoryId = propInventoryId || routeInventoryId;
     useUserContext();
     useTriggers();
     const { user } = useUserContext();

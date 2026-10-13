@@ -12,7 +12,8 @@ import {
     sendReply,
     convertToLead,
     getThreadHistory,
-    getPublicActivityDetails
+    getPublicActivityDetails,
+    liveStreamSSE
 } from "../controllers/activity.controller.js";
 import { 
     completeActivity, 
@@ -27,6 +28,9 @@ router.get("/public/:activityId", getPublicActivityDetails);
 
 // Protected Routes
 router.use(authenticate);
+
+// Real-Time SSE Stream for Communication Hub
+router.get("/stream-live", liveStreamSSE);
 
 router.get("/", getActivities);
 router.get("/messaging", getMessagingActivities);

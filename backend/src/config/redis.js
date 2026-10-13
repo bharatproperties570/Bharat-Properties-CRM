@@ -172,7 +172,13 @@ export class Queue {
                         name: name,
                         data: data,
                         progress: 0,
-                        opts: opts || {}
+                        opts: opts || {},
+                        log: async (msg) => {
+                            console.log(`[MockJob:${jobId}] ${msg}`);
+                        },
+                        updateProgress: async (prog) => {
+                            mockJob.progress = prog;
+                        }
                     };
                     try {
                         console.log(`[MockQueue] Processing job ${jobId} on queue ${this.name}`);

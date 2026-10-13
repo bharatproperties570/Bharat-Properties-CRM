@@ -10,7 +10,7 @@ import LeadConversionService from '../../services/LeadConversionService';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
 import { activitiesAPI } from '../../utils/api';
-import { useAddActivityMutation, useUnifiedActivityQueries } from '../../utils/crmHooks';
+import { useAddActivityMutation, useUnifiedActivityQueries, useLead } from '../../utils/crmHooks';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import { useCall } from '../../context/CallContext';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';

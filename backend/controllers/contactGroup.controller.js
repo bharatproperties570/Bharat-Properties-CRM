@@ -3,8 +3,28 @@ import Contact from "../models/Contact.js";
 
 export const getGroups = async (req, res) => {
     try {
-        const groups = await ContactGroup.find().sort({ name: 1 });
-        res.json({ success: true, data: groups });
+        const groups = await ContactGroup.find().sort({ name: 1 }).lean();
+        const stats = await Contact.aggregate([
+            { $match: { isDeleted: { $ne: true }, groups: { $exists: true, $ne: [] } } },
+            { $unwind: "$groups" },
+            {
+                $group: {
+                    _id: "$groups",
+                    count: { $sum: 1 },
+                    memberIds: { $addToSet: { $toString: "$_id" } }
+                }
+            }
+        ]);
+        const statMap = new Map(stats.map(s => [String(s._id), s]));
+        const enriched = groups.map(g => {
+            const st = statMap.get(String(g._id));
+            return {
+                ...g,
+                memberCount: st ? st.count : 0,
+                memberIds: st ? st.memberIds : []
+            };
+        });
+        res.json({ success: true, data: enriched });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
