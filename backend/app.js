@@ -8,6 +8,8 @@ import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import mongoose from "mongoose";
+import redisProxy from "./src/config/redis.js";
 import { AppError } from "./src/middlewares/error.middleware.js";
 import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
 
@@ -165,6 +167,38 @@ const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 app.use('/uploads', express.static(uploadsDir));
+
+app.get("/api/version", (req, res) => {
+    let manifest = { version: "unknown", gitSha: "unknown", buildId: "unknown", buildTimestamp: "unknown" };
+    try {
+        const manifestPath = path.join(process.cwd(), "release-manifest.json");
+        if (fs.existsSync(manifestPath)) {
+            manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+        }
+    } catch (e) {}
+    res.status(200).json(manifest);
+});
+
+app.get("/api/ready", (req, res) => {
+    const dbState = mongoose.connection.readyState;
+    const isMockRedis = redisProxy?.isMock;
+    const isTest = process.env.MOCK_MODE === "true" || process.env.NODE_ENV === "test";
+
+    if (isTest) {
+        return res.status(200).json({ status: "ready", mock: true, database: dbState, redis_mock: isMockRedis });
+    }
+
+    if (dbState !== 1) {
+        return res.status(503).json({ status: "not_ready", database: dbState, reason: "MongoDB disconnected" });
+    }
+
+    if (isMockRedis) {
+        return res.status(503).json({ status: "not_ready", redis: "mock_fallback_active", reason: "Redis is required for production BullMQ" });
+    }
+
+    res.status(200).json({ status: "ready", database: dbState, redis: "online" });
+});
+
 app.get("/api/health", (req, res) => {
     res.status(200).json({
         success: true,

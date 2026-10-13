@@ -202,6 +202,7 @@ backend/test-*.js
 backend/test_*.js
 backend/test_*.mjs
 *.mjs
+!backend/launcher.mjs
 *.py
 fix_*.js
 patch_*.js
