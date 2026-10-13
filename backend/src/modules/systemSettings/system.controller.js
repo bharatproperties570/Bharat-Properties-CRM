@@ -34,7 +34,12 @@ export const getSettingByKey = async (req, res, next) => {
         const setting = await SystemSetting.findOne({ key });
 
         if (!setting) {
-            throw new AppError('Setting not found', 404);
+            return res.status(200).json({
+                success: true,
+                data: null,
+                value: null,
+                message: 'Setting not found'
+            });
         }
 
         res.status(200).json({

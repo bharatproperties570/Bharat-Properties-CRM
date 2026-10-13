@@ -21,7 +21,7 @@ const smsService = {
      */
     async getStatus() {
         try {
-            const response = await api.get(`${API_BASE_URL}/status`);
+            const response = await api.get(`${API_BASE_URL}/status`, { _silentError: true });
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS status:', error);
@@ -94,7 +94,7 @@ const smsService = {
      */
     async getTemplates() {
         try {
-            const response = await api.get(`${API_BASE_URL}/templates`);
+            const response = await api.get(`${API_BASE_URL}/templates`, { _silentError: true });
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS templates:', error);

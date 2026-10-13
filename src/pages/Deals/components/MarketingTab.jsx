@@ -224,18 +224,18 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                     localEmailTemplatesRes,
                     matchedLeadsRes
                 ] = await Promise.all([
-                    api.get('/company-groups').catch(() => ({ data: { data: [] } })),
-                    api.get('/contact-groups').catch(() => ({ data: { data: [] } })),
-                    api.get('/marketing/whatsapp/templates').catch(() => ({ data: { templates: [] } })),
-                    api.get(`/marketing/broadcast/analytics/${dealId}`).catch(() => ({ data: { success: false } })),
-                    api.get('/marketing/whatsapp/variable-registry').catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } })),
+                    api.get('/company-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    api.get('/contact-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    api.get('/marketing/whatsapp/templates', { _silentError: true }).catch(() => ({ data: { templates: [] } })),
+                    api.get(`/marketing/broadcast/analytics/${dealId}`, { _silentError: true }).catch(() => ({ data: { success: false } })),
+                    api.get('/marketing/whatsapp/variable-registry', { _silentError: true }).catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } })),
                     whatsappService.getAccounts().catch(() => ({ data: [] })),
-                    systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_whatsapp_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
                     smsService.getTemplates().catch(() => ({ data: [] })),
-                    systemSettingsAPI.getByKey('crm_sms_templates').catch(() => ({ data: { value: [] } })),
-                    systemSettingsAPI.getByKey('crm_rcs_templates').catch(() => ({ data: { value: [] } })),
-                    systemSettingsAPI.getByKey('crm_email_templates').catch(() => ({ data: { value: [] } })),
-                    dealId ? api.get('/leads/match', { params: { dealId } }).catch(() => ({ data: { data: [] } })) : Promise.resolve({ data: { data: [] } })
+                    systemSettingsAPI.getByKey('crm_sms_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_rcs_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_email_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
+                    dealId ? api.get('/leads/match', { params: { dealId }, _silentError: true }).catch(() => ({ data: { data: [] } })) : Promise.resolve({ data: { data: [] } })
                 ]);
                 setGroups(groupsRes.data?.data || []);
                 setContactGroups(contactGroupsRes.data?.data || []);

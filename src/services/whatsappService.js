@@ -6,7 +6,7 @@ const whatsappService = {
      */
     async getAccounts() {
         try {
-            const response = await api.get('whatsapp-config/accounts');
+            const response = await api.get('whatsapp-config/accounts', { _silentError: true });
             return response.data;
         } catch (error) {
             console.error('Error fetching WhatsApp accounts:', error);
@@ -33,7 +33,7 @@ const whatsappService = {
      */
     async getTemplates() {
         try {
-            const response = await api.get('whatsapp-config/templates');
+            const response = await api.get('whatsapp-config/templates', { _silentError: true });
             return response.data;
         } catch (error) {
             console.error('Error fetching WhatsApp templates:', error);

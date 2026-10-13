@@ -250,6 +250,29 @@ const onRefreshed = (token) => {
     refreshSubscribers = [];
 };
 
+// 🛡️ Enterprise Toast Throttler & Deduplication Engine
+const toastDedupeCache = new Map();
+export const showDeduplicatedToast = (message, type = 'error', cooldownMs = 2500) => {
+    if (!message) return;
+    const key = `${type}:${message}`;
+    const now = Date.now();
+    const lastShown = toastDedupeCache.get(key) || 0;
+    if (now - lastShown < cooldownMs) {
+        return; // Suppress duplicate toast spam within cooldown window
+    }
+    toastDedupeCache.set(key, now);
+    if (toastDedupeCache.size > 50) {
+        for (const [k, v] of toastDedupeCache.entries()) {
+            if (now - v > 10000) toastDedupeCache.delete(k);
+        }
+    }
+    if (typeof toast[type] === 'function') {
+        toast[type](message);
+    } else {
+        toast(message);
+    }
+};
+
 // 🛡️ Enterprise Safeguard: Prevent {_id, lookup_type, lookup_value} objects from crashing React JSX
 // React checks obj[Symbol.iterator] before throwing "Objects are not valid as a React child".
 // By defining a non-enumerable Symbol.iterator and toString on Lookup objects, React seamlessly renders
@@ -400,8 +423,14 @@ api.interceptors.response.use(
 
         // Show toast for specific errors unless request opted out
         if (!originalRequest?._silentError) {
-            if (['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(normalizedCode)) {
-                toast.error(normalizedUserMessage);
+            const reqUrl = String(originalRequest?.url || '');
+            const isSystemSettingLookup = reqUrl.includes('system-settings') || reqUrl.includes('settings/key');
+
+            // 🛡️ Enterprise Strategy: Do not trigger intrusive UI toasts for missing system settings
+            if (normalizedCode === 'NOT_FOUND' && isSystemSettingLookup) {
+                // Silently ignored for optional system setting 404s
+            } else if (['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(normalizedCode)) {
+                showDeduplicatedToast(normalizedUserMessage, 'error');
             }
         }
 
@@ -603,17 +632,19 @@ export const scoringRulesAPI = {
 
 // System Settings API
 export const systemSettingsAPI = {
-    getAll: () => apiRequest('/system-settings'),
-    getByKey: (key) => apiRequest(`/system-settings/${key}`),
-    upsert: (key, data) => apiRequest('/system-settings/upsert', {
+    getAll: (options = {}) => apiRequest('/system-settings', options),
+    getByKey: (key, options = {}) => apiRequest(`/system-settings/${key}`, { _silentError: true, ...options }),
+    upsert: (key, data, options = {}) => apiRequest('/system-settings/upsert', {
         method: 'POST',
-        body: JSON.stringify({ key, ...data })
+        body: JSON.stringify({ key, ...data }),
+        ...options
     }),
-    testAi: (type, config) => apiRequest('/system-settings/test-ai', {
+    testAi: (type, config, options = {}) => apiRequest('/system-settings/test-ai', {
         method: 'POST',
-        body: JSON.stringify({ type, config })
+        body: JSON.stringify({ type, config }),
+        ...options
     }),
-    delete: (key) => apiRequest(`/system-settings/${key}`, { method: 'DELETE' }),
+    delete: (key, options = {}) => apiRequest(`/system-settings/${key}`, { method: 'DELETE', ...options }),
 };
 
 // Google Integration Settings API

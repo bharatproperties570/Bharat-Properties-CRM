@@ -66,7 +66,15 @@ export const getSystemSettingByKey = async (req, res) => {
     try {
         const { key } = req.params;
         const setting = await SystemSetting.findOne({ key }).lean();
-        if (!setting) return res.status(404).json({ success: false, status: "error", message: "Setting not found" });
+        if (!setting) {
+            return res.status(200).json({ 
+                success: true, 
+                status: "success", 
+                data: null, 
+                value: null, 
+                message: "Setting not found" 
+            });
+        }
         res.json({ success: true, status: "success", data: setting });
     } catch (error) {
         res.status(500).json({ success: false, status: "error", message: error.message });

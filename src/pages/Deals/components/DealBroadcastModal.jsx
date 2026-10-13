@@ -336,16 +336,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                     localRcsTemplatesRes,
                     localEmailTemplatesRes
                 ] = await Promise.all([
-                    api.get('/company-groups').catch(() => ({ data: { data: [] } })),
-                    api.get('/contact-groups').catch(() => ({ data: { data: [] } })),
-                    api.get('/marketing/whatsapp/templates').catch(() => ({ data: { templates: [] } })),
-                    api.get('/marketing/whatsapp/variable-registry').catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } })),
+                    api.get('/company-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    api.get('/contact-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    api.get('/marketing/whatsapp/templates', { _silentError: true }).catch(() => ({ data: { templates: [] } })),
+                    api.get('/marketing/whatsapp/variable-registry', { _silentError: true }).catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } })),
                     whatsappService.getAccounts().catch(() => ({ data: [] })),
-                    systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_whatsapp_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
                     smsService.getTemplates().catch(() => ({ data: [] })),
-                    systemSettingsAPI.getByKey('crm_sms_templates').catch(() => ({ data: { value: [] } })),
-                    systemSettingsAPI.getByKey('crm_rcs_templates').catch(() => ({ data: { value: [] } })),
-                    systemSettingsAPI.getByKey('crm_email_templates').catch(() => ({ data: { value: [] } }))
+                    systemSettingsAPI.getByKey('crm_sms_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_rcs_templates', { _silentError: true }).catch(() => ({ data: { value: [] } })),
+                    systemSettingsAPI.getByKey('crm_email_templates', { _silentError: true }).catch(() => ({ data: { value: [] } }))
                 ]);
 
                 setGroups(groupsRes.data?.data || []);
