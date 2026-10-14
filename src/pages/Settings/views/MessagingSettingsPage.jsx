@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTheme } from '../../../context/ThemeContext';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
 import { systemSettingsAPI } from '../../../utils/api';
 import { useWhatsAppTemplatesDb, useSaveWhatsAppTemplatesMutation, useSubmitWhatsAppTemplateMutation, useSyncWhatsAppTemplatesCommand } from '../../../utils/crmHooks';
@@ -14,7 +15,16 @@ import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
 // --- Sub-Components ---
 
 const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onSave }) => {
+    let isDark = false;
+    try {
+        const themeCtx = useTheme();
+        isDark = themeCtx?.isDark || false;
+    } catch (e) {
+        isDark = false;
+    }
+
     const [step, setStep] = useState(1);
+    const [currentTime, setCurrentTime] = useState(new Date());
     const [templateData, setTemplateData] = useState({
         name: '',
         channel: initialData?.channel || (channelType === 'whatsapp' ? 'web' : 'sms'),
@@ -23,6 +33,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         language: 'en_US',
         headerType: 'NONE',
         headerText: '',
+        headerFile: null,
         body: '',
         footer: '',
         buttons: [],
@@ -30,9 +41,15 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         shared: true,
         dltTemplateId: '',
         dltHeaderId: '',
-        systemContext: initialData?.systemContext || []
+        systemContext: initialData?.systemContext || [],
+        variableMapping: {}
     });
     const [tagInput, setTagInput] = useState('');
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     useEffect(() => {
         if (isOpen) {
@@ -56,6 +73,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     language: 'en_US',
                     headerType: 'NONE',
                     headerText: '',
+                    headerFile: null,
                     body: '',
                     footer: '',
                     buttons: [],
@@ -71,8 +89,9 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
     if (!isOpen) return null;
 
-    const charCount = templateData.body.length;
+    const charCount = (templateData.body || '').length;
     const segments = Math.ceil(charCount / 160) || 1;
+    const variableCount = (templateData.body.match(/\{\{([^{}]+)\}\}/g) || []).length;
 
     const addButton = () => {
         const maxBtns = channelType === 'whatsapp' ? 10 : (channelType === 'rcs' ? 4 : 3);
@@ -97,219 +116,595 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         });
     };
 
+    const getChannelTheme = () => {
+        if (channelType === 'whatsapp') {
+            return {
+                icon: 'fab fa-whatsapp',
+                color: '#10b981',
+                gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                bgLight: '#ecfdf5',
+                borderLight: '#a7f3d0',
+                badgeText: templateData.channel === 'web' ? 'WhatsApp Web (Instant Active)' : (templateData.channel === 'cloud_api' ? 'Meta Cloud API (Official)' : 'Universal (Web + Meta)'),
+                label: 'WhatsApp'
+            };
+        }
+        if (channelType === 'rcs') {
+            return {
+                icon: 'fas fa-mobile-alt',
+                color: '#06b6d4',
+                gradient: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+                bgLight: '#ecfeff',
+                borderLight: '#a5f3fc',
+                badgeText: 'Google Verified RCS Card',
+                label: 'RCS'
+            };
+        }
+        return {
+            icon: 'fas fa-comment-dots',
+            color: '#3b82f6',
+            gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+            bgLight: '#eff6ff',
+            borderLight: '#bfdbfe',
+            badgeText: 'DLT Verified SMS Alert',
+            label: 'SMS'
+        };
+    };
+
+    const cTheme = getChannelTheme();
+
     const renderWhatsAppStep1 = () => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.3s ease-out' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Set up your template</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Choose the WhatsApp channel and category for this template.</p>
-            
-            {/* 🎯 Target WhatsApp Channel Selector */}
-            <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
-                    Target WhatsApp Channel <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                    <div 
-                        onClick={() => setTemplateData({ ...templateData, channel: 'web' })}
-                        style={{
-                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
-                            border: `2px solid ${templateData.channel === 'web' ? '#10b981' : 'var(--border-color)'}`,
-                            background: templateData.channel === 'web' ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-card)',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <i className="fab fa-whatsapp" style={{ color: '#10b981', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
-                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'web' ? '#047857' : 'var(--text-main)' }}>WhatsApp Web</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>⚡ Instant Active • Zero Meta Approval</div>
-                    </div>
-
-                    <div 
-                        onClick={() => setTemplateData({ ...templateData, channel: 'cloud_api' })}
-                        style={{
-                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
-                            border: `2px solid ${templateData.channel === 'cloud_api' ? '#3b82f6' : 'var(--border-color)'}`,
-                            background: templateData.channel === 'cloud_api' ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-card)',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <i className="fas fa-cloud" style={{ color: '#3b82f6', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
-                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'cloud_api' ? '#1d4ed8' : 'var(--text-main)' }}>Meta Cloud API</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>🔵 Official • Meta Review Required</div>
-                    </div>
-
-                    <div 
-                        onClick={() => setTemplateData({ ...templateData, channel: 'both' })}
-                        style={{
-                            padding: '14px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'center',
-                            border: `2px solid ${templateData.channel === 'both' ? '#8b5cf6' : 'var(--border-color)'}`,
-                            background: templateData.channel === 'both' ? 'rgba(139, 92, 246, 0.08)' : 'var(--bg-card)',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <i className="fas fa-globe" style={{ color: '#8b5cf6', fontSize: '20px', marginBottom: '6px', display: 'block' }}></i>
-                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: templateData.channel === 'both' ? '#6d28d9' : 'var(--text-main)' }}>All Channels</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>🌐 Universal • Web + Meta API</div>
-                    </div>
-                </div>
-            </div>
-
-            {templateData.channel === 'web' && (
-                <div style={{ padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', fontSize: '0.82rem', color: '#065f46', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-bolt" style={{ color: '#10b981' }}></i>
-                    <span><strong>WhatsApp Web Mode:</strong> This template will be immediately available in your WhatsApp Web chat and deals sender without any Meta verification delay.</span>
-                </div>
-            )}
-            
-            <div style={{ display: 'flex', gap: '0', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                {['MARKETING', 'UTILITY', 'AUTHENTICATION'].map(cat => (
-                    <div 
-                        key={cat}
-                        onClick={() => setTemplateData({ ...templateData, category: cat })}
-                        style={{ 
-                            flex: 1, 
-                            padding: '12px', 
-                            textAlign: 'center', 
-                            cursor: 'pointer', 
-                            fontWeight: 600,
-                            fontSize: '0.85rem',
-                            background: templateData.category === cat ? '#e0f2fe' : 'var(--bg-card)', 
-                            color: templateData.category === cat ? '#0284c7' : 'var(--text-main)',
-                            borderRight: cat !== 'AUTHENTICATION' ? '1px solid var(--border-color)' : 'none',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        {cat === 'MARKETING' && <i className="fas fa-bullhorn" style={{ marginRight: '8px' }}></i>}
-                        {cat === 'UTILITY' && <i className="fas fa-bell" style={{ marginRight: '8px' }}></i>}
-                        {cat === 'AUTHENTICATION' && <i className="fas fa-key" style={{ marginRight: '8px' }}></i>}
-                        {cat.charAt(0) + cat.slice(1).toLowerCase()}
-                    </div>
-                ))}
-            </div>
-
-            {(templateData.category === 'MARKETING' || templateData.category === 'UTILITY') && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
-                    {(templateData.category === 'MARKETING' ? [
-                        { id: 'DEFAULT', title: 'Default', desc: 'Send messages with media and customized buttons to engage your customers.' },
-                        { id: 'CATALOGUE', title: 'Catalogue', desc: 'Send messages that drive sales by connecting your product catalogue.' },
-                        { id: 'FLOWS', title: 'Flows', desc: 'Send a form to capture customer interests, appointment requests or run surveys.' },
-                        { id: 'ORDER_DETAILS', title: 'Order details', desc: 'Send messages through which customers can pay you.' },
-                        { id: 'CALLING_PERMISSIONS', title: 'Calling permissions request', desc: 'Ask customers if you can call them on WhatsApp.' }
-                    ] : [
-                        { id: 'DEFAULT', title: 'Default', desc: 'Send messages about an existing order or account.' },
-                        { id: 'FLOWS', title: 'Flows', desc: 'Send a form to collect feedback, send reminders or manage orders.' },
-                        { id: 'ORDER_STATUS', title: 'Order status', desc: 'Send messages to tell customers about the progress of their orders.' },
-                        { id: 'ORDER_DETAILS', title: 'Order details', desc: 'Send messages through which customers can pay you.' },
-                        { id: 'CALLING_PERMISSIONS', title: 'Calling permissions request', desc: 'Ask customers if you can call them on WhatsApp.' }
-                    ]).map(sub => (
-                        <div key={sub.id}>
-                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: templateData.subCategory === sub.id ? '#f8fafc' : 'transparent' }}>
-                                <input 
-                                    type="radio" 
-                                    name="subCategory" 
-                                    checked={templateData.subCategory === sub.id} 
-                                    onChange={() => setTemplateData({ ...templateData, subCategory: sub.id })} 
-                                    style={{ marginTop: '4px' }}
-                                />
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{sub.title}</div>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{sub.desc}</div>
-                                    
-                                    {templateData.subCategory === sub.id && sub.id === 'FLOWS' && (
-                                        <div style={{ marginTop: '12px' }}>
-                                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Flow ID <span style={{ color: '#ef4444' }}>*</span></label>
-                                            <input type="text" placeholder="e.g. 1234567890" value={templateData.flowId || ''} onChange={e => setTemplateData({ ...templateData, flowId: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
-                                        </div>
-                                    )}
-                                    
-                                    {templateData.subCategory === sub.id && sub.id === 'CATALOGUE' && (
-                                        <div style={{ marginTop: '12px' }}>
-                                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Catalogue ID <span style={{ color: '#ef4444' }}>*</span></label>
-                                            <input type="text" placeholder="e.g. 9876543210" value={templateData.catalogueId || ''} onChange={e => setTemplateData({ ...templateData, catalogueId: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
-                                        </div>
-                                    )}
-                                </div>
-                            </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.25s ease-out' }}>
+            {/* 1. Target Channel Selection Tiles */}
+            <div style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '20px',
+                boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.03)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                            Target WhatsApp Deployment Channel
                         </div>
-                    ))}
+                        <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                            Choose whether this template is dispatched via WhatsApp Web (scanner bridge) or Meta Cloud API.
+                        </div>
+                    </div>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px', background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                        REQUIRED
+                    </span>
                 </div>
-            )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '14px' }}>
+                    {[
+                        {
+                            id: 'web',
+                            title: 'WhatsApp Web',
+                            icon: 'fab fa-whatsapp',
+                            badge: '⚡ Instant Active',
+                            desc: 'Zero Meta verification delay • Markdown formatting • Auto clickable links',
+                            accent: '#10b981',
+                            bg: 'rgba(16, 185, 129, 0.06)'
+                        },
+                        {
+                            id: 'cloud_api',
+                            title: 'Meta Cloud API',
+                            icon: 'fas fa-cloud',
+                            badge: '🔵 Official WABA',
+                            desc: 'Meta 24h compliance • Button cards & quick replies • Global delivery',
+                            accent: '#3b82f6',
+                            bg: 'rgba(59, 130, 246, 0.06)'
+                        },
+                        {
+                            id: 'both',
+                            title: 'Universal (All)',
+                            icon: 'fas fa-globe',
+                            badge: '🌐 Dual Delivery',
+                            desc: 'Full hybrid support • Dispatches seamlessly on both Web and Meta API',
+                            accent: '#8b5cf6',
+                            bg: 'rgba(139, 92, 246, 0.06)'
+                        }
+                    ].map(ch => {
+                        const isSelected = templateData.channel === ch.id;
+                        return (
+                            <div
+                                key={ch.id}
+                                onClick={() => setTemplateData({ ...templateData, channel: ch.id })}
+                                style={{
+                                    padding: '16px 14px',
+                                    borderRadius: '12px',
+                                    cursor: 'pointer',
+                                    border: isSelected ? `2px solid ${ch.accent}` : (isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'),
+                                    background: isSelected ? ch.bg : (isDark ? '#0f172a' : '#ffffff'),
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    position: 'relative',
+                                    boxShadow: isSelected ? `0 4px 12px ${ch.accent}25` : 'none'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: isSelected ? ch.accent : (isDark ? '#1e293b' : '#f1f5f9'), color: isSelected ? '#ffffff' : ch.accent, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className={ch.icon} style={{ fontSize: '16px' }}></i>
+                                    </div>
+                                    <span style={{ fontSize: '0.64rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: isSelected ? ch.accent : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'), color: isSelected ? '#ffffff' : (isDark ? '#cbd5e1' : '#475569') }}>
+                                        {ch.badge}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: isSelected ? (isDark ? '#f8fafc' : ch.accent) : (isDark ? '#f8fafc' : '#1e293b') }}>
+                                    {ch.title}
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '4px', lineHeight: '1.4' }}>
+                                    {ch.desc}
+                                </div>
+                                {isSelected && (
+                                    <div style={{ position: 'absolute', top: '10px', right: '10px', width: '8px', height: '8px', borderRadius: '50%', background: ch.accent }}></div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {templateData.channel === 'web' && (
+                    <div style={{
+                        marginTop: '14px',
+                        padding: '12px 14px',
+                        background: isDark ? 'rgba(16, 185, 129, 0.1)' : '#f0fdf4',
+                        border: isDark ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid #bbf7d0',
+                        borderRadius: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                    }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#10b981', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className="fas fa-bolt" style={{ fontSize: '13px' }}></i>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: isDark ? '#a7f3d0' : '#166534', lineHeight: '1.4' }}>
+                            <strong>WhatsApp Web Mode Active:</strong> This template is immediately usable across Marketing Broadcasts, CRM Deals, and Follow-ups with full rich markdown formatting and zero Meta review waiting time.
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* 2. Category Selection Segmented Bar */}
+            <div style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '20px',
+                boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.03)'
+            }}>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', marginBottom: '4px' }}>
+                    Template Category & Purpose
+                </div>
+                <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginBottom: '14px' }}>
+                    Categorize your template according to business objective for automated deliverability optimization.
+                </div>
+
+                <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px',
+                    background: isDark ? '#0f172a' : '#f1f5f9',
+                    padding: '4px', borderRadius: '12px'
+                }}>
+                    {[
+                        { id: 'MARKETING', label: 'Marketing & Deals', icon: 'fas fa-bullhorn', color: '#f59e0b' },
+                        { id: 'UTILITY', label: 'Utility & Updates', icon: 'fas fa-bell', color: '#3b82f6' },
+                        { id: 'AUTHENTICATION', label: 'Authentication', icon: 'fas fa-shield-alt', color: '#10b981' }
+                    ].map(cat => {
+                        const isSelected = templateData.category === cat.id;
+                        return (
+                            <button
+                                key={cat.id}
+                                type="button"
+                                onClick={() => setTemplateData({ ...templateData, category: cat.id })}
+                                style={{
+                                    padding: '10px 12px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    background: isSelected ? (isDark ? '#1e293b' : '#ffffff') : 'transparent',
+                                    color: isSelected ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                                    fontWeight: isSelected ? 800 : 600,
+                                    fontSize: '0.82rem',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    boxShadow: isSelected ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                                    transition: 'all 0.15s'
+                                }}
+                            >
+                                <i className={cat.icon} style={{ color: cat.color }}></i>
+                                <span>{cat.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Subcategory options */}
+                {(templateData.category === 'MARKETING' || templateData.category === 'UTILITY') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                        {(templateData.category === 'MARKETING' ? [
+                            { id: 'DEFAULT', title: 'Standard Deal Broadcast', desc: 'Promote properties, broker deals, investment portfolios, and special offers.' },
+                            { id: 'CATALOGUE', title: 'Product / Project Catalogue', desc: 'Connect property listings with media cards and structured pricing.' },
+                            { id: 'FLOWS', title: 'Interactive WhatsApp Forms (Flows)', desc: 'Capture lead inquiry forms, site visit bookings, and buyer requirement surveys.' },
+                            { id: 'ORDER_DETAILS', title: 'Token & Booking Details', desc: 'Send verified booking confirmations and token payment summaries.' },
+                            { id: 'CALLING_PERMISSIONS', title: 'Call Permission Request', desc: 'Request phone call schedule permissions from prospective investors.' }
+                        ] : [
+                            { id: 'DEFAULT', title: 'Account & Deal Milestone', desc: 'Send critical milestone notifications regarding documentation, registry, and inspections.' },
+                            { id: 'FLOWS', title: 'Feedback & Survey Flows', desc: 'Interactive forms for post-visit feedback, satisfaction surveys, and KYC.' },
+                            { id: 'ORDER_STATUS', title: 'Transaction Status', desc: 'Live updates on agreement execution, bank approvals, and registry filing.' }
+                        ]).map(sub => {
+                            const isSubSelected = templateData.subCategory === sub.id;
+                            return (
+                                <div
+                                    key={sub.id}
+                                    onClick={() => setTemplateData({ ...templateData, subCategory: sub.id })}
+                                    style={{
+                                        padding: '12px 14px',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        border: isSubSelected ? '2px solid #0284c7' : (isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #f1f5f9'),
+                                        background: isSubSelected ? (isDark ? 'rgba(2, 132, 199, 0.1)' : '#f0f9ff') : (isDark ? '#0f172a' : '#fafafa'),
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: '12px',
+                                        transition: 'all 0.15s'
+                                    }}
+                                >
+                                    <div style={{ marginTop: '2px' }}>
+                                        <div style={{
+                                            width: '16px', height: '16px', borderRadius: '50%',
+                                            border: `2px solid ${isSubSelected ? '#0284c7' : '#94a3b8'}`,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                        }}>
+                                            {isSubSelected && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#0284c7' }}></div>}
+                                        </div>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: isSubSelected ? '#0369a1' : (isDark ? '#f8fafc' : '#1e293b') }}>
+                                            {sub.title}
+                                        </div>
+                                        <div style={{ fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                            {sub.desc}
+                                        </div>
+
+                                        {isSubSelected && sub.id === 'FLOWS' && (
+                                            <div style={{ marginTop: '10px' }} onClick={e => e.stopPropagation()}>
+                                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? '#cbd5e1' : '#475569', display: 'block', marginBottom: '4px' }}>
+                                                    WhatsApp Flow ID <span style={{ color: '#ef4444' }}>*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. 123456789012345"
+                                                    value={templateData.flowId || ''}
+                                                    onChange={e => setTemplateData({ ...templateData, flowId: e.target.value })}
+                                                    style={{ width: '100%', padding: '8px 12px', border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1', borderRadius: '6px', background: isDark ? '#1e293b' : '#ffffff', color: isDark ? '#fff' : '#000', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {isSubSelected && sub.id === 'CATALOGUE' && (
+                                            <div style={{ marginTop: '10px' }} onClick={e => e.stopPropagation()}>
+                                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? '#cbd5e1' : '#475569', display: 'block', marginBottom: '4px' }}>
+                                                    Meta Catalogue ID <span style={{ color: '#ef4444' }}>*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. 987654321098765"
+                                                    value={templateData.catalogueId || ''}
+                                                    onChange={e => setTemplateData({ ...templateData, catalogueId: e.target.value })}
+                                                    style={{ width: '100%', padding: '8px 12px', border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1', borderRadius: '6px', background: isDark ? '#1e293b' : '#ffffff', color: isDark ? '#fff' : '#000', fontSize: '0.82rem' }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
         </div>
     );
 
-    const renderWhatsAppStep2 = () => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.3s ease-out' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Edit template</h3>
-            
-            <div style={{ display: 'flex', gap: '16px' }}>
-                <div style={{ flex: 2 }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Template name <span style={{ color: '#ef4444' }}>*</span></label>
-                    <input
-                        type="text"
-                        style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
-                        placeholder="Enter a template name"
-                        value={templateData.name}
-                        onChange={e => setTemplateData({ ...templateData, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
-                    />
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'right' }}>{templateData.name.length}/512</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Language</label>
-                    <select value={templateData.language} onChange={e => setTemplateData({ ...templateData, language: e.target.value })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}>
-                        <option value="en_US">English</option>
-                        <option value="en_GB">English (UK)</option>
-                        <option value="hi">Hindi</option>
-                        <option value="gu">Gujarati</option>
-                    </select>
-                </div>
-            </div>
+    const renderWhatsAppStep2 = () => {
+        const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff';
+        const cardBorder = isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0';
+        const inputBg = isDark ? '#1e293b' : '#ffffff';
+        const inputBorder = isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1';
+        const textMain = isDark ? '#f8fafc' : '#0f172a';
+        const textMuted = isDark ? '#94a3b8' : '#64748b';
 
-            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ margin: '0 0 16px 0', fontSize: '1rem', color: 'var(--text-main)' }}>Content</h4>
-                
-                {/* Header */}
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Header <span style={{ fontWeight: 400 }}>• Optional</span></label>
-                    <select value={templateData.headerType} onChange={e => setTemplateData({ ...templateData, headerType: e.target.value, headerText: '' })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', marginBottom: '8px' }}>
-                        <option value="NONE">None</option>
-                        <option value="TEXT">Text</option>
-                        <option value="IMAGE">Media (Image)</option>
-                        <option value="DOCUMENT">Media (Document)</option>
-                        <option value="VIDEO">Media (Video)</option>
-                    </select>
-                    {templateData.headerType === 'TEXT' && (
-                        <div style={{ marginTop: '8px' }}>
+        // Count variables in body
+        const detectedVars = (templateData.body.match(/\{\{[^}]+\}\}/g) || []).length;
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.3s ease-out' }}>
+                {/* ── Card 1: Template Identity & Language ───────────────────────── */}
+                <div style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: '16px',
+                    padding: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                        <div style={{
+                            width: '32px', height: '32px', borderRadius: '8px',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                        }}>
+                            <i className="fas fa-fingerprint" style={{ fontSize: '15px' }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: textMain }}>
+                                Template Identity & Localization
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                Unique identifier slug and primary language for recipient delivery.
+                            </div>
+                        </div>
+                        {templateData.name && (
+                            <span style={{
+                                fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '6px',
+                                background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff',
+                                color: '#6366f1', fontFamily: 'monospace'
+                            }}>
+                                slug: {templateData.name}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '14px' }}>
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 700, color: textMuted, display: 'block', marginBottom: '6px' }}>
+                                Template Name (slug) <span style={{ color: '#ef4444' }}>*</span>
+                            </label>
                             <input
                                 type="text"
-                                placeholder="e.g. 🏡 AVAILABLE FOR SALE 🏡 or {{projectName}} Deal Alert"
-                                value={templateData.headerText || ''}
-                                onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })}
-                                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
+                                style={{
+                                    width: '100%', padding: '10px 12px',
+                                    border: inputBorder, borderRadius: '8px',
+                                    background: inputBg, color: textMain,
+                                    fontSize: '0.86rem', outline: 'none'
+                                }}
+                                placeholder="e.g. deal_alert_featured_villa"
+                                value={templateData.name}
+                                onChange={e => setTemplateData({ ...templateData, name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
                             />
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                <span>Quick Icons: {['🏡', '🎯', '📢', '🔥', '✨', '⭐'].map(emoji => (
-                                    <span
-                                        key={emoji}
-                                        onClick={() => setTemplateData({ ...templateData, headerText: (templateData.headerText || '') + (templateData.headerText ? ' ' : '') + emoji })}
-                                        style={{ cursor: 'pointer', padding: '1px 4px', fontSize: '0.85rem' }}
-                                        title={`Add ${emoji}`}
+                            {/* Quick Name Suggestions */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.68rem', color: textMuted }}>Quick:</span>
+                                {[
+                                    'deal_alert_featured',
+                                    'site_visit_reminder',
+                                    'exclusive_property_pitch',
+                                    'token_booking_receipt'
+                                ].map(sug => (
+                                    <button
+                                        key={sug}
+                                        type="button"
+                                        onClick={() => setTemplateData({ ...templateData, name: sug })}
+                                        style={{
+                                            border: 'none', background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9',
+                                            color: textMuted, padding: '2px 8px', borderRadius: '4px',
+                                            fontSize: '0.68rem', cursor: 'pointer', fontFamily: 'monospace'
+                                        }}
                                     >
-                                        {emoji}
-                                    </span>
-                                ))}</span>
-                                <span>{(templateData.headerText || '').length} chars</span>
+                                        +{sug}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: '0.78rem', fontWeight: 700, color: textMuted, display: 'block', marginBottom: '6px' }}>
+                                Language
+                            </label>
+                            <select
+                                value={templateData.language}
+                                onChange={e => setTemplateData({ ...templateData, language: e.target.value })}
+                                style={{
+                                    width: '100%', padding: '10px 12px',
+                                    border: inputBorder, borderRadius: '8px',
+                                    background: inputBg, color: textMain,
+                                    fontSize: '0.86rem', outline: 'none'
+                                }}
+                            >
+                                <option value="en_US">English (US)</option>
+                                <option value="en_GB">English (UK)</option>
+                                <option value="hi">Hindi (हिन्दी)</option>
+                                <option value="gu">Gujarati (ગુજરાતી)</option>
+                                <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+                                <option value="mr">Marathi (मराठी)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Card 2: Header Component (Optional) ────────────────────────── */}
+                <div style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: '16px',
+                    padding: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '32px', height: '32px', borderRadius: '8px',
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                            }}>
+                                <i className="fas fa-heading" style={{ fontSize: '15px' }}></i>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: textMain }}>
+                                    Header Component <span style={{ fontSize: '0.75rem', fontWeight: 400, color: textMuted }}>• Optional</span>
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                    Add an eye-catching announcement headline, property photo, or brochure PDF.
+                                </div>
+                            </div>
+                        </div>
+
+                        {templateData.headerType !== 'NONE' && (
+                            <button
+                                type="button"
+                                onClick={() => setTemplateData({ ...templateData, headerType: 'NONE', headerText: '', headerFile: null })}
+                                style={{
+                                    border: 'none', background: 'transparent', color: '#ef4444',
+                                    fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                            >
+                                <i className="fas fa-times-circle"></i> Remove Header
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Header Type Selector Buttons */}
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px',
+                        background: isDark ? '#0f172a' : '#f1f5f9',
+                        padding: '4px', borderRadius: '10px', marginBottom: '14px'
+                    }}>
+                        {[
+                            { id: 'NONE', label: 'None', icon: 'fas fa-ban' },
+                            { id: 'TEXT', label: 'Text Headline', icon: 'fas fa-font' },
+                            { id: 'IMAGE', label: 'Image', icon: 'fas fa-image' },
+                            { id: 'DOCUMENT', label: 'Document (PDF)', icon: 'fas fa-file-pdf' },
+                            { id: 'VIDEO', label: 'Video', icon: 'fas fa-video' }
+                        ].map(ht => {
+                            const isSelected = templateData.headerType === ht.id;
+                            return (
+                                <button
+                                    key={ht.id}
+                                    type="button"
+                                    onClick={() => setTemplateData({ ...templateData, headerType: ht.id })}
+                                    style={{
+                                        padding: '8px 6px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: isSelected ? (isDark ? '#1e293b' : '#ffffff') : 'transparent',
+                                        color: isSelected ? (isDark ? '#f8fafc' : '#0f172a') : textMuted,
+                                        fontWeight: isSelected ? 800 : 600,
+                                        fontSize: '0.74rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px',
+                                        boxShadow: isSelected ? '0 2px 4px rgba(0,0,0,0.08)' : 'none',
+                                        transition: 'all 0.15s'
+                                    }}
+                                >
+                                    <i className={ht.icon} style={{ color: isSelected ? '#3b82f6' : 'inherit' }}></i>
+                                    <span>{ht.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Header Text Input */}
+                    {templateData.headerType === 'TEXT' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. 🏡 AVAILABLE FOR SALE 🏡 or {{projectName}} Deal Alert"
+                                    value={templateData.headerText || ''}
+                                    onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })}
+                                    style={{
+                                        width: '100%', padding: '10px 14px',
+                                        border: inputBorder, borderRadius: '8px',
+                                        background: inputBg, color: textMain,
+                                        fontSize: '0.88rem', outline: 'none'
+                                    }}
+                                    maxLength={60}
+                                />
+                                <span style={{
+                                    position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: '0.7rem', color: textMuted
+                                }}>
+                                    {(templateData.headerText || '').length}/60
+                                </span>
+                            </div>
+
+                            {/* Quick Emoji Bar */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '8px 12px', borderRadius: '8px',
+                                background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                                border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid #f1f5f9'
+                            }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: textMuted }}>Quick Headline Icons:</span>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                    {[
+                                        { emoji: '🏡', label: 'Available' },
+                                        { emoji: '🎯', label: 'Deal Alert' },
+                                        { emoji: '📢', label: 'Notice' },
+                                        { emoji: '🔥', label: 'Hot Deal' },
+                                        { emoji: '✨', label: 'Luxury' },
+                                        { emoji: '⭐', label: 'Verified' },
+                                        { emoji: '🏢', label: 'Commercial' },
+                                        { emoji: '💰', label: 'Price Drop' }
+                                    ].map(item => (
+                                        <button
+                                            key={item.emoji}
+                                            type="button"
+                                            onClick={() => {
+                                                const current = templateData.headerText || '';
+                                                setTemplateData({
+                                                    ...templateData,
+                                                    headerText: current ? `${current} ${item.emoji}` : `${item.emoji} `
+                                                });
+                                            }}
+                                            style={{
+                                                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0',
+                                                background: isDark ? '#1e293b' : '#ffffff',
+                                                borderRadius: '6px', padding: '3px 8px',
+                                                fontSize: '0.76rem', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                color: textMain
+                                            }}
+                                            title={`Add ${item.emoji} ${item.label}`}
+                                        >
+                                            <span>{item.emoji}</span>
+                                            <span style={{ fontSize: '0.68rem', color: textMuted }}>{item.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
+
+                    {/* Media Upload Zone */}
                     {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && (
-                        <div style={{ position: 'relative', padding: '20px', border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: '#ffffff' }}>
-                            <input 
-                                type="file" 
-                                accept={templateData.headerType === 'IMAGE' ? 'image/*' : templateData.headerType === 'VIDEO' ? 'video/*' : '.pdf,.doc,.docx'} 
+                        <div style={{
+                            position: 'relative',
+                            padding: '24px 16px',
+                            border: '2px dashed #3b82f6',
+                            borderRadius: '12px',
+                            textAlign: 'center',
+                            background: isDark ? 'rgba(59, 130, 246, 0.05)' : '#eff6ff',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}>
+                            <input
+                                type="file"
+                                accept={templateData.headerType === 'IMAGE' ? 'image/*' : templateData.headerType === 'VIDEO' ? 'video/*' : '.pdf,.doc,.docx'}
                                 onChange={(e) => {
                                     const file = e.target.files[0];
                                     if (file) {
                                         const reader = new FileReader();
                                         reader.onloadend = () => {
-                                            setTemplateData({ ...templateData, headerFile: { name: file.name, type: file.type, data: reader.result } });
+                                            setTemplateData({
+                                                ...templateData,
+                                                headerFile: { name: file.name, type: file.type, data: reader.result, size: file.size }
+                                            });
                                         };
                                         reader.readAsDataURL(file);
                                     }
@@ -317,191 +712,479 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
                             />
                             {templateData.headerFile ? (
-                                <div style={{ color: 'var(--primary-color)', fontWeight: 600 }}>
-                                    <i className="fas fa-file-check" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
-                                    {templateData.headerFile.name}
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{
+                                        width: '40px', height: '40px', borderRadius: '10px',
+                                        background: '#dbeafe', color: '#1e40af',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px'
+                                    }}>
+                                        <i className="fas fa-file-check"></i>
+                                    </div>
+                                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#1e40af' }}>
+                                        {templateData.headerFile.name}
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                        Click or drop to replace media file
+                                    </div>
                                 </div>
                             ) : (
-                                <div>
-                                    <i className="fas fa-cloud-upload-alt" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
-                                    Drag and drop to upload<br/>Or click to choose {templateData.headerType.toLowerCase()}
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{
+                                        width: '42px', height: '42px', borderRadius: '10px',
+                                        background: isDark ? 'rgba(255,255,255,0.06)' : '#ffffff',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        color: '#3b82f6', fontSize: '18px', boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                                    }}>
+                                        <i className={templateData.headerType === 'IMAGE' ? 'fas fa-cloud-upload-alt' : templateData.headerType === 'VIDEO' ? 'fas fa-video' : 'fas fa-file-pdf'}></i>
+                                    </div>
+                                    <div style={{ fontSize: '0.84rem', fontWeight: 700, color: textMain }}>
+                                        Drag & drop or click to upload sample {templateData.headerType.toLowerCase()}
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                        Supports JPG, PNG (Max 5MB) or PDF brochures (Max 100MB)
+                                    </div>
                                 </div>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Body */}
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Body</label>
+                {/* ── Card 3: Message Body (Core Content) ────────────────────────── */}
+                <div style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: '16px',
+                    padding: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '32px', height: '32px', borderRadius: '8px',
+                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                            }}>
+                                <i className="fas fa-align-left" style={{ fontSize: '15px' }}></i>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: textMain }}>
+                                    Message Body <span style={{ color: '#ef4444' }}>*</span>
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                    Formatting toolbar (*bold*, _italic_), font styler, emojis, and auto deal variables.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {detectedVars > 0 && (
+                                <span style={{
+                                    fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                                    background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#dcfce7',
+                                    color: '#059669'
+                                }}>
+                                    <i className="fas fa-database" style={{ marginRight: '4px' }}></i>
+                                    {detectedVars} Variable{detectedVars > 1 ? 's' : ''} Detected
+                                </span>
+                            )}
+                            <span style={{
+                                fontSize: '0.72rem', fontWeight: 700,
+                                color: templateData.body.length > 1000 ? '#ef4444' : textMuted
+                            }}>
+                                {templateData.body.length}/1024
+                            </span>
+                        </div>
+                    </div>
+
                     <VariableTextarea
-                        minHeight="120px"
-                        placeholder="Enter your message body..."
+                        minHeight="170px"
+                        placeholder="Enter your high-converting WhatsApp message body here... e.g.
+🏡 *Available For Sale* 🏡
+
+🎯 *Location:* {{location}}
+👉 *Property:* {{deal_title}}
+👉 *Size:* {{size}}
+👉 *Direction:* {{direction}}
+👉 *Road:* {{road_width}}
+👉 *Facing:* {{facing}}
+
+💰 *Asking Price:* {{price}}
+
+*Bharat Properties*
+Suraj Keshwar
+☎️ 9991333570"
                         value={templateData.body}
                         onChange={e => setTemplateData({ ...templateData, body: e.target.value })}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        {templateData.body.length}/1024
-                    </div>
                 </div>
 
-                {/* Footer */}
-                <div style={{ marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', margin: 0 }}>
-                            Footer <span style={{ fontWeight: 400 }}>• Optional</span>
-                        </label>
-                        {templateData.channel === 'web' && (
-                            <span style={{ fontSize: '0.68rem', color: '#059669', background: '#ecfdf5', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                                WhatsApp Web Active
+                {/* ── Card 4: Footer Component (Optional) ────────────────────────── */}
+                <div style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: '16px',
+                    padding: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '32px', height: '32px', borderRadius: '8px',
+                                background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                            }}>
+                                <i className="fas fa-shoe-prints" style={{ fontSize: '15px' }}></i>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: textMain }}>
+                                    Footer Component <span style={{ fontSize: '0.75rem', fontWeight: 400, color: textMuted }}>• Optional</span>
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                    Subtle signature, disclaimers, or verified contact info.
+                                </div>
+                            </div>
+                        </div>
+
+                        {templateData.channel === 'web' ? (
+                            <span style={{ fontSize: '0.7rem', color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                                <i className="fab fa-whatsapp" style={{ marginRight: '4px' }}></i> WhatsApp Web (Max 140 chars)
+                            </span>
+                        ) : (
+                            <span style={{ fontSize: '0.7rem', color: '#3b82f6', background: '#eff6ff', padding: '2px 8px', borderRadius: '6px', fontWeight: 700 }}>
+                                Meta API (Max 60 chars)
                             </span>
                         )}
                     </div>
-                    <input
-                        type="text"
-                        placeholder={templateData.channel === 'web' ? "e.g. *Bharat Properties* • Suraj Keshwar • ☎️ 9991333570" : "Add a short line of text to the bottom..."}
-                        value={templateData.footer || ''}
-                        onChange={e => setTemplateData({ ...templateData, footer: e.target.value })}
-                        style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
-                        maxLength={templateData.channel === 'web' ? 140 : 60}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        <span>Quick Icons: {['☎️', '📞', '🌐', '📍', '🏢', '🤝'].map(emoji => (
-                            <span
-                                key={emoji}
-                                onClick={() => setTemplateData({ ...templateData, footer: (templateData.footer || '') + (templateData.footer ? ' ' : '') + emoji })}
-                                style={{ cursor: 'pointer', padding: '1px 4px', fontSize: '0.85rem' }}
-                                title={`Add ${emoji}`}
-                            >
-                                {emoji}
-                            </span>
-                        ))}</span>
-                        <span>{(templateData.footer || '').length}/{templateData.channel === 'web' ? 140 : 60}</span>
+
+                    <div style={{ position: 'relative', marginBottom: '10px' }}>
+                        <input
+                            type="text"
+                            placeholder={templateData.channel === 'web' ? "e.g. *Bharat Properties* • Suraj Keshwar • ☎️ 9991333570" : "Add a short line of text to the bottom..."}
+                            value={templateData.footer || ''}
+                            onChange={e => setTemplateData({ ...templateData, footer: e.target.value })}
+                            style={{
+                                width: '100%', padding: '10px 14px',
+                                border: inputBorder, borderRadius: '8px',
+                                background: inputBg, color: textMain,
+                                fontSize: '0.86rem', outline: 'none'
+                            }}
+                            maxLength={templateData.channel === 'web' ? 140 : 60}
+                        />
+                        <span style={{
+                            position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                            fontSize: '0.7rem', color: textMuted
+                        }}>
+                            {(templateData.footer || '').length}/{templateData.channel === 'web' ? 140 : 60}
+                        </span>
+                    </div>
+
+                    {/* Quick Contact Emojis */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', color: textMuted }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>Quick Contact Icons:</span>
+                            {['☎️', '📞', '🌐', '📍', '🏢', '🤝'].map(emoji => (
+                                <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => setTemplateData({ ...templateData, footer: (templateData.footer || '') + (templateData.footer ? ' ' : '') + emoji })}
+                                    style={{
+                                        cursor: 'pointer', padding: '2px 6px', fontSize: '0.85rem',
+                                        border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0',
+                                        background: isDark ? '#1e293b' : '#ffffff',
+                                        borderRadius: '4px'
+                                    }}
+                                    title={`Add ${emoji}`}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                {/* Buttons (Hidden for WhatsApp Web) */}
-                {templateData.channel === 'web' ? (
-                    <div style={{
-                        padding: '16px',
-                        background: '#f8fafc',
-                        border: '1px dashed #cbd5e1',
-                        borderRadius: '10px',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: '12px'
-                    }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <i className="fab fa-whatsapp" style={{ fontSize: '18px' }}></i>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '0.86rem', fontWeight: 700, color: '#1e293b' }}>
-                                Interactive Buttons Hidden for WhatsApp Web
+                {/* ── Card 5: Interactive Call-to-Actions (Buttons) ──────────────── */}
+                <div style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    borderRadius: '16px',
+                    padding: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '32px', height: '32px', borderRadius: '8px',
+                                background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                            }}>
+                                <i className="fas fa-hand-pointer" style={{ fontSize: '15px' }}></i>
                             </div>
-                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '3px', lineHeight: '1.45' }}>
-                                WhatsApp Web does not support native clickable button cards. To include links or contact prompts, simply add <code>https://...</code> URLs or phone numbers directly in your body text — WhatsApp renders them as auto-clickable links on recipient phones with zero ban risk. Header and Footer will be seamlessly formatted with your message.
+                            <div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: textMain }}>
+                                    Interactive Buttons & Action Prompts <span style={{ fontSize: '0.75rem', fontWeight: 400, color: textMuted }}>• Optional</span>
+                                </div>
+                                <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                                    {templateData.channel === 'web'
+                                        ? 'Deliverability optimization for WhatsApp Web mode.'
+                                        : 'Add interactive quick reply, website visit, or WhatsApp voice call buttons.'}
+                                </div>
                             </div>
                         </div>
+
+                        {templateData.channel !== 'web' && templateData.buttons.length < 10 && (
+                            <button
+                                type="button"
+                                onClick={addButton}
+                                style={{
+                                    fontSize: '0.78rem', color: '#0284c7', background: isDark ? 'rgba(2, 132, 199, 0.15)' : '#e0f2fe',
+                                    border: '1px solid #bae6fd', padding: '6px 12px', borderRadius: '8px',
+                                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <i className="fas fa-plus"></i> Add Button
+                            </button>
+                        )}
                     </div>
-                ) : (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Buttons <span style={{ fontWeight: 400 }}>• Optional</span></label>
-                            {templateData.buttons.length < 10 && (
-                                <button onClick={addButton} style={{ fontSize: '0.8rem', color: 'var(--primary-color)', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}>
-                                    + Add button
-                                </button>
+
+                    {/* WhatsApp Web Notice with Action Shortcuts */}
+                    {templateData.channel === 'web' ? (
+                        <div style={{
+                            padding: '16px',
+                            background: isDark ? 'rgba(2, 132, 199, 0.08)' : '#f0f9ff',
+                            border: isDark ? '1px dashed rgba(2, 132, 199, 0.3)' : '1px dashed #7dd3fc',
+                            borderRadius: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                <div style={{
+                                    width: '36px', height: '36px', borderRadius: '10px',
+                                    background: '#0284c7', color: '#ffffff',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                }}>
+                                    <i className="fab fa-whatsapp" style={{ fontSize: '20px' }}></i>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.86rem', fontWeight: 800, color: isDark ? '#38bdf8' : '#0369a1' }}>
+                                        Interactive Buttons Hidden for WhatsApp Web (Optimal Deliverability)
+                                    </div>
+                                    <div style={{ fontSize: '0.76rem', color: textMuted, marginTop: '4px', lineHeight: '1.5' }}>
+                                        WhatsApp Web does not support native clickable button cards. To include links or contact prompts, simply add <code>https://...</code> URLs or phone numbers directly into your body text — WhatsApp renders them as auto-clickable links on recipient phones with <strong>zero ban risk</strong>. Header and Footer are seamlessly formatted with your message.
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Quick Body Injection Shortcuts */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+                                paddingTop: '8px', borderTop: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e0f2fe'
+                            }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: textMuted }}>Quick Links to insert in body:</span>
+                                {[
+                                    { label: '🌐 Website Link', snippet: '\n\n🌐 Visit Website: https://bharatproperties.co' },
+                                    { label: '☎️ Office Phone', snippet: '\n\n☎️ Call Office: +91 9991333570' },
+                                    { label: '📍 Google Map', snippet: '\n\n📍 Office Location: https://maps.google.com' }
+                                ].map(shortcut => (
+                                    <button
+                                        key={shortcut.label}
+                                        type="button"
+                                        onClick={() => setTemplateData({ ...templateData, body: (templateData.body || '') + shortcut.snippet })}
+                                        style={{
+                                            padding: '4px 10px', borderRadius: '6px',
+                                            border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #bae6fd',
+                                            background: isDark ? '#1e293b' : '#ffffff',
+                                            color: '#0284c7', fontSize: '0.74rem', fontWeight: 700,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        + Add {shortcut.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {templateData.buttons.length === 0 ? (
+                                <div style={{
+                                    padding: '20px', textAlign: 'center', color: textMuted,
+                                    border: isDark ? '1px dashed rgba(255,255,255,0.1)' : '1px dashed #cbd5e1',
+                                    borderRadius: '10px', fontSize: '0.8rem'
+                                }}>
+                                    No buttons added yet. Click <strong>+ Add Button</strong> above to attach interactive links or call actions.
+                                </div>
+                            ) : (
+                                templateData.buttons.map((btn, i) => (
+                                    <div key={i} style={{
+                                        display: 'flex', flexDirection: 'column', gap: '10px',
+                                        background: isDark ? '#1e293b' : '#f8fafc',
+                                        padding: '14px', borderRadius: '10px',
+                                        border: cardBorder
+                                    }}>
+                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                            <select
+                                                value={btn.type}
+                                                onChange={e => updateButton(i, 'type', e.target.value)}
+                                                style={{
+                                                    padding: '8px 10px', border: inputBorder,
+                                                    borderRadius: '6px', fontSize: '0.84rem',
+                                                    background: inputBg, color: textMain, flex: 1
+                                                }}
+                                            >
+                                                <option value="QUICK_REPLY">Custom (Quick Reply)</option>
+                                                <option value="URL">Visit website</option>
+                                                <option value="VOICE_CALL">Call on WhatsApp</option>
+                                                <option value="PHONE">Call phone number</option>
+                                                <option value="FLOW">Complete flow</option>
+                                                <option value="COPY_CODE">Copy offer code</option>
+                                            </select>
+                                            <input
+                                                type="text"
+                                                placeholder="Button text (e.g. Schedule Visit)"
+                                                value={btn.text}
+                                                onChange={e => updateButton(i, 'text', e.target.value)}
+                                                style={{
+                                                    flex: 2, padding: '8px 12px',
+                                                    border: inputBorder, borderRadius: '6px',
+                                                    fontSize: '0.84rem', background: inputBg, color: textMain
+                                                }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => removeButton(i)}
+                                                style={{
+                                                    background: 'none', border: 'none', cursor: 'pointer',
+                                                    color: '#ef4444', padding: '6px 10px', fontSize: '0.88rem'
+                                                }}
+                                                title="Delete button"
+                                            >
+                                                <i className="fas fa-trash-alt"></i>
+                                            </button>
+                                        </div>
+
+                                        {btn.type === 'URL' && (
+                                            <div style={{ display: 'flex', gap: '10px' }}>
+                                                <select
+                                                    value={btn.url_type || 'STATIC'}
+                                                    onChange={e => updateButton(i, 'url_type', e.target.value)}
+                                                    style={{
+                                                        padding: '8px 10px', border: inputBorder,
+                                                        borderRadius: '6px', fontSize: '0.84rem',
+                                                        background: inputBg, color: textMain, flex: 1
+                                                    }}
+                                                >
+                                                    <option value="STATIC">Static URL</option>
+                                                    <option value="DYNAMIC">Dynamic URL</option>
+                                                </select>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Website URL (e.g. https://bharatproperties.co)"
+                                                    value={btn.url || ''}
+                                                    onChange={e => updateButton(i, 'url', e.target.value)}
+                                                    onBlur={e => {
+                                                        let val = e.target.value.trim();
+                                                        if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
+                                                            val = 'https://' + val;
+                                                        }
+                                                        if (btn.url_type === 'DYNAMIC' && !val.includes('{{1}}')) {
+                                                            val += '{{1}}';
+                                                        }
+                                                        updateButton(i, 'url', val);
+                                                    }}
+                                                    style={{
+                                                        flex: 3, padding: '8px 12px',
+                                                        border: inputBorder, borderRadius: '6px',
+                                                        fontSize: '0.84rem', background: inputBg, color: textMain
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {btn.type === 'VOICE_CALL' && (
+                                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                <label style={{ fontSize: '0.82rem', color: textMuted, whiteSpace: 'nowrap' }}>Active for:</label>
+                                                <select
+                                                    value={btn.ttl_minutes || '10080'}
+                                                    onChange={e => updateButton(i, 'ttl_minutes', e.target.value)}
+                                                    style={{
+                                                        padding: '8px 10px', border: inputBorder,
+                                                        borderRadius: '6px', fontSize: '0.84rem',
+                                                        background: inputBg, color: textMain, flex: 1
+                                                    }}
+                                                >
+                                                    <option value="1440">1 day</option>
+                                                    <option value="4320">3 days</option>
+                                                    <option value="10080">7 days</option>
+                                                </select>
+                                            </div>
+                                        )}
+
+                                        {btn.type === 'PHONE' && (
+                                            <div style={{ display: 'flex', gap: '10px' }}>
+                                                <select
+                                                    value={btn.country_code || '+91'}
+                                                    onChange={e => updateButton(i, 'country_code', e.target.value)}
+                                                    style={{
+                                                        padding: '8px 10px', border: inputBorder,
+                                                        borderRadius: '6px', fontSize: '0.84rem',
+                                                        background: inputBg, color: textMain, flex: 1
+                                                    }}
+                                                >
+                                                    <option value="+91">India (+91)</option>
+                                                    <option value="+1">US (+1)</option>
+                                                    <option value="+44">UK (+44)</option>
+                                                    <option value="+971">UAE (+971)</option>
+                                                </select>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Phone number (e.g. 9991333570)"
+                                                    value={btn.phone_number || ''}
+                                                    onChange={e => updateButton(i, 'phone_number', e.target.value.replace(/\D/g, ''))}
+                                                    style={{
+                                                        flex: 3, padding: '8px 12px',
+                                                        border: inputBorder, borderRadius: '6px',
+                                                        fontSize: '0.84rem', background: inputBg, color: textMain
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {btn.type === 'FLOW' && (
+                                            <input
+                                                type="text"
+                                                placeholder="Flow ID (e.g. 1234567890)"
+                                                value={btn.flow_id || ''}
+                                                onChange={e => updateButton(i, 'flow_id', e.target.value)}
+                                                style={{
+                                                    width: '100%', padding: '8px 12px',
+                                                    border: inputBorder, borderRadius: '6px',
+                                                    fontSize: '0.84rem', background: inputBg, color: textMain
+                                                }}
+                                            />
+                                        )}
+
+                                        {btn.type === 'COPY_CODE' && (
+                                            <input
+                                                type="text"
+                                                placeholder="Offer code (e.g. BHARAT50)"
+                                                value={btn.example || ''}
+                                                onChange={e => updateButton(i, 'example', e.target.value)}
+                                                style={{
+                                                    width: '100%', padding: '8px 12px',
+                                                    border: inputBorder, borderRadius: '6px',
+                                                    fontSize: '0.84rem', background: inputBg, color: textMain
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                ))
                             )}
                         </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {templateData.buttons.map((btn, i) => (
-                            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <select value={btn.type} onChange={e => updateButton(i, 'type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
-                                        <option value="QUICK_REPLY">Custom (Quick Reply)</option>
-                                        <option value="URL">Visit website</option>
-                                        <option value="VOICE_CALL">Call on WhatsApp</option>
-                                        <option value="PHONE">Call phone number</option>
-                                        <option value="FLOW">Complete flow</option>
-                                        <option value="COPY_CODE">Copy offer code</option>
-                                    </select>
-                                    <input type="text" placeholder="Button text" value={btn.text} onChange={e => updateButton(i, 'text', e.target.value)} style={{ flex: 2, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
-                                    <button onClick={() => removeButton(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px 8px' }}>
-                                        <i className="fas fa-trash-alt"></i>
-                                    </button>
-                                </div>
-                                {btn.type === 'URL' && (
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <select value={btn.url_type || 'STATIC'} onChange={e => updateButton(i, 'url_type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
-                                            <option value="STATIC">Static</option>
-                                            <option value="DYNAMIC">Dynamic</option>
-                                        </select>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Website URL (e.g. https://www.example.com)" 
-                                            value={btn.url || ''} 
-                                            onChange={e => updateButton(i, 'url', e.target.value)} 
-                                            onBlur={e => {
-                                                let val = e.target.value.trim();
-                                                if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
-                                                    val = 'https://' + val;
-                                                }
-                                                if (btn.url_type === 'DYNAMIC' && !val.includes('{{1}}')) {
-                                                    val += '{{1}}';
-                                                }
-                                                updateButton(i, 'url', val);
-                                            }}
-                                            style={{ flex: 3, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                                        />
-                                    </div>
-                                )}
-                                {btn.type === 'VOICE_CALL' && (
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Active for:</label>
-                                        <select value={btn.ttl_minutes || '10080'} onChange={e => updateButton(i, 'ttl_minutes', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
-                                            <option value="1440">1 day</option>
-                                            <option value="4320">3 days</option>
-                                            <option value="10080">7 days</option>
-                                        </select>
-                                    </div>
-                                )}
-                                {btn.type === 'PHONE' && (
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <select value={btn.country_code || '+91'} onChange={e => updateButton(i, 'country_code', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
-                                            <option value="+1">US (+1)</option>
-                                            <option value="+44">UK (+44)</option>
-                                            <option value="+91">India (+91)</option>
-                                        </select>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Phone number (e.g. 9876543210)" 
-                                            value={btn.phone_number || ''} 
-                                            onChange={e => updateButton(i, 'phone_number', e.target.value.replace(/\D/g, ''))} 
-                                            style={{ flex: 3, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                                        />
-                                    </div>
-                                )}
-                                {btn.type === 'FLOW' && (
-                                    <input 
-                                        type="text" 
-                                        placeholder="Flow ID (e.g. 123456789)" 
-                                        value={btn.flow_id || ''} 
-                                        onChange={e => updateButton(i, 'flow_id', e.target.value)} 
-                                        style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                                    />
-                                )}
-                                {btn.type === 'COPY_CODE' && (
-                                    <input type="text" placeholder="Offer code (e.g. 50OFF)" value={btn.example || ''} onChange={e => updateButton(i, 'example', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                    )}
                 </div>
-            )}
             </div>
-        </div>
-    );
+        );
+    };
 
 
     const renderRCSFields = () => (
@@ -625,167 +1308,654 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
     };
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10001 }}>
-            <div style={{ background: 'var(--bg-card)', width: channelType === 'whatsapp' ? '1100px' : '1000px', maxHeight: '95vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-                <div style={{ padding: '20px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: channelType === 'rcs' ? '#4285F4' : 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
-                            <i className={getChannelIcon()}></i>
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 99999, padding: '16px', overflowY: 'auto'
+        }}>
+            <div style={{
+                background: isDark ? '#0f172a' : '#ffffff',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #e2e8f0',
+                borderRadius: '20px',
+                width: '100%', maxWidth: '1180px', maxHeight: '92vh',
+                display: 'flex', flexDirection: 'column',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.45)',
+                overflow: 'hidden'
+            }}>
+                {/* ── Modal Top Header ────────────────────────────────────────── */}
+                <div style={{
+                    padding: '20px 24px',
+                    borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: isDark ? 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)' : 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{
+                            width: '44px', height: '44px', borderRadius: '12px',
+                            background: channelType === 'whatsapp'
+                                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                                : channelType === 'rcs'
+                                    ? 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)'
+                                    : 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            boxShadow: channelType === 'whatsapp'
+                                ? '0 4px 12px rgba(16, 185, 129, 0.35)'
+                                : channelType === 'rcs'
+                                    ? '0 4px 12px rgba(6, 182, 212, 0.35)'
+                                    : '0 4px 12px rgba(59, 130, 246, 0.35)',
+                            color: '#fff'
+                        }}>
+                            <i className={getChannelIcon()} style={{ fontSize: '20px' }}></i>
                         </div>
-                        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                            {channelType === 'whatsapp' ? (step === 1 ? 'Create template' : 'Edit template') : `Add ${getChannelTitle()} Template`}
-                        </h2>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                    {channelType === 'whatsapp'
+                                        ? (step === 1 ? 'Create WhatsApp Template' : 'Edit WhatsApp Template')
+                                        : `Add ${getChannelTitle()} Template`}
+                                </h3>
+                                <span style={{
+                                    fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '12px',
+                                    background: templateData.channel === 'web' ? '#ecfdf5' : '#eff6ff',
+                                    color: templateData.channel === 'web' ? '#047857' : '#1d4ed8',
+                                    border: templateData.channel === 'web' ? '1px solid #a7f3d0' : '1px solid #bfdbfe'
+                                }}>
+                                    <i className={`fas ${templateData.channel === 'web' ? 'fa-globe' : 'fa-bolt'}`} style={{ marginRight: '5px' }}></i>
+                                    {templateData.channel === 'web'
+                                        ? 'WhatsApp Web Engine'
+                                        : (templateData.channel === 'cloud_api' ? 'Meta Cloud API' : (channelType === 'rcs' ? 'RCS Verified' : 'DLT SMS'))}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 600 }}>
+                                    <i className="far fa-clock" style={{ color: '#10b981', fontSize: '11px' }}></i>
+                                    <span>{currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                    <span style={{ opacity: 0.4 }}>•</span>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                                        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                                    </span>
+                                </div>
+                                <span style={{ opacity: 0.3 }}>•</span>
+                                <span style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                    Enterprise Omnichannel Delivery
+                                </span>
+                            </div>
+                        </div>
                     </div>
+
+                    {/* Step Navigation Pills for WhatsApp */}
                     {channelType === 'whatsapp' && (
-                        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: step === 1 ? '#059669' : '#cbd5e1' }}>
-                                <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: step === 1 ? '#059669' : '#cbd5e1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>1</div>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Set up</span>
-                            </div>
-                            <div style={{ width: '40px', height: '2px', background: '#cbd5e1' }}></div>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: step === 2 ? '#059669' : '#cbd5e1' }}>
-                                <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: step === 2 ? '#059669' : '#cbd5e1', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>2</div>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Edit</span>
-                            </div>
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            background: isDark ? '#1e293b' : '#f1f5f9',
+                            padding: '4px 6px', borderRadius: '12px',
+                            border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e2e8f0'
+                        }}>
+                            <button
+                                type="button"
+                                onClick={() => setStep(1)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '6px 14px', borderRadius: '8px', border: 'none',
+                                    background: step === 1 ? (isDark ? '#0f172a' : '#ffffff') : 'transparent',
+                                    color: step === 1 ? '#10b981' : (isDark ? '#94a3b8' : '#64748b'),
+                                    fontWeight: step === 1 ? 800 : 600, fontSize: '0.78rem',
+                                    cursor: 'pointer',
+                                    boxShadow: step === 1 ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                                    transition: 'all 0.15s'
+                                }}
+                            >
+                                <span style={{
+                                    width: '18px', height: '18px', borderRadius: '50%',
+                                    background: step === 1 ? '#10b981' : (isDark ? 'rgba(255,255,255,0.1)' : '#cbd5e1'),
+                                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800
+                                }}>
+                                    1
+                                </span>
+                                <span>Setup & Channel</span>
+                            </button>
+
+                            <i className="fas fa-chevron-right" style={{ fontSize: '10px', color: isDark ? '#64748b' : '#cbd5e1' }}></i>
+
+                            <button
+                                type="button"
+                                onClick={() => setStep(2)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '6px 14px', borderRadius: '8px', border: 'none',
+                                    background: step === 2 ? (isDark ? '#0f172a' : '#ffffff') : 'transparent',
+                                    color: step === 2 ? '#10b981' : (isDark ? '#94a3b8' : '#64748b'),
+                                    fontWeight: step === 2 ? 800 : 600, fontSize: '0.78rem',
+                                    cursor: 'pointer',
+                                    boxShadow: step === 2 ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                                    transition: 'all 0.15s'
+                                }}
+                            >
+                                <span style={{
+                                    width: '18px', height: '18px', borderRadius: '50%',
+                                    background: step === 2 ? '#10b981' : (isDark ? 'rgba(255,255,255,0.1)' : '#cbd5e1'),
+                                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800
+                                }}>
+                                    2
+                                </span>
+                                <span>Content & Formatting</span>
+                            </button>
                         </div>
                     )}
-                    <i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2rem' }} onClick={onClose}></i>
+
+                    {/* Close Button */}
+                    <button
+                        onClick={onClose}
+                        style={{
+                            width: '36px', height: '36px', borderRadius: '10px',
+                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc',
+                            color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '16px', transition: 'all 0.15s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={e => e.currentTarget.style.color = isDark ? '#94a3b8' : '#64748b'}
+                    >
+                        <i className="fas fa-times"></i>
+                    </button>
                 </div>
 
+                {/* ── Modal Body (Dual-Pane Layout) ─────────────────────────────── */}
                 <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                     {/* Left Panel: Form */}
-                    <div style={{ flex: 3.5, padding: '32px', overflowY: 'auto', borderRight: '1px solid #f1f5f9' }}>
+                    <div style={{
+                        flex: 3.4, padding: '24px', overflowY: 'auto',
+                        borderRight: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                        display: 'flex', flexDirection: 'column', gap: '20px'
+                    }}>
                         {channelType === 'whatsapp' ? (
                             step === 1 ? renderWhatsAppStep1() : renderWhatsAppStep2()
                         ) : channelType === 'rcs' ? (
                             <>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Template name <span style={{ color: '#ef4444' }}>*</span></label>
-                                    <input type="text" style={{ width: '100%', padding: '12px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.95rem' }} placeholder="e.g. Lead Follow-up" value={templateData.name} onChange={e => setTemplateData({ ...templateData, name: e.target.value })} />
+                                <div style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                    borderRadius: '16px', padding: '18px'
+                                }}>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginBottom: '8px' }}>
+                                        Template Name <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        style={{ width: '100%', padding: '12px 14px', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', background: isDark ? '#1e293b' : '#ffffff', color: isDark ? '#fff' : '#000' }}
+                                        placeholder="e.g. lead_follow_up_rcs"
+                                        value={templateData.name}
+                                        onChange={e => setTemplateData({ ...templateData, name: e.target.value })}
+                                    />
                                 </div>
                                 {renderRCSFields()}
                             </>
                         ) : (
                             <>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Template name <span style={{ color: '#ef4444' }}>*</span></label>
-                                    <input type="text" style={{ width: '100%', padding: '12px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.95rem' }} placeholder="e.g. Lead Follow-up" value={templateData.name} onChange={e => setTemplateData({ ...templateData, name: e.target.value })} />
+                                <div style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                    borderRadius: '16px', padding: '18px'
+                                }}>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginBottom: '8px' }}>
+                                        Template Name <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        style={{ width: '100%', padding: '12px 14px', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', background: isDark ? '#1e293b' : '#ffffff', color: isDark ? '#fff' : '#000' }}
+                                        placeholder="e.g. dlt_deal_alert"
+                                        value={templateData.name}
+                                        onChange={e => setTemplateData({ ...templateData, name: e.target.value })}
+                                    />
                                 </div>
                                 {renderSMSFields()}
                             </>
                         )}
-                        
-                        {/* Internal CRM Settings */}
-                        <div style={{ marginTop: '32px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                                <div>
-                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', display: 'block' }}>Share with everyone</label>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Allow other team members to use this template</div>
+
+                        {/* CRM Internal Settings & Tags Card */}
+                        <div style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                            border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                            borderRadius: '16px', padding: '18px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                                <div style={{
+                                    width: '32px', height: '32px', borderRadius: '8px',
+                                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                                }}>
+                                    <i className="fas fa-users-cog" style={{ fontSize: '15px' }}></i>
                                 </div>
-                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '34px', height: '20px' }}>
-                                    <input type="checkbox" checked={templateData.shared !== false} onChange={e => setTemplateData({ ...templateData, shared: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
-                                    <span className="slider round" style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: templateData.shared !== false ? 'var(--primary-color)' : '#ccc', transition: '.4s', borderRadius: '34px' }}>
-                                        <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: templateData.shared !== false ? '16px' : '3px', bottom: '3px', backgroundColor: 'white', transition: '.4s', borderRadius: '50%' }}></span>
+                                <div>
+                                    <div style={{ fontSize: '0.88rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                        Enterprise CRM Access & Tags
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                        Configure team-wide sharing permissions and tagging for rapid search.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '10px', background: isDark ? '#1e293b' : '#f8fafc', marginBottom: '14px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.84rem', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a', display: 'block' }}>
+                                        Share with everyone on team
+                                    </label>
+                                    <div style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                        Allow all agents and managers to use this template in broadcasts.
+                                    </div>
+                                </div>
+                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '36px', height: '22px', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={templateData.shared !== false}
+                                        onChange={e => setTemplateData({ ...templateData, shared: e.target.checked })}
+                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                    />
+                                    <span style={{
+                                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                                        backgroundColor: templateData.shared !== false ? '#10b981' : (isDark ? '#475569' : '#cbd5e1'),
+                                        transition: '.3s', borderRadius: '22px'
+                                    }}>
+                                        <span style={{
+                                            position: 'absolute', content: '""', height: '16px', width: '16px',
+                                            left: templateData.shared !== false ? '17px' : '3px', bottom: '3px',
+                                            backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
+                                        }}></span>
                                     </span>
                                 </label>
                             </div>
 
                             <div>
-                                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Assign Tags</label>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '48px', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginBottom: '6px' }}>
+                                    Assign Filter Tags
+                                </label>
+                                <div style={{
+                                    display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px 12px',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1',
+                                    borderRadius: '8px', minHeight: '42px', alignItems: 'center',
+                                    background: isDark ? '#1e293b' : '#ffffff'
+                                }}>
                                     {templateData.tags.map(tag => (
-                                        <div key={tag} style={{ background: 'var(--bg-light)', padding: '4px 12px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            {tag} <i className="fas fa-times" style={{ cursor: 'pointer', fontSize: '0.75rem', color: 'var(--text-muted)' }} onClick={() => setTemplateData({ ...templateData, tags: templateData.tags.filter(t => t !== tag) })}></i>
+                                        <div key={tag} style={{
+                                            background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff',
+                                            padding: '3px 10px', borderRadius: '6px', fontSize: '0.78rem',
+                                            color: isDark ? '#a5b4fc' : '#4338ca', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600
+                                        }}>
+                                            {tag}
+                                            <i
+                                                className="fas fa-times"
+                                                style={{ cursor: 'pointer', fontSize: '0.7rem' }}
+                                                onClick={() => setTemplateData({ ...templateData, tags: templateData.tags.filter(t => t !== tag) })}
+                                            ></i>
                                         </div>
                                     ))}
-                                    <input type="text" style={{ border: 'none', outline: 'none', flex: 1, minWidth: '120px', fontSize: '0.95rem' }} placeholder={templateData.tags.length === 0 ? "Search or create tags..." : ""} value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && tagInput.trim()) { setTemplateData({ ...templateData, tags: [...templateData.tags, tagInput.trim()] }); setTagInput(''); } }} />
+                                    <input
+                                        type="text"
+                                        style={{ border: 'none', outline: 'none', flex: 1, minWidth: '120px', fontSize: '0.84rem', background: 'transparent', color: isDark ? '#f8fafc' : '#0f172a' }}
+                                        placeholder={templateData.tags.length === 0 ? "Press Enter to add tag (e.g. VIP, Luxury, Plots)..." : ""}
+                                        value={tagInput}
+                                        onChange={e => setTagInput(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && tagInput.trim()) {
+                                                e.preventDefault();
+                                                setTemplateData({ ...templateData, tags: [...templateData.tags, tagInput.trim()] });
+                                                setTagInput('');
+                                            }
+                                        }}
+                                    />
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Right Panel: Preview */}
-                    <div style={{ flex: 2.5, padding: '32px', background: 'var(--bg-light)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ width: '280px', height: '580px', background: 'var(--text-main)', borderRadius: '40px', border: '8px solid #333', padding: '12px', boxSizing: 'content-box', position: 'relative', boxShadow: '0 20px 50px rgba(0,0,0,0.1)' }}>
-                            <div style={{ position: 'absolute', top: '0', left: '50%', transform: 'translateX(-50%)', width: '120px', height: '20px', background: 'var(--text-main)', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px', zIndex: 10 }}></div>
+                    {/* Right Panel: Photorealistic Smartphone Simulator */}
+                    <div style={{
+                        flex: 2.6, padding: '24px',
+                        background: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px'
+                    }}>
+                        {/* Simulator Top Badge */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '4px 12px', borderRadius: '10px',
+                            background: isDark ? '#1e293b' : '#ffffff',
+                            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.04)'
+                        }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', letterSpacing: '0.5px' }}>
+                                {channelType === 'whatsapp'
+                                    ? (templateData.channel === 'web' ? 'WHATSAPP WEB SIMULATOR' : 'WHATSAPP CLOUD API SIMULATOR')
+                                    : (channelType === 'rcs' ? 'RCS RICH CARD SIMULATOR' : 'SMS SIMULATOR')}
+                            </span>
+                        </div>
 
-                            <div style={{ width: '100%', height: '100%', background: channelType === 'rcs' ? 'var(--bg-card)' : '#ece5dd', borderRadius: '32px', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                                {/* Background Image for WhatsApp */}
-                                {channelType === 'whatsapp' && (
-                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.4, backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundSize: 'cover', zIndex: 1 }}></div>
-                                )}
-                                
-                                <div style={{ background: channelType === 'rcs' ? 'var(--bg-card)' : '#075e54', padding: '30px 16px 12px 16px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: channelType === 'rcs' ? '1px solid #f1f5f9' : 'none', zIndex: 2 }}>
-                                    <i className="fas fa-arrow-left" style={{ color: channelType === 'rcs' ? '#4285F4' : 'var(--bg-card)', fontSize: '0.9rem' }}></i>
-                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: channelType === 'rcs' ? '#e8f0fe' : 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <i className="fas fa-building" style={{ color: channelType === 'rcs' ? '#4285F4' : '#075e54', fontSize: '0.8rem' }}></i>
+                        {/* Photorealistic Smartphone Frame */}
+                        <div style={{
+                            width: '300px', height: '590px',
+                            background: '#111827',
+                            borderRadius: '40px',
+                            border: '9px solid #1f2937',
+                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.45), inset 0 0 2px 2px rgba(255,255,255,0.08)',
+                            position: 'relative', overflow: 'hidden',
+                            display: 'flex', flexDirection: 'column'
+                        }}>
+                            {/* Dynamic Island Notch */}
+                            <div style={{
+                                position: 'absolute', top: '7px', left: '50%', transform: 'translateX(-50%)',
+                                width: '90px', height: '22px',
+                                background: '#000000',
+                                borderRadius: '20px', zIndex: 30,
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '0 8px'
+                            }}>
+                                <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#1e293b' }}></div>
+                                <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#0284c7' }}></div>
+                            </div>
+
+                            {/* Status Bar */}
+                            <div style={{
+                                height: '28px', background: channelType === 'whatsapp' ? '#075e54' : (channelType === 'rcs' ? '#0f172a' : '#1e293b'),
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '6px 16px 0 16px', color: '#ffffff', fontSize: '11px', fontWeight: 800,
+                                zIndex: 10
+                            }}>
+                                <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <span style={{ fontSize: '9px' }}>5G</span>
+                                    <i className="fas fa-wifi" style={{ fontSize: '9px' }}></i>
+                                    <div style={{
+                                        width: '18px', height: '9px', borderRadius: '2px', border: '1px solid #ffffff',
+                                        padding: '1px', display: 'flex', alignItems: 'center'
+                                    }}>
+                                        <div style={{ width: '85%', height: '100%', background: '#10b981', borderRadius: '1px' }}></div>
                                     </div>
-                                    <div style={{ color: channelType === 'rcs' ? 'var(--text-main)' : 'var(--bg-card)' }}>
-                                        <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>Bharat Properties</div>
-                                        <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Online</div>
+                                </div>
+                            </div>
+
+                            {/* WhatsApp Screen Body */}
+                            <div style={{
+                                width: '100%', flex: 1,
+                                background: channelType === 'rcs' ? (isDark ? '#0f172a' : '#f1f5f9') : '#ece5dd',
+                                overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative'
+                            }}>
+                                {/* WhatsApp Doodle Wallpaper */}
+                                {channelType === 'whatsapp' && (
+                                    <div style={{
+                                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                                        opacity: 0.35,
+                                        backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
+                                        backgroundSize: '280px', zIndex: 1
+                                    }}></div>
+                                )}
+
+                                {/* WhatsApp App Bar Header */}
+                                <div style={{
+                                    background: channelType === 'rcs' ? (isDark ? '#1e293b' : '#ffffff') : '#075e54',
+                                    padding: '8px 12px',
+                                    display: 'flex', alignItems: 'center', gap: '10px',
+                                    borderBottom: channelType === 'rcs' ? '1px solid #e2e8f0' : 'none',
+                                    zIndex: 5, boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                }}>
+                                    <i className="fas fa-arrow-left" style={{ color: channelType === 'rcs' ? '#3b82f6' : '#ffffff', fontSize: '13px' }}></i>
+                                    <div style={{
+                                        width: '32px', height: '32px', borderRadius: '50%',
+                                        background: channelType === 'rcs' ? '#dbeafe' : '#ffffff',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontWeight: 800, fontSize: '11px', color: '#075e54', flexShrink: 0
+                                    }}>
+                                        BP
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0, color: channelType === 'rcs' ? (isDark ? '#fff' : '#000') : '#ffffff' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                Bharat Properties
+                                            </span>
+                                            <i className="fas fa-check-circle" style={{ color: channelType === 'rcs' ? '#3b82f6' : '#25d366', fontSize: '11px' }}></i>
+                                        </div>
+                                        <div style={{ fontSize: '0.62rem', opacity: 0.85 }}>online</div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: channelType === 'rcs' ? '#3b82f6' : '#ffffff', fontSize: '12px' }}>
+                                        <i className="fas fa-video"></i>
+                                        <i className="fas fa-phone-alt"></i>
+                                        <i className="fas fa-ellipsis-v"></i>
                                     </div>
                                 </div>
 
-                                <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', zIndex: 2, overflowY: 'auto' }}>
-                                    <div style={{ background: channelType === 'rcs' ? '#e8f0fe' : 'var(--bg-card)', padding: channelType === 'rcs' ? '0' : '8px', borderRadius: '12px', maxWidth: '92%', position: 'relative', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                                {/* Chat Scroll Canvas */}
+                                <div style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', zIndex: 5, overflowY: 'auto' }}>
+                                    {/* Today Pill */}
+                                    <div style={{ textAlign: 'center', margin: '4px 0 10px 0' }}>
+                                        <span style={{
+                                            fontSize: '0.6rem', fontWeight: 700, padding: '2px 8px', borderRadius: '6px',
+                                            background: 'rgba(0,0,0,0.12)', color: '#475569'
+                                        }}>
+                                            TODAY
+                                        </span>
+                                    </div>
+
+                                    {/* Outgoing WhatsApp Speech Bubble */}
+                                    <div style={{
+                                        background: isDark ? '#054640' : '#dcf8c6',
+                                        borderRadius: '12px 12px 2px 12px',
+                                        padding: '8px 10px',
+                                        maxWidth: '92%',
+                                        alignSelf: 'flex-end',
+                                        boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                                        border: isDark ? '1px solid #047857' : '1px solid #bbf7d0',
+                                        position: 'relative'
+                                    }}>
+                                        {/* Header Text or Media */}
                                         {channelType === 'whatsapp' && templateData.headerType !== 'NONE' && (
-                                            <div style={{ background: 'var(--bg-light)', borderRadius: '8px', padding: '12px', marginBottom: '8px', fontSize: '0.75rem', fontWeight: 700, textAlign: 'center' }}>
-                                                {templateData.headerType === 'TEXT' ? (renderWhatsAppFormattedText(templateData.headerText) || 'Header Text') : `[${templateData.headerType} Media]`}
+                                            <div style={{
+                                                background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.05)',
+                                                borderRadius: '6px', padding: '6px 8px', marginBottom: '6px',
+                                                fontSize: '0.78rem', fontWeight: 800,
+                                                color: isDark ? '#f8fafc' : '#0f172a',
+                                                borderBottom: '1px solid rgba(0,0,0,0.06)'
+                                            }}>
+                                                {templateData.headerType === 'TEXT' ? (
+                                                    renderWhatsAppFormattedText(templateData.headerText || '🏡 AVAILABLE FOR SALE 🏡')
+                                                ) : (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0284c7' }}>
+                                                        <i className={templateData.headerType === 'IMAGE' ? 'fas fa-image' : templateData.headerType === 'VIDEO' ? 'fas fa-video' : 'fas fa-file-pdf'}></i>
+                                                        <span style={{ fontSize: '0.72rem' }}>
+                                                            {templateData.headerFile?.name || `[${templateData.headerType} Attached]`}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                        {channelType === 'rcs' && (
-                                            <div style={{ width: '100%', height: '120px', background: '#d1e3ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4285F4' }}>
-                                                <i className="fas fa-image" style={{ fontSize: '1.5rem' }}></i>
-                                            </div>
-                                        )}
-                                        <div style={{ padding: channelType === 'rcs' ? '12px' : '0 4px', fontSize: '0.85rem', color: 'var(--text-main)', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+
+                                        {/* Message Body Content */}
+                                        <div style={{
+                                            fontSize: '0.78rem',
+                                            lineHeight: '1.5',
+                                            color: isDark ? '#ecfdf5' : '#14532d',
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-word'
+                                        }}>
                                             {templateData.body ? (
                                                 channelType === 'whatsapp' ? renderWhatsAppFormattedText(templateData.body) : templateData.body
-                                            ) : (channelType === 'whatsapp' ? 'Message body...' : channelType === 'rcs' ? 'Enter rich content...' : 'Enter SMS content...')}
+                                            ) : (
+                                                <span style={{ opacity: 0.6 }}>
+                                                    Message body preview will appear here as you type...
+                                                </span>
+                                            )}
                                         </div>
+
+                                        {/* Footer Component */}
                                         {channelType === 'whatsapp' && templateData.footer && (
-                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px', fontStyle: 'italic' }}>
+                                            <div style={{
+                                                fontSize: '0.68rem',
+                                                color: isDark ? '#a7f3d0' : '#4b5563',
+                                                marginTop: '6px', paddingTop: '4px',
+                                                borderTop: '1px solid rgba(0,0,0,0.06)',
+                                                fontStyle: 'italic'
+                                            }}>
                                                 {renderWhatsAppFormattedText(templateData.footer)}
                                             </div>
                                         )}
-                                        <div style={{ textAlign: 'right', fontSize: '0.6rem', color: channelType === 'rcs' ? '#4285F4' : 'var(--text-muted)', marginTop: '4px', paddingRight: '8px', paddingBottom: '4px' }}>10:48 AM</div>
+
+                                        {/* Timestamp & Double Blue Ticks */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px',
+                                            marginTop: '4px', fontSize: '0.6rem', color: isDark ? '#6ee7b7' : '#6b7280'
+                                        }}>
+                                            <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            <i className="fas fa-check-double" style={{ color: '#34b7f1', fontSize: '10px' }}></i>
+                                        </div>
                                     </div>
 
-                                    {((channelType === 'whatsapp' && templateData.channel !== 'web') || channelType === 'rcs') && templateData.buttons.length > 0 && (
-                                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '92%' }}>
+                                    {/* Action Buttons for Meta Cloud API */}
+                                    {channelType === 'whatsapp' && templateData.channel !== 'web' && templateData.buttons.length > 0 && (
+                                        <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '92%', alignSelf: 'flex-end', width: '100%' }}>
                                             {templateData.buttons.map((btn, i) => (
-                                                <div key={i} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', color: channelType === 'whatsapp' ? '#0ea5e9' : '#4285F4', fontSize: '0.85rem', fontWeight: 600, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                                <div key={i} style={{
+                                                    background: '#ffffff', padding: '8px 10px',
+                                                    borderRadius: '8px', border: '1px solid #cbd5e1',
+                                                    color: '#0284c7', fontSize: '0.74rem', fontWeight: 700,
+                                                    textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+                                                }}>
                                                     {btn.type === 'PHONE' && <i className="fas fa-phone-alt"></i>}
-                                                    {btn.type === 'URL' && <i className="fas fa-external-link-square-alt"></i>}
-                                                    {btn.type === 'MAP' && <i className="fas fa-map-marker-alt"></i>}
+                                                    {btn.type === 'URL' && <i className="fas fa-external-link-alt"></i>}
+                                                    {btn.type === 'VOICE_CALL' && <i className="fab fa-whatsapp"></i>}
                                                     {btn.type === 'QUICK_REPLY' && <i className="fas fa-reply"></i>}
                                                     {btn.type === 'COPY_CODE' && <i className="fas fa-copy"></i>}
-                                                    {btn.text || 'Action Label'}
+                                                    {btn.type === 'FLOW' && <i className="fas fa-poll-h"></i>}
+                                                    <span>{btn.text || 'Action Label'}</span>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
+
+                                    {/* WhatsApp Web Notice Pill */}
+                                    {channelType === 'whatsapp' && templateData.channel === 'web' && (
+                                        <div style={{
+                                            marginTop: '8px', padding: '6px 8px', borderRadius: '8px',
+                                            background: 'rgba(255,255,255,0.75)', border: '1px dashed #10b981',
+                                            color: '#065f46', fontSize: '0.64rem', textAlign: 'center', fontWeight: 600
+                                        }}>
+                                            <i className="fas fa-link" style={{ marginRight: '4px', color: '#10b981' }}></i>
+                                            WhatsApp Web: Links & numbers are interactive on mobile
+                                        </div>
+                                    )}
                                 </div>
+
+                                {/* Bottom Home Bar */}
+                                <div style={{
+                                    width: '110px', height: '4px', background: '#64748b',
+                                    borderRadius: '4px', margin: '4px auto 3px auto', zIndex: 10
+                                }}></div>
                             </div>
                         </div>
-                        <div style={{ marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>
-                            {channelType === 'whatsapp' ? 'TEMPLATE PREVIEW' : (channelType === 'rcs' ? 'RCS RICH PREVIEW' : 'SMS PREVIEW')}
+
+                        {/* Simulator Footer Label */}
+                        <div style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <i className="fas fa-shield-alt" style={{ color: '#10b981' }}></i>
+                            Deliverability Verified • Zero Ban Risk
                         </div>
                     </div>
                 </div>
 
-                <div style={{ padding: '20px 32px', borderTop: '1px solid #f1f5f9', background: 'var(--bg-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        {channelType === 'whatsapp' && step === 2 && (
-                             <button className="btn-outline" onClick={() => setStep(1)} style={{ background: 'var(--bg-card)' }}>Previous</button>
-                        )}
+                {/* ── Modal Footer ────────────────────────────────────────── */}
+                <div style={{
+                    padding: '16px 24px',
+                    borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #f1f5f9',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
+                    background: isDark ? '#0f172a' : '#ffffff'
+                }}>
+                    <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span>
+                            Channel: <strong style={{ color: '#10b981' }}>{templateData.channel === 'web' ? 'WhatsApp Web' : (templateData.channel === 'cloud_api' ? 'Meta Cloud API' : 'Universal')}</strong>
+                        </span>
+                        <span>•</span>
+                        <span>
+                            Category: <strong style={{ color: isDark ? '#f8fafc' : '#1e293b' }}>{templateData.category}</strong>
+                        </span>
+                        <span>•</span>
+                        <span style={{
+                            padding: '3px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(16,185,129,0.15)' : '#dcfce7',
+                            color: '#10b981', fontWeight: 800
+                        }}>
+                            <i className="fas fa-check-circle" style={{ marginRight: '5px' }}></i>
+                            {channelType === 'whatsapp' ? `Step ${step} of 2` : 'Ready to Save'}
+                        </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn-outline" onClick={onClose} style={{ background: 'var(--bg-card)' }}>{channelType === 'whatsapp' && step === 1 ? 'Discard' : 'Cancel'}</button>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {channelType === 'whatsapp' && step === 2 && (
+                            <button
+                                type="button"
+                                onClick={() => setStep(1)}
+                                style={{
+                                    padding: '10px 18px', borderRadius: '10px',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1',
+                                    background: 'transparent',
+                                    color: isDark ? '#f8fafc' : '#334155', fontSize: '0.82rem', fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <i className="fas fa-arrow-left" style={{ marginRight: '6px' }}></i> Previous
+                            </button>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                padding: '10px 18px', borderRadius: '10px',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #cbd5e1',
+                                background: 'transparent',
+                                color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.82rem', fontWeight: 700,
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Cancel
+                        </button>
+
                         {channelType === 'whatsapp' && step === 1 ? (
-                            <button className="btn-primary" onClick={() => setStep(2)}>Next</button>
+                            <button
+                                type="button"
+                                onClick={() => setStep(2)}
+                                style={{
+                                    padding: '10px 24px', borderRadius: '10px', border: 'none',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: '#ffffff',
+                                    fontSize: '0.85rem', fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <span>Next: Content & Formatting</span>
+                                <i className="fas fa-arrow-right"></i>
+                            </button>
                         ) : (
-                            <button className="btn-primary" onClick={() => { onSave(templateData); onClose(); }}>{channelType === 'whatsapp' ? 'Submit for Review' : 'Save Template'}</button>
+                            <button
+                                type="button"
+                                onClick={() => { onSave(templateData); onClose(); }}
+                                style={{
+                                    padding: '10px 24px', borderRadius: '10px', border: 'none',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: '#ffffff',
+                                    fontSize: '0.85rem', fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <i className="fas fa-save"></i>
+                                <span>{channelType === 'whatsapp' ? 'Submit for Review' : 'Save Template'}</span>
+                            </button>
                         )}
                     </div>
                 </div>
