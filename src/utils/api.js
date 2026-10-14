@@ -196,6 +196,8 @@ export const automationAPI = {
 
     getSequences: () => api.get('/automations/sequences').then(res => res.data),
     createSequence: (data) => api.post('/automations/sequences', data).then(res => res.data),
+    updateSequence: (id, data) => api.put(`/automations/sequences/${id}`, data).then(res => res.data),
+    deleteSequence: (id) => api.delete(`/automations/sequences/${id}`).then(res => res.data),
 
     getAutomatedActions: () => api.get('/automations/actions').then(res => res.data),
     createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),

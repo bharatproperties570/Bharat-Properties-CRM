@@ -49,14 +49,24 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
         isActive: true,
         fieldMapping: {},
         notificationConfig: {
-            channels: { whatsapp: false, sms: false, email: false },
-            templates: { whatsapp: '', sms: '', email: '' }
+            channels: { whatsapp: true, sms: false, email: false, rcs: false },
+            templates: { whatsapp: '', sms: '', email: '', rcs: '' }
+        },
+        audienceConfig: {
+            sendToBrokerGroups: true,
+            groupFilter: 'all',
+            includeMatchedBuyers: true,
+            minMatchScore: 80,
+            includeInvestorContacts: true,
+            contactTag: 'Investor',
+            throttleSeconds: 4,
+            whatsappMode: 'baileys' // 'baileys' (WhatsApp Web) or 'cloud_api' (Meta)
         },
         delay: {
             isActive: false,
             amount: 0,
-            unit: 'days',
-            relativeToField: 'dueDate'
+            unit: 'minutes',
+            relativeToField: 'createdAt'
         },
         rollbackPolicy: 'Manual'
     });
@@ -66,14 +76,24 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
             setFormData({
                 ...editData,
                 notificationConfig: editData.notificationConfig || {
-                    channels: { whatsapp: false, sms: false, email: false },
-                    templates: { whatsapp: '', sms: '', email: '' }
+                    channels: { whatsapp: true, sms: false, email: false, rcs: false },
+                    templates: { whatsapp: '', sms: '', email: '', rcs: '' }
+                },
+                audienceConfig: editData.audienceConfig || {
+                    sendToBrokerGroups: true,
+                    groupFilter: 'all',
+                    includeMatchedBuyers: true,
+                    minMatchScore: 80,
+                    includeInvestorContacts: true,
+                    contactTag: 'Investor',
+                    throttleSeconds: 4,
+                    whatsappMode: 'baileys'
                 },
                 delay: editData.delay || {
                     isActive: false,
                     amount: 0,
-                    unit: 'days',
-                    relativeToField: 'dueDate'
+                    unit: 'minutes',
+                    relativeToField: 'createdAt'
                 }
             });
             const keys = Object.keys(editData.fieldMapping || {});
@@ -90,15 +110,16 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
 
     // Safety Restrictions Map for UI
     const restrictionMap = {
-        Inventory: ['update_field', 'lock_inventory', 'unlock_inventory'],
-        Deals: ['update_field', 'send_notification', 'create_record', 'run_ai_lead_match_campaign'],
-        Leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch'],
-        leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch'],
+        Inventory: ['update_field', 'lock_inventory', 'unlock_inventory', 'broadcast_deal'],
+        Deals: ['update_field', 'send_notification', 'create_record', 'run_ai_lead_match_campaign', 'broadcast_deal'],
+        Leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch', 'broadcast_deal'],
+        leads: ['update_field', 'create_record', 'add_tag', 'send_notification', 'auto_match_dispatch', 'broadcast_deal'],
         Activities: ['update_field', 'create_record'],
-        Other: ['update_field', 'send_notification', 'create_record', 'auto_match_dispatch']
+        Other: ['update_field', 'send_notification', 'create_record', 'auto_match_dispatch', 'broadcast_deal']
     };
 
     const actionTypes = [
+        { value: 'broadcast_deal', label: 'Broadcast Deal (Omnichannel BNA)' },
         { value: 'update_field', label: 'Update Field' },
         { value: 'create_record', label: 'Create Record' },
         { value: 'add_tag', label: 'Add/Remove Tag' },
@@ -216,6 +237,333 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                         onChange={e => setFieldVal(e.target.value)}
                                         style={{ width: '100%', padding: '8px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '0.85rem' }}
                                     />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {formData.actionType === 'broadcast_deal' && (
+                        <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', marginBottom: '16px' }}>
+                                <i className="fas fa-bullhorn" style={{ color: '#2563eb', fontSize: '1.1rem' }}></i>
+                                <div>
+                                    <span style={{ fontSize: '0.95rem', fontWeight: 800 }}>Deal Marketing Broadcast (Omnichannel BNA)</span>
+                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                                        Automatically package and broadcast new/updated verified deal details across broker groups, matched buyers, and investors.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Section 1: Audience Selection */}
+                            <div style={{ background: '#fff', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
+                                    <i className="fas fa-users" style={{ color: '#3b82f6' }}></i> Target Audience
+                                </label>
+                                
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {/* 1. Broker Groups */}
+                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
+                                            <input 
+                                                type="checkbox"
+                                                checked={formData.audienceConfig?.sendToBrokerGroups ?? true}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    audienceConfig: { ...formData.audienceConfig, sendToBrokerGroups: e.target.checked }
+                                                })}
+                                            />
+                                            <span>WhatsApp Broker Community Groups</span>
+                                        </label>
+                                        {formData.audienceConfig?.sendToBrokerGroups && (
+                                            <div style={{ marginTop: '8px', paddingLeft: '24px', display: 'flex', gap: '16px' }}>
+                                                <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                    <input 
+                                                        type="radio" 
+                                                        name="groupFilter" 
+                                                        value="all"
+                                                        checked={(formData.audienceConfig?.groupFilter || 'all') === 'all'}
+                                                        onChange={() => setFormData({
+                                                            ...formData,
+                                                            audienceConfig: { ...formData.audienceConfig, groupFilter: 'all' }
+                                                        })}
+                                                    />
+                                                    All Active Groups
+                                                </label>
+                                                <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                    <input 
+                                                        type="radio" 
+                                                        name="groupFilter" 
+                                                        value="bna_only"
+                                                        checked={formData.audienceConfig?.groupFilter === 'bna_only'}
+                                                        onChange={() => setFormData({
+                                                            ...formData,
+                                                            audienceConfig: { ...formData.audienceConfig, groupFilter: 'bna_only' }
+                                                        })}
+                                                    />
+                                                    Filtered by Tag: "bna / broker"
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 2. Matched Buyers */}
+                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
+                                            <input 
+                                                type="checkbox"
+                                                checked={formData.audienceConfig?.includeMatchedBuyers ?? true}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    audienceConfig: { ...formData.audienceConfig, includeMatchedBuyers: e.target.checked }
+                                                })}
+                                            />
+                                            <span>AI Matched Prospective Buyers</span>
+                                        </label>
+                                        {formData.audienceConfig?.includeMatchedBuyers && (
+                                            <div style={{ marginTop: '8px', paddingLeft: '24px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+                                                    <span>Minimum Match Score Threshold</span>
+                                                    <span style={{ color: '#2563eb', fontWeight: 700 }}>{formData.audienceConfig?.minMatchScore || 80}%</span>
+                                                </div>
+                                                <input 
+                                                    type="range" 
+                                                    min="50" max="100" step="5"
+                                                    value={formData.audienceConfig?.minMatchScore || 80}
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, minMatchScore: Number(e.target.value) }
+                                                    })}
+                                                    style={{ width: '100%', accentColor: '#2563eb' }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 3. Investor Contacts */}
+                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
+                                            <input 
+                                                type="checkbox"
+                                                checked={formData.audienceConfig?.includeInvestorContacts ?? false}
+                                                onChange={(e) => setFormData({
+                                                    ...formData,
+                                                    audienceConfig: { ...formData.audienceConfig, includeInvestorContacts: e.target.checked }
+                                                })}
+                                            />
+                                            <span>Contacts Tagged as Investors / VIPs</span>
+                                        </label>
+                                        {formData.audienceConfig?.includeInvestorContacts && (
+                                            <div style={{ marginTop: '8px', paddingLeft: '24px' }}>
+                                                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Contact Tag Filter</label>
+                                                <input 
+                                                    type="text"
+                                                    value={formData.audienceConfig?.contactTag || 'Investor'}
+                                                    placeholder="e.g. Investor, High Networth"
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, contactTag: e.target.value }
+                                                    })}
+                                                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem' }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 2: Omnichannel Channels */}
+                            <div style={{ background: '#fff', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
+                                    <i className="fas fa-network-wired" style={{ color: '#10b981' }}></i> Active Channels
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                                    {[
+                                        { id: 'whatsapp', label: 'WhatsApp', icon: 'fab fa-whatsapp', color: '#059669' },
+                                        { id: 'sms', label: 'SMS (DLT OTP/Transactional)', icon: 'fas fa-sms', color: '#2563eb' },
+                                        { id: 'email', label: 'Email (Deal Bulletin)', icon: 'fas fa-envelope', color: '#dc2626' },
+                                        { id: 'rcs', label: 'RCS Business Messaging', icon: 'fas fa-comment-dots', color: '#7c3aed' }
+                                    ].map(ch => (
+                                        <label key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', background: formData.notificationConfig?.channels?.[ch.id] ? '#f0fdf4' : '#fff' }}>
+                                            <input 
+                                                type="checkbox"
+                                                checked={formData.notificationConfig?.channels?.[ch.id] || false}
+                                                onChange={(e) => {
+                                                    const newChannels = { ...(formData.notificationConfig?.channels || {}), [ch.id]: e.target.checked };
+                                                    setFormData({
+                                                        ...formData,
+                                                        notificationConfig: { ...formData.notificationConfig, channels: newChannels }
+                                                    });
+                                                }}
+                                            />
+                                            <i className={ch.icon} style={{ color: ch.color }}></i>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{ch.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+
+                                {formData.notificationConfig?.channels?.whatsapp && (
+                                    <div style={{ marginTop: '12px', padding: '10px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534', display: 'block', marginBottom: '6px' }}>WhatsApp Connection Mode:</span>
+                                        <div style={{ display: 'flex', gap: '20px' }}>
+                                            <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#166534', fontWeight: 600 }}>
+                                                <input 
+                                                    type="radio"
+                                                    name="whatsappMode"
+                                                    value="baileys"
+                                                    checked={(formData.audienceConfig?.whatsappMode || 'baileys') === 'baileys'}
+                                                    onChange={() => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, whatsappMode: 'baileys' }
+                                                    })}
+                                                />
+                                                WhatsApp Web (Supports Direct Broker Group JIDs)
+                                            </label>
+                                            <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#166534', fontWeight: 600 }}>
+                                                <input 
+                                                    type="radio"
+                                                    name="whatsappMode"
+                                                    value="cloud_api"
+                                                    checked={formData.audienceConfig?.whatsappMode === 'cloud_api'}
+                                                    onChange={() => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, whatsappMode: 'cloud_api' }
+                                                    })}
+                                                />
+                                                Meta WhatsApp Cloud API
+                                            </label>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 3: Template Selection */}
+                            <div style={{ background: '#fff', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
+                                    <i className="fas fa-file-alt" style={{ color: '#8b5cf6' }}></i> Approved Message Templates
+                                </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {formData.notificationConfig?.channels?.whatsapp && (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#059669' }}>
+                                                <i className="fab fa-whatsapp"></i> WhatsApp Dynamic Template
+                                            </label>
+                                            <select 
+                                                value={formData.notificationConfig?.templates?.whatsapp || ''}
+                                                onChange={e => {
+                                                    const newTpls = { ...(formData.notificationConfig?.templates || {}), whatsapp: e.target.value };
+                                                    setFormData({
+                                                        ...formData,
+                                                        notificationConfig: { ...formData.notificationConfig, templates: newTpls }
+                                                    });
+                                                }}
+                                                style={{ width: '100%', padding: '8px', border: '1px solid #10b981', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">-- Default / Smart Auto-Detect (`deal_broadcast`) --</option>
+                                                <option value="deal_broadcast">deal_broadcast (Approved Omnichannel Format)</option>
+                                                {waTemplates.filter(t => t.name !== 'deal_broadcast').map(t => (
+                                                    <option key={t.id || t.name} value={t.name}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    {formData.notificationConfig?.channels?.sms && (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#2563eb' }}>
+                                                <i className="fas fa-sms"></i> SMS Template / DLT Content
+                                            </label>
+                                            <select 
+                                                value={formData.notificationConfig?.templates?.sms || ''}
+                                                onChange={e => {
+                                                    const newTpls = { ...(formData.notificationConfig?.templates || {}), sms: e.target.value };
+                                                    setFormData({
+                                                        ...formData,
+                                                        notificationConfig: { ...formData.notificationConfig, templates: newTpls }
+                                                    });
+                                                }}
+                                                style={{ width: '100%', padding: '8px', border: '1px solid #3b82f6', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">-- Default DLT Deal Alert --</option>
+                                                {smsTemplatesList.map(t => (
+                                                    <option key={t.id || t.name} value={t.name || t.id}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    {formData.notificationConfig?.channels?.email && (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#dc2626' }}>
+                                                <i className="fas fa-envelope"></i> Email Bulletin Template
+                                            </label>
+                                            <select 
+                                                value={formData.notificationConfig?.templates?.email || ''}
+                                                onChange={e => {
+                                                    const newTpls = { ...(formData.notificationConfig?.templates || {}), email: e.target.value };
+                                                    setFormData({
+                                                        ...formData,
+                                                        notificationConfig: { ...formData.notificationConfig, templates: newTpls }
+                                                    });
+                                                }}
+                                                style={{ width: '100%', padding: '8px', border: '1px solid #ef4444', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">-- Default Deal Bulletin HTML --</option>
+                                                {emailTemplatesList.map(t => (
+                                                    <option key={t.id || t.name} value={t.name || t.id}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    {formData.notificationConfig?.channels?.rcs && (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#7c3aed' }}>
+                                                <i className="fas fa-comment-dots"></i> RCS Rich Card Template
+                                            </label>
+                                            <select 
+                                                value={formData.notificationConfig?.templates?.rcs || ''}
+                                                onChange={e => {
+                                                    const newTpls = { ...(formData.notificationConfig?.templates || {}), rcs: e.target.value };
+                                                    setFormData({
+                                                        ...formData,
+                                                        notificationConfig: { ...formData.notificationConfig, templates: newTpls }
+                                                    });
+                                                }}
+                                                style={{ width: '100%', padding: '8px', border: '1px solid #8b5cf6', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">-- Default Verified RCS Rich Card --</option>
+                                                {rcsTemplatesList.map(t => (
+                                                    <option key={t.id || t.name} value={t.name || t.id}>{t.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Section 4: Anti-ban & Throttling */}
+                            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                                        <i className="fas fa-shield-alt" style={{ marginRight: '6px', color: '#10b981' }}></i>
+                                        Anti-Ban Jitter & Rate Limiting
+                                    </span>
+                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                                        Dispatches messages with staggered interval to prevent carrier & WhatsApp bans.
+                                    </p>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input 
+                                        type="number"
+                                        min="1" max="60"
+                                        value={formData.audienceConfig?.throttleSeconds || 4}
+                                        onChange={(e) => setFormData({
+                                            ...formData,
+                                            audienceConfig: { ...formData.audienceConfig, throttleSeconds: Math.max(1, Number(e.target.value)) }
+                                        })}
+                                        style={{ width: '60px', padding: '6px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center' }}
+                                    />
+                                    <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>seconds</span>
                                 </div>
                             </div>
                         </div>

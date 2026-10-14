@@ -9,6 +9,7 @@ const AutomatedActionSchema = new mongoose.Schema({
     invokedByTrigger: { type: mongoose.Schema.Types.Mixed },
     fieldMapping: mongoose.Schema.Types.Mixed,
     notificationConfig: mongoose.Schema.Types.Mixed,
+    audienceConfig: mongoose.Schema.Types.Mixed,
     matchConstraints: mongoose.Schema.Types.Mixed,
     rollbackPolicy: { type: String, default: 'Manual' },
     type: { type: String }, // kept for backward compatibility if any
@@ -16,8 +17,8 @@ const AutomatedActionSchema = new mongoose.Schema({
     delay: {
         isActive: { type: Boolean, default: false },
         amount: { type: Number, default: 0 },
-        unit: { type: String, enum: ['minutes', 'hours', 'days', 'weeks'], default: 'days' },
-        relativeToField: { type: String, default: 'dueDate' } // e.g. dueDate, createdAt
+        unit: { type: String, enum: ['minutes', 'hourly', 'hours', 'daily', 'days', 'weekly', 'weeks', 'monthly', 'months'], default: 'days' },
+        relativeToField: { type: String, default: 'dueDate' } // e.g. dueDate, createdAt, updatedAt
     },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }

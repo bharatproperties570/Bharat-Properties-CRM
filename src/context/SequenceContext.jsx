@@ -1,10 +1,11 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { evaluateSequenceTrigger, calculateStepExecutionTime } from '../utils/sequenceEngine';
+import { automationAPI } from '../utils/api';
 
 const SequenceContext = createContext();
 
 export const SequenceProvider = ({ children }) => {
-    // Sequence Definitions (Pre-seeded with examples)
+    // Sequence Definitions (Pre-seeded with examples, overwritten by server if available)
     const [sequences, setSequences] = useState([
         {
             id: 'seq_fresh',
@@ -178,26 +179,81 @@ export const SequenceProvider = ({ children }) => {
         });
     };
 
-    const addSequence = (newSeq) => {
-        setSequences(prev => [...prev, { ...newSeq, id: `seq_${Date.now()}`, active: true, createdAt: new Date().toISOString() }]);
+    useEffect(() => {
+        const fetchSequences = async () => {
+            try {
+                const data = await automationAPI.getSequences();
+                if (data && Array.isArray(data) && data.length > 0) {
+                    setSequences(data.map(d => ({
+                        ...d,
+                        id: d._id || d.id,
+                        active: d.isActive ?? d.active ?? true
+                    })));
+                }
+            } catch (err) {
+                console.error("Failed to fetch sequences from API, keeping seeded sequences:", err);
+            }
+        };
+        fetchSequences();
+    }, []);
+
+    const addSequence = async (newSeq) => {
+        try {
+            const saved = await automationAPI.createSequence(newSeq);
+            const normalized = { ...saved, id: saved._id || saved.id, active: saved.isActive ?? saved.active ?? true };
+            setSequences(prev => [...prev, normalized]);
+            return normalized;
+        } catch (err) {
+            console.error("Failed to save sequence to server:", err);
+            const fallback = { ...newSeq, id: `seq_${Date.now()}`, active: true, createdAt: new Date().toISOString() };
+            setSequences(prev => [...prev, fallback]);
+            return fallback;
+        }
     };
 
-    const updateSequence = (id, updatedData) => {
-        setSequences(prev => prev.map(s => s.id === id ? { ...s, ...updatedData, updatedAt: new Date().toISOString() } : s));
+    const updateSequence = async (id, updatedData) => {
+        try {
+            if (id && !String(id).startsWith('seq_')) {
+                const updated = await automationAPI.updateSequence(id, updatedData);
+                const normalized = { ...updated, id: updated._id || updated.id, active: updated.isActive ?? updated.active ?? true };
+                setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? normalized : s));
+                return normalized;
+            }
+        } catch (err) {
+            console.error("Failed to update sequence on server:", err);
+        }
+        setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? { ...s, ...updatedData, updatedAt: new Date().toISOString() } : s));
     };
 
-    const deleteSequence = (id) => {
+    const deleteSequence = async (id) => {
         // Check if any active enrollments exist
         const activeEnrollments = enrollments.filter(e => e.sequenceId === id && e.status === 'active');
         if (activeEnrollments.length > 0) {
             return { success: false, message: `Cannot delete: ${activeEnrollments.length} active enrollments exist` };
         }
-        setSequences(prev => prev.filter(s => s.id !== id));
+        try {
+            if (id && !String(id).startsWith('seq_')) {
+                await automationAPI.deleteSequence(id);
+            }
+        } catch (err) {
+            console.error("Failed to delete sequence on server:", err);
+        }
+        setSequences(prev => prev.filter(s => s.id !== id && s._id !== id));
         return { success: true };
     };
 
-    const toggleSequence = (id) => {
-        setSequences(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
+    const toggleSequence = async (id) => {
+        const seq = sequences.find(s => s.id === id || s._id === id);
+        if (!seq) return;
+        const newActive = !seq.active;
+        try {
+            if (id && !String(id).startsWith('seq_')) {
+                await automationAPI.updateSequence(id, { isActive: newActive });
+            }
+        } catch (err) {
+            console.error("Failed to toggle sequence on server:", err);
+        }
+        setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? { ...s, active: newActive, isActive: newActive } : s));
     };
 
     const getEnrollmentCount = (sequenceId) => {

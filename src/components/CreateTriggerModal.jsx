@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 import { useAutomatedActions } from '../context/AutomatedActionsContext';
+import { useSequences } from '../context/SequenceContext';
 import { whatsappTemplates as mockWhatsapp, smsTemplates, emailTemplates } from '../constants/templates';
 import { marketingAPI } from '../utils/api'; // Import api to fetch real templates
 import RuleBuilder from './RuleBuilder';
@@ -8,6 +9,7 @@ import RuleBuilder from './RuleBuilder';
 const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
     const { addTrigger, updateTrigger } = useTriggers();
     const { actions: automatedActions = [] } = useAutomatedActions();
+    const { sequences = [] } = useSequences();
     const [activeTab, setActiveTab] = useState('basic');
     const [dbWhatsAppTemplates, setDbWhatsAppTemplates] = useState([]);
     const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
@@ -167,6 +169,7 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         ],
         deals: [
             { value: 'deal_created', label: 'Deal Created' },
+            { value: 'deal_updated', label: 'Deal Updated' },
             { value: 'deal_stage_changed', label: 'Deal Stage Changed' },
             { value: 'deal_inactivity', label: 'Deal Inactivity' }
         ],
@@ -182,7 +185,7 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         activities: ['type', 'status', 'priority', 'assignedTo'],
         communication: ['outcome', 'duration', 'type'],
         inventory: ['status', 'price', 'type', 'outcome', 'reason'],
-        deals: ['stage', 'value', 'probability'],
+        deals: ['stage', 'price', 'value', 'probability', 'subCategory', 'projectName', 'location'],
         post_sale: ['paymentStatus', 'registryStatus']
     };
 
@@ -320,13 +323,21 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                     </div>
 
                                     {action.type === 'start_sequence' && (
-                                        <input
-                                            type="text"
-                                            value={action.sequenceId}
-                                            onChange={(e) => updateAction(index, 'sequenceId', e.target.value)}
-                                            placeholder="Sequence ID (e.g., seq1)"
-                                            style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
-                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Select Sequence to Start</label>
+                                            <select
+                                                value={action.sequenceId || ''}
+                                                onChange={(e) => updateAction(index, 'sequenceId', e.target.value)}
+                                                style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+                                            >
+                                                <option value="">-- Choose a Sequence --</option>
+                                                {sequences.map(s => (
+                                                    <option key={s._id || s.id} value={s._id || s.id}>
+                                                        {s.name} ({s.module || s.targetAudience?.module || 'All'})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     )}
 
                                     {action.type === 'update_field' && (

@@ -50,9 +50,10 @@ export class SequenceEngine {
         }
 
         try {
+            const entId = entity._id || entity.id;
             const enrollment = await SequenceEnrollment.create({
                 sequenceId: sequence._id,
-                entityId: entity._id,
+                entityId: entId,
                 module: moduleName,
                 companyId,
                 status: 'active',
@@ -61,13 +62,21 @@ export class SequenceEngine {
             });
 
             // Schedule the job via BullMQ
-            await marketingQueue.add('drip', {
-                enrollmentId: enrollment._id,
-                stepNumber: 1
-            }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_1` });
+            try {
+                if (marketingQueue) {
+                    await marketingQueue.add('drip', {
+                        enrollmentId: enrollment._id,
+                        stepNumber: 1
+                    }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_1` });
+                } else {
+                    console.warn('[SequenceEngine] marketingQueue is not initialized.');
+                }
+            } catch (qErr) {
+                console.error('[SequenceEngine] Failed to add drip job to marketingQueue:', qErr.message);
+            }
         } catch (err) {
             if (err.code === 11000) {
-                console.log(`[SequenceEngine] Entity ${entity._id} already enrolled in sequence ${sequence._id} (duplicate key ignored).`);
+                console.log(`[SequenceEngine] Entity ${entity._id || entity.id} already enrolled in sequence ${sequence._id} (duplicate key ignored).`);
             } else {
                 throw err;
             }
@@ -76,7 +85,20 @@ export class SequenceEngine {
 
     static calculateNextExecutionTime(baseDate, amount, unit, businessHours) {
         let nextTime = moment(baseDate);
-        nextTime.add(amount, unit);
+        let momentUnit = 'days';
+        switch (unit) {
+            case 'minutes': momentUnit = 'minutes'; break;
+            case 'hourly':
+            case 'hours': momentUnit = 'hours'; break;
+            case 'daily':
+            case 'days': momentUnit = 'days'; break;
+            case 'weekly':
+            case 'weeks': momentUnit = 'weeks'; break;
+            case 'monthly':
+            case 'months': momentUnit = 'months'; break;
+            default: momentUnit = 'days'; break;
+        }
+        nextTime.add(amount, momentUnit);
         if (businessHours && businessHours.enabled) {
             return this.applyBusinessHours(nextTime.toDate(), businessHours);
         }
@@ -127,6 +149,25 @@ export class SequenceEngine {
                     continue;
                 }
 
+                // Module-specific exit conditions
+                if (enrollment.module === 'deals') {
+                    const exitCond = seq.exitCriteria?.exitConditions || {};
+                    if (exitCond.onStageNotOpen && entity.stage && String(entity.stage).toLowerCase() !== 'open') {
+                        console.log(`[SequenceEngine] Deal stage '${entity.stage}' is no longer Open. Exiting sequence ${seq.name}`);
+                        enrollment.status = 'exited';
+                        enrollment.exitReason = `Deal stage changed to ${entity.stage}`;
+                        await enrollment.save();
+                        continue;
+                    }
+                    if (exitCond.onInactive && (entity.status === 'Inactive' || entity.status === 'Archived')) {
+                        console.log(`[SequenceEngine] Deal marked ${entity.status}. Exiting sequence ${seq.name}`);
+                        enrollment.status = 'exited';
+                        enrollment.exitReason = `Deal marked ${entity.status}`;
+                        await enrollment.save();
+                        continue;
+                    }
+                }
+
                 if (seq.exitCriteria && seq.exitCriteria.conditions) {
                     const shouldExit = this.evaluateRuleGroup(entity, seq.exitCriteria.conditions);
                     if (shouldExit) {
@@ -159,7 +200,7 @@ export class SequenceEngine {
 
         // We need the entity data to execute
         const mongoose = (await import('mongoose')).default;
-        const modelMap = { leads: 'Lead', deals: 'Deal', contacts: 'Contact' };
+        const modelMap = { leads: 'Lead', deals: 'Deal', contacts: 'Contact', activities: 'Activity', inventory: 'Inventory' };
         const Model = mongoose.model(modelMap[enrollment.module] || 'Lead');
         const entityData = await Model.findById(enrollment.entityId).lean();
 
@@ -170,7 +211,17 @@ export class SequenceEngine {
             return;
         }
 
-        // Evaluate exit criteria right before execution just in case
+        // Evaluate exit criteria right before execution
+        if (enrollment.module === 'deals') {
+            const exitCond = sequence.exitCriteria?.exitConditions || {};
+            if (exitCond.onStageNotOpen && entityData.stage && String(entityData.stage).toLowerCase() !== 'open') {
+                enrollment.status = 'exited';
+                enrollment.exitReason = `Deal stage is ${entityData.stage} (not Open)`;
+                await enrollment.save();
+                return;
+            }
+        }
+
         if (sequence.exitCriteria?.conditions && this.evaluateRuleGroup(entityData, sequence.exitCriteria.conditions)) {
             enrollment.status = 'exited';
             enrollment.exitReason = 'Exit criteria met before step execution';
@@ -182,28 +233,45 @@ export class SequenceEngine {
         let actionError = null;
 
         try {
-            console.log(`[SequenceEngine] Executing step ${stepNumber} for ${entityData._id}`);
-            // Adapt action for WorkflowEngine
-            if (step.action.type === 'send_whatsapp' || step.action.type === 'send_email') {
-                const autoActionFormat = {
-                    actionType: 'send_communication',
-                    config: {
-                        channels: {
-                            whatsapp: step.action.type === 'send_whatsapp',
-                            email: step.action.type === 'send_email'
-                        },
-                        templates: {
-                            whatsapp: step.action.type === 'send_whatsapp' ? step.action.templateId : null,
-                            email: step.action.type === 'send_email' ? step.action.templateId : null
-                        }
-                    }
-                };
-                await WorkflowEngine.executeAction(autoActionFormat, entityData, { 
-                    companyId: enrollment.companyId, 
-                    idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` 
-                });
+            console.log(`[SequenceEngine] Executing step ${stepNumber} for ${entityData._id} in Sequence ${sequence.name}`);
+            
+            const triggerContext = {
+                _id: sequence._id,
+                name: sequence.name,
+                module: enrollment.module
+            };
 
-            } else if (step.action.type === 'auto_match_dispatch' || step.action.type === 'Auto-Match Dispatch') {
+            // 1. Fire Automated Action
+            if (step.action?.type === 'fire_automated_action' || step.action?.automatedActionId) {
+                await WorkflowEngine.executeAction(
+                    {
+                        type: 'fire_automated_action',
+                        automatedActionId: step.action.automatedActionId
+                    },
+                    entityData,
+                    triggerContext,
+                    enrollment.companyId,
+                    true,
+                    { idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` }
+                );
+
+            // 2. Direct Communication
+            } else if (step.action?.type === 'send_communication' || step.action?.type === 'send_whatsapp' || step.action?.type === 'send_email') {
+                const ch = step.action.channel || (step.action.type === 'send_whatsapp' ? 'whatsapp' : (step.action.type === 'send_email' ? 'email' : 'whatsapp'));
+                await WorkflowEngine.executeAction(
+                    {
+                        type: 'send_communication',
+                        channel: ch,
+                        templateId: step.action.templateId
+                    },
+                    entityData,
+                    triggerContext,
+                    enrollment.companyId,
+                    true
+                );
+
+            // 3. Auto Match Dispatch
+            } else if (step.action?.type === 'auto_match_dispatch' || step.action?.type === 'Auto-Match Dispatch') {
                 const autoActionFormat = {
                     actionType: 'auto_match_dispatch',
                     configuration: {
@@ -211,27 +279,32 @@ export class SequenceEngine {
                         matchContext: 'drip_sequence'
                     }
                 };
-                await WorkflowEngine.executeAction(autoActionFormat, entityData, { 
-                    companyId: enrollment.companyId, 
-                    idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` 
-                });
-            } else if (step.action.type === 'update_field') {
+                await WorkflowEngine.executeAction(autoActionFormat, entityData, triggerContext, enrollment.companyId, true);
+
+            // 4. Update Field
+            } else if (step.action?.type === 'update_field') {
+                let mapping = step.action.data || {};
+                if (typeof step.action.instruction === 'string' && step.action.instruction.includes('=')) {
+                    const [k, v] = step.action.instruction.split('=').map(s => s.trim());
+                    mapping[k] = v;
+                }
                 await WorkflowEngine.executeAction({
                     actionType: 'update_field',
-                    fieldMapping: step.action.data
-                }, entityData, { companyId: enrollment.companyId, idempotencyKey: `seq_${enrollment._id}_step_${stepNumber}` });
-            } else if (step.action.type === 'create_task') {
-                // Manually create task via Activity model
+                    fieldMapping: mapping
+                }, entityData, triggerContext, enrollment.companyId, true);
+
+            // 5. Create Task
+            } else if (step.action?.type === 'create_task') {
                 const Activity = mongoose.model('Activity');
                 await Activity.create({
                     companyId: enrollment.companyId,
                     type: 'task',
-                    title: step.action.data?.title || 'Sequence Task',
+                    title: step.action.instruction || step.action.data?.title || 'Sequence Follow-up Task',
                     referenceModule: enrollment.module,
                     referenceId: enrollment.entityId,
                     status: 'pending',
                     dueDate: moment().add(1, 'day').toDate(),
-                    assignedTo: entityData.assignment?.assignedTo
+                    assignedTo: entityData.assignedTo || entityData.assignment?.assignedTo
                 });
             }
 
@@ -269,10 +342,18 @@ export class SequenceEngine {
             await enrollment.save();
 
             // Enqueue next step
-            await marketingQueue.add('drip', {
-                enrollmentId: enrollment._id,
-                stepNumber: nextStepNumber
-            }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_${nextStepNumber}` });
+            try {
+                if (marketingQueue) {
+                    await marketingQueue.add('drip', {
+                        enrollmentId: enrollment._id,
+                        stepNumber: nextStepNumber
+                    }, { delay: Math.max(0, executeAt.getTime() - Date.now()), jobId: `drip_${enrollment._id}_step_${nextStepNumber}` });
+                } else {
+                    console.warn('[SequenceEngine] marketingQueue not available for next step.');
+                }
+            } catch (qErr) {
+                console.error('[SequenceEngine] Failed to add next step to marketingQueue:', qErr.message);
+            }
 
         } else {
             // Sequence Finished

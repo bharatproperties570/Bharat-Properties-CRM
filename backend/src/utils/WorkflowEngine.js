@@ -26,10 +26,30 @@ export class WorkflowEngine {
         switch (rule.operator) {
             case '==': return valStr == String(rule.value || '').toLowerCase();
             case '!=': return valStr != String(rule.value || '').toLowerCase();
-            case '>': return value > rule.value;
-            case '>=': return value >= rule.value;
-            case '<': return value < rule.value;
-            case '<=': return value <= rule.value;
+            case '>': {
+                const numVal = Number(rawValue);
+                const numRule = Number(rule.value);
+                if (!isNaN(numVal) && !isNaN(numRule)) return numVal > numRule;
+                return value > rule.value;
+            }
+            case '>=': {
+                const numVal = Number(rawValue);
+                const numRule = Number(rule.value);
+                if (!isNaN(numVal) && !isNaN(numRule)) return numVal >= numRule;
+                return value >= rule.value;
+            }
+            case '<': {
+                const numVal = Number(rawValue);
+                const numRule = Number(rule.value);
+                if (!isNaN(numVal) && !isNaN(numRule)) return numVal < numRule;
+                return value < rule.value;
+            }
+            case '<=': {
+                const numVal = Number(rawValue);
+                const numRule = Number(rule.value);
+                if (!isNaN(numVal) && !isNaN(numRule)) return numVal <= numRule;
+                return value <= rule.value;
+            }
             case 'IN': {
                 const arr = Array.isArray(rule.value) ? rule.value : String(rule.value || '').split(',').map(s => s.trim().toLowerCase());
                 // Handle case where entity field is an array (e.g. tags) by checking if ANY element matches
@@ -182,6 +202,195 @@ export class WorkflowEngine {
                         const mongoose = (await import('mongoose')).default;
                         const Inventory = mongoose.model('Inventory');
                         await Inventory.findByIdAndUpdate(entityData._id || entityData.id, { $set: { status: 'Locked' } }, { new: true });
+                    } else if (autoAction.actionType === 'broadcast_deal') {
+                        console.log(`[WorkflowEngine] Executing broadcast_deal for entity ${entityData._id || entityData.id}`);
+                        const mongoose = (await import('mongoose')).default;
+                        const DealModel = mongoose.model('Deal');
+                        
+                        // 1. Resolve full deal document
+                        let dealDoc = await DealModel.findById(entityData._id || entityData.id)
+                            .populate('inventoryId')
+                            .populate('owner')
+                            .populate('projectId')
+                            .populate('partyStructure.owner')
+                            .populate('assignedTo')
+                            .lean();
+                            
+                        if (!dealDoc) {
+                            dealDoc = entityData;
+                        }
+
+                        // 2. Prepare / sanitize broadcast metadata
+                        const formatPrice = (p) => {
+                            const num = Number(p || 0);
+                            if (num >= 10000000) return `₹ ${(num / 10000000).toFixed(2)} Cr`;
+                            if (num >= 100000) return `₹ ${(num / 100000).toFixed(2)} Lac`;
+                            return num ? `₹ ${num.toLocaleString('en-IN')}` : 'Price on Request';
+                        };
+
+                        const meta = dealDoc.broadcastMetadata?.isReady ? dealDoc.broadcastMetadata : {
+                            title: dealDoc.title || dealDoc.projectName || 'Exclusive Deal',
+                            location: dealDoc.location || dealDoc.sector || 'Prime Location',
+                            price: formatPrice(dealDoc.price),
+                            features: [dealDoc.unitType || dealDoc.subCategory || 'Residential', dealDoc.size ? `${dealDoc.size} Sq.Ft` : ''].filter(Boolean),
+                            detailedSections: [
+                                {
+                                    title: 'Deal Highlights',
+                                    lines: [
+                                        `Project: ${dealDoc.projectName || 'Premium Development'}`,
+                                        `Location: ${dealDoc.location || 'Prime'}`,
+                                        `Price: ${formatPrice(dealDoc.price)}`,
+                                        `Remarks: ${dealDoc.remarks || 'Verified listing'}`
+                                    ]
+                                }
+                            ]
+                        };
+
+                        // 3. Resolve target recipients based on audienceConfig
+                        const audConfig = autoAction.audienceConfig || {};
+                        let rawRecipients = [];
+
+                        // 3a. WhatsApp Broker Community Groups
+                        if (audConfig.sendToBrokerGroups !== false) {
+                            try {
+                                const WhatsAppGroup = mongoose.models.WhatsAppGroup || mongoose.model('WhatsAppGroup', new mongoose.Schema({ jid: String, name: String, tags: [String] }, { strict: false }));
+                                const groupFilter = audConfig.groupFilter === 'bna_only' ? { tags: { $in: ['bna', 'broker'] } } : {};
+                                const groups = await WhatsAppGroup.find(groupFilter).lean();
+                                
+                                groups.forEach(g => {
+                                    rawRecipients.push({
+                                        id: g.jid || g._id,
+                                        name: g.name || 'Broker Community Group',
+                                        mobile: g.jid,
+                                        email: '',
+                                        isVerified: false,
+                                        isGroup: true,
+                                        context: { originalType: 'WhatsAppGroup' }
+                                    });
+                                });
+                            } catch (gErr) {
+                                console.warn('[WorkflowEngine] Could not load WhatsAppGroup model:', gErr.message);
+                            }
+                        }
+
+                        // 3b. AI Matched Buyers
+                        if (audConfig.includeMatchedBuyers) {
+                            try {
+                                const LeadModel = mongoose.model('Lead');
+                                const minScore = audConfig.minMatchScore || 80;
+                                const matchedLeads = await LeadModel.find({
+                                    companyId: companyId,
+                                    stage: { $nin: ['Won', 'Lost', 'Closed'] }
+                                }).limit(50).lean();
+
+                                matchedLeads.forEach(l => {
+                                    const phone = l.mobile || l.primaryPhone || '';
+                                    if (phone) {
+                                        rawRecipients.push({
+                                            id: l._id,
+                                            name: `${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Prospective Buyer',
+                                            firstName: l.firstName || 'Buyer',
+                                            lastName: l.lastName || '',
+                                            mobile: phone,
+                                            email: l.email || '',
+                                            isVerified: false,
+                                            context: { originalType: 'Lead' }
+                                        });
+                                    }
+                                });
+                            } catch (lErr) {
+                                console.error('[WorkflowEngine] Error querying matched buyers:', lErr.message);
+                            }
+                        }
+
+                        // 3c. Tagged Investor Contacts
+                        if (audConfig.includeInvestorContacts) {
+                            try {
+                                const ContactModel = mongoose.models.Contact || mongoose.model('Contact');
+                                const tag = audConfig.contactTag || 'Investor';
+                                const contacts = await ContactModel.find({
+                                    companyId: companyId,
+                                    tags: { $in: [new RegExp(tag, 'i')] }
+                                }).lean();
+
+                                contacts.forEach(c => {
+                                    const phone = c.phone || c.mobile || '';
+                                    if (phone) {
+                                        rawRecipients.push({
+                                            id: c._id,
+                                            name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Investor',
+                                            firstName: c.firstName || (c.name ? c.name.split(' ')[0] : 'Investor'),
+                                            lastName: c.lastName || '',
+                                            mobile: phone,
+                                            email: c.email || '',
+                                            isVerified: false,
+                                            context: { originalType: 'Contact' }
+                                        });
+                                    }
+                                });
+                            } catch (cErr) {
+                                console.error('[WorkflowEngine] Error querying tagged contacts:', cErr.message);
+                            }
+                        }
+
+                        // Deduplicate recipients
+                        const seenKeys = new Set();
+                        const recipients = [];
+                        for (const r of rawRecipients) {
+                            const key = r.mobile ? `m:${r.mobile}` : (r.email ? `e:${String(r.email).toLowerCase()}` : `id:${r.id}`);
+                            if (!seenKeys.has(key)) {
+                                seenKeys.add(key);
+                                recipients.push(r);
+                            }
+                        }
+
+                        console.log(`[WorkflowEngine] Resolved ${recipients.length} recipients for Deal Broadcast`);
+
+                        // 4. Build Omnichannel channels & templates
+                        const notifConfig = autoAction.notificationConfig || {};
+                        const channels = notifConfig.channels || { whatsapp: true };
+                        const templates = notifConfig.templates || {};
+
+                        const isBaileys = audConfig.whatsappMode !== 'cloud_api';
+
+                        const jobData = {
+                            name: `BNA Broadcast: ${meta.title}`,
+                            dealId: dealDoc._id || dealDoc.id,
+                            dealIds: [dealDoc._id || dealDoc.id],
+                            deal: dealDoc,
+                            deals: [dealDoc],
+                            channels: channels,
+                            recipients: recipients,
+                            meta: meta,
+                            templateId: templates.whatsapp || 'deal_broadcast',
+                            isBaileys: Boolean(isBaileys),
+                            smsTemplate: channels.sms ? {
+                                templateId: templates.sms || 'default_sms_bna',
+                                name: templates.sms || 'Default DLT Deal Alert'
+                            } : null,
+                            emailTemplate: channels.email ? {
+                                templateId: templates.email || 'default_email_bna',
+                                name: templates.email || 'Default Deal Bulletin HTML'
+                            } : null,
+                            rcsTemplate: channels.rcs ? {
+                                templateId: templates.rcs || 'default_rcs_bna',
+                                name: templates.rcs || 'Default Verified RCS Rich Card'
+                            } : null,
+                            throttleSeconds: audConfig.throttleSeconds || 4,
+                            performedBy: 'Automated Rule Engine'
+                        };
+
+                        if (recipients.length > 0) {
+                            const { marketingQueue } = await import('../queues/marketingQueue.js');
+                            if (marketingQueue) {
+                                await marketingQueue.add('bna-broadcast', jobData, { removeOnComplete: true });
+                                console.log(`[WorkflowEngine] Successfully queued bna-broadcast for Deal ${dealDoc._id}`);
+                            } else {
+                                console.warn('[WorkflowEngine] marketingQueue not available for bna-broadcast');
+                            }
+                        } else {
+                            console.log(`[WorkflowEngine] No recipients found for Deal broadcast, skipping enqueue.`);
+                        }
                     }
                     
                     // Log success
@@ -251,17 +460,17 @@ export class WorkflowEngine {
             } else if (action.type === 'start_sequence' && action.sequenceId) {
                 console.log(`[WorkflowEngine] Enrolling entity ${entityData._id || entityData.id} into Sequence ${action.sequenceId}`);
                 try {
-                    const mod = await import('../../src/queues/marketingQueue.js');
-                    const marketingQueue = mod.marketingQueue;
-                    if (marketingQueue) {
-                        await marketingQueue.add('drip', { 
-                            leadId: entityData._id || entityData.id, 
-                            sequenceId: action.sequenceId, 
-                            step: 1 
-                        }, { delay: 0 });
+                    const { SequenceEngine } = await import('./SequenceEngine.js');
+                    const Sequence = (await import('../../models/Sequence.js')).default;
+                    const sequence = await Sequence.findById(action.sequenceId);
+                    if (sequence) {
+                        await SequenceEngine.enroll(sequence, entityData, trigger.module || 'deals', companyId);
+                        console.log(`[WorkflowEngine] Successfully enrolled entity ${entityData._id || entityData.id} into Sequence: ${sequence.name}`);
+                    } else {
+                        console.warn(`[WorkflowEngine] Sequence ${action.sequenceId} not found in database.`);
                     }
                 } catch (qErr) {
-                    console.error('[WorkflowEngine] Failed to enqueue sequence:', qErr.message);
+                    console.error('[WorkflowEngine] Failed to enroll into sequence:', qErr.message);
                 }
             } else if (action.type === 'send_notification' && action.message) {
                 console.log(`[WorkflowEngine] Sending Internal Notification (Raw) to ${action.target}`);

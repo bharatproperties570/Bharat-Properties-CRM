@@ -275,6 +275,14 @@ export const processDomainEvent = async (job) => {
                 });
             }
 
+            dealEffects.push({
+                key: 'workflow_deal_updated',
+                fn: async () => {
+                    const { WorkflowEngine } = await import('../utils/WorkflowEngine.js');
+                    await WorkflowEngine.fireEvent('deals', 'deal_updated', deal, deal.companyId);
+                }
+            });
+
             if (payload.documents && Array.isArray(payload.documents)) {
                 dealEffects.push({
                     key: 'documents',

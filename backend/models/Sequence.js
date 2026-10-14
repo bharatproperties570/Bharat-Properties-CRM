@@ -3,9 +3,13 @@ import mongoose from 'mongoose';
 const SequenceSchema = new mongoose.Schema({
     name: { type: String, required: true },
     description: String,
+    purpose: String,
+    module: { type: String, default: 'leads' }, // 'leads', 'deals', 'contacts', 'activities', 'inventory'
     isActive: { type: Boolean, default: true },
+    active: { type: Boolean, default: true }, // frontend compatibility alias
+    linkedTriggers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Trigger' }],
     targetAudience: {
-        module: { type: String, enum: ['leads', 'deals', 'contacts'], required: true },
+        module: { type: String, default: 'leads' },
         conditions: {
             operator: { type: String, default: 'AND' },
             rules: [mongoose.Schema.Types.Mixed]
@@ -15,7 +19,8 @@ const SequenceSchema = new mongoose.Schema({
         conditions: {
             operator: { type: String, default: 'OR' },
             rules: [mongoose.Schema.Types.Mixed]
-        }
+        },
+        exitConditions: mongoose.Schema.Types.Mixed // e.g. { onDealCreated, onLost, onStageChange, stageNotOpen }
     },
     businessHours: {
         enabled: { type: Boolean, default: false },
@@ -27,14 +32,22 @@ const SequenceSchema = new mongoose.Schema({
     steps: [{
         stepId: { type: String }, // UUID for UI tracking
         stepNumber: Number,
+        day: Number, // Legacy day index for frontend compatibility
+        time: { type: String, default: '09:00' },
         delay: {
             amount: Number, // e.g. 1
-            unit: { type: String, enum: ['minutes', 'hours', 'days', 'weeks'] }, // e.g. 'days'
+            unit: { type: String, enum: ['minutes', 'hourly', 'hours', 'daily', 'days', 'weekly', 'weeks', 'monthly', 'months'], default: 'days' },
             fromEvent: { type: String, default: 'enrollment' } // 'enrollment', 'previous_step'
         },
+        executionWindow: {
+            startTime: { type: String, default: '10:00' },
+            endTime: { type: String, default: '19:00' }
+        },
         action: {
-            type: { type: String, required: true }, // 'send_email', 'send_whatsapp', 'create_task', 'update_field', 'assign_user'
+            type: { type: String, required: true }, // 'fire_automated_action', 'broadcast_deal', 'send_communication', 'send_whatsapp', 'send_email', 'create_task', 'update_field'
+            automatedActionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AutomatedAction' },
             templateId: String,
+            instruction: String,
             data: mongoose.Schema.Types.Mixed
         }
     }],

@@ -11,8 +11,8 @@ const ExecutionLogSchema = new mongoose.Schema({
 
 const SequenceEnrollmentSchema = new mongoose.Schema({
     sequenceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Sequence', required: true },
-    entityId: { type: mongoose.Schema.Types.ObjectId, required: true }, // Lead or Deal ID
-    module: { type: String, enum: ['leads', 'deals', 'contacts'], required: true },
+    entityId: { type: mongoose.Schema.Types.ObjectId, required: true }, // Lead, Deal, Contact, etc.
+    module: { type: String, required: true },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true },
     status: { 
         type: String, 
