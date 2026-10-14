@@ -6,3 +6,35 @@ backend/node_modules
 *.pem
 .env.local
 .env.development
+.env.staging
+
+# Large files and dumps
+*.tar.gz
+*.zip
+*.bundle
+*.rdb
+*.patch
+phase0_*
+mongodb-*
+redis-*
+dist
+
+# Temporary and untracked files
+*.cjs
+*.mjs
+*.py
+*.sh
+*.txt
+*.list
+*.jsonl
+*.md
+test*
+debug*
+patch*
+fix*
+seed*
+show*
+repair*
+cleanse*
+audit*
+scratch*
