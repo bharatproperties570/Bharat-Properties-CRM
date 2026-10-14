@@ -55,6 +55,26 @@ const conversationSchema = new mongoose.Schema({
         required: false, // Make optional for anonymous website visitors
         index: true
     },
+    isGroup: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    groupName: {
+        type: String,
+        default: null,
+        trim: true
+    },
+    groupJid: {
+        type: String,
+        default: null,
+        index: true
+    },
+    title: {
+        type: String,
+        default: null,
+        trim: true
+    },
     status: {
         type: String,
         enum: ['active', 'handed_off', 'resolved'],

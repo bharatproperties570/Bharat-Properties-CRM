@@ -468,12 +468,16 @@ export const BaileysConnectionManager = {
                                 whatsappIntegrationId: integrationId,
                                 isGroup: isGroup,
                                 groupName: groupDisplay,
+                                groupJid: isGroup ? remoteJid : null,
+                                title: groupDisplay || (isGroup ? remoteJid : targetPhone),
+                                'metadata.isGroup': isGroup,
+                                'metadata.groupName': groupDisplay,
+                                'metadata.groupJid': isGroup ? remoteJid : null,
                                 channel: 'whatsapp',
                                 status: 'active'
                             },
                             $setOnInsert: {
-                                phoneNumber: targetPhone,
-                                title: groupDisplay || (isGroup ? remoteJid : targetPhone)
+                                phoneNumber: targetPhone
                             }
                         };
 

@@ -133,8 +133,71 @@ export const getUnreadConversations = async (req, res) => {
                 { timestamps: false }
             ).catch(err => console.warn('[ConversationController] Auto-heal error:', err.message));
         }
+
+        // Enrich group metadata so notifications and clients always have proper groupName
+        const enrichedUnread = [];
+        for (const c of trulyUnread) {
+            const cObj = c.toObject ? c.toObject() : { ...c };
+            const isGroup = Boolean(
+                cObj.isGroup || 
+                cObj.metadata?.isGroup || 
+                (cObj.phoneNumber && String(cObj.phoneNumber).includes('@g.us'))
+            );
+
+            if (isGroup) {
+                cObj.isGroup = true;
+                let resolvedGroupName = cObj.groupName || cObj.metadata?.groupName;
+
+                if (!resolvedGroupName || resolvedGroupName.includes('@g.us')) {
+                    const lastMsg = cObj.messages?.[cObj.messages.length - 1];
+                    if (lastMsg?.metadata?.groupName && !lastMsg.metadata.groupName.includes('@g.us')) {
+                        resolvedGroupName = lastMsg.metadata.groupName;
+                    } else {
+                        const anyMsgWithGrp = (cObj.messages || []).slice().reverse().find(m => m.metadata?.groupName && !m.metadata.groupName.includes('@g.us'));
+                        if (anyMsgWithGrp) resolvedGroupName = anyMsgWithGrp.metadata.groupName;
+                    }
+                }
+
+                if (!resolvedGroupName || resolvedGroupName.includes('@g.us')) {
+                    try {
+                        const { default: BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+                        const cached = BaileysConnectionManager.getGroupSubject(cObj.phoneNumber);
+                        if (cached) resolvedGroupName = cached;
+                    } catch (e) {}
+                }
+
+                if ((!resolvedGroupName || resolvedGroupName.includes('@g.us')) && cObj.title && !cObj.title.includes('@g.us')) {
+                    resolvedGroupName = cObj.title;
+                }
+
+                if (resolvedGroupName && !resolvedGroupName.includes('@g.us')) {
+                    cObj.groupName = resolvedGroupName;
+                    if (!cObj.metadata) cObj.metadata = {};
+                    cObj.metadata.groupName = resolvedGroupName;
+
+                    // Asynchronously heal the Conversation document
+                    Conversation.updateOne(
+                        { _id: c._id },
+                        { 
+                            $set: { 
+                                isGroup: true, 
+                                groupName: resolvedGroupName, 
+                                groupJid: cObj.phoneNumber,
+                                title: resolvedGroupName,
+                                'metadata.isGroup': true,
+                                'metadata.groupName': resolvedGroupName 
+                            } 
+                        }
+                    ).catch(() => {});
+                } else {
+                    cObj.groupName = 'WhatsApp Group';
+                }
+            }
+
+            enrichedUnread.push(cObj);
+        }
             
-        res.status(200).json({ success: true, data: trulyUnread });
+        res.status(200).json({ success: true, data: enrichedUnread });
     } catch (error) {
         console.error("Failed to fetch unread conversations:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
