@@ -2,12 +2,25 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
-const ImportContext = createContext(null);
+const defaultImportState = {
+    activeImports: [],
+    startBackgroundImport: async () => {},
+    clearImport: () => {}
+};
+
+// Singleton context to survive Vite HMR refreshes without throwing error
+const ImportContext = (typeof window !== 'undefined' && window.__BP_IMPORT_CONTEXT__) 
+    ? window.__BP_IMPORT_CONTEXT__ 
+    : createContext(defaultImportState);
+
+if (typeof window !== 'undefined') {
+    window.__BP_IMPORT_CONTEXT__ = ImportContext;
+}
 
 export const useImport = () => {
     const context = useContext(ImportContext);
     if (!context) {
-        throw new Error('useImport must be used within an ImportProvider');
+        return defaultImportState;
     }
     return context;
 };

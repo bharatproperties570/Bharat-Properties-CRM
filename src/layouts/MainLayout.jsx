@@ -52,7 +52,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
     // Global Context
     const { mutateAsync: addActivity } = useAddActivityMutation();
-    const { activeImports, clearImport } = useImport();
+    const { activeImports = [], clearImport = () => {} } = useImport() || {};
 
     const handleSaveGlobalActivity = (activityData) => {
         // activityData is already restructured by CreateActivityModal

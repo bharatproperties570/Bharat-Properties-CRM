@@ -9,7 +9,7 @@ import { useImport } from '../../../context/ImportContext';
 import MergeContactsModal from '../../../components/modals/MergeContactsModal';
 
 const ImportDataPage = () => {
-    const { startBackgroundImport } = useImport();
+    const { startBackgroundImport = async () => {} } = useImport() || {};
     const { projects, refreshSizes } = usePropertyConfig();
     const { data: users = [] } = useActiveUsers();
     const { refreshData } = useUserContext();
