@@ -37,46 +37,120 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
     const recipientFirstName = recipient?.firstName || (recipientName !== '[Recipient / Broker Name]' ? recipientName.split(' ')[0] : '[Recipient / Broker Name]');
 
-    const dealTitle = getSafeString(meta?.title || deal?.title || deal?.projectName, 'Featured Deal');
-    const dealPrice = getSafeString(meta?.price, deal?.price ? `₹ ${Number(deal.price).toLocaleString('en-IN')}` : 'Price on Request');
-    const dealLoc = getSafeString(meta?.location || deal?.location, 'Kurukshetra');
-    const dealSpecs = getSafeString(meta?.features || deal?.unitType, 'Prime Unit');
-    const dealRef = getSafeString(deal?.dealCode, deal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
-    const dealDesc = getSafeString(meta?.description || deal?.remarks, 'Direct verified property listing');
+    const inv = (deal?.inventoryId && typeof deal.inventoryId === 'object') ? deal.inventoryId : {};
+    const dealTitle = getSafeString(meta?.title || deal?.projectName || deal?.title || inv.projectName, 'Featured Deal');
+    const dealSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
+    const dealCategory = getSafeString(deal?.category || inv.category || deal?.propertyType, 'Residential');
+    const dealDirection = getSafeString(deal?.direction || inv.direction || inv.orientation, 'North');
+    const dealRoadWidth = getSafeString(deal?.roadWidth || inv.roadWidth, '30 Feet');
+    const dealFacing = getSafeString(deal?.facing || inv.facing, 'Park Facing');
+    const dealUnitType = getSafeString(deal?.unitType || inv.unitType || inv.builtupType, 'Plot');
+    const dealBlock = getSafeString(deal?.block || inv.block, '');
+    const dealUnitNo = getSafeString(deal?.unitNo || deal?.unitNumber || inv.unitNumber || inv.unitNo, '');
+    
+    // Size resolution
+    let dealSize = '';
+    if (deal?.size && typeof deal.size === 'object') {
+        dealSize = `${deal.size.value || ''} ${deal.size.unit || 'Sq.Yd.'}`.trim();
+    } else if (deal?.size) {
+        dealSize = String(deal.size);
+    } else if (inv.size && typeof inv.size === 'object') {
+        dealSize = `${inv.size.value || ''} ${inv.size.unit || 'Sq.Ft.'}`.trim();
+    }
+    const dealSizeType = getSafeString(deal?.sizeType || inv.sizeType || deal?.sizeLabel, '');
+    const dealFullSpecs = dealSize ? (dealSizeType && !dealSize.includes(dealSizeType) ? `${dealSize} (${dealSizeType})` : dealSize) : (dealSizeType || getSafeString(meta?.features?.[0], 'Prime Specs'));
+
+    // Price resolution
+    const rawPrice = deal?.price || deal?.quotePrice || deal?.value || meta?.price;
+    const dealPrice = typeof rawPrice === 'number'
+        ? (rawPrice >= 10000000 ? `₹ ${(rawPrice / 10000000).toFixed(2).replace(/\.00$/, '')} Cr` : rawPrice >= 100000 ? `₹ ${(rawPrice / 100000).toFixed(2).replace(/\.00$/, '')} Lac` : `₹ ${rawPrice.toLocaleString('en-IN')}`)
+        : getSafeString(meta?.price, 'Price on Request');
+
+    const dealLoc = getSafeString(meta?.location || deal?.location || inv.location, 'Kurukshetra');
+    const dealRef = getSafeString(deal?.dealCode || deal?.dealId || deal?.shareableId, deal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
+    const dealDesc = getSafeString(meta?.description || deal?.remarks || deal?.description, 'Direct verified property listing');
+
+    // Owner mobile & name
+    const ownerObj = (deal?.owner && typeof deal.owner === 'object') ? deal.owner : {};
+    const dealOwnerMobile = getSafeString(
+        ownerObj.phones?.[0]?.number || ownerObj.phones?.[0]?.phoneNumber || ownerObj.mobile || deal?.ownerMobile || inv.ownerMobile,
+        '+91 9991333570'
+    );
+    const dealOwnerName = getSafeString(
+        ownerObj.name || (ownerObj.firstName ? `${ownerObj.firstName} ${ownerObj.lastName || ''}`.trim() : '') || deal?.ownerName,
+        'Bharat Properties'
+    );
 
     const propertyList = isHtml
         ? `<div style="margin: 10px 0; padding: 12px; background: #f8fafc; border-left: 4px solid #4f46e5; border-radius: 6px;">` +
           `<div><strong>🏢 ${dealTitle}</strong></div>` +
           `<div>📍 Location: ${dealLoc}</div>` +
           `<div>💰 Price: <strong style="color:#10b981;">${dealPrice}</strong></div>` +
-          `<div>📐 Specs: ${dealSpecs}</div>` +
+          `<div>📐 Specs: ${dealFullSpecs}</div>` +
           `<div>📝 ${dealDesc}</div>` +
           `</div>`
-        : `🏢 *${dealTitle}*\n📍 ${dealLoc}\n💰 ${dealPrice}\n📐 ${dealSpecs}\n📝 ${dealDesc}`;
+        : `🏢 *${dealTitle}*\n📍 ${dealLoc}\n💰 ${dealPrice}\n📐 ${dealFullSpecs}\n📝 ${dealDesc}`;
 
     const replacements = {
         '\\[Recipient / Broker Name\\]': recipientName,
         '\\[Recipient / Group\\]': recipientName,
+        '\\[Broker Name\\]': recipientName,
         '\\{\\{customer_name\\}\\}': recipientName,
+        '\\{\\{customername\\}\\}': recipientName,
         '\\{\\{first_name\\}\\}': recipientFirstName,
+        '\\{\\{firstname\\}\\}': recipientFirstName,
         '\\{\\{full_name\\}\\}': recipientName,
+        '\\{\\{fullname\\}\\}': recipientName,
         '\\{\\{name\\}\\}': recipientName,
         '\\{owner\\}': recipientName,
         '\\{\\{property_title\\}\\}': dealTitle,
         '\\{\\{projectName\\}\\}': dealTitle,
         '\\{\\{project_name\\}\\}': dealTitle,
+        '\\{\\{projectname\\}\\}': dealTitle,
+        '\\{\\{project\\}\\}': dealTitle,
         '\\{\\{title\\}\\}': dealTitle,
-        '\\{\\{unit_number\\}\\}': dealRef,
-        '\\{unit\\}': dealRef,
-        '\\{\\{property_category\\}\\}': getSafeString(deal?.propertyType, 'Commercial / Residential'),
+        '\\{\\{subCategory\\}\\}': dealSubCategory,
+        '\\{\\{subcategory\\}\\}': dealSubCategory,
+        '\\{\\{sub_category\\}\\}': dealSubCategory,
+        '\\{\\{property_subcategory\\}\\}': dealSubCategory,
+        '\\{\\{property_category\\}\\}': dealCategory,
+        '\\{\\{category\\}\\}': dealCategory,
+        '\\{\\{direction\\}\\}': dealDirection,
+        '\\{\\{property_direction\\}\\}': dealDirection,
+        '\\{\\{roadWidth\\}\\}': dealRoadWidth,
+        '\\{\\{roadwidth\\}\\}': dealRoadWidth,
+        '\\{\\{road_width\\}\\}': dealRoadWidth,
+        '\\{\\{facing\\}\\}': dealFacing,
+        '\\{\\{property_facing\\}\\}': dealFacing,
+        '\\{\\{sizeType\\}\\}': dealFullSpecs,
+        '\\{\\{sizetype\\}\\}': dealFullSpecs,
+        '\\{\\{size_type\\}\\}': dealFullSpecs,
+        '\\{\\{size_label\\}\\}': dealFullSpecs,
+        '\\{\\{property_size\\}\\}': dealFullSpecs,
+        '\\{\\{size\\}\\}': dealFullSpecs,
+        '\\{\\{specs\\}\\}': dealFullSpecs,
+        '\\{\\{ownerMobile\\}\\}': dealOwnerMobile,
+        '\\{\\{ownermobile\\}\\}': dealOwnerMobile,
+        '\\{\\{owner_mobile\\}\\}': dealOwnerMobile,
+        '\\{\\{ownerName\\}\\}': dealOwnerName,
+        '\\{\\{ownername\\}\\}': dealOwnerName,
+        '\\{\\{owner_name\\}\\}': dealOwnerName,
+        '\\{\\{unitNo\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitno\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unit_no\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitNumber\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitnumber\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unit_number\\}\\}': dealUnitNo || dealRef,
+        '\\{unit\\}': dealUnitNo || dealRef,
+        '\\{\\{block\\}\\}': dealBlock,
+        '\\{\\{block_name\\}\\}': dealBlock,
+        '\\{\\{unitType\\}\\}': dealUnitType,
+        '\\{\\{unittype\\}\\}': dealUnitType,
         '\\{\\{property_price\\}\\}': dealPrice,
         '\\{\\{price\\}\\}': dealPrice,
         '\\{\\{property_location\\}\\}': dealLoc,
         '\\{\\{location\\}\\}': dealLoc,
         '\\{\\{sector\\}\\}': dealLoc,
-        '\\{\\{property_size\\}\\}': dealSpecs,
-        '\\{\\{size\\}\\}': dealSpecs,
-        '\\{\\{specs\\}\\}': dealSpecs,
         '\\{\\{property_list_default\\}\\}': propertyList,
         '\\{\\{property_list_dtl\\}\\}': propertyList,
         '\\{\\{matchListDefault\\}\\}': propertyList,
@@ -85,7 +159,7 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         '\\{\\{shareableId\\}\\}': dealRef,
         '\\{\\{properties_count\\}\\}': '1',
         '\\{\\{match_percentage\\}\\}': '98',
-        '\\{\\{requirement_summary\\}\\}': `${dealSpecs} in ${dealLoc}`,
+        '\\{\\{requirement_summary\\}\\}': `${dealFullSpecs} in ${dealLoc}`,
         '\\{\\{agent_name\\}\\}': 'Bharat Properties',
         '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
         '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
@@ -95,7 +169,7 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         '\\{\\{amount\\}\\}': dealPrice,
         '\\{\\{lead_status\\}\\}': 'Verified Deal',
         '\\{\\{lead_stage\\}\\}': 'Ready for Inspection',
-        '\\{\\{lead_requirement\\}\\}': dealSpecs
+        '\\{\\{lead_requirement\\}\\}': dealFullSpecs
     };
 
     let result = rawText;
@@ -107,7 +181,7 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
-    result = result.replace(/\{\{5\}\}/g, dealSpecs);
+    result = result.replace(/\{\{5\}\}/g, dealFullSpecs);
     result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
     result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
 

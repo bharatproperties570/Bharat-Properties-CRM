@@ -20,6 +20,7 @@ import { Worker } from '../config/redis.js';
 import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
+import { buildUniversalContext, interpolateUniversalTemplate } from '../../utils/universalVariableInterpolator.js';
 
 // Lazily imported services (avoids circular deps at module load)
 let whatsAppService, emailService, smsService, marketingService, nurtureBot;
@@ -508,7 +509,7 @@ const processMarketingJob = async (job) => {
  * 🧠 Enterprise Template Resolver (Worker Context)
  * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
  */
-async function resolveMetaComponents(templateId, recipient, meta, registryMapping) {
+async function resolveMetaComponents(templateId, recipient, meta, registryMapping, universalData = null) {
     const waService = (await import('../../services/WhatsAppService.js')).default;
     const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
     
@@ -519,8 +520,8 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
     // 1. Resolve all possible variables for this recipient
     const enrichedContext = {
         ...recipient,
-        fullName: recipient.name || 'Broker',
-        firstName: (recipient.name || 'Broker').split(' ')[0],
+        fullName: recipient.firstName ? `${recipient.firstName} ${recipient.lastName || ''}`.trim() : (recipient.name || 'Customer'),
+        firstName: recipient.firstName || (recipient.name ? recipient.name.split(' ')[0] : 'Customer'),
         matchedProperties: [{
             inventoryId: meta.inventoryId,
             projectName: meta.title,
@@ -537,36 +538,103 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
     templateDef.components.forEach(compDef => {
         if (compDef.type === 'BODY') {
-            const matches = compDef.text.match(/{{(\d+)}}/g) || [];
+            const matches = (compDef.text || '').match(/\{\{([^}]+)\}\}/g) || [];
             if (matches.length > 0) {
                 const parameters = [];
-                matches.forEach(() => {
-                    const val = resolvedMap[String(globalVarIndex)] || '—';
-                    parameters.push({ type: 'text', text: String(val) });
-                    globalVarIndex++;
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                
+                matches.forEach((match) => {
+                    const varName = match.replace(/[{}]/g, '').trim();
+                    let val;
+                    
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                    } else if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || '—';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || '—';
+                    }
+                    
+                    let valStr = String(val);
+                    valStr = valStr.replace(/\n/g, '  |  ').replace(/\t/g, ' ').replace(/\s{5,}/g, '    ');
+                    if (valStr.length > 1000) {
+                        valStr = valStr.substring(0, 995) + '...';
+                    }
+                    
+                    const paramObj = { type: 'text', text: valStr };
+                    if (!/^\d+$/.test(varName)) {
+                        paramObj.parameter_name = varName;
+                    }
+                    parameters.push(paramObj);
                 });
                 components.push({ type: 'body', parameters });
             }
         } else if (compDef.type === 'BUTTONS') {
             compDef.buttons?.forEach((btn, btnIdx) => {
-                if (btn.url && btn.url.includes('{{1}}')) {
-                    const val = resolvedMap[String(globalVarIndex)] || 'token';
+                const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
+                if (hasDynVar) {
+                    const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                    let siteVisitToken = namedMap['siteVisitToken'] || namedMap['site_visit_token'] || 'visit';
+
+                    if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
+                        siteVisitToken = siteVisitToken.replace(/\./g, '~');
+                    }
+
                     components.push({
                         type: 'button',
                         sub_type: 'url',
-                        index: btnIdx,
-                        parameters: [{ type: 'text', text: String(val) }]
+                        index: String(btnIdx),
+                        parameters: [{ type: 'text', text: String(siteVisitToken) }]
                     });
-                    globalVarIndex++;
                 }
             });
-        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && compDef.text.includes('{{1}}')) {
-            const val = resolvedMap[String(globalVarIndex)] || 'Update';
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{([^}]+)\}\}/.test(compDef.text)) {
+            const headerVars = (compDef.text.match(/\{\{([^}]+)\}\}/g) || []);
+            if (headerVars.length > 0) {
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                const parameters = headerVars.map((match) => {
+                    const varName = match.replace(/[{}]/g, '').trim();
+                    let val;
+                    let isNamed = false;
+                    
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                        isNamed = !/^\d+$/.test(varName);
+                    } else if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || 'Update';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || 'Update';
+                        isNamed = true;
+                    }
+                    
+                    const paramObj = { type: 'text', text: String(val).substring(0, 200) };
+                    if (isNamed) {
+                        paramObj.parameter_name = varName;
+                    }
+                    return paramObj;
+                });
+                components.push({ type: 'header', parameters });
+            }
+        } else if (compDef.type === 'HEADER' && compDef.format !== 'TEXT') {
+            const hType = compDef.format.toLowerCase();
+            const finalMediaUrl = (
+                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
+                hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
+                'https://www.w3schools.com/html/mov_bbb.mp4'
+            );
+            
             components.push({
                 type: 'header',
-                parameters: [{ type: 'text', text: String(val) }]
+                parameters: [{
+                    type: hType,
+                    [hType]: {
+                        link: finalMediaUrl,
+                        ...(hType === 'document' ? { filename: 'Huda_Map_Book_KKR.pdf' } : {})
+                    }
+                }]
             });
-            globalVarIndex++;
         }
     });
 
@@ -583,45 +651,46 @@ if (name === 'bna-broadcast') {
         const waService = (await import('../../services/WhatsAppService.js')).default;
         const eSvc = (await import('../../services/email.service.js')).default;
 
-        const personalizeForRecipient = (str, rName) => {
-            if (!str) return '';
-            const name = rName || 'Partner';
-            return String(str)
-                .replace(/\[Recipient \/ Broker Name\]/gi, name)
-                .replace(/\[Recipient \/ Group\]/gi, name)
-                .replace(/\[Broker Name\]/gi, name)
-                .replace(/{{customer_name}}/gi, name)
-                .replace(/{{first_name}}/gi, name.split(' ')[0] || 'Partner')
-                .replace(/{{full_name}}/gi, name)
-                .replace(/{{1}}/gi, name);
-        };
-
-        // 🧠 Message Construction (Shared across recipients)
-        let waMessage = '';
-        if (meta.isMultiDeal) {
-            waMessage = `*🏢 PORTFOLIO BNA ALERT: ${meta.title}*\n\n` +
-                `Here is our exclusive curated portfolio of *${meta.dealsCount || 'multiple'} verified deals*:\n\n` +
-                `${meta.description}\n\n` +
-                `🔗 *Deal References:* ${shareableId}\n` +
-                `Contact us for full dossiers, commission splits, and site inspections.`;
-        } else {
-            waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
-                `💰 *Price:* ${meta.price}\n` +
-                `📍 *Location:* ${meta.location}\n` +
-                `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
-
-            // 🧠 Dynamic Detail Sections (Filtered for empty values)
-            if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
-                meta.detailedSections.forEach(sec => {
-                    waMessage += `*${sec.title.toUpperCase()}*\n`;
-                    sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
-                    waMessage += `\n`;
-                });
+        // 1. Resolve Deal Document with full population
+        let primaryDeal = data.deal;
+        let dealsList = data.deals;
+        if (!primaryDeal && dealId) {
+            try {
+                const DealModel = mongoose.model('Deal');
+                primaryDeal = await DealModel.findById(dealId)
+                    .populate('inventoryId')
+                    .populate('owner')
+                    .populate('projectId')
+                    .populate('partyStructure.owner')
+                    .populate('assignedTo')
+                    .lean();
+                dealsList = [primaryDeal];
+            } catch (e) {
+                await job.log(`Deal populate warning: ${e.message}`);
             }
+        }
 
-            waMessage += `📝 *Details:* ${meta.description}\n\n` +
-                `🔗 *Ref:* ${shareableId}\n` +
-                `Contact us for commission split and site visits.`;
+        // 2. Fetch template text from SystemSetting if templateId is specified and templateText is empty
+        let baseTemplateText = templateText || '';
+        let activeTemplateId = templateId;
+        let activeTemplateLang = language || 'en';
+
+        try {
+            const SystemSetting = mongoose.model('SystemSetting');
+            if (!baseTemplateText && activeTemplateId) {
+                let setting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                if (!setting && mongoose.connection.db) {
+                    setting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+                }
+                if (setting?.value && Array.isArray(setting.value)) {
+                    const foundTpl = setting.value.find(t => t.id === activeTemplateId || t.name === activeTemplateId);
+                    if (foundTpl) {
+                        baseTemplateText = foundTpl.content || foundTpl.body || foundTpl.message || foundTpl.text || '';
+                    }
+                }
+            }
+        } catch (e) {
+            await job.log(`Template fetch warning: ${e.message}`);
         }
 
         const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
@@ -663,7 +732,10 @@ if (name === 'bna-broadcast') {
         let registryMapping = { "1": "customer_name", "2": "property_list_default", "3": "assignedTo" };
         try {
             const SystemSetting = mongoose.model('SystemSetting');
-            const setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            let setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            if (!setting && mongoose.connection.db) {
+                setting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'messaging_variable_registry' });
+            }
             if (setting?.value) registryMapping = setting.value;
         } catch (e) { await job.log(`Registry Fetch Warning: ${e.message}`); }
 
@@ -672,25 +744,53 @@ if (name === 'bna-broadcast') {
             const results = [];
             const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
             
+            // Universal context resolution across all real-estate variables and recipient attributes
+            const { contextMap, data: universalData } = await buildUniversalContext({
+                deal: primaryDeal,
+                deals: dealsList || (primaryDeal ? [primaryDeal] : []),
+                recipient,
+                currentUser: { name: performedBy },
+                meta
+            });
+
+            let text = '';
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
                     let waRes;
-                    let text = '';
                     if (!isGroup && !isBaileys && templateId) {
                         const personalizedComponents = await resolveMetaComponents(
                             templateId, 
                             recipient, 
                             meta, 
-                            registryMapping
+                            registryMapping,
+                            universalData
                         );
                         
                         waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { integrationId });
                         text = `Template: ${templateId}`;
                     } else {
-                        if (templateText) {
-                            text = personalizeForRecipient(templateText, recipient.name);
+                        if (baseTemplateText) {
+                            text = interpolateUniversalTemplate(baseTemplateText, contextMap);
+                        } else if (meta.isMultiDeal) {
+                            text = interpolateUniversalTemplate(
+                                `*🏢 PORTFOLIO BNA ALERT: {{title}}*\n\n` +
+                                `Here is our exclusive curated portfolio of *{{dealsCount}} verified deals*:\n\n` +
+                                `{{description}}\n\n` +
+                                `🔗 *Deal References:* {{dealCode}}\n` +
+                                `Contact us for full dossiers, commission splits, and site inspections.`,
+                                contextMap
+                            );
                         } else {
-                            text = waMessage;
+                            text = interpolateUniversalTemplate(
+                                `*🏢 BROKER UPDATE: {{projectName}}*\n\n` +
+                                `💰 *Price:* {{price}}\n` +
+                                `📍 *Location:* {{location}}\n` +
+                                `📐 *Specs:* {{size}}\n\n` +
+                                `📝 *Details:* {{description}}\n\n` +
+                                `🔗 *Ref:* {{dealCode}}\n` +
+                                `Contact us for commission split and site visits.`,
+                                contextMap
+                            );
                         }
                         waRes = await waService.sendMessage(recipient.mobile, text, { integrationId });
                     }
@@ -706,11 +806,10 @@ if (name === 'bna-broadcast') {
             if (channels.includes('sms') && recipient.mobile && !isGroup) {
                 try {
                     const smsSvc = (await import('../../services/SmsService.js')).default;
-                    const smsText = smsTemplate?.text
-                        ? personalizeForRecipient(smsTemplate.text, recipient.name)
-                        : (meta.isMultiDeal
-                            ? `[BHARAT PROPERTIES] ${meta.title} - ${meta.dealsCount} verified deals available. Ref: ${shareableId}. Call 8700000000 for brochure.`
-                            : `[BHARAT PROPERTIES] ${meta.title} at ${meta.location}. Price: ${meta.price}. Specs: ${meta.features?.join(' | ') || 'Prime'}. Ref: ${shareableId}. Call 8700000000 for details.`);
+                    const rawSms = smsTemplate?.text || (meta.isMultiDeal
+                        ? `[BHARAT PROPERTIES] {{title}} - {{dealsCount}} verified deals available. Ref: {{dealCode}}. Call {{ownerMobile}} for brochure.`
+                        : `[BHARAT PROPERTIES] {{title}} at {{location}}. Price: {{price}}. Specs: {{size}}. Ref: {{dealCode}}. Call {{ownerMobile}} for details.`);
+                    const smsText = interpolateUniversalTemplate(rawSms, contextMap);
                     const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
                         dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
                         dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
@@ -726,13 +825,17 @@ if (name === 'bna-broadcast') {
             if (channels.includes('rcs') && recipient.mobile && !isGroup) {
                 try {
                     const smsSvc = (await import('../../services/SmsService.js')).default;
-                    const rcsBody = rcsTemplate?.text
-                        ? personalizeForRecipient(rcsTemplate.text, recipient.name)
-                        : meta.description;
-                    const rcsText = `✨ *[RCS RICH CARD] ${meta.title}*\n📍 Location: ${meta.location}\n💰 Price: ${meta.price}\n📐 Specs: ${meta.features?.join(' | ') || 'N/A'}\n\n${rcsBody}\n\nRef: ${shareableId}`;
+                    const rawRcsBody = rcsTemplate?.text || meta.description;
+                    const rcsBody = interpolateUniversalTemplate(rawRcsBody, contextMap);
+                    const rawRcsText = `✨ *[RCS RICH CARD] {{title}}*\n📍 Location: {{location}}\n💰 Price: {{price}}\n📐 Specs: {{size}}\n\n${rcsBody}\n\nRef: {{dealCode}}`;
+                    const rcsText = interpolateUniversalTemplate(rawRcsText, contextMap);
                     const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
                         isRcs: true,
-                        richCard: { title: meta.title, price: meta.price, buttons: rcsTemplate?.buttons || [] }
+                        richCard: {
+                            title: interpolateUniversalTemplate(meta.title, contextMap),
+                            price: interpolateUniversalTemplate(meta.price, contextMap),
+                            buttons: rcsTemplate?.buttons || []
+                        }
                     });
                     results.push({ 
                         channel: 'rcs', 
@@ -744,12 +847,10 @@ if (name === 'bna-broadcast') {
 
             if (channels.includes('email') && recipient.email && !isGroup) {
                 try {
-                    const finalSubject = emailTemplate?.subject
-                        ? personalizeForRecipient(emailTemplate.subject, recipient.name)
-                        : defaultEmailSubject;
-                    const finalHtml = emailTemplate?.html
-                        ? personalizeForRecipient(emailTemplate.html, recipient.name)
-                        : defaultEmailHtml;
+                    const rawSubject = emailTemplate?.subject || defaultEmailSubject;
+                    const rawHtml = emailTemplate?.html || defaultEmailHtml;
+                    const finalSubject = interpolateUniversalTemplate(rawSubject, contextMap);
+                    const finalHtml = interpolateUniversalTemplate(rawHtml, contextMap);
                     await eSvc.sendEmail(recipient.email, finalSubject, '', finalHtml);
                     results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
                 } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }

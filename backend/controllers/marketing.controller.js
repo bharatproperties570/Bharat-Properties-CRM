@@ -24,6 +24,7 @@ import { normalizePhone } from '../utils/normalization.js';
 import { getVisibilityFilter } from '../utils/visibility.js';
 import fs from 'fs';
 import path from 'path';
+import { buildUniversalContext, interpolateUniversalTemplate } from '../utils/universalVariableInterpolator.js';
 
 // Lazy-import the marketing queue
 let _marketingQueue = null;
@@ -754,8 +755,14 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const Company = mongoose.model('Company');
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 1. Fetch Deal Metadata (Sanitized or instant-prepared)
-        const deals = await Deal.find({ _id: { $in: targetDealIds }, ...visibilityFilter }).lean();
+        // 1. Fetch Deal Metadata (Sanitized or instant-prepared with full relation population)
+        const deals = await Deal.find({ _id: { $in: targetDealIds }, ...visibilityFilter })
+            .populate('inventoryId')
+            .populate('owner')
+            .populate('projectId')
+            .populate('partyStructure.owner')
+            .populate('assignedTo')
+            .lean();
         if (!deals || deals.length === 0) {
             return res.status(404).json({ success: false, error: 'Selected deal(s) not found or access denied.' });
         }
@@ -922,6 +929,8 @@ export const broadcastToBrokerGroup = async (req, res) => {
             name: `BNA Broadcast: ${meta.title}`,
             dealId: primaryDealId,
             dealIds: targetDealIds,
+            deal: deals[0],
+            deals: deals,
             channels,
             recipients,
             meta,
@@ -967,7 +976,7 @@ export const broadcastToBrokerGroup = async (req, res) => {
  * 🧠 Enterprise Template Resolver
  * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
  */
-async function resolveMetaComponents(templateId, recipient, meta, registryMapping) {
+async function resolveMetaComponents(templateId, recipient, meta, registryMapping, universalData = null) {
     const waService = (await import('../services/WhatsAppService.js')).default;
     const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
     
@@ -1000,18 +1009,18 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
     templateDef.components.forEach(compDef => {
         if (compDef.type === 'BODY') {
-            // ENTERPRISE FIX: Match actual {{n}} or {{var_name}} pattern
-            // and count ONLY the variables actually present in the template text
             const matches = (compDef.text || '').match(/\{\{([^}]+)\}\}/g) || [];
             if (matches.length > 0) {
                 const parameters = [];
                 const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
                 
                 matches.forEach((match) => {
-                    const varName = match.replace(/[{}]/g, ''); // Extracts '1' or 'full_name'
+                    const varName = match.replace(/[{}]/g, '').trim();
                     let val;
                     
-                    if (/^\d+$/.test(varName)) {
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                    } else if (/^\d+$/.test(varName)) {
                         val = resolvedMap[String(globalVarIndex)] || '—';
                         globalVarIndex++;
                     } else {
@@ -1034,18 +1043,12 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 components.push({ type: 'body', parameters });
             }
         } else if (compDef.type === 'BUTTONS') {
-            // ✅ CRITICAL FIX: Meta button's {{1}} is INDEPENDENT of body's {{n}} counter.
-            // It always starts at index 1 within the button itself, not the global counter.
-            // We MUST send a separate 'button' component for every dynamic URL button.
             compDef.buttons?.forEach((btn, btnIdx) => {
                 const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
                 if (hasDynVar) {
                     const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
                     let siteVisitToken = namedMap['siteVisitToken'] || namedMap['site_visit_token'] || 'visit';
 
-                    // Anti-phishing fix: Meta strictly prohibits domains or tokens with dots 
-                    // in the dynamic URL parameter for buttons, as it looks like phishing.
-                    // Replace JWT dots with hyphens.
                     if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
                         siteVisitToken = siteVisitToken.replace(/\./g, '~');
                     }
@@ -1063,11 +1066,14 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
             if (headerVars.length > 0) {
                 const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
                 const parameters = headerVars.map((match) => {
-                    const varName = match.replace(/[{}]/g, '');
+                    const varName = match.replace(/[{}]/g, '').trim();
                     let val;
                     let isNamed = false;
                     
-                    if (/^\d+$/.test(varName)) {
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                        isNamed = !/^\d+$/.test(varName);
+                    } else if (/^\d+$/.test(varName)) {
                         val = resolvedMap[String(globalVarIndex)] || 'Update';
                         globalVarIndex++;
                     } else {
@@ -1084,11 +1090,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 components.push({ type: 'header', parameters });
             }
         } else if (compDef.type === 'HEADER' && compDef.format !== 'TEXT') {
-            const hType = compDef.format.toLowerCase(); // 'image', 'document', 'video'
-            
-            // For Dispatch Now (marketing), we typically don't have a single user-uploaded brochure
-            // in the request body because it matches multiple properties.
-            // We use safe dummy fallbacks to ensure the API doesn't reject the payload.
+            const hType = compDef.format.toLowerCase();
             const finalMediaUrl = (
                 hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
                 hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
@@ -1113,53 +1115,76 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 }
 
 /**
- * Direct dispatch for BNA broadcasts when queue is unavailable
+ * Direct dispatch for BNA broadcasts when queue is unavailable or synchronous fallback
  */
 async function _dispatchBNADirectly(data) {
     const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
-    const eSvc = (await import('../services/email.service.js')).default;
     const Activity = mongoose.model('Activity');
 
-    const personalizeForRecipient = (str, rName) => {
-        if (!str) return '';
-        const name = rName || 'Partner';
-        return String(str)
-            .replace(/\[Recipient \/ Broker Name\]/gi, name)
-            .replace(/\[Recipient \/ Group\]/gi, name)
-            .replace(/\[Broker Name\]/gi, name)
-            .replace(/{{customer_name}}/gi, name)
-            .replace(/{{first_name}}/gi, name.split(' ')[0] || 'Partner')
-            .replace(/{{full_name}}/gi, name)
-            .replace(/{{1}}/gi, name);
-    };
+    // 1. Resolve Deal Document with full population
+    let primaryDeal = data.deal;
+    let dealsList = data.deals;
+    if (!primaryDeal && dealId) {
+        try {
+            const DealModel = mongoose.model('Deal');
+            primaryDeal = await DealModel.findById(dealId)
+                .populate('inventoryId')
+                .populate('owner')
+                .populate('projectId')
+                .populate('partyStructure.owner')
+                .populate('assignedTo')
+                .lean();
+            dealsList = [primaryDeal];
+        } catch (e) {
+            console.warn('[BNA_DIRECT] Deal populate error:', e.message);
+        }
+    }
 
-    // 🧠 PROFESSIONAL: Introspect template to map variables correctly
-    // Meta error #132000 happens when param count doesn't match template
-    let waMessageText = null;
-    let templateComponents = null;
-
-    let templateRegistryData = null;
+    // 2. Fetch template text from SystemSetting if templateId is specified and templateText is empty
+    let baseTemplateText = templateText || '';
     let activeTemplateId = templateId;
     let activeTemplateLang = language || 'en';
 
     try {
         const SystemSetting = mongoose.model('SystemSetting');
-        const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+        if (!baseTemplateText && activeTemplateId) {
+            let setting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+            if (!setting && mongoose.connection.db) {
+                setting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+            }
+            if (setting?.value && Array.isArray(setting.value)) {
+                const foundTpl = setting.value.find(t => t.id === activeTemplateId || t.name === activeTemplateId);
+                if (foundTpl) {
+                    baseTemplateText = foundTpl.content || foundTpl.body || foundTpl.message || foundTpl.text || '';
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[BNA_DIRECT] Template fetch warning:', e.message);
+    }
+
+    let templateRegistryData = null;
+    try {
+        const SystemSetting = mongoose.model('SystemSetting');
+        let registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+        if (!registrySetting && mongoose.connection.db) {
+            registrySetting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'messaging_variable_registry' });
+        }
         templateRegistryData = {
             mapping: registrySetting?.value || { "1": "customer_name", "2": "property_list_default" }
         };
 
-        // 🧠 Auto-Resolve System Trigger Context if no explicit template provided
         if (!activeTemplateId) {
-            const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+            let templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+            if (!templatesSetting && mongoose.connection.db) {
+                templatesSetting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+            }
             if (templatesSetting?.value) {
-                // Find first template that has 'deal_match' context (Meta approved ones only preferably, but local logic will handle it)
                 const dealMatchTemplate = templatesSetting.value.find(t => t.systemContext?.includes('deal_match'));
                 if (dealMatchTemplate) {
                     activeTemplateId = dealMatchTemplate.name || dealMatchTemplate.id;
                     activeTemplateLang = dealMatchTemplate.language || 'en';
-                    console.log(`[BNA/Context] Auto-resolved deal_match context to template: ${activeTemplateId}`);
                 }
             }
         }
@@ -1167,9 +1192,8 @@ async function _dispatchBNADirectly(data) {
         console.error('[BNA/TemplateInit] Error:', err.message);
     }
 
-    // Fallback text message (when no template selected or template not found)
+    // Fallback template message for Email
     const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
-    
     let detailedHtml = '';
     if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
         detailedHtml = meta.detailedSections.map(sec => `
@@ -1206,6 +1230,15 @@ async function _dispatchBNADirectly(data) {
         const results = [];
         const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
 
+        // Enterprise Universal Context Resolution (lookups, specs, currency, recipient)
+        const { contextMap, data: universalData } = await buildUniversalContext({
+            deal: primaryDeal,
+            deals: dealsList || (primaryDeal ? [primaryDeal] : []),
+            recipient,
+            currentUser: { name: performedBy },
+            meta
+        });
+
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
@@ -1215,31 +1248,38 @@ async function _dispatchBNADirectly(data) {
                         activeTemplateId, 
                         recipient, 
                         meta, 
-                        templateRegistryData.mapping
+                        templateRegistryData.mapping,
+                        universalData
                     );
                     
                     console.log(`[BNA/WA] Dispatching '${activeTemplateId}' with ${personalizedComponents.length} components.`);
                     waRes = await waService.sendTemplate(recipient.mobile, activeTemplateId, activeTemplateLang, personalizedComponents, { integrationId: data.integrationId });
                     text = `Template: ${activeTemplateId}`;
                 } else {
-                    // WhatsApp Web, Group, or Direct Text dispatch
-                    if (templateText) {
-                        text = personalizeForRecipient(templateText, recipient.name);
+                    // WhatsApp Web, Group, or Direct Text dispatch with Universal Interpolation
+                    if (baseTemplateText) {
+                        text = interpolateUniversalTemplate(baseTemplateText, contextMap);
                     } else if (meta.isMultiDeal) {
-                        text = `🏢 *PORTFOLIO BNA ALERT: ${meta.title}*\n\n` +
-                            `Hi ${recipient.name},\n\n` +
-                            `Here is our exclusive curated portfolio of *${meta.dealsCount} verified deals*:\n\n` +
-                            `${meta.description}\n\n` +
-                            `🔗 Deal References: ${shareableId}\n` +
-                            `Contact us for full dossiers, commission splits, and site inspections.`;
+                        text = interpolateUniversalTemplate(
+                            `🏢 *PORTFOLIO BNA ALERT: {{title}}*\n\n` +
+                            `Hi {{customer_name}},\n\n` +
+                            `Here is our exclusive curated portfolio of *{{dealsCount}} verified deals*:\n\n` +
+                            `{{description}}\n\n` +
+                            `🔗 Deal References: {{dealCode}}\n` +
+                            `Contact us for full dossiers, commission splits, and site inspections.`,
+                            contextMap
+                        );
                     } else {
-                        text = `🏢 *BNA ALERT: ${meta.title}*\n\n` +
-                            `Hi ${recipient.name},\n\n` +
-                            `💰 *Price:* ${meta.price}\n📍 *Location:* ${meta.location}\n` +
-                            `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n` +
-                            `📝 *Details:* ${meta.description || 'Verified property listing'}\n\n` +
-                            `🔗 Ref: ${shareableId}\n` +
-                            `Contact us for commission split and site visits.`;
+                        text = interpolateUniversalTemplate(
+                            `🏢 *BNA ALERT: {{projectName}}*\n\n` +
+                            `Hi {{customer_name}},\n\n` +
+                            `💰 *Price:* {{price}}\n📍 *Location:* {{location}}\n` +
+                            `📐 *Specs:* {{size}}\n\n` +
+                            `📝 *Details:* {{description}}\n\n` +
+                            `🔗 Ref: {{dealCode}}\n` +
+                            `Contact us for commission split and site visits.`,
+                            contextMap
+                        );
                     }
                     waRes = await waService.sendMessage(recipient.mobile, text, { integrationId: data.integrationId });
                 }
@@ -1255,11 +1295,10 @@ async function _dispatchBNADirectly(data) {
         if (channels.includes('sms') && recipient.mobile && !isGroup) {
             try {
                 const smsSvc = (await import('../services/SmsService.js')).default;
-                const smsText = smsTemplate?.text
-                    ? personalizeForRecipient(smsTemplate.text, recipient.name)
-                    : (meta.isMultiDeal
-                        ? `[BHARAT PROPERTIES] ${meta.title} - ${meta.dealsCount} verified deals available. Ref: ${shareableId}. Call 8700000000 for brochure.`
-                        : `[BHARAT PROPERTIES] ${meta.title} at ${meta.location}. Price: ${meta.price}. Specs: ${meta.features?.join(' | ') || 'Prime'}. Ref: ${shareableId}. Call 8700000000 for details.`);
+                const rawSms = smsTemplate?.text || (meta.isMultiDeal
+                    ? `[BHARAT PROPERTIES] {{title}} - {{dealsCount}} verified deals available. Ref: {{dealCode}}. Call {{ownerMobile}} for brochure.`
+                    : `[BHARAT PROPERTIES] {{title}} at {{location}}. Price: {{price}}. Specs: {{size}}. Ref: {{dealCode}}. Call {{ownerMobile}} for details.`);
+                const smsText = interpolateUniversalTemplate(rawSms, contextMap);
                 const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
                     dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
                     dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
@@ -1275,13 +1314,17 @@ async function _dispatchBNADirectly(data) {
         if (channels.includes('rcs') && recipient.mobile && !isGroup) {
             try {
                 const smsSvc = (await import('../services/SmsService.js')).default;
-                const rcsBody = rcsTemplate?.text
-                    ? personalizeForRecipient(rcsTemplate.text, recipient.name)
-                    : meta.description;
-                const rcsText = `✨ *[RCS RICH CARD] ${meta.title}*\n📍 Location: ${meta.location}\n💰 Price: ${meta.price}\n📐 Specs: ${meta.features?.join(' | ') || 'N/A'}\n\n${rcsBody}\n\nRef: ${shareableId}`;
+                const rawRcsBody = rcsTemplate?.text || meta.description;
+                const rcsBody = interpolateUniversalTemplate(rawRcsBody, contextMap);
+                const rawRcsText = `✨ *[RCS RICH CARD] {{title}}*\n📍 Location: {{location}}\n💰 Price: {{price}}\n📐 Specs: {{size}}\n\n${rcsBody}\n\nRef: {{dealCode}}`;
+                const rcsText = interpolateUniversalTemplate(rawRcsText, contextMap);
                 const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
                     isRcs: true,
-                    richCard: { title: meta.title, price: meta.price, buttons: rcsTemplate?.buttons || [] }
+                    richCard: {
+                        title: interpolateUniversalTemplate(meta.title, contextMap),
+                        price: interpolateUniversalTemplate(meta.price, contextMap),
+                        buttons: rcsTemplate?.buttons || []
+                    }
                 });
                 results.push({ 
                     channel: 'rcs', 
@@ -1293,12 +1336,10 @@ async function _dispatchBNADirectly(data) {
 
         if (channels.includes('email') && recipient.email && !isGroup) {
             try {
-                const finalSubject = emailTemplate?.subject
-                    ? personalizeForRecipient(emailTemplate.subject, recipient.name)
-                    : defaultEmailSubject;
-                const finalHtml = emailTemplate?.html
-                    ? personalizeForRecipient(emailTemplate.html, recipient.name)
-                    : defaultEmailHtml;
+                const rawSubject = emailTemplate?.subject || defaultEmailSubject;
+                const rawHtml = emailTemplate?.html || defaultEmailHtml;
+                const finalSubject = interpolateUniversalTemplate(rawSubject, contextMap);
+                const finalHtml = interpolateUniversalTemplate(rawHtml, contextMap);
                 await (await import("../services/email.service.js")).default.sendEmail(recipient.email, finalSubject, '', finalHtml);
                 results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
             } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
@@ -1734,14 +1775,20 @@ export const executeDispatch = async (payload, user) => {
                 matchedProperties: populatedDeals.map(p => ({ inventoryId: p })) 
             };
 
-            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            let registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            if (!registrySetting && mongoose.connection.db) {
+                registrySetting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'messaging_variable_registry' });
+            }
             const mapping = (registrySetting && registrySetting.value) ? registrySetting.value : {
                 "1": "customer_name",
                 "2": "property_list_default"
             };
 
             try {
-                const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                let templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                if (!templatesSetting && mongoose.connection.db) {
+                    templatesSetting = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+                }
                 let matchTemplate;
                 if (templateId && templateId !== 'free_text') {
                     matchTemplate = templatesSetting?.value?.find(t => t.id === templateId || t.name === templateId);

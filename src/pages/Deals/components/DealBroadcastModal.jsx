@@ -53,12 +53,49 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         description: getSafeString(singleDeal?.remarks, 'Direct verified property listing')
     };
 
-    const dealTitle = getSafeString(meta.title, 'Featured Deal');
-    const dealPrice = getSafeString(meta.price, 'Price on Request');
-    const dealLoc = getSafeString(meta.location, 'Kurukshetra');
-    const dealSpecs = getSafeString(meta.features, singleSpecs);
-    const dealRef = getSafeString(singleDeal?.dealCode, singleDeal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
-    const dealDesc = getSafeString(meta.description || singleDeal?.remarks, 'Verified property listing');
+    const inv = (singleDeal?.inventoryId && typeof singleDeal.inventoryId === 'object') ? singleDeal.inventoryId : {};
+    const dealTitle = getSafeString(meta.title || singleDeal?.projectName || singleDeal?.title || inv.projectName, 'Featured Deal');
+    const dealSubCategory = getSafeString(singleDeal?.subCategory || inv.subCategory || singleDeal?.propertyType, 'Residential Plot');
+    const dealCategory = getSafeString(singleDeal?.category || inv.category || singleDeal?.propertyType, 'Residential');
+    const dealDirection = getSafeString(singleDeal?.direction || inv.direction || inv.orientation, 'North');
+    const dealRoadWidth = getSafeString(singleDeal?.roadWidth || inv.roadWidth, '30 Feet');
+    const dealFacing = getSafeString(singleDeal?.facing || inv.facing, 'Park Facing');
+    const dealUnitType = getSafeString(singleDeal?.unitType || inv.unitType || inv.builtupType, 'Plot');
+    const dealBlock = getSafeString(singleDeal?.block || inv.block, '');
+    const dealUnitNo = getSafeString(singleDeal?.unitNo || singleDeal?.unitNumber || inv.unitNumber || inv.unitNo, '');
+    
+    // Size resolution
+    let dealSize = '';
+    if (singleDeal?.size && typeof singleDeal.size === 'object') {
+        dealSize = `${singleDeal.size.value || ''} ${singleDeal.size.unit || 'Sq.Yd.'}`.trim();
+    } else if (singleDeal?.size) {
+        dealSize = String(singleDeal.size);
+    } else if (inv.size && typeof inv.size === 'object') {
+        dealSize = `${inv.size.value || ''} ${inv.size.unit || 'Sq.Ft.'}`.trim();
+    }
+    const dealSizeType = getSafeString(singleDeal?.sizeType || inv.sizeType || singleDeal?.sizeLabel, '');
+    const dealFullSpecs = dealSize ? (dealSizeType && !dealSize.includes(dealSizeType) ? `${dealSize} (${dealSizeType})` : dealSize) : (dealSizeType || getSafeString(meta.features?.[0], singleSpecs));
+
+    // Price resolution
+    const rawPrice = singleDeal?.price || singleDeal?.quotePrice || singleDeal?.value || meta.price;
+    const dealPrice = typeof rawPrice === 'number'
+        ? (rawPrice >= 10000000 ? `₹ ${(rawPrice / 10000000).toFixed(2).replace(/\.00$/, '')} Cr` : rawPrice >= 100000 ? `₹ ${(rawPrice / 100000).toFixed(2).replace(/\.00$/, '')} Lac` : `₹ ${rawPrice.toLocaleString('en-IN')}`)
+        : getSafeString(meta.price, 'Price on Request');
+
+    const dealLoc = getSafeString(meta.location || singleDeal?.location || inv.location, 'Kurukshetra');
+    const dealRef = getSafeString(singleDeal?.dealCode || singleDeal?.dealId || singleDeal?.shareableId, singleDeal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
+    const dealDesc = getSafeString(meta.description || singleDeal?.remarks || singleDeal?.description, 'Verified property listing');
+
+    // Owner mobile & name
+    const ownerObj = (singleDeal?.owner && typeof singleDeal.owner === 'object') ? singleDeal.owner : {};
+    const dealOwnerMobile = getSafeString(
+        ownerObj.phones?.[0]?.number || ownerObj.phones?.[0]?.phoneNumber || ownerObj.mobile || singleDeal?.ownerMobile || inv.ownerMobile,
+        '+91 9991333570'
+    );
+    const dealOwnerName = getSafeString(
+        ownerObj.name || (ownerObj.firstName ? `${ownerObj.firstName} ${ownerObj.lastName || ''}`.trim() : '') || singleDeal?.ownerName,
+        'Bharat Properties'
+    );
 
     // Summary representation for multi-deal vs single-deal
     let propertyList = '';
@@ -84,37 +121,74 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
                 `<div><strong>🏢 ${dealTitle}</strong></div>` +
                 `<div>📍 Location: ${dealLoc}</div>` +
                 `<div>💰 Price: <strong style="color:#10b981;">${dealPrice}</strong></div>` +
-                `<div>📐 Specs: ${dealSpecs}</div>` +
+                `<div>📐 Specs: ${dealFullSpecs}</div>` +
                 `<div>📝 ${dealDesc}</div>` +
                 `</div>`;
         } else {
-            propertyList = `🏢 *${dealTitle}*\n📍 ${dealLoc}\n💰 ${dealPrice}\n📐 ${dealSpecs}\n📝 ${dealDesc}`;
+            propertyList = `🏢 *${dealTitle}*\n📍 ${dealLoc}\n💰 ${dealPrice}\n📐 ${dealFullSpecs}\n📝 ${dealDesc}`;
         }
     }
 
     const replacements = {
         '\\[Recipient / Broker Name\\]': recipientName,
         '\\[Recipient / Group\\]': recipientName,
+        '\\[Broker Name\\]': recipientName,
         '\\{\\{customer_name\\}\\}': recipientName,
+        '\\{\\{customername\\}\\}': recipientName,
         '\\{\\{first_name\\}\\}': recipientFirstName,
+        '\\{\\{firstname\\}\\}': recipientFirstName,
         '\\{\\{full_name\\}\\}': recipientName,
+        '\\{\\{fullname\\}\\}': recipientName,
         '\\{\\{name\\}\\}': recipientName,
         '\\{owner\\}': recipientName,
         '\\{\\{property_title\\}\\}': dealTitle,
         '\\{\\{projectName\\}\\}': dealTitle,
         '\\{\\{project_name\\}\\}': dealTitle,
+        '\\{\\{projectname\\}\\}': dealTitle,
+        '\\{\\{project\\}\\}': dealTitle,
         '\\{\\{title\\}\\}': dealTitle,
-        '\\{\\{unit_number\\}\\}': dealRef,
-        '\\{unit\\}': dealRef,
-        '\\{\\{property_category\\}\\}': getSafeString(singleDeal?.propertyType, 'Commercial / Residential'),
+        '\\{\\{subCategory\\}\\}': dealSubCategory,
+        '\\{\\{subcategory\\}\\}': dealSubCategory,
+        '\\{\\{sub_category\\}\\}': dealSubCategory,
+        '\\{\\{property_subcategory\\}\\}': dealSubCategory,
+        '\\{\\{property_category\\}\\}': dealCategory,
+        '\\{\\{category\\}\\}': dealCategory,
+        '\\{\\{direction\\}\\}': dealDirection,
+        '\\{\\{property_direction\\}\\}': dealDirection,
+        '\\{\\{roadWidth\\}\\}': dealRoadWidth,
+        '\\{\\{roadwidth\\}\\}': dealRoadWidth,
+        '\\{\\{road_width\\}\\}': dealRoadWidth,
+        '\\{\\{facing\\}\\}': dealFacing,
+        '\\{\\{property_facing\\}\\}': dealFacing,
+        '\\{\\{sizeType\\}\\}': dealFullSpecs,
+        '\\{\\{sizetype\\}\\}': dealFullSpecs,
+        '\\{\\{size_type\\}\\}': dealFullSpecs,
+        '\\{\\{size_label\\}\\}': dealFullSpecs,
+        '\\{\\{property_size\\}\\}': dealFullSpecs,
+        '\\{\\{size\\}\\}': dealFullSpecs,
+        '\\{\\{specs\\}\\}': dealFullSpecs,
+        '\\{\\{ownerMobile\\}\\}': dealOwnerMobile,
+        '\\{\\{ownermobile\\}\\}': dealOwnerMobile,
+        '\\{\\{owner_mobile\\}\\}': dealOwnerMobile,
+        '\\{\\{ownerName\\}\\}': dealOwnerName,
+        '\\{\\{ownername\\}\\}': dealOwnerName,
+        '\\{\\{owner_name\\}\\}': dealOwnerName,
+        '\\{\\{unitNo\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitno\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unit_no\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitNumber\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unitnumber\\}\\}': dealUnitNo || dealRef,
+        '\\{\\{unit_number\\}\\}': dealUnitNo || dealRef,
+        '\\{unit\\}': dealUnitNo || dealRef,
+        '\\{\\{block\\}\\}': dealBlock,
+        '\\{\\{block_name\\}\\}': dealBlock,
+        '\\{\\{unitType\\}\\}': dealUnitType,
+        '\\{\\{unittype\\}\\}': dealUnitType,
         '\\{\\{property_price\\}\\}': dealPrice,
         '\\{\\{price\\}\\}': dealPrice,
         '\\{\\{property_location\\}\\}': dealLoc,
         '\\{\\{location\\}\\}': dealLoc,
         '\\{\\{sector\\}\\}': dealLoc,
-        '\\{\\{property_size\\}\\}': dealSpecs,
-        '\\{\\{size\\}\\}': dealSpecs,
-        '\\{\\{specs\\}\\}': dealSpecs,
         '\\{\\{property_list_default\\}\\}': propertyList,
         '\\{\\{property_list_dtl\\}\\}': propertyList,
         '\\{\\{matchListDefault\\}\\}': propertyList,
@@ -123,7 +197,7 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{shareableId\\}\\}': isMultiDeal ? selectedDeals.map(d => getSafeString(d.dealCode, d._id?.slice(-4).toUpperCase())).join(', ') : dealRef,
         '\\{\\{properties_count\\}\\}': String(selectedDeals.length || 1),
         '\\{\\{match_percentage\\}\\}': '98',
-        '\\{\\{requirement_summary\\}\\}': `${dealSpecs} in ${dealLoc}`,
+        '\\{\\{requirement_summary\\}\\}': `${dealFullSpecs} in ${dealLoc}`,
         '\\{\\{agent_name\\}\\}': 'Bharat Properties',
         '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
         '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
@@ -133,7 +207,7 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{amount\\}\\}': dealPrice,
         '\\{\\{lead_status\\}\\}': 'Verified Deal',
         '\\{\\{lead_stage\\}\\}': 'Ready for Inspection',
-        '\\{\\{lead_requirement\\}\\}': dealSpecs
+        '\\{\\{lead_requirement\\}\\}': dealFullSpecs
     };
 
     let result = rawText;
