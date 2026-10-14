@@ -111,9 +111,11 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     if (dealSizeType && dealSize) {
         const cleanSizeBase = dealSize.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
         const cleanTypeBase = dealSizeType.toLowerCase();
-        if (cleanTypeBase.includes(cleanSizeBase)) {
+        const normSize = cleanSizeBase.replace(/[^a-z0-9]/g, '');
+        const normType = cleanTypeBase.replace(/[^a-z0-9]/g, '');
+        if (normType.includes(normSize)) {
             dealFullSpecs = dealSizeType;
-        } else if (cleanSizeBase.includes(cleanTypeBase)) {
+        } else if (normSize.includes(normType)) {
             dealFullSpecs = dealSize;
         } else {
             dealFullSpecs = `${dealSize} (${dealSizeType})`;

@@ -120,9 +120,11 @@ export function formatSize(sizeObjOrStr, sizeTypeStr = '', defaultVal = '') {
         if (res) {
             const cleanResBase = res.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
             const cleanTypeBase = cleanSizeType.toLowerCase();
-            if (cleanTypeBase.includes(cleanResBase)) {
+            const normRes = cleanResBase.replace(/[^a-z0-9]/g, '');
+            const normType = cleanTypeBase.replace(/[^a-z0-9]/g, '');
+            if (normType.includes(normRes)) {
                 res = cleanSizeType;
-            } else if (cleanResBase.includes(cleanTypeBase)) {
+            } else if (normRes.includes(normType)) {
                 // keep res
             } else {
                 res = `${res} (${cleanSizeType})`;
@@ -375,50 +377,74 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
  * - {#var#}
  * - [var]
  */
-export function interpolateUniversalTemplate(templateText, contextMap) {
+export function interpolateUniversalTemplate(templateText, contextInput) {
     if (!templateText) return '';
+
+    let map;
+    if (contextInput instanceof Map) {
+        map = contextInput;
+    } else if (contextInput?.contextMap instanceof Map) {
+        map = contextInput.contextMap;
+    } else if (contextInput && typeof contextInput === 'object') {
+        const dict = contextInput.namedContext || contextInput;
+        map = new Map(Object.entries(dict));
+    } else {
+        map = new Map();
+    }
+
+    const getVal = (k) => {
+        if (!map) return undefined;
+        if (map.has(k)) return map.get(k);
+        const lower = String(k).toLowerCase();
+        if (map.has(lower)) return map.get(lower);
+        const clean = lower.replace(/[^a-z0-9]/g, '');
+        if (map.has(clean)) return map.get(clean);
+        return undefined;
+    };
+    const hasKey = (k) => getVal(k) !== undefined;
+
     let result = String(templateText);
 
     // 1. Replace special recipient bracket tags
     result = result
-        .replace(/\[Recipient \/ Broker Name\]/gi, contextMap.get('customer_name') || 'Partner')
-        .replace(/\[Recipient \/ Group\]/gi, contextMap.get('customer_name') || 'Partner')
-        .replace(/\[Broker Name\]/gi, contextMap.get('customer_name') || 'Partner')
-        .replace(/\[Customer Name\]/gi, contextMap.get('customer_name') || 'Valued Client');
+        .replace(/\[Recipient \/ Broker Name\]/gi, getVal('customer_name') || 'Partner')
+        .replace(/\[Recipient \/ Group\]/gi, getVal('customer_name') || 'Partner')
+        .replace(/\[Broker Name\]/gi, getVal('customer_name') || 'Partner')
+        .replace(/\[Customer Name\]/gi, getVal('customer_name') || 'Valued Client');
 
     // 2. Replace {{key}} and {{ key }}
     result = result.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawKey) => {
         const key = rawKey.trim();
         // Exact match
-        if (contextMap.has(key)) return contextMap.get(key);
+        if (hasKey(key)) return getVal(key);
         // Lowercase match
         const lowerKey = key.toLowerCase();
-        if (contextMap.has(lowerKey)) return contextMap.get(lowerKey);
+        if (hasKey(lowerKey)) return getVal(lowerKey);
         // Alphanumeric sanitized match
         const cleanKey = lowerKey.replace(/[^a-z0-9]/g, '');
-        if (contextMap.has(cleanKey)) return contextMap.get(cleanKey);
+        if (hasKey(cleanKey)) return getVal(cleanKey);
         return match;
     });
 
     // 3. Replace {#key#} (DLT style)
     result = result.replace(/\{#\s*([^#]+?)\s*#\}/g, (match, rawKey) => {
         const key = rawKey.trim();
-        if (contextMap.has(key)) return contextMap.get(key);
+        if (hasKey(key)) return getVal(key);
         const lowerKey = key.toLowerCase();
-        if (contextMap.has(lowerKey)) return contextMap.get(lowerKey);
+        if (hasKey(lowerKey)) return getVal(lowerKey);
         const cleanKey = lowerKey.replace(/[^a-z0-9]/g, '');
-        if (contextMap.has(cleanKey)) return contextMap.get(cleanKey);
+        if (hasKey(cleanKey)) return getVal(cleanKey);
         return match;
     });
 
     // 4. Replace {key} (Single brace style, but not CSS/JSON blocks)
     result = result.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, rawKey) => {
         const key = rawKey.trim();
-        if (contextMap.has(key)) return contextMap.get(key);
+        if (hasKey(key)) return getVal(key);
         const lowerKey = key.toLowerCase();
-        if (contextMap.has(lowerKey)) return contextMap.get(lowerKey);
+        if (hasKey(lowerKey)) return getVal(lowerKey);
         const cleanKey = lowerKey.replace(/[^a-z0-9]/g, '');
-        if (contextMap.has(cleanKey)) return contextMap.get(cleanKey);
+        if (hasKey(cleanKey)) return getVal(cleanKey);
         return match;
     });
 

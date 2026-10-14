@@ -155,9 +155,11 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
     if (sizeLabelResolved && sizeVal) {
         const cleanVal = String(sizeVal).replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
         const cleanLabel = String(sizeLabelResolved).toLowerCase();
-        if (cleanLabel.includes(cleanVal)) {
+        const normVal = cleanVal.replace(/[^a-z0-9]/g, '');
+        const normLabel = cleanLabel.replace(/[^a-z0-9]/g, '');
+        if (normLabel.includes(normVal)) {
             finalSizeSpec = sizeLabelResolved;
-        } else if (cleanVal.includes(cleanLabel)) {
+        } else if (normVal.includes(normLabel)) {
             finalSizeSpec = sizeVal;
         } else {
             finalSizeSpec = `${sizeVal} (${sizeLabelResolved})`;
