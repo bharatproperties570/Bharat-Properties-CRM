@@ -1156,7 +1156,18 @@ async function _dispatchBNADirectly(data) {
             if (setting?.value && Array.isArray(setting.value)) {
                 const foundTpl = setting.value.find(t => t.id === activeTemplateId || t.name === activeTemplateId);
                 if (foundTpl) {
-                    baseTemplateText = foundTpl.content || foundTpl.body || foundTpl.message || foundTpl.text || '';
+                    const parts = [];
+                    if (foundTpl.headerType === 'TEXT' && foundTpl.headerText && String(foundTpl.headerText).trim()) {
+                        parts.push(String(foundTpl.headerText).trim());
+                    }
+                    const body = foundTpl.content || foundTpl.body || foundTpl.message || foundTpl.text || '';
+                    if (body && String(body).trim()) {
+                        parts.push(String(body).trim());
+                    }
+                    if (foundTpl.footer && String(foundTpl.footer).trim()) {
+                        parts.push(String(foundTpl.footer).trim());
+                    }
+                    baseTemplateText = parts.length > 0 ? parts.join('\n\n') : (foundTpl.content || foundTpl.body || foundTpl.message || foundTpl.text || '');
                 }
             }
         }

@@ -330,3 +330,42 @@ export const renderWhatsAppFormattedText = (text, options = {}) => {
         );
     });
 };
+
+/**
+ * Composes the full WhatsApp Web message by cleanly combining:
+ * 1. Header (if TEXT): prominent header block
+ * 2. Body
+ * 3. Footer: clean footer block
+ *
+ * @param {object} template - The template object with headerType, headerText, body, footer
+ * @returns {string} - The complete composite text ready for interpolation or dispatch
+ */
+export function composeFullWebTemplateText(template) {
+    if (!template) return '';
+    const parts = [];
+
+    // 1. Header (if TEXT)
+    if (template.headerType === 'TEXT' && template.headerText && typeof template.headerText === 'string' && template.headerText.trim()) {
+        const header = template.headerText.trim();
+        parts.push(header);
+    }
+
+    // 2. Body
+    let body = template.body || template.content || template.message || template.text || '';
+    if (!body && Array.isArray(template.components)) {
+        const bodyComp = template.components.find(c => c.type === 'BODY');
+        if (bodyComp) body = bodyComp.text || '';
+    }
+    if (body && typeof body === 'string' && body.trim()) {
+        parts.push(body.trim());
+    }
+
+    // 3. Footer
+    if (template.footer && typeof template.footer === 'string' && template.footer.trim()) {
+        const footer = template.footer.trim();
+        parts.push(footer);
+    }
+
+    return parts.join('\n\n');
+}
+

@@ -13,7 +13,7 @@ import { renderValue } from '../../../utils/renderUtils';
 import toast from 'react-hot-toast';
 import { useUserContext } from '../../../context/UserContext';
 import { useUsers } from '../../../utils/crmHooks';
-import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
+import { renderWhatsAppFormattedText, composeFullWebTemplateText } from '../../../utils/whatsappFormatter';
 
 const getSafeString = (val, defaultVal = '') => {
     if (val === null || val === undefined || val === '') return defaultVal;
@@ -437,14 +437,11 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
 
 function interpolateWebTemplateText(template, ctx) {
     if (!template) return '';
-    let text = template.body || template.content || '';
-    if (!text && Array.isArray(template.components)) {
-        const bodyComp = template.components.find(c => c.type === 'BODY');
-        if (bodyComp) text = bodyComp.text || '';
-    }
+    const text = composeFullWebTemplateText(template);
     if (!text) return '';
     return interpolateTemplateString(text, ctx);
 }
+
 
 function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [], onSuccess }) {
     const { isDark } = useTheme();
@@ -1312,7 +1309,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         : selectedTemplate?.name)
                     : undefined,
                 templateText: channels.whatsapp && isBaileys && selectedWebTemplate 
-                    ? (selectedWebTemplate.body || selectedWebTemplate.content || selectedWebTemplate.message || selectedWebTemplate.text || webTemplatePreviewText) 
+                    ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
                     : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),

@@ -276,7 +276,28 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         <option value="VIDEO">Media (Video)</option>
                     </select>
                     {templateData.headerType === 'TEXT' && (
-                        <input type="text" placeholder="Add a short line of text..." value={templateData.headerText} onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }} />
+                        <div style={{ marginTop: '8px' }}>
+                            <input
+                                type="text"
+                                placeholder="e.g. 🏡 AVAILABLE FOR SALE 🏡 or {{projectName}} Deal Alert"
+                                value={templateData.headerText || ''}
+                                onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })}
+                                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                <span>Quick Icons: {['🏡', '🎯', '📢', '🔥', '✨', '⭐'].map(emoji => (
+                                    <span
+                                        key={emoji}
+                                        onClick={() => setTemplateData({ ...templateData, headerText: (templateData.headerText || '') + (templateData.headerText ? ' ' : '') + emoji })}
+                                        style={{ cursor: 'pointer', padding: '1px 4px', fontSize: '0.85rem' }}
+                                        title={`Add ${emoji}`}
+                                    >
+                                        {emoji}
+                                    </span>
+                                ))}</span>
+                                <span>{(templateData.headerText || '').length} chars</span>
+                            </div>
+                        </div>
                     )}
                     {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && (
                         <div style={{ position: 'relative', padding: '20px', border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: '#ffffff' }}>
@@ -326,23 +347,73 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
                 {/* Footer */}
                 <div style={{ marginBottom: '20px' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Footer <span style={{ fontWeight: 400 }}>• Optional</span></label>
-                    <input type="text" placeholder="Add a short line of text to the bottom..." value={templateData.footer} onChange={e => setTemplateData({ ...templateData, footer: e.target.value })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }} maxLength={60} />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        {(templateData.footer || '').length}/60
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', margin: 0 }}>
+                            Footer <span style={{ fontWeight: 400 }}>• Optional</span>
+                        </label>
+                        {templateData.channel === 'web' && (
+                            <span style={{ fontSize: '0.68rem', color: '#059669', background: '#ecfdf5', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                WhatsApp Web Active
+                            </span>
+                        )}
+                    </div>
+                    <input
+                        type="text"
+                        placeholder={templateData.channel === 'web' ? "e.g. *Bharat Properties* • Suraj Keshwar • ☎️ 9991333570" : "Add a short line of text to the bottom..."}
+                        value={templateData.footer || ''}
+                        onChange={e => setTemplateData({ ...templateData, footer: e.target.value })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
+                        maxLength={templateData.channel === 'web' ? 140 : 60}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        <span>Quick Icons: {['☎️', '📞', '🌐', '📍', '🏢', '🤝'].map(emoji => (
+                            <span
+                                key={emoji}
+                                onClick={() => setTemplateData({ ...templateData, footer: (templateData.footer || '') + (templateData.footer ? ' ' : '') + emoji })}
+                                style={{ cursor: 'pointer', padding: '1px 4px', fontSize: '0.85rem' }}
+                                title={`Add ${emoji}`}
+                            >
+                                {emoji}
+                            </span>
+                        ))}</span>
+                        <span>{(templateData.footer || '').length}/{templateData.channel === 'web' ? 140 : 60}</span>
                     </div>
                 </div>
 
-                {/* Buttons */}
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Buttons <span style={{ fontWeight: 400 }}>• Optional</span></label>
-                        {templateData.buttons.length < 10 && (
-                            <button onClick={addButton} style={{ fontSize: '0.8rem', color: 'var(--primary-color)', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}>
-                                + Add button
-                            </button>
-                        )}
+                {/* Buttons (Hidden for WhatsApp Web) */}
+                {templateData.channel === 'web' ? (
+                    <div style={{
+                        padding: '16px',
+                        background: '#f8fafc',
+                        border: '1px dashed #cbd5e1',
+                        borderRadius: '10px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px'
+                    }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className="fab fa-whatsapp" style={{ fontSize: '18px' }}></i>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.86rem', fontWeight: 700, color: '#1e293b' }}>
+                                Interactive Buttons Hidden for WhatsApp Web
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '3px', lineHeight: '1.45' }}>
+                                WhatsApp Web does not support native clickable button cards. To include links or contact prompts, simply add <code>https://...</code> URLs or phone numbers directly in your body text — WhatsApp renders them as auto-clickable links on recipient phones with zero ban risk. Header and Footer will be seamlessly formatted with your message.
+                            </div>
+                        </div>
                     </div>
+                ) : (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Buttons <span style={{ fontWeight: 400 }}>• Optional</span></label>
+                            {templateData.buttons.length < 10 && (
+                                <button onClick={addButton} style={{ fontSize: '0.8rem', color: 'var(--primary-color)', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}>
+                                    + Add button
+                                </button>
+                            )}
+                        </div>
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {templateData.buttons.map((btn, i) => (
                             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
@@ -427,9 +498,11 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         ))}
                     </div>
                 </div>
+            )}
             </div>
         </div>
     );
+
 
     const renderRCSFields = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -678,7 +751,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                         <div style={{ textAlign: 'right', fontSize: '0.6rem', color: channelType === 'rcs' ? '#4285F4' : 'var(--text-muted)', marginTop: '4px', paddingRight: '8px', paddingBottom: '4px' }}>10:48 AM</div>
                                     </div>
 
-                                    {(channelType === 'whatsapp' || channelType === 'rcs') && templateData.buttons.length > 0 && (
+                                    {((channelType === 'whatsapp' && templateData.channel !== 'web') || channelType === 'rcs') && templateData.buttons.length > 0 && (
                                         <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '92%' }}>
                                             {templateData.buttons.map((btn, i) => (
                                                 <div key={i} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', color: channelType === 'whatsapp' ? '#0ea5e9' : '#4285F4', fontSize: '0.85rem', fontWeight: 600, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
@@ -1058,6 +1131,7 @@ const MessagingSettingsPage = () => {
                 const savedData = {
                     ...data,
                     channel: targetChannel,
+                    buttons: targetChannel === 'web' ? [] : (data.buttons || []),
                     body:    data.body    || data.content || '',
                     content: data.content || data.body    || '',
                     status: targetChannel === 'web' ? 'APPROVED' : (data.status || 'PENDING')

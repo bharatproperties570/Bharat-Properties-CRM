@@ -13,7 +13,7 @@ import { renderValue } from '../../../utils/renderUtils';
 import toast from 'react-hot-toast';
 import { useUserContext } from '../../../context/UserContext';
 import { useUsers } from '../../../utils/crmHooks';
-import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
+import { renderWhatsAppFormattedText, composeFullWebTemplateText } from '../../../utils/whatsappFormatter';
 
 const getSafeString = (val, defaultVal = '') => {
     if (val === null || val === undefined || val === '') return defaultVal;
@@ -399,11 +399,7 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
 
 function interpolateWebTemplateText(template, ctx) {
     if (!template) return '';
-    let text = template.body || template.content || '';
-    if (!text && Array.isArray(template.components)) {
-        const bodyComp = template.components.find(c => c.type === 'BODY');
-        if (bodyComp) text = bodyComp.text || '';
-    }
+    const text = composeFullWebTemplateText(template);
     if (!text) return '';
     return interpolateTemplateString(text, ctx);
 }
