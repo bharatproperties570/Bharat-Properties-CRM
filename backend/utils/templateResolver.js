@@ -111,6 +111,13 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
                 }
             }
         }
+        if (val && typeof val === 'object') {
+            if (val.lookup_value) return val.lookup_value;
+            if (val.name) return val.name;
+            if (val.title) return val.title;
+            if (val.label) return val.label;
+            if (val._id) val = val._id;
+        }
         return val !== undefined && val !== null ? val : '';
     };
 
@@ -306,9 +313,16 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'sizeType': finalSizeSpec || '250 Sq.Yd.',
         'sizetype': finalSizeSpec || '250 Sq.Yd.',
         'size_type': finalSizeSpec || '250 Sq.Yd.',
-        'property_direction': directionResolved || 'North',
-        'property_facing': facingResolved || 'Park Facing',
-        'road_width': roadWidthResolved || '30 Feet',
+        'property_direction': directionResolved || '',
+        'direction': directionResolved || '',
+        'property_facing': facingResolved || '',
+        'facing': facingResolved || '',
+        'road_width': roadWidthResolved || '',
+        'roadWidth': roadWidthResolved || '',
+        'roadwidth': roadWidthResolved || '',
+        'road': roadWidthResolved || '',
+        'builtup_type': builtupTypeResolved || '',
+        'builtupType': builtupTypeResolved || '',
         'property_price': formatCurrency(priceVal, 'Price on Request'),
         'price': formatCurrency(priceVal, 'Price on Request'),
         'amount': formatCurrency(priceVal, 'Price on Request'),

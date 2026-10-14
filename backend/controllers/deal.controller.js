@@ -1474,7 +1474,7 @@ export const getDeals = async (req, res) => {
             { path: 'teams', select: 'name' }
         ];
 
-        // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
+        // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view (with complete specifications)
         const dealListProjection = {
             _id: 1, dealId: 1, projectName: 1, unitNo: 1, unitType: 1, propertyType: 1,
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
@@ -1483,11 +1483,13 @@ export const getDeals = async (req, res) => {
             owner: 1, associatedContact: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1,
             partyStructure: 1, isOwnerSelected: 1, isAssociateSelected: 1,
             associateName: 1, associatePhone: 1, associateEmail: 1,
-            ownerName: 1, ownerPhone: 1, ownerEmail: 1
+            ownerName: 1, ownerPhone: 1, ownerEmail: 1,
+            unitSpecification: 1, direction: 1, facing: 1, roadWidth: 1, orientation: 1, builtupType: 1,
+            remarks: 1, broadcastMetadata: 1, dealCode: 1, shareableId: 1
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng builtUpArea builtupType ageOfConstruction constructionAge owners associates' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification direction facing roadWidth orientation builtupType latitude longitude lat lng builtUpArea ageOfConstruction constructionAge owners associates' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
             { path: 'owner', select: 'name phones emails mobile phone email', model: 'Contact' },
             { path: 'associatedContact', select: 'name phones emails mobile phone email', model: 'Contact' },
@@ -1650,6 +1652,7 @@ export const getDeals = async (req, res) => {
             if (!val) return;
             if (isValidObjectId(val)) lookupIdSet.add(String(val));
             else if (typeof val === 'string') lookupStringSet.add(val.toLowerCase().trim());
+            else if (typeof val === 'object' && val._id && isValidObjectId(val._id)) lookupIdSet.add(String(val._id));
         };
 
         results.records.forEach(deal => {
@@ -1661,6 +1664,20 @@ export const getDeals = async (req, res) => {
             extractRef(deal.location);
             extractRef(deal.unitType);
             extractRef(deal.sizeConfig);
+            extractRef(deal.direction);
+            extractRef(deal.roadWidth);
+            extractRef(deal.facing);
+            extractRef(deal.builtupType);
+            extractRef(deal.orientation);
+
+            if (deal.unitSpecification && typeof deal.unitSpecification === 'object') {
+                extractRef(deal.unitSpecification.direction);
+                extractRef(deal.unitSpecification.roadWidth);
+                extractRef(deal.unitSpecification.facing);
+                extractRef(deal.unitSpecification.builtupType);
+                extractRef(deal.unitSpecification.orientation);
+                extractRef(deal.unitSpecification.sizeConfig);
+            }
 
             const invId = deal.inventoryId?._id || deal.inventoryId;
             let inventory = invId ? inventoryMap.get(String(invId)) : null;
@@ -1678,6 +1695,19 @@ export const getDeals = async (req, res) => {
                 extractRef(inventory.propertyType);
                 extractRef(inventory.unitType);
                 extractRef(inventory.sizeConfig);
+                extractRef(inventory.direction);
+                extractRef(inventory.roadWidth);
+                extractRef(inventory.facing);
+                extractRef(inventory.builtupType);
+                extractRef(inventory.orientation);
+                if (inventory.unitSpecification && typeof inventory.unitSpecification === 'object') {
+                    extractRef(inventory.unitSpecification.direction);
+                    extractRef(inventory.unitSpecification.roadWidth);
+                    extractRef(inventory.unitSpecification.facing);
+                    extractRef(inventory.unitSpecification.builtupType);
+                    extractRef(inventory.unitSpecification.orientation);
+                    extractRef(inventory.unitSpecification.sizeConfig);
+                }
             }
         });
 
@@ -1701,10 +1731,17 @@ export const getDeals = async (req, res) => {
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase().trim(), l]));
 
         const enrichWithLookup = (item, field) => {
+            if (!item) return;
             const val = item[field];
             if (!val) return;
             if (isValidObjectId(val)) {
                 item[field] = lookupMap.get(String(val)) || val;
+            } else if (typeof val === 'object') {
+                if (val._id && lookupMap.has(String(val._id))) {
+                    item[field] = lookupMap.get(String(val._id));
+                } else if (val.lookup_value) {
+                    item[field] = val;
+                }
             } else if (typeof val === 'string') {
                 item[field] = lookupValueMap.get(val.toLowerCase().trim()) || { lookup_value: val };
             }
@@ -1753,7 +1790,10 @@ export const getDeals = async (req, res) => {
                 const sizeUnit = inventory.sizeUnit || inventory.size_unit || inventory.unit || dealObj.sizeUnit;
                 const sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
                 const sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
-                const unitSpec = inventory.unitSpecification || dealObj.unitSpecification;
+                const unitSpec = {
+                    ...(dealObj.unitSpecification || {}),
+                    ...(inventory.unitSpecification || {})
+                };
 
                 dealObj.size = size;
                 dealObj.sizeUnit = sizeUnit;
@@ -1764,7 +1804,7 @@ export const getDeals = async (req, res) => {
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
                     const inv = dealObj.inventoryId;
                     inv.projectName = inventory.projectName || inv.projectName;
-                    inv.unitNo = inventory.unitNo || inv.unitNumber || inv.unitNo;
+                    inv.unitNo = inventory.unitNo || inventory.unitNumber || inv.unitNo;
                     inv.location = inventory.location || inventory.address?.locality || inv.location;
                     inv.category = inventory.category || inv.category;
                     inv.propertyType = inventory.propertyType || inv.propertyType;
@@ -1777,7 +1817,15 @@ export const getDeals = async (req, res) => {
                 }
             }
 
-            // Perform manual lookup resolution for categorical fields (Handles ObjectIds and Strings)
+            // Promote specifications to root level for instant access
+            const currentSpec = dealObj.unitSpecification || {};
+            dealObj.direction = dealObj.direction || currentSpec.direction || inventory?.direction;
+            dealObj.roadWidth = dealObj.roadWidth || currentSpec.roadWidth || inventory?.roadWidth;
+            dealObj.facing = dealObj.facing || currentSpec.facing || inventory?.facing;
+            dealObj.builtupType = dealObj.builtupType || currentSpec.builtupType || inventory?.builtupType;
+            dealObj.orientation = dealObj.orientation || currentSpec.orientation || inventory?.orientation;
+
+            // Perform manual lookup resolution for categorical and specification fields
             enrichWithLookup(dealObj, 'category');
             enrichWithLookup(dealObj, 'subCategory');
             enrichWithLookup(dealObj, 'propertyType');
@@ -1786,6 +1834,20 @@ export const getDeals = async (req, res) => {
             enrichWithLookup(dealObj, 'location');
             enrichWithLookup(dealObj, 'unitType');
             enrichWithLookup(dealObj, 'sizeConfig');
+            enrichWithLookup(dealObj, 'direction');
+            enrichWithLookup(dealObj, 'roadWidth');
+            enrichWithLookup(dealObj, 'facing');
+            enrichWithLookup(dealObj, 'builtupType');
+            enrichWithLookup(dealObj, 'orientation');
+
+            if (dealObj.unitSpecification && typeof dealObj.unitSpecification === 'object') {
+                enrichWithLookup(dealObj.unitSpecification, 'direction');
+                enrichWithLookup(dealObj.unitSpecification, 'roadWidth');
+                enrichWithLookup(dealObj.unitSpecification, 'facing');
+                enrichWithLookup(dealObj.unitSpecification, 'builtupType');
+                enrichWithLookup(dealObj.unitSpecification, 'orientation');
+                enrichWithLookup(dealObj.unitSpecification, 'sizeConfig');
+            }
 
             if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
                 enrichWithLookup(dealObj.inventoryId, 'location');
@@ -1793,6 +1855,11 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.inventoryId, 'propertyType');
                 enrichWithLookup(dealObj.inventoryId, 'unitType');
                 enrichWithLookup(dealObj.inventoryId, 'sizeConfig');
+                enrichWithLookup(dealObj.inventoryId, 'direction');
+                enrichWithLookup(dealObj.inventoryId, 'roadWidth');
+                enrichWithLookup(dealObj.inventoryId, 'facing');
+                enrichWithLookup(dealObj.inventoryId, 'builtupType');
+                enrichWithLookup(dealObj.inventoryId, 'orientation');
             }
 
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -1958,9 +2025,12 @@ export const getDealById = async (req, res) => {
                 dealObj.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.sizeUnit;
                 dealObj.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
                 dealObj.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
-                dealObj.unitSpecification = inventory.unitSpecification || dealObj.unitSpecification;
+                dealObj.unitSpecification = {
+                    ...(dealObj.unitSpecification || {}),
+                    ...(inventory.unitSpecification || {})
+                };
 
-                // Redundancy for nested objec
+                // Redundancy for nested object
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
                     const inv = dealObj.inventoryId;
                     inv.projectName = inventory.projectName || inv.projectName;
@@ -1973,33 +2043,63 @@ export const getDealById = async (req, res) => {
                     inv.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || inv.sizeConfig;
                     inv.size = inventory.size || inv.size;
                     inv.sizeUnit = inventory.sizeUnit || inventory.unit || inv.sizeUnit;
-                    inv.unitSpecification = inventory.unitSpecification || inv.unitSpecification;
+                    inv.unitSpecification = dealObj.unitSpecification;
                 }
             }
 
+        // Promote specifications to root level for direct accessibility
+        const currentSpec = dealObj.unitSpecification || {};
+        dealObj.direction = dealObj.direction || currentSpec.direction || inventory?.direction;
+        dealObj.roadWidth = dealObj.roadWidth || currentSpec.roadWidth || inventory?.roadWidth;
+        dealObj.facing = dealObj.facing || currentSpec.facing || inventory?.facing;
+        dealObj.builtupType = dealObj.builtupType || currentSpec.builtupType || inventory?.builtupType;
+        dealObj.orientation = dealObj.orientation || currentSpec.orientation || inventory?.orientation;
+
         // Manual Enrichment for Mixed fields - MUST BE AFTER INVENTORY MERGE
         const resolveLookupInDoc = async (doc) => {
-            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig'];
+            if (!doc) return;
+            const fields = [
+                'category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig',
+                'direction', 'roadWidth', 'facing', 'builtupType', 'orientation'
+            ];
+            const lookupTypeMap = {
+                category: 'Category', subCategory: 'SubCategory', intent: 'Intent',
+                status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size',
+                direction: 'Direction', roadWidth: 'RoadWidth', facing: 'Facing', builtupType: 'BuiltupType', orientation: 'Orientation'
+            };
             for (const field of fields) {
                 const val = doc[field];
                 if (!val) continue;
 
                 if (typeof val === 'string' && !isValidObjectId(val)) {
-                    // It's a raw string, find or create the lookup
-                    const lookupTypeMap = {
-                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent',
-                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size'
-                    };
                     const lookupType = lookupTypeMap[field] || 'Location';
                     const lookupId = await resolveLookup(lookupType, val);
                     const lookup = await Lookup.findById(lookupId).lean();
                     doc[field] = lookup || { _id: lookupId, lookup_value: val };
                 } else if (isValidObjectId(val) || (typeof val === 'object' && val._id)) {
-                    // It's an ID or already an object, attempt to populate if not already
                     const targetId = val._id || val;
                     if (!val.lookup_value) {
                         const lookup = await Lookup.findById(targetId).lean();
                         if (lookup) doc[field] = lookup;
+                    }
+                }
+            }
+
+            if (doc.unitSpecification && typeof doc.unitSpecification === 'object') {
+                for (const field of ['direction', 'roadWidth', 'facing', 'builtupType', 'orientation', 'sizeConfig']) {
+                    const val = doc.unitSpecification[field];
+                    if (!val) continue;
+                    if (typeof val === 'string' && !isValidObjectId(val)) {
+                        const lookupType = lookupTypeMap[field] || 'Location';
+                        const lookupId = await resolveLookup(lookupType, val);
+                        const lookup = await Lookup.findById(lookupId).lean();
+                        doc.unitSpecification[field] = lookup || { _id: lookupId, lookup_value: val };
+                    } else if (isValidObjectId(val) || (typeof val === 'object' && val._id)) {
+                        const targetId = val._id || val;
+                        if (!val.lookup_value) {
+                            const lookup = await Lookup.findById(targetId).lean();
+                            if (lookup) doc.unitSpecification[field] = lookup;
+                        }
                     }
                 }
             }

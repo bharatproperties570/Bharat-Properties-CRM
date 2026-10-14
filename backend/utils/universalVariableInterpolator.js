@@ -147,18 +147,44 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     const owner = primaryDeal.owner && typeof primaryDeal.owner === 'object' ? primaryDeal.owner : {};
     const partyOwner = primaryDeal.partyStructure?.owner && typeof primaryDeal.partyStructure.owner === 'object' ? primaryDeal.partyStructure.owner : {};
 
+    const primarySpec = (primaryDeal.unitSpecification && typeof primaryDeal.unitSpecification === 'object') ? primaryDeal.unitSpecification : {};
+    const invSpec = (inventory.unitSpecification && typeof inventory.unitSpecification === 'object') ? inventory.unitSpecification : {};
+
     // 1. Resolve Lookups
-    const rawSubCategory = await resolveLookupValue(primaryDeal.subCategory || inventory.subCategory || primaryDeal.propertyType || inventory.category || primaryDeal.category, 'Residential Plot');
-    const subCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
-    const category = await resolveLookupValue(primaryDeal.category || inventory.category || primaryDeal.propertyType, 'Residential');
-    const direction = await resolveLookupValue(primaryDeal.direction || inventory.direction || inventory.orientation, 'North');
-    const roadWidth = await resolveLookupValue(primaryDeal.roadWidth || inventory.roadWidth, '30 Feet');
-    const facing = await resolveLookupValue(primaryDeal.facing || inventory.facing, 'Park Facing');
-    const unitType = await resolveLookupValue(primaryDeal.unitType || inventory.unitType || inventory.builtupType || primaryDeal.builtupType, 'Plot');
-    const builtupType = await resolveLookupValue(primaryDeal.builtupType || inventory.builtupType, 'Plot');
+    const rawSubCategory = await resolveLookupValue(
+        primaryDeal.subCategory || primarySpec.subCategory || inventory.subCategory || invSpec.subCategory || primaryDeal.propertyType || inventory.category || primaryDeal.category,
+        ''
+    );
+    const subCategory = cleanSubCategory(rawSubCategory) || '';
+    const category = await resolveLookupValue(
+        primaryDeal.category || primarySpec.category || inventory.category || invSpec.category || primaryDeal.propertyType,
+        ''
+    );
+    const direction = await resolveLookupValue(
+        primaryDeal.direction || primarySpec.direction || inventory.direction || invSpec.direction || inventory.orientation || primarySpec.orientation,
+        ''
+    );
+    const roadWidth = await resolveLookupValue(
+        primaryDeal.roadWidth || primarySpec.roadWidth || inventory.roadWidth || invSpec.roadWidth,
+        ''
+    );
+    const facing = await resolveLookupValue(
+        primaryDeal.facing || primarySpec.facing || inventory.facing || invSpec.facing,
+        ''
+    );
+    const builtupType = await resolveLookupValue(
+        primaryDeal.builtupType || primarySpec.builtupType || inventory.builtupType || invSpec.builtupType,
+        ''
+    );
+    const unitType = await resolveLookupValue(
+        primaryDeal.unitType || primarySpec.unitType || inventory.unitType || invSpec.unitType || builtupType,
+        ''
+    );
     const rawSizeType = await resolveLookupValue(
         primaryDeal.sizeType || 
+        primarySpec.sizeType ||
         inventory.sizeType || 
+        invSpec.sizeType ||
         primaryDeal.unitSpecification?.sizeLabel || 
         inventory.unitSpecification?.sizeLabel || 
         primaryDeal.sizeLabel || 

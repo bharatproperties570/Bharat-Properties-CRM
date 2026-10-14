@@ -55,14 +55,39 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     const recipientFirstName = recipient?.firstName || (recipientName !== '[Recipient / Broker Name]' ? recipientName.split(' ')[0] : '[Recipient / Broker Name]');
 
     const inv = (deal?.inventoryId && typeof deal.inventoryId === 'object') ? deal.inventoryId : {};
+    const spec = (deal?.unitSpecification && typeof deal.unitSpecification === 'object') ? deal.unitSpecification : {};
+    const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
+
     const dealTitle = getSafeString(meta?.title || deal?.projectName || deal?.title || inv.projectName, 'Featured Deal');
-    const rawSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
-    const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
-    const dealCategory = getSafeString(deal?.category || inv.category || deal?.propertyType, 'Residential');
-    const dealDirection = getSafeString(deal?.direction || inv.direction || inv.orientation, 'North');
-    const dealRoadWidth = getSafeString(deal?.roadWidth || inv.roadWidth, '30 Feet');
-    const dealFacing = getSafeString(deal?.facing || inv.facing, 'Park Facing');
-    const dealUnitType = getSafeString(deal?.unitType || inv.unitType || inv.builtupType, 'Plot');
+    const rawSubCategory = getSafeString(
+        deal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || deal?.propertyType,
+        ''
+    );
+    const dealSubCategory = cleanSubCategory(rawSubCategory) || '';
+    const dealCategory = getSafeString(
+        deal?.category || spec.category || inv.category || invSpec.category || deal?.propertyType,
+        ''
+    );
+    const dealDirection = getSafeString(
+        deal?.direction || spec.direction || inv.direction || invSpec.direction || inv.orientation || spec.orientation,
+        ''
+    );
+    const dealRoadWidth = getSafeString(
+        deal?.roadWidth || spec.roadWidth || inv.roadWidth || invSpec.roadWidth,
+        ''
+    );
+    const dealFacing = getSafeString(
+        deal?.facing || spec.facing || inv.facing || invSpec.facing,
+        ''
+    );
+    const dealBuiltupType = getSafeString(
+        deal?.builtupType || spec.builtupType || inv.builtupType || invSpec.builtupType,
+        ''
+    );
+    const dealUnitType = getSafeString(
+        deal?.unitType || spec.unitType || inv.unitType || invSpec.unitType || dealBuiltupType,
+        ''
+    );
     const dealBlock = getSafeString(deal?.block || inv.block, '');
     const dealUnitNo = getSafeString(deal?.unitNo || deal?.unitNumber || inv.unitNumber || inv.unitNo, '');
     
@@ -214,11 +239,17 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         '\\{\\{category\\}\\}': dealCategory,
         '\\{\\{direction\\}\\}': dealDirection,
         '\\{\\{property_direction\\}\\}': dealDirection,
+        '\\{\\{propertydirection\\}\\}': dealDirection,
         '\\{\\{roadWidth\\}\\}': dealRoadWidth,
         '\\{\\{roadwidth\\}\\}': dealRoadWidth,
         '\\{\\{road_width\\}\\}': dealRoadWidth,
+        '\\{\\{road\\}\\}': dealRoadWidth,
         '\\{\\{facing\\}\\}': dealFacing,
         '\\{\\{property_facing\\}\\}': dealFacing,
+        '\\{\\{propertyfacing\\}\\}': dealFacing,
+        '\\{\\{builtupType\\}\\}': dealBuiltupType,
+        '\\{\\{builtuptype\\}\\}': dealBuiltupType,
+        '\\{\\{builtup_type\\}\\}': dealBuiltupType,
         '\\{\\{sizeType\\}\\}': dealFullSpecs,
         '\\{\\{sizetype\\}\\}': dealFullSpecs,
         '\\{\\{size_type\\}\\}': dealFullSpecs,
@@ -691,12 +722,35 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         );
 
         const inv = (deal?.inventoryId && typeof deal.inventoryId === 'object') ? deal.inventoryId : {};
-        const rawSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
-        const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
-        const dealCategory = getSafeString(deal?.category || inv.category || deal?.propertyType, 'Residential');
-        const dealDirection = getSafeString(deal?.direction || inv.direction || inv.orientation, 'North');
-        const dealRoadWidth = getSafeString(deal?.roadWidth || inv.roadWidth, '30 Feet');
-        const dealFacing = getSafeString(deal?.facing || inv.facing, 'Park Facing');
+        const spec = (deal?.unitSpecification && typeof deal.unitSpecification === 'object') ? deal.unitSpecification : {};
+        const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
+
+        const rawSubCategory = getSafeString(
+            deal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || deal?.propertyType,
+            ''
+        );
+        const dealSubCategory = cleanSubCategory(rawSubCategory) || '';
+        const dealCategory = getSafeString(
+            deal?.category || spec.category || inv.category || invSpec.category || deal?.propertyType,
+            ''
+        );
+        const dealDirection = getSafeString(
+            deal?.direction || spec.direction || inv.direction || invSpec.direction || inv.orientation || spec.orientation,
+            ''
+        );
+        const dealRoadWidth = getSafeString(
+            deal?.roadWidth || spec.roadWidth || inv.roadWidth || invSpec.roadWidth,
+            ''
+        );
+        const dealFacing = getSafeString(
+            deal?.facing || spec.facing || inv.facing || invSpec.facing,
+            ''
+        );
+        const dealBuiltupType = getSafeString(
+            deal?.builtupType || spec.builtupType || inv.builtupType || invSpec.builtupType,
+            ''
+        );
+        const dealBlock = getSafeString(deal?.block || inv.block, '');
         const dealUnitNo = getSafeString(deal?.unitNo || deal?.unitNumber || inv.unitNumber || inv.unitNo, '');
         
         let dealSize = '';
@@ -770,12 +824,24 @@ function MarketingTab({ dealId, deal, onRefresh }) {
             propertycategory: dealCategory,
             category: dealCategory,
             direction: dealDirection,
+            propertydirection: dealDirection,
+            property_direction: dealDirection,
             roadwidth: dealRoadWidth,
+            roadWidth: dealRoadWidth,
+            road_width: dealRoadWidth,
+            road: dealRoadWidth,
             facing: dealFacing,
+            propertyfacing: dealFacing,
+            property_facing: dealFacing,
+            builtuptype: dealBuiltupType,
+            builtupType: dealBuiltupType,
+            builtup_type: dealBuiltupType,
             sizetype: dealFullSpecs,
             size: dealFullSpecs,
             specs: dealFullSpecs,
             unitno: dealUnitNo || getSafeString(deal?.dealCode, 'DEAL-REF'),
+            unit_no: dealUnitNo || getSafeString(deal?.dealCode, 'DEAL-REF'),
+            block: dealBlock,
             companyname: 'Bharat Properties'
         };
 
@@ -800,10 +866,26 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 case 'size':
                 case 'specs':
                     return dealFullSpecs;
-                case 'direction': return dealDirection;
+                case 'direction':
+                case 'property_direction':
+                case 'propertyDirection':
+                    return dealDirection;
                 case 'roadWidth':
-                case 'roadwidth': return dealRoadWidth;
-                case 'facing': return dealFacing;
+                case 'roadwidth':
+                case 'road_width':
+                case 'road':
+                    return dealRoadWidth;
+                case 'facing':
+                case 'property_facing':
+                case 'propertyFacing':
+                    return dealFacing;
+                case 'builtupType':
+                case 'builtuptype':
+                case 'builtup_type':
+                    return dealBuiltupType;
+                case 'block':
+                case 'block_name':
+                    return dealBlock;
                 case 'projectName': return getSafeString(meta.title, '');
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');

@@ -71,14 +71,39 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     };
 
     const inv = (singleDeal?.inventoryId && typeof singleDeal.inventoryId === 'object') ? singleDeal.inventoryId : {};
+    const spec = (singleDeal?.unitSpecification && typeof singleDeal.unitSpecification === 'object') ? singleDeal.unitSpecification : {};
+    const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
+
     const dealTitle = getSafeString(meta.title || singleDeal?.projectName || singleDeal?.title || inv.projectName, 'Featured Deal');
-    const rawSubCategory = getSafeString(singleDeal?.subCategory || inv.subCategory || singleDeal?.propertyType, 'Residential Plot');
-    const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
-    const dealCategory = getSafeString(singleDeal?.category || inv.category || singleDeal?.propertyType, 'Residential');
-    const dealDirection = getSafeString(singleDeal?.direction || inv.direction || inv.orientation, 'North');
-    const dealRoadWidth = getSafeString(singleDeal?.roadWidth || inv.roadWidth, '30 Feet');
-    const dealFacing = getSafeString(singleDeal?.facing || inv.facing, 'Park Facing');
-    const dealUnitType = getSafeString(singleDeal?.unitType || inv.unitType || inv.builtupType, 'Plot');
+    const rawSubCategory = getSafeString(
+        singleDeal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || singleDeal?.propertyType,
+        ''
+    );
+    const dealSubCategory = cleanSubCategory(rawSubCategory) || '';
+    const dealCategory = getSafeString(
+        singleDeal?.category || spec.category || inv.category || invSpec.category || singleDeal?.propertyType,
+        ''
+    );
+    const dealDirection = getSafeString(
+        singleDeal?.direction || spec.direction || inv.direction || invSpec.direction || inv.orientation || spec.orientation,
+        ''
+    );
+    const dealRoadWidth = getSafeString(
+        singleDeal?.roadWidth || spec.roadWidth || inv.roadWidth || invSpec.roadWidth,
+        ''
+    );
+    const dealFacing = getSafeString(
+        singleDeal?.facing || spec.facing || inv.facing || invSpec.facing,
+        ''
+    );
+    const dealBuiltupType = getSafeString(
+        singleDeal?.builtupType || spec.builtupType || inv.builtupType || invSpec.builtupType,
+        ''
+    );
+    const dealUnitType = getSafeString(
+        singleDeal?.unitType || spec.unitType || inv.unitType || invSpec.unitType || dealBuiltupType,
+        ''
+    );
     const dealBlock = getSafeString(singleDeal?.block || inv.block, '');
     const dealUnitNo = getSafeString(singleDeal?.unitNo || singleDeal?.unitNumber || inv.unitNumber || inv.unitNo, '');
     
@@ -252,11 +277,17 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{category\\}\\}': dealCategory,
         '\\{\\{direction\\}\\}': dealDirection,
         '\\{\\{property_direction\\}\\}': dealDirection,
+        '\\{\\{propertydirection\\}\\}': dealDirection,
         '\\{\\{roadWidth\\}\\}': dealRoadWidth,
         '\\{\\{roadwidth\\}\\}': dealRoadWidth,
         '\\{\\{road_width\\}\\}': dealRoadWidth,
+        '\\{\\{road\\}\\}': dealRoadWidth,
         '\\{\\{facing\\}\\}': dealFacing,
         '\\{\\{property_facing\\}\\}': dealFacing,
+        '\\{\\{propertyfacing\\}\\}': dealFacing,
+        '\\{\\{builtupType\\}\\}': dealBuiltupType,
+        '\\{\\{builtuptype\\}\\}': dealBuiltupType,
+        '\\{\\{builtup_type\\}\\}': dealBuiltupType,
         '\\{\\{sizeType\\}\\}': dealFullSpecs,
         '\\{\\{sizetype\\}\\}': dealFullSpecs,
         '\\{\\{size_type\\}\\}': dealFullSpecs,
@@ -719,8 +750,31 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         }
     };
 
-    // Primary deal metadata for single-deal mode
-    const singleDeal = selectedDeals[0] || null;
+    // Auto-hydrate single deal from server to ensure 100% database specifications fidelity
+    const [hydratedSingleDeal, setHydratedSingleDeal] = useState(null);
+
+    useEffect(() => {
+        if (!isOpen || !selectedDeals || selectedDeals.length === 0) {
+            setHydratedSingleDeal(null);
+            return;
+        }
+        const initial = selectedDeals[0];
+        setHydratedSingleDeal(initial);
+
+        if (selectedDeals.length === 1 && initial?._id) {
+            api.get(`/deals/${initial._id}`).then(res => {
+                const full = res.data?.data || res.data?.deal || res.data;
+                if (full && full._id) {
+                    setHydratedSingleDeal(full);
+                }
+            }).catch(err => {
+                console.warn('[DealBroadcastModal] Could not hydrate deal details:', err);
+            });
+        }
+    }, [isOpen, selectedDeals?.[0]?._id]);
+
+    // Primary deal metadata for single-deal mode (using live hydrated deal when available)
+    const singleDeal = hydratedSingleDeal || selectedDeals[0] || null;
     const singleMeta = singleDeal ? (dealsMeta[singleDeal._id] || singleDeal.broadcastMetadata) : null;
     const isSingleReady = Boolean(singleMeta?.isReady);
 
@@ -863,6 +917,20 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             'Everyone'
         );
 
+        const spec = (singleDeal?.unitSpecification && typeof singleDeal.unitSpecification === 'object') ? singleDeal.unitSpecification : {};
+        const inv = (singleDeal?.inventoryId && typeof singleDeal.inventoryId === 'object') ? singleDeal.inventoryId : {};
+        const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
+
+        const dealDirection = getSafeString(singleDeal?.direction || spec.direction || inv.direction || invSpec.direction || inv.orientation || spec.orientation, '');
+        const dealRoadWidth = getSafeString(singleDeal?.roadWidth || spec.roadWidth || inv.roadWidth || invSpec.roadWidth, '');
+        const dealFacing = getSafeString(singleDeal?.facing || spec.facing || inv.facing || invSpec.facing, '');
+        const dealBuiltupType = getSafeString(singleDeal?.builtupType || spec.builtupType || inv.builtupType || invSpec.builtupType, '');
+        const rawSubCategory = getSafeString(singleDeal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || singleDeal?.propertyType, '');
+        const dealSubCategory = cleanSubCategory(rawSubCategory) || '';
+        const dealCategory = getSafeString(singleDeal?.category || spec.category || inv.category || invSpec.category || singleDeal?.propertyType, '');
+        const dealUnitNo = getSafeString(singleDeal?.unitNo || singleDeal?.unitNumber || inv.unitNumber || inv.unitNo, '');
+        const dealBlock = getSafeString(singleDeal?.block || inv.block, '');
+
         const metaVarLookup = {
             employeename: employeeName,
             employeemobile: employeeMobile,
@@ -887,7 +955,28 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             location: getSafeString(meta.location, ''),
             price: getSafeString(meta.price, ''),
             description: getSafeString(meta.description, ''),
-            companyname: 'Bharat Properties'
+            companyname: 'Bharat Properties',
+            direction: dealDirection,
+            propertydirection: dealDirection,
+            property_direction: dealDirection,
+            roadwidth: dealRoadWidth,
+            roadWidth: dealRoadWidth,
+            road_width: dealRoadWidth,
+            road: dealRoadWidth,
+            facing: dealFacing,
+            propertyfacing: dealFacing,
+            property_facing: dealFacing,
+            builtuptype: dealBuiltupType,
+            builtupType: dealBuiltupType,
+            builtup_type: dealBuiltupType,
+            subcategory: dealSubCategory,
+            subCategory: dealSubCategory,
+            category: dealCategory,
+            property_category: dealCategory,
+            unitno: dealUnitNo,
+            unitnumber: dealUnitNo,
+            unit_no: dealUnitNo,
+            block: dealBlock
         };
 
         const resolveSource = (source, idx) => {
@@ -907,6 +996,30 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');
                 case 'description': return getSafeString(meta.description, '');
+                case 'direction':
+                case 'property_direction':
+                case 'propertyDirection':
+                    return dealDirection;
+                case 'roadWidth':
+                case 'roadwidth':
+                case 'road_width':
+                case 'road':
+                    return dealRoadWidth;
+                case 'facing':
+                case 'property_facing':
+                case 'propertyFacing':
+                    return dealFacing;
+                case 'builtupType':
+                case 'builtuptype':
+                case 'builtup_type':
+                    return dealBuiltupType;
+                case 'subCategory':
+                case 'subcategory':
+                case 'sub_category':
+                    return dealSubCategory;
+                case 'category':
+                case 'property_category':
+                    return dealCategory;
                 case 'agentMobile':
                 case 'agent_mobile':
                 case 'EmployeeMobile':
@@ -1197,7 +1310,9 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
                         : selectedTemplate?.name)
                     : undefined,
-                templateText: channels.whatsapp && isBaileys && selectedWebTemplate ? webTemplatePreviewText : undefined,
+                templateText: channels.whatsapp && isBaileys && selectedWebTemplate 
+                    ? (selectedWebTemplate.body || selectedWebTemplate.content || selectedWebTemplate.message || selectedWebTemplate.text || webTemplatePreviewText) 
+                    : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
                 // Omnichannel Template Payloads for SMS, RCS, and Email
