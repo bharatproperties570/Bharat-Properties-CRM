@@ -88,6 +88,7 @@ const LeadSchema = new mongoose.Schema({
     isContacted: { type: Boolean, default: false },
     department: { type: String, index: true }, // Explicit branch/regional isolation
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     assignment: {
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -304,6 +305,19 @@ LeadSchema.pre('save', async function (next) {
         }
     }
 
+    // --- Assignment & Visibility Synchronization ---
+    const primaryRM = this.assignedTo || this.owner || this.assignment?.assignedTo;
+    if (primaryRM) {
+        const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
+            ? new mongoose.Types.ObjectId(primaryRM)
+            : primaryRM;
+
+        this.assignedTo = primaryRMId;
+        this.owner = primaryRMId;
+        if (!this.assignment) this.assignment = {};
+        this.assignment.assignedTo = primaryRMId;
+    }
+
     next();
 });
 
@@ -314,19 +328,29 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     // 🚀 ENTERPRISE UPDATE SANITIZER
     if (update.$set) await sanitizeLeadData(update.$set);
     else await sanitizeLeadData(update);
-    const primaryRM = update.owner || (update.assignment && update.assignment.assignedTo) || (update['assignment.assignedTo']);
+    const primaryRM = update.assignedTo || update.owner || (update.assignment && update.assignment.assignedTo) || (update['assignment.assignedTo']) || (update.$set && (update.$set.assignedTo || update.$set.owner || update.$set['assignment.assignedTo']));
     if (primaryRM) {
         const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
             ? new mongoose.Types.ObjectId(primaryRM)
             : primaryRM;
 
-        update.owner = primaryRMId;
-        if (update.assignment && typeof update.assignment === 'object') {
-            update.assignment.assignedTo = primaryRMId;
+        if (update.$set) {
+            update.$set.assignedTo = primaryRMId;
+            update.$set.owner = primaryRMId;
+            if (update.$set.assignment && typeof update.$set.assignment === 'object') {
+                update.$set.assignment.assignedTo = primaryRMId;
+            } else if (!update.$set['assignment']) {
+                update.$set['assignment.assignedTo'] = primaryRMId;
+            }
         } else {
-            update['assignment.assignedTo'] = primaryRMId;
+            update.assignedTo = primaryRMId;
+            update.owner = primaryRMId;
+            if (update.assignment && typeof update.assignment === 'object') {
+                update.assignment.assignedTo = primaryRMId;
+            } else {
+                update['assignment.assignedTo'] = primaryRMId;
+            }
         }
-
     }
 
     // Sync team fields in updates

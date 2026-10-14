@@ -1493,8 +1493,16 @@ export const sendReply = async (req, res) => {
         if (outgoingMessage && outgoingMessage.includes('{{')) {
             try {
                 const cleanPhone10 = cleanPhone.replace(/\D/g, '').slice(-10);
-                const leadDoc = await Lead.findOne({ mobile: { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean();
-                const contactDoc = !leadDoc ? await Contact.findOne({ 'phones.number': { $regex: cleanPhone10 + '$' } }).populate('assignedTo', 'fullName name mobile phone email').lean() : null;
+                const leadDoc = await Lead.findOne({ mobile: { $regex: cleanPhone10 + '$' } })
+                    .populate('assignedTo', 'fullName name mobile phone email')
+                    .populate('assignment.assignedTo', 'fullName name mobile phone email')
+                    .populate('owner', 'fullName name mobile phone email')
+                    .lean();
+                const contactDoc = !leadDoc ? await Contact.findOne({ 'phones.number': { $regex: cleanPhone10 + '$' } })
+                    .populate('assignedTo', 'fullName name mobile phone email')
+                    .populate('assignment.assignedTo', 'fullName name mobile phone email')
+                    .populate('owner', 'fullName name mobile phone email')
+                    .lean() : null;
                 outgoingMessage = interpolateTemplateText(outgoingMessage, {
                     recipient: leadDoc || contactDoc || { mobile: cleanPhone },
                     agent: {
@@ -2321,9 +2329,26 @@ export const getThreadHistory = async (req, res) => {
                 ]
             }).sort({ createdAt: 1 }).lean(),
             Conversation.find(convQuery).lean(),
-            mongoose.models.SystemSetting ? mongoose.models.SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean().catch(() => null) : null,
-            phoneRegex ? Lead.findOne({ mobile: phoneRegex }).populate('assignedTo', 'fullName name mobile phone email').lean() : null,
-            phoneRegex ? Contact.findOne({ 'phones.number': phoneRegex }).populate('assignedTo', 'fullName name mobile phone email').lean() : null
+            (async () => {
+                try {
+                    const SystemSetting = mongoose.models.SystemSetting || mongoose.model('SystemSetting');
+                    let s = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                    if (!s && mongoose.connection.db) {
+                        s = await mongoose.connection.db.collection('systemsettings').findOne({ key: 'crm_whatsapp_templates' });
+                    }
+                    return s;
+                } catch (e) { return null; }
+            })(),
+            phoneRegex ? Lead.findOne({ mobile: phoneRegex })
+                .populate('assignedTo', 'fullName name mobile phone email')
+                .populate('assignment.assignedTo', 'fullName name mobile phone email')
+                .populate('owner', 'fullName name mobile phone email')
+                .lean() : null,
+            phoneRegex ? Contact.findOne({ 'phones.number': phoneRegex })
+                .populate('assignedTo', 'fullName name mobile phone email')
+                .populate('assignment.assignedTo', 'fullName name mobile phone email')
+                .populate('owner', 'fullName name mobile phone email')
+                .lean() : null
         ]);
 
         // Collect linked Deal IDs for any marketing broadcasts
@@ -2337,6 +2362,10 @@ export const getThreadHistory = async (req, res) => {
                 deals.forEach(d => dealMap.set(d._id.toString(), d));
             } catch (dErr) {}
         }
+
+        const leadAgent = matchedLead?.assignedTo || matchedLead?.assignment?.assignedTo || (typeof matchedLead?.owner === 'object' ? matchedLead?.owner : null);
+        const contactAgent = matchedContact?.assignedTo || matchedContact?.assignment?.assignedTo || (typeof matchedContact?.owner === 'object' ? matchedContact?.owner : null);
+        const activeAgent = leadAgent || contactAgent;
 
         const recipientContext = {
             firstName: matchedLead?.firstName || (matchedContact?.name ? matchedContact.name.split(' ')[0] : '') || '',
@@ -2352,9 +2381,9 @@ export const getThreadHistory = async (req, res) => {
         };
 
         const agentContext = {
-            fullName: matchedLead?.assignedTo?.fullName || matchedLead?.assignedTo?.name || matchedContact?.assignedTo?.fullName || req.user?.fullName || 'Bharat Properties Consultant',
-            mobile: matchedLead?.assignedTo?.mobile || matchedLead?.assignedTo?.phone || req.user?.phone || '+91 94160 35570',
-            email: matchedLead?.assignedTo?.email || req.user?.email || 'info@bharatproperties.co'
+            fullName: activeAgent?.fullName || activeAgent?.name || req.user?.fullName || 'Bharat Properties Consultant',
+            mobile: activeAgent?.mobile || activeAgent?.phone || req.user?.phone || '+91 94160 35570',
+            email: activeAgent?.email || req.user?.email || 'info@bharatproperties.co'
         };
 
         // Build fast template lookup cache
