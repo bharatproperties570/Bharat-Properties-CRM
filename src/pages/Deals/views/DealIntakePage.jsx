@@ -14,8 +14,10 @@ import UploadSummaryModal from '../../../components/UploadSummaryModal';
 import QuickDealForm from '../../../components/QuickDealForm';
 import { intakeAPI, api } from '../../../utils/api';
 import { renderValue } from '../../../utils/renderUtils';
+import { useDeals, useAddDealMutation } from '../../../utils/crmHooks';
 
 const DealIntakePage = () => {
+    const { isDark } = useTheme();
     // Shared State
     const [intakeItems, setIntakeItems] = useState([]);
     const [currentItem, setCurrentItem] = useState(null);
