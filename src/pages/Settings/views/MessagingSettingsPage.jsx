@@ -8,6 +8,7 @@ import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database,
 import smsService from '../../../services/smsService';
 import whatsappService from '../../../services/whatsappService';
 import VariableTextarea from '../../../components/VariableTextarea';
+import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
 
 
 // --- Sub-Components ---
@@ -656,7 +657,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                     <div style={{ background: channelType === 'rcs' ? '#e8f0fe' : 'var(--bg-card)', padding: channelType === 'rcs' ? '0' : '8px', borderRadius: '12px', maxWidth: '92%', position: 'relative', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
                                         {channelType === 'whatsapp' && templateData.headerType !== 'NONE' && (
                                             <div style={{ background: 'var(--bg-light)', borderRadius: '8px', padding: '12px', marginBottom: '8px', fontSize: '0.75rem', fontWeight: 700, textAlign: 'center' }}>
-                                                {templateData.headerType === 'TEXT' ? (templateData.headerText || 'Header Text') : `[${templateData.headerType} Media]`}
+                                                {templateData.headerType === 'TEXT' ? (renderWhatsAppFormattedText(templateData.headerText) || 'Header Text') : `[${templateData.headerType} Media]`}
                                             </div>
                                         )}
                                         {channelType === 'rcs' && (
@@ -664,11 +665,15 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                                 <i className="fas fa-image" style={{ fontSize: '1.5rem' }}></i>
                                             </div>
                                         )}
-                                        <div style={{ padding: channelType === 'rcs' ? '12px' : '0 4px', fontSize: '0.85rem', color: 'var(--text-main)', whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>
-                                            {templateData.body || (channelType === 'whatsapp' ? 'Message body...' : channelType === 'rcs' ? 'Enter rich content...' : 'Enter SMS content...')}
+                                        <div style={{ padding: channelType === 'rcs' ? '12px' : '0 4px', fontSize: '0.85rem', color: 'var(--text-main)', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+                                            {templateData.body ? (
+                                                channelType === 'whatsapp' ? renderWhatsAppFormattedText(templateData.body) : templateData.body
+                                            ) : (channelType === 'whatsapp' ? 'Message body...' : channelType === 'rcs' ? 'Enter rich content...' : 'Enter SMS content...')}
                                         </div>
                                         {channelType === 'whatsapp' && templateData.footer && (
-                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px' }}>{templateData.footer}</div>
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px', fontStyle: 'italic' }}>
+                                                {renderWhatsAppFormattedText(templateData.footer)}
+                                            </div>
                                         )}
                                         <div style={{ textAlign: 'right', fontSize: '0.6rem', color: channelType === 'rcs' ? '#4285F4' : 'var(--text-muted)', marginTop: '4px', paddingRight: '8px', paddingBottom: '4px' }}>10:48 AM</div>
                                     </div>

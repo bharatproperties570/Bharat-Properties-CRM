@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { variableDictionary } from '../constants/variableDictionary';
+import { UNICODE_FONTS, QUICK_EMOJIS, EMOJI_CATEGORIES } from '../utils/whatsappFormatter';
 
 // Type badge color map
 const TYPE_COLORS = {
@@ -55,11 +56,23 @@ const getCaretCoordinates = (element, position) => {
     return coordinates;
 };
 
-const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight = '120px', showQuickPills = true }) => {
+const VariableTextarea = ({
+    value = '',
+    onChange,
+    placeholder,
+    style,
+    minHeight = '120px',
+    showQuickPills = true,
+    showFormattingToolbar = true,
+    showEmojiPicker = true,
+    showFontStyles = true
+}) => {
     const textareaRef = useRef(null);
     const dropdownRef = useRef(null);
     const pickerRef = useRef(null);
-    
+    const emojiPickerRef = useRef(null);
+    const fontDropdownRef = useRef(null);
+
     // Autocomplete dropdown state (on typing `{{`)
     const [mentionState, setMentionState] = useState({
         isOpen: false, query: '', startIndex: -1, top: 0, left: 0, selectedIndex: 0
@@ -69,6 +82,14 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [pickerSearch, setPickerSearch] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('ALL');
+
+    // Emoji Popover state
+    const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+    const [emojiSearch, setEmojiSearch] = useState('');
+    const [activeEmojiCategory, setActiveEmojiCategory] = useState('realestate');
+
+    // Font Style Dropdown state
+    const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
 
     const filteredVariables = useMemo(() =>
         variableDictionary.filter(v =>
@@ -100,12 +121,23 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
         });
     }, [selectedCategory, pickerSearch]);
 
-    // Categories list for picker filter tabs
-    const categoriesList = useMemo(() => {
-        const set = new Set();
-        variableDictionary.forEach(v => set.add(v.category));
-        return ['ALL', ...Array.from(set)];
-    }, []);
+    // Filtered emojis for the emoji popover
+    const filteredEmojis = useMemo(() => {
+        if (!emojiSearch.trim()) {
+            const cat = EMOJI_CATEGORIES.find(c => c.id === activeEmojiCategory);
+            return cat ? cat.emojis : [];
+        }
+        const query = emojiSearch.toLowerCase().trim();
+        const results = [];
+        EMOJI_CATEGORIES.forEach(cat => {
+            cat.emojis.forEach(item => {
+                if (item.name.toLowerCase().includes(query) || item.char.includes(query)) {
+                    results.push(item);
+                }
+            });
+        });
+        return results;
+    }, [emojiSearch, activeEmojiCategory]);
 
     const handleTextChange = (e) => {
         const val = e.target.value || '';
@@ -128,6 +160,34 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
         }
     };
 
+    // Generic insert text at cursor / replace selection
+    const insertTextAtCursor = (textToInsert, selectLength = 0) => {
+        const curVal = value || '';
+        const el = textareaRef.current;
+        let start = curVal.length;
+        let end = curVal.length;
+        if (el && typeof el.selectionStart === 'number') {
+            start = el.selectionStart;
+            end = el.selectionEnd;
+        }
+        const textBefore = curVal.substring(0, start);
+        const textAfter = curVal.substring(end);
+        const newText = `${textBefore}${textToInsert}${textAfter}`;
+        onChange({ target: { value: newText } });
+
+        setTimeout(() => {
+            if (el) {
+                el.focus();
+                if (selectLength > 0) {
+                    el.setSelectionRange(start, start + selectLength);
+                } else {
+                    const pos = start + textToInsert.length;
+                    el.setSelectionRange(pos, pos);
+                }
+            }
+        }, 0);
+    };
+
     // Insert variable from inline dropdown (replaces typed {{query)
     const insertVariable = (variableId) => {
         if (!textareaRef.current) return;
@@ -148,30 +208,137 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
 
     // Insert variable directly at caret from chip/picker click
     const insertVariableAtCursor = (variableId) => {
-        const curVal = value || '';
-        const el = textareaRef.current;
-        let start = curVal.length;
-        let end = curVal.length;
-        if (el && typeof el.selectionStart === 'number') {
-            start = el.selectionStart;
-            end = el.selectionEnd;
-        }
-        const textBefore = curVal.substring(0, start);
-        const textAfter = curVal.substring(end);
-        const inserted = `{{${variableId}}}`;
-        onChange({ target: { value: `${textBefore}${inserted}${textAfter}` } });
+        insertTextAtCursor(`{{${variableId}}}`);
         setIsPickerOpen(false);
         setMentionState(prev => ({ ...prev, isOpen: false }));
-        setTimeout(() => {
-            if (el) {
-                el.focus();
-                const pos = start + inserted.length;
-                el.setSelectionRange(pos, pos);
+    };
+
+    // WhatsApp formatting wrapper (Bold, Italic, Strikethrough, Monospace)
+    const applyFormatting = (prefix, suffix = prefix) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const curVal = value || '';
+        const start = el.selectionStart ?? curVal.length;
+        const end = el.selectionEnd ?? curVal.length;
+        const selected = curVal.substring(start, end);
+
+        let newText = '';
+        let newStart = start;
+        let newEnd = end;
+
+        if (start === end) {
+            // No selection: insert placeholder and select it
+            const placeholder = prefix === '*' ? 'bold text' : prefix === '_' ? 'italic text' : prefix === '~' ? 'strikethrough text' : prefix.startsWith('```') ? 'code' : 'text';
+            newText = `${curVal.substring(0, start)}${prefix}${placeholder}${suffix}${curVal.substring(end)}`;
+            newStart = start + prefix.length;
+            newEnd = newStart + placeholder.length;
+        } else {
+            // Check if selected text is already wrapped
+            const pLen = prefix.length;
+            const sLen = suffix.length;
+            const hasOuterWrap = curVal.substring(start - pLen, start) === prefix && curVal.substring(end, end + sLen) === suffix;
+            const hasInnerWrap = selected.startsWith(prefix) && selected.endsWith(suffix) && selected.length >= (pLen + sLen);
+
+            if (hasOuterWrap) {
+                // Unwrap outer
+                newText = `${curVal.substring(0, start - pLen)}${selected}${curVal.substring(end + sLen)}`;
+                newStart = start - pLen;
+                newEnd = newStart + selected.length;
+            } else if (hasInnerWrap) {
+                // Unwrap inner
+                const unwrapped = selected.substring(pLen, selected.length - sLen);
+                newText = `${curVal.substring(0, start)}${unwrapped}${curVal.substring(end)}`;
+                newStart = start;
+                newEnd = start + unwrapped.length;
+            } else {
+                // Wrap text
+                newText = `${curVal.substring(0, start)}${prefix}${selected}${suffix}${curVal.substring(end)}`;
+                newStart = start + prefix.length;
+                newEnd = end + prefix.length;
             }
+        }
+
+        onChange({ target: { value: newText } });
+        setTimeout(() => {
+            el.focus();
+            el.setSelectionRange(newStart, newEnd);
         }, 0);
     };
 
+    // Apply list or quote prefix to lines
+    const applyLinePrefix = (type) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const curVal = value || '';
+        const start = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? 0;
+
+        const lastNewlineBefore = curVal.lastIndexOf('\n', start - 1);
+        const lineStart = lastNewlineBefore === -1 ? 0 : lastNewlineBefore + 1;
+        const nextNewlineAfter = curVal.indexOf('\n', end);
+        const lineEnd = nextNewlineAfter === -1 ? curVal.length : nextNewlineAfter;
+
+        const selectedLines = curVal.substring(lineStart, lineEnd).split('\n');
+        const formatted = selectedLines.map((line, idx) => {
+            if (type === 'bullet') {
+                return line.startsWith('👉 ') ? line.substring(3) : line.startsWith('- ') ? line.substring(2) : `👉 ${line}`;
+            } else if (type === 'number') {
+                const match = line.match(/^\d+\.\s/);
+                return match ? line.substring(match[0].length) : `${idx + 1}. ${line}`;
+            } else if (type === 'quote') {
+                return line.startsWith('> ') ? line.substring(2) : `> ${line}`;
+            }
+            return line;
+        });
+
+        const newBlock = formatted.join('\n');
+        const newText = `${curVal.substring(0, lineStart)}${newBlock}${curVal.substring(lineEnd)}`;
+        onChange({ target: { value: newText } });
+        setTimeout(() => {
+            el.focus();
+            el.setSelectionRange(lineStart, lineStart + newBlock.length);
+        }, 0);
+    };
+
+    // Apply Unicode Font Style to selection
+    const applyFontStyle = (fontObj) => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const curVal = value || '';
+        const start = el.selectionStart ?? curVal.length;
+        const end = el.selectionEnd ?? curVal.length;
+        const selected = curVal.substring(start, end);
+
+        if (start === end || !selected.trim()) {
+            // Nothing selected: insert converted sample text
+            const sample = fontObj.preview;
+            insertTextAtCursor(sample, sample.length);
+        } else {
+            const converted = fontObj.convert(selected);
+            const textBefore = curVal.substring(0, start);
+            const textAfter = curVal.substring(end);
+            onChange({ target: { value: `${textBefore}${converted}${textAfter}` } });
+            setTimeout(() => {
+                el.focus();
+                el.setSelectionRange(start, start + converted.length);
+            }, 0);
+        }
+        setIsFontDropdownOpen(false);
+    };
+
     const handleKeyDown = (e) => {
+        // Keyboard shortcuts inside textarea: Ctrl+B / Cmd+B for bold, Ctrl+I / Cmd+I for italic
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            applyFormatting('*');
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+            e.preventDefault();
+            applyFormatting('_');
+            return;
+        }
+
         if (!mentionState.isOpen || filteredVariables.length === 0) return;
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -194,6 +361,7 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
         }
     }, [mentionState.selectedIndex, mentionState.isOpen]);
 
+    // Handle outside clicks to close popovers
     useEffect(() => {
         const close = (e) => {
             if (textareaRef.current && !textareaRef.current.contains(e.target) && !e.target.closest('.variable-dropdown')) {
@@ -201,6 +369,12 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
             }
             if (pickerRef.current && !pickerRef.current.contains(e.target) && !e.target.closest('.variable-picker-btn')) {
                 setIsPickerOpen(false);
+            }
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target) && !e.target.closest('.emoji-picker-toggle-btn')) {
+                setIsEmojiPickerOpen(false);
+            }
+            if (fontDropdownRef.current && !fontDropdownRef.current.contains(e.target) && !e.target.closest('.font-dropdown-toggle-btn')) {
+                setIsFontDropdownOpen(false);
             }
         };
         document.addEventListener('mousedown', close);
@@ -211,6 +385,424 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
 
     return (
         <div style={{ position: 'relative', width: '100%' }}>
+            {/* 🛠️ Comprehensive Formatting & Emoji Toolbar */}
+            {showFormattingToolbar && (
+                <div style={{
+                    marginBottom: '8px',
+                    padding: '6px 10px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px'
+                }}>
+                    {/* Row 1: Formatting actions, Font Styles, and Emojis */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        
+                        {/* Text Styling Group (WhatsApp Markdown) */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: '#ffffff', padding: '2px 4px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                            {/* Bold */}
+                            <button
+                                type="button"
+                                onClick={() => applyFormatting('*')}
+                                title="Bold (*text*) — Ctrl+B"
+                                style={{
+                                    width: '28px', height: '28px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem',
+                                    color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span style={{ fontWeight: 900, fontFamily: 'serif' }}>B</span>
+                            </button>
+
+                            {/* Italic */}
+                            <button
+                                type="button"
+                                onClick={() => applyFormatting('_')}
+                                title="Italic (_text_) — Ctrl+I"
+                                style={{
+                                    width: '28px', height: '28px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontStyle: 'italic', fontSize: '0.88rem',
+                                    color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span style={{ fontStyle: 'italic', fontFamily: 'serif', fontWeight: 600 }}>I</span>
+                            </button>
+
+                            {/* Strikethrough */}
+                            <button
+                                type="button"
+                                onClick={() => applyFormatting('~')}
+                                title="Strikethrough (~text~)"
+                                style={{
+                                    width: '28px', height: '28px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', textDecoration: 'line-through', fontSize: '0.88rem',
+                                    color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span style={{ textDecoration: 'line-through' }}>S</span>
+                            </button>
+
+                            {/* Monospace Code */}
+                            <button
+                                type="button"
+                                onClick={() => applyFormatting('```', '```')}
+                                title="Monospace (```code```)"
+                                style={{
+                                    width: '28px', height: '28px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontFamily: 'monospace', fontSize: '0.82rem',
+                                    color: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span>&lt;/&gt;</span>
+                            </button>
+
+                            <div style={{ width: '1px', height: '18px', background: '#e2e8f0', margin: '0 2px' }}></div>
+
+                            {/* Pointer Bullet */}
+                            <button
+                                type="button"
+                                onClick={() => applyLinePrefix('bullet')}
+                                title="Add Pointer Bullet (👉 line)"
+                                style={{
+                                    height: '28px', padding: '0 6px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                                    color: '#334155', display: 'flex', alignItems: 'center', gap: '3px'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span>👉 List</span>
+                            </button>
+
+                            {/* Numbered List */}
+                            <button
+                                type="button"
+                                onClick={() => applyLinePrefix('number')}
+                                title="Numbered List (1. line)"
+                                style={{
+                                    height: '28px', padding: '0 6px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                                    color: '#334155', display: 'flex', alignItems: 'center', gap: '3px'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span>1. List</span>
+                            </button>
+
+                            {/* Divider Line */}
+                            <button
+                                type="button"
+                                onClick={() => insertTextAtCursor('\n━━━━━━━━━━━━━━━━━━━━\n')}
+                                title="Insert Decorative Separator Line"
+                                style={{
+                                    height: '28px', padding: '0 6px', border: 'none', background: 'transparent',
+                                    borderRadius: '5px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                                    color: '#334155', display: 'flex', alignItems: 'center', gap: '3px'
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#e2e8f0'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                            >
+                                <span>— Line</span>
+                            </button>
+                        </div>
+
+                        {/* Font Style & Emojis Controls */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {/* Font Style Dropdown Toggle */}
+                            {showFontStyles && (
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        type="button"
+                                        className="font-dropdown-toggle-btn"
+                                        onClick={() => setIsFontDropdownOpen(prev => !prev)}
+                                        title="Font Styles (Change text to Bold Sans, Gothic, Script, etc.)"
+                                        style={{
+                                            fontSize: '0.74rem',
+                                            padding: '4px 10px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #cbd5e1',
+                                            background: isFontDropdownOpen ? '#4338ca' : '#ffffff',
+                                            color: isFontDropdownOpen ? '#ffffff' : '#3730a3',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                                        }}
+                                    >
+                                        <span style={{ fontSize: '0.85rem' }}>Aa</span>
+                                        <span>Font Style</span>
+                                        <i className={`fas fa-chevron-${isFontDropdownOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
+                                    </button>
+
+                                    {/* Font Style Dropdown Menu */}
+                                    {isFontDropdownOpen && (
+                                        <div
+                                            ref={fontDropdownRef}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '34px',
+                                                right: 0,
+                                                width: '260px',
+                                                backgroundColor: '#ffffff',
+                                                border: '1px solid #cbd5e1',
+                                                borderRadius: '10px',
+                                                boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+                                                zIndex: 10008,
+                                                padding: '6px',
+                                                animation: 'fadeIn 0.15s ease-out'
+                                            }}
+                                        >
+                                            <div style={{ padding: '6px 8px 4px', fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                Select Stylized Font
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                {UNICODE_FONTS.map(font => (
+                                                    <div
+                                                        key={font.id}
+                                                        onClick={() => applyFontStyle(font)}
+                                                        style={{
+                                                            padding: '8px 10px',
+                                                            borderRadius: '6px',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            transition: 'background 0.1s'
+                                                        }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                                    >
+                                                        <div>
+                                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
+                                                                {font.preview}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                                                {font.label}
+                                                            </div>
+                                                        </div>
+                                                        <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: '#e0e7ff', color: '#3730a3', fontWeight: 700 }}>
+                                                            {font.badge}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div style={{ padding: '8px', marginTop: '4px', borderTop: '1px solid #f1f5f9', fontSize: '0.65rem', color: '#64748b', lineHeight: '1.3' }}>
+                                                💡 <em>Tip: Select words in body and click any font style to transform instantly. Best for headings and brand names.</em>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Full Emojis & Icons Popover Toggle */}
+                            {showEmojiPicker && (
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        type="button"
+                                        className="emoji-picker-toggle-btn"
+                                        onClick={() => {
+                                            setIsEmojiPickerOpen(prev => !prev);
+                                            setEmojiSearch('');
+                                        }}
+                                        title="Browse All Emojis & Real Estate Icons"
+                                        style={{
+                                            fontSize: '0.74rem',
+                                            padding: '4px 10px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #f59e0b',
+                                            background: isEmojiPickerOpen ? '#f59e0b' : '#fffbeb',
+                                            color: isEmojiPickerOpen ? '#ffffff' : '#b45309',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                                        }}
+                                    >
+                                        <span style={{ fontSize: '0.85rem' }}>😊</span>
+                                        <span>Emojis & Icons</span>
+                                        <i className={`fas fa-chevron-${isEmojiPickerOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
+                                    </button>
+
+                                    {/* Emojis Popover Card */}
+                                    {isEmojiPickerOpen && (
+                                        <div
+                                            ref={emojiPickerRef}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '34px',
+                                                right: 0,
+                                                width: '340px',
+                                                maxHeight: '340px',
+                                                backgroundColor: '#ffffff',
+                                                border: '1px solid #cbd5e1',
+                                                borderRadius: '12px',
+                                                boxShadow: '0 14px 36px rgba(0,0,0,0.2)',
+                                                zIndex: 10008,
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                overflow: 'hidden',
+                                                animation: 'fadeIn 0.15s ease-out'
+                                            }}
+                                        >
+                                            {/* Search Header */}
+                                            <div style={{ padding: '10px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '5px 10px' }}>
+                                                    <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.75rem' }}></i>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Search emoji (home, price, call, key...)"
+                                                        value={emojiSearch}
+                                                        onChange={e => setEmojiSearch(e.target.value)}
+                                                        style={{ border: 'none', outline: 'none', width: '100%', fontSize: '0.82rem' }}
+                                                        autoFocus
+                                                    />
+                                                    {emojiSearch && (
+                                                        <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem' }} onClick={() => setEmojiSearch('')}></i>
+                                                    )}
+                                                </div>
+
+                                                {/* Category Tabs */}
+                                                {!emojiSearch && (
+                                                    <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
+                                                        {EMOJI_CATEGORIES.map(cat => (
+                                                            <button
+                                                                key={cat.id}
+                                                                type="button"
+                                                                onClick={() => setActiveEmojiCategory(cat.id)}
+                                                                title={cat.name}
+                                                                style={{
+                                                                    fontSize: '0.7rem',
+                                                                    padding: '3px 7px',
+                                                                    borderRadius: '6px',
+                                                                    border: '1px solid',
+                                                                    borderColor: activeEmojiCategory === cat.id ? '#f59e0b' : '#e2e8f0',
+                                                                    background: activeEmojiCategory === cat.id ? '#fef3c7' : '#ffffff',
+                                                                    color: activeEmojiCategory === cat.id ? '#92400e' : '#64748b',
+                                                                    fontWeight: activeEmojiCategory === cat.id ? 700 : 500,
+                                                                    cursor: 'pointer',
+                                                                    whiteSpace: 'nowrap',
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '3px'
+                                                                }}
+                                                            >
+                                                                <span>{cat.icon}</span>
+                                                                <span>{cat.name.split(' ')[0]}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Emoji Grid */}
+                                            <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                                                {filteredEmojis.length === 0 ? (
+                                                    <div style={{ gridColumn: 'span 6', padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                                                        No emojis found matching &quot;{emojiSearch}&quot;
+                                                    </div>
+                                                ) : (
+                                                    filteredEmojis.map((e, idx) => (
+                                                        <button
+                                                            key={`${e.char}-${idx}`}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                insertTextAtCursor(e.char);
+                                                            }}
+                                                            title={e.name}
+                                                            style={{
+                                                                fontSize: '1.25rem',
+                                                                width: '42px',
+                                                                height: '42px',
+                                                                borderRadius: '8px',
+                                                                border: '1px solid #f1f5f9',
+                                                                background: '#ffffff',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                transition: 'all 0.12s ease'
+                                                            }}
+                                                            onMouseEnter={evt => {
+                                                                evt.currentTarget.style.transform = 'scale(1.18)';
+                                                                evt.currentTarget.style.background = '#fef3c7';
+                                                                evt.currentTarget.style.borderColor = '#f59e0b';
+                                                            }}
+                                                            onMouseLeave={evt => {
+                                                                evt.currentTarget.style.transform = 'scale(1)';
+                                                                evt.currentTarget.style.background = '#ffffff';
+                                                                evt.currentTarget.style.borderColor = '#f1f5f9';
+                                                            }}
+                                                        >
+                                                            {e.char}
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+
+                                            <div style={{ padding: '6px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '0.68rem', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>Click any emoji to insert at cursor</span>
+                                                <span style={{ fontWeight: 600 }}>{filteredEmojis.length} icons</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Row 2: ⚡ Instant 1-Click Quick Real Estate Emojis Bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflowX: 'auto', padding: '2px 0' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginRight: '4px', whiteSpace: 'nowrap' }}>
+                            Quick Icons:
+                        </span>
+                        {QUICK_EMOJIS.map(emoji => (
+                            <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => insertTextAtCursor(emoji)}
+                                title={`Click to insert ${emoji}`}
+                                style={{
+                                    fontSize: '1rem',
+                                    padding: '2px 6px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #e2e8f0',
+                                    background: '#ffffff',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.12s ease'
+                                }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.background = '#fef3c7';
+                                    e.currentTarget.style.borderColor = '#f59e0b';
+                                    e.currentTarget.style.transform = 'scale(1.15)';
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.background = '#ffffff';
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                }}
+                            >
+                                {emoji}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* 🏷️ Quick-Insert Variable Toolbar */}
             {showQuickPills && (
                 <div style={{ marginBottom: '8px' }}>
@@ -291,7 +883,7 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
                             ref={pickerRef}
                             style={{
                                 position: 'absolute',
-                                top: '38px',
+                                top: '80px',
                                 left: '0',
                                 right: '0',
                                 maxWidth: '580px',
@@ -434,10 +1026,19 @@ const VariableTextarea = ({ value = '', onChange, placeholder, style, minHeight 
                 onBlur={(e)  => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
             />
 
-            {/* Hint bar */}
-            <div style={{ marginTop: '4px', fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace', fontWeight: 700, color: '#6366f1', letterSpacing: '0.03em' }}>{'{{ '}</span>
-                type karein ya upar diye gaye chips / &apos;All Variables&apos; se direct insert karein
+            {/* Formatting Legend / Hint bar */}
+            <div style={{ marginTop: '5px', fontSize: '0.72rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: '#047857' }}>WhatsApp Formatting:</span>
+                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>*bold*</span>
+                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>_italic_</span>
+                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>~strike~</span>
+                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>```mono```</span>
+                    <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace', fontWeight: 700 }}>{'{{variable}}'}</span>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                    {(value || '').length} chars
+                </div>
             </div>
 
             {/* Inline Autocomplete Dropdown (triggers when typing {{) */}

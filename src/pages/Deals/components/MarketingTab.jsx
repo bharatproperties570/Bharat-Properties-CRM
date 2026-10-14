@@ -13,6 +13,7 @@ import { renderValue } from '../../../utils/renderUtils';
 import toast from 'react-hot-toast';
 import { useUserContext } from '../../../context/UserContext';
 import { useUsers } from '../../../utils/crmHooks';
+import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
 
 const getSafeString = (val, defaultVal = '') => {
     if (val === null || val === undefined || val === '') return defaultVal;
@@ -2183,9 +2184,11 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                     maxHeight: '230px', overflowY: 'auto',
                                     boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06)'
                                 }}>
-                                    {isBaileys
-                                        ? (selectedWebTemplate ? (webTemplatePreviewText || bnaRichPreview) : bnaRichPreview)
-                                        : (templatePreview || bnaRichPreview)}
+                                    {renderWhatsAppFormattedText(
+                                        isBaileys
+                                            ? (selectedWebTemplate ? (webTemplatePreviewText || bnaRichPreview) : bnaRichPreview)
+                                            : (templatePreview || bnaRichPreview)
+                                    )}
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', padding: '0 4px' }}>
                                     <span>
