@@ -111,6 +111,10 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
     const emojis = ['👋', '😊', '🤝', '📧', '🚀', '✨', '🏠', '📞', '🙏'];
 
     const unifiedMergeTags = {
+        'System & Assignment': [
+            'EmployeeName', 'EmployeeMobile', 'agent_name', 'agent_mobile', 'agent_email',
+            'team', 'assignedTo', 'visibleTo'
+        ],
         'Universal': ['Address', 'Company name', 'Email address', 'Facebook', 'Fax number', 'First name', 'Full name', 'Industry', 'Last name', 'Mobile number', 'Phone number', 'Salutation', 'Twitter', 'Website'],
         'Sender': ['Sender\'s first name', 'Sender\'s last name', 'Sender\'s email', 'Sender\'s signature'],
         'System': ['Current date', 'Project name']

@@ -13,6 +13,21 @@
 export const variableDictionary = [
 
     // ─────────────────────────────────────────────
+    // 👥 SYSTEM ASSIGNMENT & STAFF (Team, User, Visibility & Staff Details)
+    // ─────────────────────────────────────────────
+    { id: 'EmployeeName',     label: 'Assigned User / Employee Name',      category: 'System & Assignment', type: 'computed' },
+    { id: 'EmployeeMobile',   label: 'Assigned User / Employee Mobile',    category: 'System & Assignment', type: 'computed' },
+    { id: 'agent_name',       label: 'Assigned Agent / Staff Name',        category: 'System & Assignment', type: 'computed' },
+    { id: 'agent_mobile',     label: 'Assigned Agent / Staff Mobile',      category: 'System & Assignment', type: 'computed' },
+    { id: 'agent_email',      label: 'Assigned Agent / Staff Email',       category: 'System & Assignment', type: 'computed' },
+    { id: 'team',             label: 'Assigned Team (e.g. Sales, Rental)', category: 'System & Assignment', type: 'dropdown' },
+    { id: 'assignedTo',       label: 'Assigned User / Agent',              category: 'System & Assignment', type: 'dropdown' },
+    { id: 'visibleTo',        label: 'Visibility Scope (Everyone/Team/Private)', category: 'System & Assignment', type: 'dropdown' },
+    { id: 'employee_name',    label: 'Assigned Employee Name (lowercase)', category: 'System & Assignment', type: 'computed' },
+    { id: 'employee_mobile',  label: 'Assigned Employee Mobile (lowercase)', category: 'System & Assignment', type: 'computed' },
+    { id: 'company_name',     label: 'Company Name (Bharat Properties)',   category: 'System & Assignment', type: 'computed' },
+
+    // ─────────────────────────────────────────────
     // 👤 LEAD / CONTACT — Basic Details
     // ─────────────────────────────────────────────
     { id: 'title',            label: 'Title (Mr/Mrs/Dr)',     category: 'Lead – Basic',       type: 'dropdown' },

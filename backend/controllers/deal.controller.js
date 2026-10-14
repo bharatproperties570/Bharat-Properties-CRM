@@ -1022,6 +1022,12 @@ export const sanitizeDeal = async (req, res) => {
                 if (val.lookup_value) return val.lookup_value;
                 if (val.name) return val.name;
                 if (val.fullName) return val.fullName;
+                if (val.label) return val.label;
+                if (val.value && val.unit) return `${val.value} ${val.unit}`;
+                if (val._id && isValidObjectId(val._id)) {
+                    const lookup = await Lookup.findById(val._id).select('lookup_value').lean();
+                    return lookup?.lookup_value || null;
+                }
                 return null;
             }
             if (isValidObjectId(val)) {
@@ -1029,6 +1035,17 @@ export const sanitizeDeal = async (req, res) => {
                 return lookup?.lookup_value || null;
             }
             return val;
+        };
+
+        const cleanSubCategoryLocal = (val) => {
+            if (!val) return '';
+            let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+            if (!s) return '';
+            s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+            s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+            s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+            s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+            return s;
         };
 
         // Resolve core fields
@@ -1042,9 +1059,10 @@ export const sanitizeDeal = async (req, res) => {
 
         // 🧠 SENIOR PROFESSIONAL: Comprehensive Spec Extraction
         // We aggregate standard fields and custom specs from both Deal and Inventory
+        const rawSubCategoryVal = await resolveValue(deal.subCategory || inv.subCategory);
         const unitSpecSource = {
             category: await resolveValue(deal.category || inv.category),
-            subCategory: await resolveValue(deal.subCategory || inv.subCategory),
+            subCategory: cleanSubCategoryLocal(rawSubCategoryVal),
             unitType: unitTypeName || null,
             direction: await resolveValue(deal.direction || inv.direction),
             orientation: await resolveValue(deal.orientation || inv.orientation),
@@ -1104,7 +1122,17 @@ export const sanitizeDeal = async (req, res) => {
             location: displayLocation,
             images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
             features: [
-                (deal.size || inv.size) ? `${deal.size || inv.size} ${sizeUnitName}` : null,
+                (() => {
+                    const s = deal.size || inv.size;
+                    if (!s) return null;
+                    if (typeof s === 'object') {
+                        const val = s.value || s.size || s.area || '';
+                        let unit = s.unit || s.sizeUnit || sizeUnitName || 'Sq.Ft.';
+                        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+                        return val ? `${val} ${unit}`.trim() : null;
+                    }
+                    return `${s} ${sizeUnitName}`;
+                })(),
                 unitTypeName || null,
                 deal.block ? `Block ${await resolveValue(deal.block)}` : (inv.block ? `Block ${await resolveValue(inv.block)}` : null),
                 unitSpecSource.orientation ? `Facing ${unitSpecSource.orientation}` : null,

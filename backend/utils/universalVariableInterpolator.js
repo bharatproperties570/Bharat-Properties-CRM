@@ -84,6 +84,21 @@ export function formatCurrency(val, defaultVal = 'Price on Request') {
     return defaultVal;
 }
 
+export function cleanSubCategory(val) {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+    if (!s) return '';
+    // 1. Remove parenthesized size specs, units, conversions, or numbers like "( Sq Yd)", "(8 Marla)", "(200 Sq. Yd)", "(200.00 Sq Yd)"
+    s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+    // 2. Remove trailing/appended numbers with size units like "8 Marla", "200 Sq.Yd", "250 Gaj", "1 Kanal", "1000 Sq Ft", "8Marla"
+    s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+    // 3. Remove standalone trailing unit names if any remained e.g. "Marla", "Sq Yd", "Sq.Ft"
+    s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+    // 4. Clean up any remaining empty parentheses or dashes
+    s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+    return s;
+}
+
 /**
  * Formats size specification from deal/inventory
  */
@@ -93,19 +108,27 @@ export function formatSize(sizeObjOrStr, sizeTypeStr = '', defaultVal = '') {
     let res = '';
     if (typeof sizeObjOrStr === 'object' && sizeObjOrStr !== null) {
         const val = sizeObjOrStr.value || sizeObjOrStr.size || sizeObjOrStr.area;
-        const unit = sizeObjOrStr.unit || sizeObjOrStr.sizeUnit || 'Sq.Yd.';
+        let unit = sizeObjOrStr.unit || sizeObjOrStr.sizeUnit || 'Sq.Yd.';
+        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
         if (val) res = `${val} ${unit}`.trim();
     } else if (sizeObjOrStr && String(sizeObjOrStr).trim()) {
         res = String(sizeObjOrStr).trim();
     }
 
-    if (sizeTypeStr && String(sizeTypeStr).trim()) {
+    const cleanSizeType = String(sizeTypeStr || '').trim();
+    if (cleanSizeType) {
         if (res) {
-            if (!res.toLowerCase().includes(String(sizeTypeStr).toLowerCase())) {
-                res = `${res} (${sizeTypeStr})`;
+            const cleanResBase = res.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+            const cleanTypeBase = cleanSizeType.toLowerCase();
+            if (cleanTypeBase.includes(cleanResBase)) {
+                res = cleanSizeType;
+            } else if (cleanResBase.includes(cleanTypeBase)) {
+                // keep res
+            } else {
+                res = `${res} (${cleanSizeType})`;
             }
         } else {
-            res = String(sizeTypeStr).trim();
+            res = cleanSizeType;
         }
     }
 
@@ -123,14 +146,23 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     const partyOwner = primaryDeal.partyStructure?.owner && typeof primaryDeal.partyStructure.owner === 'object' ? primaryDeal.partyStructure.owner : {};
 
     // 1. Resolve Lookups
-    const subCategory = await resolveLookupValue(primaryDeal.subCategory || inventory.subCategory || primaryDeal.propertyType || inventory.category || primaryDeal.category, 'Residential Plot');
+    const rawSubCategory = await resolveLookupValue(primaryDeal.subCategory || inventory.subCategory || primaryDeal.propertyType || inventory.category || primaryDeal.category, 'Residential Plot');
+    const subCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
     const category = await resolveLookupValue(primaryDeal.category || inventory.category || primaryDeal.propertyType, 'Residential');
     const direction = await resolveLookupValue(primaryDeal.direction || inventory.direction || inventory.orientation, 'North');
     const roadWidth = await resolveLookupValue(primaryDeal.roadWidth || inventory.roadWidth, '30 Feet');
     const facing = await resolveLookupValue(primaryDeal.facing || inventory.facing, 'Park Facing');
     const unitType = await resolveLookupValue(primaryDeal.unitType || inventory.unitType || inventory.builtupType || primaryDeal.builtupType, 'Plot');
     const builtupType = await resolveLookupValue(primaryDeal.builtupType || inventory.builtupType, 'Plot');
-    const rawSizeType = await resolveLookupValue(primaryDeal.sizeType || inventory.sizeType || primaryDeal.sizeLabel, '');
+    const rawSizeType = await resolveLookupValue(
+        primaryDeal.sizeType || 
+        inventory.sizeType || 
+        primaryDeal.unitSpecification?.sizeLabel || 
+        inventory.unitSpecification?.sizeLabel || 
+        primaryDeal.sizeLabel || 
+        inventory.sizeLabel, 
+        ''
+    );
 
     // 2. Resolve Size & Specs
     const formattedSize = formatSize(primaryDeal.size || inventory.size, rawSizeType, 'Prime Specs');
@@ -185,9 +217,43 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     const recipientMobile = recipient.mobile || recipient.phone || '';
     const recipientEmail = recipient.email || '';
 
-    // 9. Resolve Agent / Company
-    const agentName = primaryDeal.assignedTo?.name || currentUser.name || 'Bharat Properties';
-    const agentMobile = primaryDeal.assignedTo?.mobile || currentUser.mobile || '+91 9991333570';
+    // 9. Resolve Agent / Employee / System Assignment
+    let assignedUser = null;
+    if (primaryDeal.assignedTo && typeof primaryDeal.assignedTo === 'object') {
+        assignedUser = primaryDeal.assignedTo;
+    } else if (primaryDeal.assignedTo && /^[0-9a-fA-F]{24}$/.test(String(primaryDeal.assignedTo))) {
+        try {
+            const User = mongoose.model('User');
+            assignedUser = await User.findById(primaryDeal.assignedTo).select('name firstName lastName mobile phone email team').lean();
+        } catch (e) {
+            // ignore
+        }
+    }
+    if (!assignedUser && currentUser && (currentUser.name || currentUser.mobile)) {
+        assignedUser = currentUser;
+    }
+
+    const agentName = (
+        assignedUser?.name ||
+        (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+        currentUser.name ||
+        'Bharat Properties'
+    );
+    const agentMobile = (
+        assignedUser?.mobile ||
+        assignedUser?.phone ||
+        assignedUser?.phoneNumber ||
+        currentUser.mobile ||
+        currentUser.phone ||
+        '+91 9991333570'
+    );
+    const agentEmail = (
+        assignedUser?.email ||
+        currentUser.email ||
+        'deals@bharatproperties.co'
+    );
+    const assignedTeam = primaryDeal.team || assignedUser?.team || currentUser.team || 'Sales Team';
+    const assignedVisibility = primaryDeal.visibleTo || primaryDeal.visibility || 'Everyone';
     const companyName = 'Bharat Properties';
 
     // 10. Multi-Deal Property List Formatting
@@ -243,8 +309,11 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     register(['customer_first_name', 'first_name', 'firstname'], recipientFirstName);
     register(['customer_mobile', 'mobile', 'phone', 'recipient_phone', 'recipient_mobile'], recipientMobile);
     register(['customer_email', 'email'], recipientEmail);
-    register(['agent_name', 'agentname', 'employee_name'], agentName);
-    register(['agent_mobile', 'agentmobile', 'agent_phone', 'agentphone', 'employee_mobile'], agentMobile);
+    register(['EmployeeName', 'employeeName', 'employee_name', 'employeename', 'agent_name', 'agentname', 'agentName', 'assignedTo', 'assigned_to', 'assignedto'], agentName);
+    register(['EmployeeMobile', 'employeeMobile', 'employee_mobile', 'employeemobile', 'agent_mobile', 'agentmobile', 'agentMobile', 'agent_phone', 'agentphone'], agentMobile);
+    register(['EmployeeEmail', 'employeeEmail', 'employee_email', 'employeemail', 'agent_email', 'agentemail', 'agentEmail'], agentEmail);
+    register(['team', 'team_name', 'teamName'], assignedTeam);
+    register(['visibleTo', 'visible_to', 'visibleto', 'visibility'], assignedVisibility);
     register(['company_name', 'companyname', 'company'], companyName);
 
     // Positional standard mappings (Meta & DLT legacy {{1}}..{{7}})
@@ -253,7 +322,7 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     contextMap.set('3', price);
     contextMap.set('4', location);
     contextMap.set('5', formattedSize);
-    contextMap.set('6', companyName);
+    contextMap.set('6', agentName || companyName);
     contextMap.set('7', agentMobile || ownerMobile);
 
     return {
@@ -281,7 +350,18 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
             recipientEmail,
             agentName,
             agentMobile,
-            companyName
+            agentEmail,
+            companyName,
+            EmployeeName: agentName,
+            employeeName: agentName,
+            EmployeeMobile: agentMobile,
+            employeeMobile: agentMobile,
+            EmployeeEmail: agentEmail,
+            employeeEmail: agentEmail,
+            team: assignedTeam,
+            team_name: assignedTeam,
+            assignedTo: agentName,
+            visibleTo: assignedVisibility
         }
     };
 }

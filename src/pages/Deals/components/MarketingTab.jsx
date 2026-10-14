@@ -11,6 +11,8 @@ import whatsappService from '../../../services/whatsappService';
 import smsService from '../../../services/smsService';
 import { renderValue } from '../../../utils/renderUtils';
 import toast from 'react-hot-toast';
+import { useUserContext } from '../../../context/UserContext';
+import { useUsers } from '../../../utils/crmHooks';
 
 const getSafeString = (val, defaultVal = '') => {
     if (val === null || val === undefined || val === '') return defaultVal;
@@ -23,6 +25,21 @@ const getSafeString = (val, defaultVal = '') => {
     return String(val);
 };
 
+export const cleanSubCategory = (val) => {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+    if (!s) return '';
+    // 1. Remove parenthesized size specs, units, conversions, or numbers like "( Sq Yd)", "(8 Marla)", "(200 Sq. Yd)", "(200.00 Sq Yd)"
+    s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+    // 2. Remove trailing/appended numbers with size units like "8 Marla", "200 Sq.Yd", "250 Gaj", "1 Kanal", "1000 Sq Ft", "8Marla"
+    s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+    // 3. Remove standalone trailing unit names if any remained e.g. "Marla", "Sq Yd", "Sq.Ft"
+    s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+    // 4. Clean up any remaining empty parentheses or dashes
+    s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+    return s;
+};
+
 const isMarketingBroadcastContext = (tpl) => {
     if (!tpl) return false;
     const ctx = tpl.systemContext || tpl.context || tpl.ctx;
@@ -31,7 +48,7 @@ const isMarketingBroadcastContext = (tpl) => {
     return false;
 };
 
-function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipient = null }) {
+function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipient = null, currentUser = null, users = [] }) {
     if (!rawText || typeof rawText !== 'string') return '';
 
     const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
@@ -39,7 +56,8 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
 
     const inv = (deal?.inventoryId && typeof deal.inventoryId === 'object') ? deal.inventoryId : {};
     const dealTitle = getSafeString(meta?.title || deal?.projectName || deal?.title || inv.projectName, 'Featured Deal');
-    const dealSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
+    const rawSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
+    const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
     const dealCategory = getSafeString(deal?.category || inv.category || deal?.propertyType, 'Residential');
     const dealDirection = getSafeString(deal?.direction || inv.direction || inv.orientation, 'North');
     const dealRoadWidth = getSafeString(deal?.roadWidth || inv.roadWidth, '30 Feet');
@@ -51,14 +69,42 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     // Size resolution
     let dealSize = '';
     if (deal?.size && typeof deal.size === 'object') {
-        dealSize = `${deal.size.value || ''} ${deal.size.unit || 'Sq.Yd.'}`.trim();
+        const val = deal.size.value || '';
+        let unit = deal.size.unit || 'Sq.Yd.';
+        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+        dealSize = val ? `${val} ${unit}`.trim() : '';
     } else if (deal?.size) {
-        dealSize = String(deal.size);
+        dealSize = String(deal.size).trim();
     } else if (inv.size && typeof inv.size === 'object') {
-        dealSize = `${inv.size.value || ''} ${inv.size.unit || 'Sq.Ft.'}`.trim();
+        const val = inv.size.value || '';
+        let unit = inv.size.unit || 'Sq.Ft.';
+        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+        dealSize = val ? `${val} ${unit}`.trim() : '';
     }
-    const dealSizeType = getSafeString(deal?.sizeType || inv.sizeType || deal?.sizeLabel, '');
-    const dealFullSpecs = dealSize ? (dealSizeType && !dealSize.includes(dealSizeType) ? `${dealSize} (${dealSizeType})` : dealSize) : (dealSizeType || getSafeString(meta?.features?.[0], 'Prime Specs'));
+    const dealSizeType = getSafeString(
+        deal?.sizeType || 
+        inv.sizeType || 
+        deal?.unitSpecification?.sizeLabel || 
+        inv.unitSpecification?.sizeLabel || 
+        deal?.sizeLabel || 
+        inv.sizeLabel, 
+        ''
+    ).trim();
+    
+    let dealFullSpecs = '';
+    if (dealSizeType && dealSize) {
+        const cleanSizeBase = dealSize.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const cleanTypeBase = dealSizeType.toLowerCase();
+        if (cleanTypeBase.includes(cleanSizeBase)) {
+            dealFullSpecs = dealSizeType;
+        } else if (cleanSizeBase.includes(cleanTypeBase)) {
+            dealFullSpecs = dealSize;
+        } else {
+            dealFullSpecs = `${dealSize} (${dealSizeType})`;
+        }
+    } else {
+        dealFullSpecs = dealSizeType || dealSize || getSafeString(meta?.features?.[0], 'Prime Specs');
+    }
 
     // Price resolution
     const rawPrice = deal?.price || deal?.quotePrice || deal?.value || meta?.price;
@@ -79,6 +125,55 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     const dealOwnerName = getSafeString(
         ownerObj.name || (ownerObj.firstName ? `${ownerObj.firstName} ${ownerObj.lastName || ''}`.trim() : '') || deal?.ownerName,
         'Bharat Properties'
+    );
+
+    // Dynamic Employee & System Assignment Resolution
+    let assignedUser = null;
+    if (deal?.assignedTo && typeof deal.assignedTo === 'object') {
+        assignedUser = deal.assignedTo;
+    } else if (deal?.assignedTo && Array.isArray(users) && users.length > 0) {
+        assignedUser = users.find(u => String(u._id || u.id) === String(deal.assignedTo));
+    }
+    if (!assignedUser) {
+        assignedUser = currentUser;
+    }
+
+    const employeeName = getSafeString(
+        assignedUser?.name ||
+        (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+        currentUser?.name ||
+        (currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}`.trim() : ''),
+        'Bharat Properties'
+    );
+
+    const employeeMobile = getSafeString(
+        assignedUser?.mobile ||
+        assignedUser?.phone ||
+        assignedUser?.phoneNumber ||
+        currentUser?.mobile ||
+        currentUser?.phone ||
+        currentUser?.phoneNumber,
+        '+91 9991333570'
+    );
+
+    const employeeEmail = getSafeString(
+        assignedUser?.email ||
+        currentUser?.email,
+        'deals@bharatproperties.co'
+    );
+
+    const assignedTeam = getSafeString(
+        deal?.team ||
+        assignedUser?.team ||
+        currentUser?.team,
+        'Sales Team'
+    );
+
+    const assignedVisibility = getSafeString(
+        deal?.visibleTo ||
+        deal?.visibility ||
+        'Everyone',
+        'Everyone'
     );
 
     const propertyList = isHtml
@@ -160,9 +255,31 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         '\\{\\{properties_count\\}\\}': '1',
         '\\{\\{match_percentage\\}\\}': '98',
         '\\{\\{requirement_summary\\}\\}': `${dealFullSpecs} in ${dealLoc}`,
-        '\\{\\{agent_name\\}\\}': 'Bharat Properties',
-        '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
-        '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
+        '\\{\\{EmployeeName\\}\\}': employeeName,
+        '\\{\\{employeeName\\}\\}': employeeName,
+        '\\{\\{employee_name\\}\\}': employeeName,
+        '\\{\\{employeename\\}\\}': employeeName,
+        '\\{\\{EmployeeMobile\\}\\}': employeeMobile,
+        '\\{\\{employeeMobile\\}\\}': employeeMobile,
+        '\\{\\{employee_mobile\\}\\}': employeeMobile,
+        '\\{\\{employeemobile\\}\\}': employeeMobile,
+        '\\{\\{EmployeeEmail\\}\\}': employeeEmail,
+        '\\{\\{employeeEmail\\}\\}': employeeEmail,
+        '\\{\\{employee_email\\}\\}': employeeEmail,
+        '\\{\\{employeemail\\}\\}': employeeEmail,
+        '\\{\\{team\\}\\}': assignedTeam,
+        '\\{\\{team_name\\}\\}': assignedTeam,
+        '\\{\\{assignedTo\\}\\}': employeeName,
+        '\\{\\{assignedto\\}\\}': employeeName,
+        '\\{\\{assigned_to\\}\\}': employeeName,
+        '\\{\\{visibleTo\\}\\}': assignedVisibility,
+        '\\{\\{visibleto\\}\\}': assignedVisibility,
+        '\\{\\{visible_to\\}\\}': assignedVisibility,
+        '\\{\\{agent_name\\}\\}': employeeName,
+        '\\{\\{agentname\\}\\}': employeeName,
+        '\\{\\{agent_mobile\\}\\}': employeeMobile,
+        '\\{\\{agentmobile\\}\\}': employeeMobile,
+        '\\{\\{agent_email\\}\\}': employeeEmail,
         '\\{\\{company_name\\}\\}': 'Bharat Properties',
         '\\{\\{due_date\\}\\}': 'This Weekend',
         '\\{\\{document_list\\}\\}': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt',
@@ -177,13 +294,71 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         result = result.replace(new RegExp(pattern, 'gi'), getSafeString(val, ''));
     });
 
+    // Enterprise Normalized Dictionary for any spacing or casing
+    const varLookup = {
+        employeename: employeeName,
+        employeemobile: employeeMobile,
+        employeeemail: employeeEmail,
+        agentname: employeeName,
+        agentmobile: employeeMobile,
+        agentphone: employeeMobile,
+        agentemail: employeeEmail,
+        team: assignedTeam,
+        teamname: assignedTeam,
+        assignedto: employeeName,
+        assigneduser: employeeName,
+        visibleto: assignedVisibility,
+        visibility: assignedVisibility,
+        customername: recipientName,
+        firstname: recipientFirstName,
+        fullname: recipientName,
+        name: recipientName,
+        propertytitle: dealTitle,
+        projectname: dealTitle,
+        project: dealTitle,
+        title: dealTitle,
+        subcategory: dealSubCategory,
+        propertycategory: dealCategory,
+        category: dealCategory,
+        direction: dealDirection,
+        roadwidth: dealRoadWidth,
+        facing: dealFacing,
+        sizetype: dealFullSpecs,
+        size: dealFullSpecs,
+        specs: dealFullSpecs,
+        ownermobile: dealOwnerMobile,
+        ownername: dealOwnerName,
+        unitno: dealUnitNo || dealRef,
+        unitnumber: dealUnitNo || dealRef,
+        unit: dealUnitNo || dealRef,
+        block: dealBlock,
+        unittype: dealUnitType,
+        price: dealPrice,
+        propertyprice: dealPrice,
+        amount: dealPrice,
+        location: dealLoc,
+        sector: dealLoc,
+        dealcode: dealRef,
+        ref: dealRef,
+        shareableid: dealRef,
+        companyname: 'Bharat Properties'
+    };
+
+    result = result.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (match, rawKey) => {
+        const clean = rawKey.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (varLookup[clean] !== undefined) {
+            return getSafeString(varLookup[clean], '');
+        }
+        return match;
+    });
+
     result = result.replace(/\{\{1\}\}/g, recipientFirstName || recipientName);
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
     result = result.replace(/\{\{5\}\}/g, dealFullSpecs);
-    result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
-    result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
+    result = result.replace(/\{\{6\}\}/g, employeeName || 'Bharat Properties');
+    result = result.replace(/\{\{7\}\}/g, employeeMobile || '+91 9991333570');
 
     return result;
 }
@@ -201,6 +376,8 @@ function interpolateWebTemplateText(template, ctx) {
 
 function MarketingTab({ dealId, deal, onRefresh }) {
     const { isDark } = useTheme();
+    const { currentUser } = useUserContext();
+    const { data: users = [] } = useUsers();
     const [loading, setLoading] = useState(true);
     const [sanitizing, setSanitizing] = useState(false);
     const [analytics, setAnalytics] = useState(null);
@@ -450,8 +627,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
     const webTemplatePreviewText = useMemo(() => {
         if (!selectedWebTemplate) return null;
-        return interpolateWebTemplateText(selectedWebTemplate, { meta, deal });
-    }, [selectedWebTemplate, meta, deal]);
+        return interpolateWebTemplateText(selectedWebTemplate, { meta, deal, currentUser, users });
+    }, [selectedWebTemplate, meta, deal, currentUser, users]);
 
     // 🧠 Build live preview from selected template + deal metadata using Registry
     const templatePreview = useMemo(() => {
@@ -462,29 +639,217 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         const recipientName = '[Broker Company Name]';
         const recipientFirstName = '[Broker Company Name]';
 
+        // Resolve assigned employee / user
+        let assignedUser = null;
+        if (deal?.assignedTo && typeof deal.assignedTo === 'object') {
+            assignedUser = deal.assignedTo;
+        } else if (deal?.assignedTo && Array.isArray(users) && users.length > 0) {
+            assignedUser = users.find(u => String(u._id || u.id) === String(deal.assignedTo));
+        }
+        if (!assignedUser) {
+            assignedUser = currentUser;
+        }
+
+        const employeeName = getSafeString(
+            assignedUser?.name ||
+            (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+            currentUser?.name ||
+            (currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}`.trim() : ''),
+            'Bharat Properties'
+        );
+
+        const employeeMobile = getSafeString(
+            assignedUser?.mobile ||
+            assignedUser?.phone ||
+            assignedUser?.phoneNumber ||
+            currentUser?.mobile ||
+            currentUser?.phone ||
+            currentUser?.phoneNumber,
+            '+91 9991333570'
+        );
+
+        const employeeEmail = getSafeString(
+            assignedUser?.email ||
+            currentUser?.email,
+            'deals@bharatproperties.co'
+        );
+
+        const assignedTeam = getSafeString(
+            deal?.team ||
+            assignedUser?.team ||
+            currentUser?.team,
+            'Sales Team'
+        );
+
+        const assignedVisibility = getSafeString(
+            deal?.visibleTo ||
+            deal?.visibility ||
+            'Everyone',
+            'Everyone'
+        );
+
+        const inv = (deal?.inventoryId && typeof deal.inventoryId === 'object') ? deal.inventoryId : {};
+        const rawSubCategory = getSafeString(deal?.subCategory || inv.subCategory || deal?.propertyType, 'Residential Plot');
+        const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
+        const dealCategory = getSafeString(deal?.category || inv.category || deal?.propertyType, 'Residential');
+        const dealDirection = getSafeString(deal?.direction || inv.direction || inv.orientation, 'North');
+        const dealRoadWidth = getSafeString(deal?.roadWidth || inv.roadWidth, '30 Feet');
+        const dealFacing = getSafeString(deal?.facing || inv.facing, 'Park Facing');
+        const dealUnitNo = getSafeString(deal?.unitNo || deal?.unitNumber || inv.unitNumber || inv.unitNo, '');
+        
+        let dealSize = '';
+        if (deal?.size && typeof deal.size === 'object') {
+            const val = deal.size.value || '';
+            let unit = deal.size.unit || 'Sq.Yd.';
+            unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+            dealSize = val ? `${val} ${unit}`.trim() : '';
+        } else if (deal?.size) {
+            dealSize = String(deal.size).trim();
+        } else if (inv.size && typeof inv.size === 'object') {
+            const val = inv.size.value || '';
+            let unit = inv.size.unit || 'Sq.Ft.';
+            unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+            dealSize = val ? `${val} ${unit}`.trim() : '';
+        }
+        const dealSizeType = getSafeString(
+            deal?.sizeType || 
+            inv.sizeType || 
+            deal?.unitSpecification?.sizeLabel || 
+            inv.unitSpecification?.sizeLabel || 
+            deal?.sizeLabel || 
+            inv.sizeLabel, 
+            ''
+        ).trim();
+        
+        let dealFullSpecs = '';
+        if (dealSizeType && dealSize) {
+            const cleanSizeBase = dealSize.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+            const cleanTypeBase = dealSizeType.toLowerCase();
+            if (cleanTypeBase.includes(cleanSizeBase)) {
+                dealFullSpecs = dealSizeType;
+            } else if (cleanSizeBase.includes(cleanTypeBase)) {
+                dealFullSpecs = dealSize;
+            } else {
+                dealFullSpecs = `${dealSize} (${dealSizeType})`;
+            }
+        } else {
+            dealFullSpecs = dealSizeType || dealSize || getSafeString(meta.features?.[0], 'Prime Specs');
+        }
+
+        const metaVarLookup = {
+            employeename: employeeName,
+            employeemobile: employeeMobile,
+            employeeemail: employeeEmail,
+            agentname: employeeName,
+            agentmobile: employeeMobile,
+            agentphone: employeeMobile,
+            agentemail: employeeEmail,
+            team: assignedTeam,
+            teamname: assignedTeam,
+            assignedto: employeeName,
+            assigneduser: employeeName,
+            visibleto: assignedVisibility,
+            visibility: assignedVisibility,
+            customername: recipientName,
+            firstname: recipientFirstName,
+            fullname: recipientName,
+            name: recipientName,
+            projectName: getSafeString(meta.title, ''),
+            projectname: getSafeString(meta.title, ''),
+            title: getSafeString(meta.title, ''),
+            location: getSafeString(meta.location, ''),
+            price: getSafeString(meta.price, ''),
+            description: getSafeString(meta.description, ''),
+            subcategory: dealSubCategory,
+            sub_category: dealSubCategory,
+            property_subcategory: dealSubCategory,
+            propertycategory: dealCategory,
+            category: dealCategory,
+            direction: dealDirection,
+            roadwidth: dealRoadWidth,
+            facing: dealFacing,
+            sizetype: dealFullSpecs,
+            size: dealFullSpecs,
+            specs: dealFullSpecs,
+            unitno: dealUnitNo || getSafeString(deal?.dealCode, 'DEAL-REF'),
+            companyname: 'Bharat Properties'
+        };
+
         const resolveSource = (source, idx) => {
             switch(source) {
                 case 'customer_name': return recipientName;
                 case 'first_name': return recipientFirstName;
                 case 'property_list_default':
                 case 'matchListDefault':
-                    return `1️⃣ 🏢 ${getSafeString(meta.title, 'Project')} | 📐 ${getSafeString(meta.features?.[0], 'Size')} | 💰 ${getSafeString(meta.price, 'Price')}`;
+                    return `1️⃣ 🏢 ${getSafeString(meta.title, 'Project')} | 📐 ${dealFullSpecs} | 💰 ${getSafeString(meta.price, 'Price')}`;
                 case 'property_list_dtl':
                 case 'matchListDetailed':
-                    return `1️⃣ 🏢 ${getSafeString(meta.title, 'Project')}\n📍 ${getSafeString(meta.location, 'Kurukshetra')}\n💰 ${getSafeString(meta.price, 'Price')}\n📐 ${getSafeString(meta.features?.[0], 'Size')}\n📝 ${getSafeString(meta.description, '')}`;
+                    return `1️⃣ 🏢 ${getSafeString(meta.title, 'Project')}\n📍 ${getSafeString(meta.location, 'Kurukshetra')}\n💰 ${getSafeString(meta.price, 'Price')}\n📐 ${dealFullSpecs}\n📝 ${getSafeString(meta.description, '')}`;
+                case 'subCategory':
+                case 'subcategory':
+                case 'sub_category':
+                case 'property_subcategory':
+                    return dealSubCategory;
+                case 'sizeType':
+                case 'sizetype':
+                case 'size_type':
+                case 'size':
+                case 'specs':
+                    return dealFullSpecs;
+                case 'direction': return dealDirection;
+                case 'roadWidth':
+                case 'roadwidth': return dealRoadWidth;
+                case 'facing': return dealFacing;
                 case 'projectName': return getSafeString(meta.title, '');
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');
                 case 'description': return getSafeString(meta.description, '');
-                case 'agentMobile': return '+91 9991333570';
+                case 'agentMobile':
+                case 'agent_mobile':
+                case 'EmployeeMobile':
+                case 'employeemobile':
+                case 'employee_mobile':
+                case 'employeeMobile':
+                    return employeeMobile;
+                case 'agent_name':
+                case 'agentName':
+                case 'agentname':
+                case 'EmployeeName':
+                case 'employeename':
+                case 'employee_name':
+                case 'employeeName':
+                    return employeeName;
+                case 'agent_email':
+                case 'agentEmail':
+                case 'EmployeeEmail':
+                case 'employeemail':
+                case 'employee_email':
+                case 'employeeEmail':
+                    return employeeEmail;
+                case 'team':
+                case 'team_name':
+                case 'teamName':
+                    return assignedTeam;
+                case 'assignedTo':
+                case 'assignedto':
+                case 'assigned_to':
+                    return employeeName;
+                case 'visibleTo':
+                case 'visibleto':
+                case 'visible_to':
+                    return assignedVisibility;
                 default:
                     if (idx === '1') return recipientFirstName || recipientName;
                     if (idx === '2') return resolveSource('property_list_default', idx);
                     if (idx === '3') return getSafeString(meta.price, 'Price on Request');
                     if (idx === '4') return getSafeString(meta.location, 'Kurukshetra');
                     if (idx === '5') return getSafeString(meta.features?.[0], 'Prime Specs');
-                    if (idx === '6') return 'Bharat Properties';
-                    if (idx === '7') return '+91 9991333570';
+                    if (idx === '6') return employeeName || 'Bharat Properties';
+                    if (idx === '7') return employeeMobile || '+91 9991333570';
+                    const cleanKey = String(source || idx).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (metaVarLookup[cleanKey] !== undefined) {
+                        return getSafeString(metaVarLookup[cleanKey], '');
+                    }
                     return source ? `[${getSafeString(source)}]` : '-';
             }
         };
@@ -497,11 +862,17 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 const source = typeof config === 'object' ? config.source : config;
                 return resolveSource(source, clean);
             }
-            return resolveSource(clean, clean);
+            const res = resolveSource(clean, clean);
+            if (res && res !== `[${clean}]` && res !== '-') return res;
+            const lookupClean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (metaVarLookup[lookupClean] !== undefined) {
+                return getSafeString(metaVarLookup[lookupClean], '');
+            }
+            return res || match;
         });
 
         return preview;
-    }, [selectedTemplate, meta, registry]);
+    }, [selectedTemplate, meta, registry, currentUser, users, deal]);
 
     // 🧠 Rich Direct BNA text for WhatsApp Web Mode & Groups
     const bnaRichPreview = useMemo(() => {
@@ -537,10 +908,10 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
     const smsPreviewText = useMemo(() => {
         if (selectedSmsTemplate) {
-            return interpolateWebTemplateText(selectedSmsTemplate, { meta, deal }) || defaultSmsPreviewText;
+            return interpolateWebTemplateText(selectedSmsTemplate, { meta, deal, currentUser, users }) || defaultSmsPreviewText;
         }
         return defaultSmsPreviewText;
-    }, [selectedSmsTemplate, meta, deal, defaultSmsPreviewText]);
+    }, [selectedSmsTemplate, meta, deal, defaultSmsPreviewText, currentUser, users]);
 
     const rcsPreviewData = useMemo(() => {
         const title = getSafeString(meta?.title || deal?.title || deal?.projectName, 'Featured Property Deal');
@@ -549,17 +920,17 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         const specs = getSafeString(meta?.features || deal?.unitType, 'Prime Specification');
         const defaultDesc = getSafeString(meta?.description || deal?.remarks, 'Prime location property with high capital appreciation potential and clear title.');
         const desc = selectedRcsTemplate
-            ? interpolateWebTemplateText(selectedRcsTemplate, { meta, deal })
+            ? interpolateWebTemplateText(selectedRcsTemplate, { meta, deal, currentUser, users })
             : defaultDesc;
         const ref = getSafeString(deal?.dealCode, dealId?.substring(0, 8).toUpperCase() || 'DEAL-REF');
         const buttons = Array.isArray(selectedRcsTemplate?.buttons) && selectedRcsTemplate.buttons.length > 0
             ? selectedRcsTemplate.buttons.map(btn => ({
                 ...btn,
-                text: interpolateTemplateString(getSafeString(btn.text, 'Action'), { meta, deal })
+                text: interpolateTemplateString(getSafeString(btn.text, 'Action'), { meta, deal, currentUser, users })
             }))
             : null;
         return { title, loc, price, specs, desc, ref, buttons, templateName: getSafeString(selectedRcsTemplate?.name, '') || null };
-    }, [meta, deal, dealId, selectedRcsTemplate]);
+    }, [meta, deal, dealId, selectedRcsTemplate, currentUser, users]);
 
     const emailPreviewData = useMemo(() => {
         const title = getSafeString(meta?.title || deal?.title || deal?.projectName, 'Exclusive Verified Deal');
@@ -568,13 +939,13 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         const specs = getSafeString(meta?.features || deal?.unitType, 'Prime Spec');
         const ref = getSafeString(deal?.dealCode, dealId?.substring(0, 8).toUpperCase() || 'DEAL-REF');
         const subject = selectedEmailTemplate?.subject
-            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.subject), { meta, deal })
+            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.subject), { meta, deal, currentUser, users })
             : `[Exclusive Deal Alert] ${title}`;
         const customHtml = selectedEmailTemplate
-            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.content || selectedEmailTemplate.body, ''), { meta, deal, isHtml: true })
+            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.content || selectedEmailTemplate.body, ''), { meta, deal, isHtml: true, currentUser, users })
             : null;
         return { title, loc, price, specs, ref, subject, customHtml, templateName: getSafeString(selectedEmailTemplate?.name, '') || null };
-    }, [meta, deal, dealId, selectedEmailTemplate]);
+    }, [meta, deal, dealId, selectedEmailTemplate, currentUser, users]);
 
     const filteredMatchedLeads = useMemo(() => {
         return matchedLeads.filter(lead => {

@@ -8,6 +8,17 @@
 
 import jwt from 'jsonwebtoken';
 
+export function cleanSubCategory(val) {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+    if (!s) return '';
+    s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+    s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+    s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+    s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+    return s;
+}
+
 class VariableResolutionService {
     /**
      * LAYER 1: Named Resolution (Internal)
@@ -77,6 +88,22 @@ class VariableResolutionService {
             "agent": this.extractValue(lead, 'agentName'),
             "agent_name": this.extractValue(lead, 'agentName'),
             "agent_mobile": this.extractValue(lead, 'agentMobile'),
+            "agent_email": this.extractValue(lead, 'agentEmail') || "deals@bharatproperties.co",
+            "EmployeeName": this.extractValue(lead, 'agentName') || this.extractValue(lead, 'employeeName') || "Bharat Properties",
+            "employeeName": this.extractValue(lead, 'agentName') || this.extractValue(lead, 'employeeName') || "Bharat Properties",
+            "employee_name": this.extractValue(lead, 'agentName') || this.extractValue(lead, 'employeeName') || "Bharat Properties",
+            "employeename": this.extractValue(lead, 'agentName') || this.extractValue(lead, 'employeeName') || "Bharat Properties",
+            "EmployeeMobile": this.extractValue(lead, 'agentMobile') || this.extractValue(lead, 'employeeMobile') || "+91 9991333570",
+            "employeeMobile": this.extractValue(lead, 'agentMobile') || this.extractValue(lead, 'employeeMobile') || "+91 9991333570",
+            "employee_mobile": this.extractValue(lead, 'agentMobile') || this.extractValue(lead, 'employeeMobile') || "+91 9991333570",
+            "employeemobile": this.extractValue(lead, 'agentMobile') || this.extractValue(lead, 'employeeMobile') || "+91 9991333570",
+            "EmployeeEmail": this.extractValue(lead, 'agentEmail') || this.extractValue(lead, 'employeeEmail') || "deals@bharatproperties.co",
+            "employeeEmail": this.extractValue(lead, 'agentEmail') || this.extractValue(lead, 'employeeEmail') || "deals@bharatproperties.co",
+            "employee_email": this.extractValue(lead, 'agentEmail') || this.extractValue(lead, 'employeeEmail') || "deals@bharatproperties.co",
+            "team": this.extractValue(lead, 'team') || "Sales Team",
+            "team_name": this.extractValue(lead, 'team') || "Sales Team",
+            "assignedTo": this.extractValue(lead, 'agentName') || "Bharat Properties",
+            "visibleTo": this.extractValue(lead, 'visibleTo') || "Everyone",
             "company": "Bharat Properties",
             "company_name": "Bharat Properties",
             "office_address": "Gurugram, Haryana",
@@ -321,28 +348,31 @@ class VariableResolutionService {
                 }
             case 'subCategory':
                 {
+                    let res = '';
                     // 1. Try populated subRequirement
                     if (lead.subRequirement) {
                         const val = typeof lead.subRequirement === 'object' ? (lead.subRequirement.lookup_value || lead.subRequirement.name) : lead.subRequirement;
-                        if (val) return val;
+                        if (val) res = val;
                     }
                     // 2. Try array-based subType (more common)
-                    if (Array.isArray(lead.subType) && lead.subType.length > 0) {
-                        return lead.subType.map(s => {
+                    if (!res && Array.isArray(lead.subType) && lead.subType.length > 0) {
+                        res = lead.subType.map(s => {
                             if (!s) return '';
                             if (typeof s === 'object') return s.lookup_value || s.name || s.label || '';
                             return s;
                         }).filter(Boolean).join(', ');
                     }
                     // 3. Try scalar subType
-                    if (lead.subType) {
+                    if (!res && lead.subType) {
                         if (typeof lead.subType === 'object') {
-                            return lead.subType.lookup_value || lead.subType.name || lead.subType.label || '';
+                            res = lead.subType.lookup_value || lead.subType.name || lead.subType.label || '';
+                        } else {
+                            res = lead.subType;
                         }
-                        return lead.subType;
                     }
                     // 4. Try legacy subCategory string
-                    return lead.subCategory || '';
+                    if (!res) res = lead.subCategory || '';
+                    return cleanSubCategory(res);
                 }
             case 'sizeType':
             case 'areaMetric':

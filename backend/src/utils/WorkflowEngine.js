@@ -627,6 +627,9 @@ export class WorkflowEngine {
             }
         }
 
+        const teamName = entityData.assignment?.team || entityData.team || 'Sales Team';
+        const visibleToStr = entityData.assignment?.visibleTo || entityData.visibleTo || 'Everyone';
+
         // ─── Build full name ───
         const fullName = [entityData.firstName, entityData.lastName].filter(Boolean).join(' ')
             || entityData.fullName || entityData.name || 'Valued Customer';
@@ -674,12 +677,25 @@ export class WorkflowEngine {
             'budget_max': formatBudget(entityData),
             'budget_min': entityData.budgetMin ? String(entityData.budgetMin) : '',
 
+            // System & Assignment Data
+            'team': teamName,
+            'team_name': teamName,
+            'assignedTo': agentName,
+            'assignedto': agentName,
+            'visibleTo': visibleToStr,
+            'visibleto': visibleToStr,
+
             // Agent / Employee Data
             'employee_name': agentName,
             'employee_mobile': agentMobile,
+            'employee_email': agentEmail,
             'agent_name': agentName,
             'agent_mobile': agentMobile,
             'agent_email': agentEmail,
+            'ownerMobile': agentMobile,
+            'ownermobile': agentMobile,
+            'ownerEmail': agentEmail,
+            'owneremail': agentEmail,
 
             // Feedback-style Aliases
             'OwnerName': fullName,

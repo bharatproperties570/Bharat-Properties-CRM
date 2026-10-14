@@ -57,6 +57,21 @@ const formatCurrency = (val, defaultVal = 'Price on Request') => {
     return defaultVal;
 };
 
+export function cleanSubCategory(val) {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+    if (!s) return '';
+    // 1. Remove parenthesized size specs, units, conversions, or numbers like "( Sq Yd)", "(8 Marla)", "(200 Sq. Yd)", "(200.00 Sq Yd)"
+    s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+    // 2. Remove trailing/appended numbers with size units like "8 Marla", "200 Sq.Yd", "250 Gaj", "1 Kanal", "1000 Sq Ft", "8Marla"
+    s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+    // 3. Remove standalone trailing unit names if any remained e.g. "Marla", "Sq Yd", "Sq.Ft"
+    s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+    // 4. Clean up any remaining empty parentheses or dashes
+    s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+    return s;
+}
+
 export const resolveMessageTemplate = async (template, channel, recipient, properties, currentUser) => {
     let resolvedBody = '';
     const components = [];
@@ -103,7 +118,8 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
     let categoryResolved = await resolveLookup(categoryRaw, 'Category', lookupsCache);
 
     let subCategoryRaw = getPropVal('subCategory');
-    let subCategoryResolved = await resolveLookup(subCategoryRaw, 'SubCategory', lookupsCache);
+    let rawSubCategoryResolved = await resolveLookup(subCategoryRaw, 'SubCategory', lookupsCache);
+    let subCategoryResolved = cleanSubCategory(rawSubCategoryResolved);
 
     let builtupTypeRaw = getPropVal('builtupType');
     let builtupTypeResolved = builtupTypeRaw && !/^[0-9a-fA-F]{24}$/.test(String(builtupTypeRaw))
@@ -131,7 +147,24 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         : await resolveLookup(roadWidthRaw, 'RoadWidth', lookupsCache);
 
     let sizeRaw = getPropVal('size');
-    let sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
+    let sizeVal = typeof sizeRaw === 'object' 
+        ? (sizeRaw.value ? `${sizeRaw.value} ${String(sizeRaw.unit || 'Sq.Yd.').replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim()}` : '') 
+        : sizeRaw;
+
+    let finalSizeSpec = '';
+    if (sizeLabelResolved && sizeVal) {
+        const cleanVal = String(sizeVal).replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const cleanLabel = String(sizeLabelResolved).toLowerCase();
+        if (cleanLabel.includes(cleanVal)) {
+            finalSizeSpec = sizeLabelResolved;
+        } else if (cleanVal.includes(cleanLabel)) {
+            finalSizeSpec = sizeVal;
+        } else {
+            finalSizeSpec = `${sizeVal} (${sizeLabelResolved})`;
+        }
+    } else {
+        finalSizeSpec = sizeLabelResolved || sizeVal || '';
+    }
 
     let priceVal = getPropVal('price');
     let projectNameVal = getPropVal('projectName') || getPropVal('title') || getPropVal('unitNo');
@@ -142,10 +175,10 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
     // 🌟 SENIOR CONTEXTUAL FALLBACKS: If properties array is empty, resolve from recipient/lead requirement data
     if (!hasProperties) {
         categoryResolved = categoryResolved || recipient?.requirement || recipient?.requirementType || (Array.isArray(recipient?.propertyType) ? recipient.propertyType[0] : recipient?.propertyType) || 'Commercial / Residential';
-        subCategoryResolved = subCategoryResolved || (Array.isArray(recipient?.subType) ? recipient.subType[0] : recipient?.subType) || 'Plot';
+        subCategoryResolved = cleanSubCategory(subCategoryResolved || (Array.isArray(recipient?.subType) ? recipient.subType[0] : recipient?.subType)) || 'Plot';
         locationResolved = locationResolved || recipient?.locArea || recipient?.locCity || recipient?.location || recipient?.searchLocation || 'Sector 3, Kurukshetra';
         priceVal = priceVal ? formatCurrency(priceVal) : (recipient?.budgetMax ? formatCurrency(recipient.budgetMax) : (recipient?.budgetMin ? formatCurrency(recipient.budgetMin) : (recipient?.budget ? formatCurrency(recipient.budget) : 'Attractive Price')));
-        sizeVal = sizeVal || sizeLabelResolved || (recipient?.sizeType?.[0] ? `${recipient.sizeType[0]} ${recipient.areaMetric || 'Sq.Yd.'}` : '250 Sq.Yd.');
+        finalSizeSpec = finalSizeSpec || (recipient?.sizeType?.[0] ? `${recipient.sizeType[0]} ${recipient.areaMetric || 'Sq.Yd.'}` : '250 Sq.Yd.');
         projectNameVal = projectNameVal || (recipient?.projectName?.[0] || 'Featured Property Listing');
     }
 
@@ -215,6 +248,25 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'preferred_city': recipient?.locCity || recipient?.location || 'Kurukshetra',
         'preferred_area': recipient?.locArea || locationResolved || 'Sector 3',
         
+        // System & Assignment Data
+        'team': recipient?.team || recipient?.assignment?.team || 'Sales Team',
+        'team_name': recipient?.team || recipient?.assignment?.team || 'Sales Team',
+        'assignedTo': agentName || 'Bharat Properties',
+        'assignedto': agentName || 'Bharat Properties',
+        'visibleTo': recipient?.visibleTo || 'Everyone',
+        'visibleto': recipient?.visibleTo || 'Everyone',
+        'EmployeeName': agentName || 'Bharat Properties',
+        'employeename': agentName || 'Bharat Properties',
+        'employee_name': agentName || 'Bharat Properties',
+        'EmployeeMobile': agentMobile || '+91 9991333570',
+        'employeemobile': agentMobile || '+91 9991333570',
+        'employee_mobile': agentMobile || '+91 9991333570',
+        'employee_email': recipient?.assignedTo?.email || currentUser?.email || 'deals@bharatproperties.co',
+        'ownerMobile': agentMobile || '+91 9991333570',
+        'ownermobile': agentMobile || '+91 9991333570',
+        'ownerEmail': recipient?.assignedTo?.email || currentUser?.email || 'deals@bharatproperties.co',
+        'owneremail': recipient?.assignedTo?.email || currentUser?.email || 'deals@bharatproperties.co',
+
         // Agent / System Data
         'agent_name': agentName || 'Bharat Properties',
         'agentname': agentName || 'Bharat Properties',
@@ -237,14 +289,21 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'unitNo': getPropVal('unitNo') || 'Unit 1',
         'block_name': getPropVal('block') || 'Block A',
         'unit_type': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache) || 'Plot',
+        'unitType': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache) || 'Plot',
         'property_category': categoryResolved || 'Residential Plot',
         'property_subcategory': subCategoryResolved || 'Plot',
+        'subCategory': subCategoryResolved || 'Plot',
+        'subcategory': subCategoryResolved || 'Plot',
+        'sub_category': subCategoryResolved || 'Plot',
         'property_type': categoryResolved || 'Residential Plot',
         'builtup_type': builtupTypeResolved || 'Plot',
-        'size_label': sizeLabelResolved || sizeVal || '250 Sq.Yd.',
-        'property_size': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
-        'size': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
-        'specs': sizeVal || sizeLabelResolved || '250 Sq.Yd.',
+        'size_label': finalSizeSpec || '250 Sq.Yd.',
+        'property_size': finalSizeSpec || '250 Sq.Yd.',
+        'size': finalSizeSpec || '250 Sq.Yd.',
+        'specs': finalSizeSpec || '250 Sq.Yd.',
+        'sizeType': finalSizeSpec || '250 Sq.Yd.',
+        'sizetype': finalSizeSpec || '250 Sq.Yd.',
+        'size_type': finalSizeSpec || '250 Sq.Yd.',
         'property_direction': directionResolved || 'North',
         'property_facing': facingResolved || 'Park Facing',
         'road_width': roadWidthResolved || '30 Feet',

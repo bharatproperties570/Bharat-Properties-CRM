@@ -11,6 +11,8 @@ import whatsappService from '../../../services/whatsappService';
 import smsService from '../../../services/smsService';
 import { renderValue } from '../../../utils/renderUtils';
 import toast from 'react-hot-toast';
+import { useUserContext } from '../../../context/UserContext';
+import { useUsers } from '../../../utils/crmHooks';
 
 const getSafeString = (val, defaultVal = '') => {
     if (val === null || val === undefined || val === '') return defaultVal;
@@ -21,6 +23,21 @@ const getSafeString = (val, defaultVal = '') => {
         return String(val.lookup_value || val.name || val.title || val.fullName || val.label || val.value || defaultVal);
     }
     return String(val);
+};
+
+export const cleanSubCategory = (val) => {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.lookup_value || val.name || val.title || val.label || '') : String(val);
+    if (!s) return '';
+    // 1. Remove parenthesized size specs, units, conversions, or numbers like "( Sq Yd)", "(8 Marla)", "(200 Sq. Yd)", "(200.00 Sq Yd)"
+    s = s.replace(/\s*\([^)]*(?:sq|yd|ft|meter|marla|kanal|acre|gaj|bigha|yard|feet|size|\d)[^)]*\)/gi, '');
+    // 2. Remove trailing/appended numbers with size units like "8 Marla", "200 Sq.Yd", "250 Gaj", "1 Kanal", "1000 Sq Ft", "8Marla"
+    s = s.replace(/\s*\b\d+(?:\.\d+)?\s*(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila|bhk)\b/gi, '');
+    // 3. Remove standalone trailing unit names if any remained e.g. "Marla", "Sq Yd", "Sq.Ft"
+    s = s.replace(/\s*\b(?:marla|kanal|acre|sq\.?\s*(?:yd|ft|meter|yard)|feet|gaj|bigha|kila)\b/gi, '');
+    // 4. Clean up any remaining empty parentheses or dashes
+    s = s.replace(/\s*\(\s*\)/g, '').replace(/[-–—]\s*$/, '').trim();
+    return s;
 };
 
 const isMarketingBroadcastContext = (tpl) => {
@@ -35,7 +52,7 @@ const isMarketingBroadcastContext = (tpl) => {
  * Enterprise Omnichannel Template Variable Interpolator
  * Replaces lead/deal/portfolio placeholders into template text or HTML across WhatsApp, SMS, RCS, and Email
  */
-function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false, recipient = null }) {
+function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml = false, recipient = null, currentUser = null, users = [] }) {
     if (!rawText || typeof rawText !== 'string') return '';
 
     const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
@@ -55,7 +72,8 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
 
     const inv = (singleDeal?.inventoryId && typeof singleDeal.inventoryId === 'object') ? singleDeal.inventoryId : {};
     const dealTitle = getSafeString(meta.title || singleDeal?.projectName || singleDeal?.title || inv.projectName, 'Featured Deal');
-    const dealSubCategory = getSafeString(singleDeal?.subCategory || inv.subCategory || singleDeal?.propertyType, 'Residential Plot');
+    const rawSubCategory = getSafeString(singleDeal?.subCategory || inv.subCategory || singleDeal?.propertyType, 'Residential Plot');
+    const dealSubCategory = cleanSubCategory(rawSubCategory) || 'Residential Plot';
     const dealCategory = getSafeString(singleDeal?.category || inv.category || singleDeal?.propertyType, 'Residential');
     const dealDirection = getSafeString(singleDeal?.direction || inv.direction || inv.orientation, 'North');
     const dealRoadWidth = getSafeString(singleDeal?.roadWidth || inv.roadWidth, '30 Feet');
@@ -67,14 +85,42 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     // Size resolution
     let dealSize = '';
     if (singleDeal?.size && typeof singleDeal.size === 'object') {
-        dealSize = `${singleDeal.size.value || ''} ${singleDeal.size.unit || 'Sq.Yd.'}`.trim();
+        const val = singleDeal.size.value || '';
+        let unit = singleDeal.size.unit || 'Sq.Yd.';
+        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+        dealSize = val ? `${val} ${unit}`.trim() : '';
     } else if (singleDeal?.size) {
-        dealSize = String(singleDeal.size);
+        dealSize = String(singleDeal.size).trim();
     } else if (inv.size && typeof inv.size === 'object') {
-        dealSize = `${inv.size.value || ''} ${inv.size.unit || 'Sq.Ft.'}`.trim();
+        const val = inv.size.value || '';
+        let unit = inv.size.unit || 'Sq.Ft.';
+        unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
+        dealSize = val ? `${val} ${unit}`.trim() : '';
     }
-    const dealSizeType = getSafeString(singleDeal?.sizeType || inv.sizeType || singleDeal?.sizeLabel, '');
-    const dealFullSpecs = dealSize ? (dealSizeType && !dealSize.includes(dealSizeType) ? `${dealSize} (${dealSizeType})` : dealSize) : (dealSizeType || getSafeString(meta.features?.[0], singleSpecs));
+    const dealSizeType = getSafeString(
+        singleDeal?.sizeType || 
+        inv.sizeType || 
+        singleDeal?.unitSpecification?.sizeLabel || 
+        inv.unitSpecification?.sizeLabel || 
+        singleDeal?.sizeLabel || 
+        inv.sizeLabel, 
+        ''
+    ).trim();
+    
+    let dealFullSpecs = '';
+    if (dealSizeType && dealSize) {
+        const cleanSizeBase = dealSize.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const cleanTypeBase = dealSizeType.toLowerCase();
+        if (cleanTypeBase.includes(cleanSizeBase)) {
+            dealFullSpecs = dealSizeType;
+        } else if (cleanSizeBase.includes(cleanTypeBase)) {
+            dealFullSpecs = dealSize;
+        } else {
+            dealFullSpecs = `${dealSize} (${dealSizeType})`;
+        }
+    } else {
+        dealFullSpecs = dealSizeType || dealSize || getSafeString(meta.features?.[0], singleSpecs);
+    }
 
     // Price resolution
     const rawPrice = singleDeal?.price || singleDeal?.quotePrice || singleDeal?.value || meta.price;
@@ -95,6 +141,55 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     const dealOwnerName = getSafeString(
         ownerObj.name || (ownerObj.firstName ? `${ownerObj.firstName} ${ownerObj.lastName || ''}`.trim() : '') || singleDeal?.ownerName,
         'Bharat Properties'
+    );
+
+    // Dynamic Employee & System Assignment Resolution
+    let assignedUser = null;
+    if (singleDeal?.assignedTo && typeof singleDeal.assignedTo === 'object') {
+        assignedUser = singleDeal.assignedTo;
+    } else if (singleDeal?.assignedTo && Array.isArray(users) && users.length > 0) {
+        assignedUser = users.find(u => String(u._id || u.id) === String(singleDeal.assignedTo));
+    }
+    if (!assignedUser) {
+        assignedUser = currentUser;
+    }
+
+    const employeeName = getSafeString(
+        assignedUser?.name ||
+        (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+        currentUser?.name ||
+        (currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}`.trim() : ''),
+        'Bharat Properties'
+    );
+
+    const employeeMobile = getSafeString(
+        assignedUser?.mobile ||
+        assignedUser?.phone ||
+        assignedUser?.phoneNumber ||
+        currentUser?.mobile ||
+        currentUser?.phone ||
+        currentUser?.phoneNumber,
+        '+91 9991333570'
+    );
+
+    const employeeEmail = getSafeString(
+        assignedUser?.email ||
+        currentUser?.email,
+        'deals@bharatproperties.co'
+    );
+
+    const assignedTeam = getSafeString(
+        singleDeal?.team ||
+        assignedUser?.team ||
+        currentUser?.team,
+        'Sales Team'
+    );
+
+    const assignedVisibility = getSafeString(
+        singleDeal?.visibleTo ||
+        singleDeal?.visibility ||
+        'Everyone',
+        'Everyone'
     );
 
     // Summary representation for multi-deal vs single-deal
@@ -198,9 +293,31 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{properties_count\\}\\}': String(selectedDeals.length || 1),
         '\\{\\{match_percentage\\}\\}': '98',
         '\\{\\{requirement_summary\\}\\}': `${dealFullSpecs} in ${dealLoc}`,
-        '\\{\\{agent_name\\}\\}': 'Bharat Properties',
-        '\\{\\{agent_mobile\\}\\}': '+91 9991333570',
-        '\\{\\{agent_email\\}\\}': 'deals@bharatproperties.co',
+        '\\{\\{EmployeeName\\}\\}': employeeName,
+        '\\{\\{employeeName\\}\\}': employeeName,
+        '\\{\\{employee_name\\}\\}': employeeName,
+        '\\{\\{employeename\\}\\}': employeeName,
+        '\\{\\{EmployeeMobile\\}\\}': employeeMobile,
+        '\\{\\{employeeMobile\\}\\}': employeeMobile,
+        '\\{\\{employee_mobile\\}\\}': employeeMobile,
+        '\\{\\{employeemobile\\}\\}': employeeMobile,
+        '\\{\\{EmployeeEmail\\}\\}': employeeEmail,
+        '\\{\\{employeeEmail\\}\\}': employeeEmail,
+        '\\{\\{employee_email\\}\\}': employeeEmail,
+        '\\{\\{employeemail\\}\\}': employeeEmail,
+        '\\{\\{team\\}\\}': assignedTeam,
+        '\\{\\{team_name\\}\\}': assignedTeam,
+        '\\{\\{assignedTo\\}\\}': employeeName,
+        '\\{\\{assignedto\\}\\}': employeeName,
+        '\\{\\{assigned_to\\}\\}': employeeName,
+        '\\{\\{visibleTo\\}\\}': assignedVisibility,
+        '\\{\\{visibleto\\}\\}': assignedVisibility,
+        '\\{\\{visible_to\\}\\}': assignedVisibility,
+        '\\{\\{agent_name\\}\\}': employeeName,
+        '\\{\\{agentname\\}\\}': employeeName,
+        '\\{\\{agent_mobile\\}\\}': employeeMobile,
+        '\\{\\{agentmobile\\}\\}': employeeMobile,
+        '\\{\\{agent_email\\}\\}': employeeEmail,
         '\\{\\{company_name\\}\\}': 'Bharat Properties',
         '\\{\\{due_date\\}\\}': 'This Weekend',
         '\\{\\{document_list\\}\\}': '• Aadhaar Card\n• PAN Card\n• Booking Cheque / Receipt',
@@ -215,13 +332,71 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         result = result.replace(new RegExp(pattern, 'gi'), getSafeString(val, ''));
     });
 
+    // Enterprise Fuzzy/Normalized Dictionary for any spacing or casing
+    const varLookup = {
+        employeename: employeeName,
+        employeemobile: employeeMobile,
+        employeeemail: employeeEmail,
+        agentname: employeeName,
+        agentmobile: employeeMobile,
+        agentphone: employeeMobile,
+        agentemail: employeeEmail,
+        team: assignedTeam,
+        teamname: assignedTeam,
+        assignedto: employeeName,
+        assigneduser: employeeName,
+        visibleto: assignedVisibility,
+        visibility: assignedVisibility,
+        customername: recipientName,
+        firstname: recipientFirstName,
+        fullname: recipientName,
+        name: recipientName,
+        propertytitle: dealTitle,
+        projectname: dealTitle,
+        project: dealTitle,
+        title: dealTitle,
+        subcategory: dealSubCategory,
+        propertycategory: dealCategory,
+        category: dealCategory,
+        direction: dealDirection,
+        roadwidth: dealRoadWidth,
+        facing: dealFacing,
+        sizetype: dealFullSpecs,
+        size: dealFullSpecs,
+        specs: dealFullSpecs,
+        ownermobile: dealOwnerMobile,
+        ownername: dealOwnerName,
+        unitno: dealUnitNo || dealRef,
+        unitnumber: dealUnitNo || dealRef,
+        unit: dealUnitNo || dealRef,
+        block: dealBlock,
+        unittype: dealUnitType,
+        price: dealPrice,
+        propertyprice: dealPrice,
+        amount: dealPrice,
+        location: dealLoc,
+        sector: dealLoc,
+        dealcode: dealRef,
+        ref: dealRef,
+        shareableid: dealRef,
+        companyname: 'Bharat Properties'
+    };
+
+    result = result.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (match, rawKey) => {
+        const clean = rawKey.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (varLookup[clean] !== undefined) {
+            return getSafeString(varLookup[clean], '');
+        }
+        return match;
+    });
+
     result = result.replace(/\{\{1\}\}/g, recipientFirstName || recipientName);
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
     result = result.replace(/\{\{5\}\}/g, dealFullSpecs);
-    result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
-    result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
+    result = result.replace(/\{\{6\}\}/g, employeeName || 'Bharat Properties');
+    result = result.replace(/\{\{7\}\}/g, employeeMobile || '+91 9991333570');
 
     return result;
 }
@@ -239,6 +414,8 @@ function interpolateWebTemplateText(template, ctx) {
 
 function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [], onSuccess }) {
     const { isDark } = useTheme();
+    const { currentUser } = useUserContext();
+    const { data: users = [] } = useUsers();
     const [loading, setLoading] = useState(true);
     const [sanitizing, setSanitizing] = useState(false);
     const [activeTab, setActiveTab] = useState('matched_leads'); // 'matched_leads' | 'broker' | 'contact' | 'wa_group'
@@ -635,6 +812,82 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             description: getSafeString(singleDeal?.remarks, 'Verified property listing')
         };
 
+        // Resolve assigned employee / user
+        let assignedUser = null;
+        if (singleDeal?.assignedTo && typeof singleDeal.assignedTo === 'object') {
+            assignedUser = singleDeal.assignedTo;
+        } else if (singleDeal?.assignedTo && Array.isArray(users) && users.length > 0) {
+            assignedUser = users.find(u => String(u._id || u.id) === String(singleDeal.assignedTo));
+        }
+        if (!assignedUser) {
+            assignedUser = currentUser;
+        }
+
+        const employeeName = getSafeString(
+            assignedUser?.name ||
+            (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+            currentUser?.name ||
+            (currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}`.trim() : ''),
+            'Bharat Properties'
+        );
+
+        const employeeMobile = getSafeString(
+            assignedUser?.mobile ||
+            assignedUser?.phone ||
+            assignedUser?.phoneNumber ||
+            currentUser?.mobile ||
+            currentUser?.phone ||
+            currentUser?.phoneNumber,
+            '+91 9991333570'
+        );
+
+        const employeeEmail = getSafeString(
+            assignedUser?.email ||
+            currentUser?.email,
+            'deals@bharatproperties.co'
+        );
+
+        const assignedTeam = getSafeString(
+            singleDeal?.team ||
+            assignedUser?.team ||
+            currentUser?.team,
+            'Sales Team'
+        );
+
+        const assignedVisibility = getSafeString(
+            singleDeal?.visibleTo ||
+            singleDeal?.visibility ||
+            'Everyone',
+            'Everyone'
+        );
+
+        const metaVarLookup = {
+            employeename: employeeName,
+            employeemobile: employeeMobile,
+            employeeemail: employeeEmail,
+            agentname: employeeName,
+            agentmobile: employeeMobile,
+            agentphone: employeeMobile,
+            agentemail: employeeEmail,
+            team: assignedTeam,
+            teamname: assignedTeam,
+            assignedto: employeeName,
+            assigneduser: employeeName,
+            visibleto: assignedVisibility,
+            visibility: assignedVisibility,
+            customername: recipientName,
+            firstname: recipientFirstName,
+            fullname: recipientName,
+            name: recipientName,
+            projectName: getSafeString(meta.title, ''),
+            projectname: getSafeString(meta.title, ''),
+            title: getSafeString(meta.title, ''),
+            location: getSafeString(meta.location, ''),
+            price: getSafeString(meta.price, ''),
+            description: getSafeString(meta.description, ''),
+            companyname: 'Bharat Properties'
+        };
+
         const resolveSource = (source, idx) => {
             switch (source) {
                 case 'customer_name': return recipientName;
@@ -652,15 +905,52 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 case 'location': return getSafeString(meta.location, '');
                 case 'price': return getSafeString(meta.price, '');
                 case 'description': return getSafeString(meta.description, '');
-                case 'agentMobile': return '+91 9991333570';
+                case 'agentMobile':
+                case 'agent_mobile':
+                case 'EmployeeMobile':
+                case 'employeemobile':
+                case 'employee_mobile':
+                case 'employeeMobile':
+                    return employeeMobile;
+                case 'agent_name':
+                case 'agentName':
+                case 'agentname':
+                case 'EmployeeName':
+                case 'employeename':
+                case 'employee_name':
+                case 'employeeName':
+                    return employeeName;
+                case 'agent_email':
+                case 'agentEmail':
+                case 'EmployeeEmail':
+                case 'employeemail':
+                case 'employee_email':
+                case 'employeeEmail':
+                    return employeeEmail;
+                case 'team':
+                case 'team_name':
+                case 'teamName':
+                    return assignedTeam;
+                case 'assignedTo':
+                case 'assignedto':
+                case 'assigned_to':
+                    return employeeName;
+                case 'visibleTo':
+                case 'visibleto':
+                case 'visible_to':
+                    return assignedVisibility;
                 default:
                     if (idx === '1') return recipientFirstName || recipientName;
                     if (idx === '2') return resolveSource('property_list_default', idx);
                     if (idx === '3') return getSafeString(meta.price, 'Price on Request');
                     if (idx === '4') return getSafeString(meta.location, 'Kurukshetra');
                     if (idx === '5') return getSafeString(meta.features?.[0], 'Prime Specs');
-                    if (idx === '6') return 'Bharat Properties';
-                    if (idx === '7') return '+91 9991333570';
+                    if (idx === '6') return employeeName || 'Bharat Properties';
+                    if (idx === '7') return employeeMobile || '+91 9991333570';
+                    const cleanKey = String(source || idx).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (metaVarLookup[cleanKey] !== undefined) {
+                        return getSafeString(metaVarLookup[cleanKey], '');
+                    }
                     return source ? `[${getSafeString(source)}]` : '-';
             }
         };
@@ -673,11 +963,17 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 const source = typeof config === 'object' ? config.source : config;
                 return resolveSource(source, clean);
             }
-            return resolveSource(clean, clean);
+            const res = resolveSource(clean, clean);
+            if (res && res !== `[${clean}]` && res !== '-') return res;
+            const lookupClean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (metaVarLookup[lookupClean] !== undefined) {
+                return getSafeString(metaVarLookup[lookupClean], '');
+            }
+            return res || match;
         });
 
         return preview;
-    }, [selectedTemplate, singleMeta, singleDeal, isMultiDeal, selectedDeals, registry, matchedLeads, selectedMatchedLeads]);
+    }, [selectedTemplate, singleMeta, singleDeal, isMultiDeal, selectedDeals, registry, matchedLeads, selectedMatchedLeads, currentUser, users]);
 
     // ── Channel Template Groupings (Broadcast Tagged vs Other) ──────────────
     const webBroadcastTemplates = useMemo(() => allWhatsAppTemplates.filter(isMarketingBroadcastContext), [allWhatsAppTemplates]);
@@ -722,9 +1018,11 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             singleMeta,
             singleDeal,
             selectedDeals,
-            recipient: targetLead
+            recipient: targetLead,
+            currentUser,
+            users
         });
-    }, [selectedWebTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals, matchedLeads, selectedMatchedLeads]);
+    }, [selectedWebTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals, matchedLeads, selectedMatchedLeads, currentUser, users]);
 
     const activeWhatsAppPreview = useMemo(() => {
         if (isBaileys) {
@@ -751,11 +1049,13 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                 isMultiDeal,
                 singleMeta,
                 singleDeal,
-                selectedDeals
+                selectedDeals,
+                currentUser,
+                users
             }) || defaultSmsPreviewText;
         }
         return defaultSmsPreviewText;
-    }, [selectedSmsTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals, defaultSmsPreviewText]);
+    }, [selectedSmsTemplate, isMultiDeal, singleMeta, singleDeal, selectedDeals, defaultSmsPreviewText, currentUser, users]);
 
     const rcsPreviewData = useMemo(() => {
         const title = isMultiDeal ? `${selectedDeals.length} Curated Investment Deals Portfolio` : getSafeString(singleMeta?.title || singleDeal?.title || singleDeal?.projectName, 'Featured Property Deal');
@@ -766,17 +1066,17 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             ? `Exclusive vetted portfolio featuring ${selectedDeals.length} high-ROI listings. Direct brokerage split and instant dossier access.`
             : getSafeString(singleMeta?.description || singleDeal?.remarks, 'Prime location property with high capital appreciation potential and clear title.');
         const desc = selectedRcsTemplate
-            ? interpolateWebTemplateText(selectedRcsTemplate, { isMultiDeal, singleMeta, singleDeal, selectedDeals })
+            ? interpolateWebTemplateText(selectedRcsTemplate, { isMultiDeal, singleMeta, singleDeal, selectedDeals, currentUser, users })
             : defaultDesc;
         const ref = isMultiDeal ? selectedDeals.map(d => getSafeString(d.dealCode, d._id?.slice(-4).toUpperCase())).join(', ') : getSafeString(singleDeal?.dealCode, singleDeal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
         const buttons = Array.isArray(selectedRcsTemplate?.buttons) && selectedRcsTemplate.buttons.length > 0
             ? selectedRcsTemplate.buttons.map(btn => ({
                 ...btn,
-                text: interpolateTemplateString(getSafeString(btn.text, 'Action'), { isMultiDeal, singleMeta, singleDeal, selectedDeals })
+                text: interpolateTemplateString(getSafeString(btn.text, 'Action'), { isMultiDeal, singleMeta, singleDeal, selectedDeals, currentUser, users })
             }))
             : null;
         return { title, loc, price, specs, desc, ref, buttons, templateName: getSafeString(selectedRcsTemplate?.name, '') || null };
-    }, [isMultiDeal, selectedDeals, singleMeta, singleDeal, selectedRcsTemplate]);
+    }, [isMultiDeal, selectedDeals, singleMeta, singleDeal, selectedRcsTemplate, currentUser, users]);
 
     const emailPreviewData = useMemo(() => {
         const title = isMultiDeal ? `Exclusive Portfolio: ${selectedDeals.length} Curated Investment Opportunities` : getSafeString(singleMeta?.title || singleDeal?.title || singleDeal?.projectName, 'Exclusive Verified Deal');
@@ -786,13 +1086,13 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         const ref = isMultiDeal ? selectedDeals.map(d => getSafeString(d.dealCode, d._id?.slice(-4).toUpperCase())).join(', ') : getSafeString(singleDeal?.dealCode, singleDeal?._id?.substring(0, 8).toUpperCase() || 'DEAL-REF');
         const items = isMultiDeal ? selectedDeals : (singleDeal ? [singleDeal] : []);
         const subject = selectedEmailTemplate?.subject
-            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.subject), { isMultiDeal, singleMeta, singleDeal, selectedDeals })
+            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.subject), { isMultiDeal, singleMeta, singleDeal, selectedDeals, currentUser, users })
             : `[Exclusive Deal Alert] ${title}`;
         const customHtml = selectedEmailTemplate
-            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.content || selectedEmailTemplate.body, ''), { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml: true })
+            ? interpolateTemplateString(getSafeString(selectedEmailTemplate.content || selectedEmailTemplate.body, ''), { isMultiDeal, singleMeta, singleDeal, selectedDeals, isHtml: true, currentUser, users })
             : null;
         return { title, loc, price, specs, ref, items, subject, customHtml, templateName: getSafeString(selectedEmailTemplate?.name, '') || null };
-    }, [isMultiDeal, selectedDeals, singleMeta, singleDeal, selectedEmailTemplate]);
+    }, [isMultiDeal, selectedDeals, singleMeta, singleDeal, selectedEmailTemplate, currentUser, users]);
 
     // ── Enterprise Audience Reach & Per-Segment Count Calculator ────────────
     const audienceStats = useMemo(() => {

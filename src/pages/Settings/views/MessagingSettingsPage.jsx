@@ -766,8 +766,15 @@ const VariableRegistryTab = () => {
                             { var: '{{projectname}}', desc: 'Property Project Name for Feedback updates', ctx: 'Feedback' },
                             { var: '{{DiscussionSummary}}', desc: 'Combined Status and Next Action', ctx: 'Feedback' },
 
+                            // System & Assignment Data
+                            { var: '{{team}}', desc: 'Assigned Team (e.g. Sales, Rental)', ctx: 'Assignment' },
+                            { var: '{{assignedTo}}', desc: 'Assigned User / Staff Name', ctx: 'Assignment' },
+                            { var: '{{visibleTo}}', desc: 'Visibility Scope (Everyone / Team / Private)', ctx: 'Assignment' },
+                            { var: '{{EmployeeName}}', desc: 'Assigned Employee / User Name', ctx: 'Assignment' },
+                            { var: '{{EmployeeMobile}}', desc: 'Assigned Employee Mobile Number', ctx: 'Assignment' },
+
                             // Agent / System Data
-                            { var: '{{agent_name}}', desc: 'Assigned Agent Name', ctx: 'System' },
+                            { var: '{{agent_name}}', desc: 'Assigned Agent Full Name', ctx: 'System' },
                             { var: '{{agent_mobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
                             { var: '{{agent_email}}', desc: 'Assigned Agent Email', ctx: 'System' },
                             { var: '{{company_name}}', desc: 'Your Company Name', ctx: 'System' },

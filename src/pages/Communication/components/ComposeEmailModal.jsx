@@ -240,6 +240,11 @@ const ComposeEmailModal = ({
         { label: 'Phone', value: '{{Phone}}' },
         { label: 'Email', value: '{{Email}}' },
         { label: 'Property Name', value: '{{PropertyName}}' },
+        { label: 'Employee Name', value: '{{EmployeeName}}' },
+        { label: 'Employee Mobile', value: '{{EmployeeMobile}}' },
+        { label: 'Team', value: '{{team}}' },
+        { label: 'Assigned User', value: '{{assignedTo}}' },
+        { label: 'Visibility', value: '{{visibleTo}}' },
     ];
 
     const insertHTML = (html) => {
