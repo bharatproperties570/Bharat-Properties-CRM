@@ -219,7 +219,7 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     result = result.replace(/\{\{2\}\}/g, propertyList);
     result = result.replace(/\{\{3\}\}/g, dealPrice);
     result = result.replace(/\{\{4\}\}/g, dealLoc);
-    result = result.replace(/\{\{5\}\}/g, dealSpecs);
+    result = result.replace(/\{\{5\}\}/g, dealFullSpecs);
     result = result.replace(/\{\{6\}\}/g, 'Bharat Properties');
     result = result.replace(/\{\{7\}\}/g, '+91 9991333570');
 
