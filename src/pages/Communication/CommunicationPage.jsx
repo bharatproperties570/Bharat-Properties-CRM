@@ -329,7 +329,7 @@ export default function CommunicationPage() {
         if (conv && conv.unreadCount > 0) {
             setAiConvos(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c));
             try {
-                await api.patch(`conversations/${id}/read`);
+                await api.patch(`conversations/${encodeURIComponent(id)}/read`, {}, { _silentError: true }).catch(() => {});
             } catch (err) {
                 console.error("Failed to mark as read", err);
             }
@@ -1432,8 +1432,8 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
                 const res = await activitiesAPI.getThreadHistory(id, params);
                 if (res?.success && isMounted) {
                     setHistory(res.data || []);
-                    // Proactively mark conversation as read in backend
-                    api.patch(`conversations/${encodeURIComponent(id)}/read`).catch(() => {});
+                    // Proactively mark conversation as read in backend silently
+                    api.patch(`conversations/${encodeURIComponent(id)}/read`, {}, { _silentError: true }).catch(() => {});
                 }
             } catch (err) {
                 if (!silent) console.error("Thread fetch error:", err);

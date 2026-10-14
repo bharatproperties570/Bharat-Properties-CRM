@@ -424,11 +424,14 @@ api.interceptors.response.use(
         // Show toast for specific errors unless request opted out
         if (!originalRequest?._silentError) {
             const reqUrl = String(originalRequest?.url || '');
-            const isSystemSettingLookup = reqUrl.includes('system-settings') || reqUrl.includes('settings/key');
+            const isSilentRoute = reqUrl.includes('system-settings') || 
+                                  reqUrl.includes('settings/key') || 
+                                  reqUrl.includes('/read') || 
+                                  (reqUrl.includes('conversations') && reqUrl.includes('/read'));
 
-            // 🛡️ Enterprise Strategy: Do not trigger intrusive UI toasts for missing system settings
-            if (normalizedCode === 'NOT_FOUND' && isSystemSettingLookup) {
-                // Silently ignored for optional system setting 404s
+            // 🛡️ Enterprise Strategy: Do not trigger intrusive UI toasts for missing system settings or read marks
+            if (normalizedCode === 'NOT_FOUND' && isSilentRoute) {
+                // Silently ignored for optional system setting or read mark 404s
             } else if (['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(normalizedCode)) {
                 showDeduplicatedToast(normalizedUserMessage, 'error');
             }
@@ -752,7 +755,7 @@ export const activitiesAPI = {
     completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
     sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
     convertToLead: (data) => apiRequest('/activities/messaging/convert-to-lead', { method: 'POST', body: JSON.stringify(data) }),
-    getThreadHistory: (identifier, params) => apiRequest(`/activities/messaging/thread/${identifier}`, { params }),
+    getThreadHistory: (identifier, params) => apiRequest(`/activities/messaging/thread/${encodeURIComponent(identifier)}`, { params }),
 };
 
 // Stage Transition Rules API

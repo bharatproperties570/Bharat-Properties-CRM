@@ -29,12 +29,12 @@ const extractBaileysMessageContent = (rawMsg) => {
            c?.imageMessage?.caption || 
            c?.videoMessage?.caption || 
            c?.documentMessage?.caption ||
-           (c?.documentMessage?.fileName ? `[Document: ${c.documentMessage.fileName}]` : '') ||
-           (c?.imageMessage ? '[Image]' : '') ||
-           (c?.videoMessage ? '[Video]' : '') ||
-           (c?.audioMessage ? '[Voice Note]' : '') ||
-           (c?.contactMessage?.displayName ? `[Contact: ${c.contactMessage.displayName}]` : '') ||
-           (c?.locationMessage ? `[Location: ${c.locationMessage.degreesLatitude}, ${c.locationMessage.degreesLongitude}]` : '') ||
+           (c?.documentMessage?.fileName ? `📄 Document: ${c.documentMessage.fileName}` : '') ||
+           (c?.imageMessage ? '📷 Photo' : '') ||
+           (c?.videoMessage ? '🎥 Video' : '') ||
+           (c?.audioMessage ? '🎵 Voice Note' : '') ||
+           (c?.contactMessage?.displayName ? `👤 Contact: ${c.contactMessage.displayName}` : '') ||
+           (c?.locationMessage ? `📍 Location` : '') ||
            c?.buttonsResponseMessage?.selectedDisplayText ||
            c?.templateButtonReplyMessage?.selectedDisplayText ||
            c?.listResponseMessage?.title ||
@@ -380,7 +380,8 @@ export const BaileysConnectionManager = {
                     const userOwner = currentInt?.connectedBy || null;
 
                     // Lookup participant name if in group
-                    let memberName = isGroup ? (participantId ? `Member (${participantId})` : 'Group Member') : participantId;
+                    const pushName = (msg.pushName && String(msg.pushName).trim()) ? String(msg.pushName).trim() : null;
+                    let memberName = isGroup ? (pushName || (participantId ? (participantId.length === 10 ? `+91 ${participantId}` : `+${participantId}`) : 'Group Member')) : (pushName || participantId);
                     if (isGroup && !isFromMe && participantId) {
                         try {
                             const Lead = (await import('../../models/Lead.js')).default;
@@ -398,7 +399,7 @@ export const BaileysConnectionManager = {
                         } catch (e) {}
                     }
 
-                    const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : participantId);
+                    const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : (pushName || participantId));
                     const msgDate = new Date(msgTsSeconds ? msgTsSeconds * 1000 : Date.now());
 
                     // Phase A: Create Activity record (Isolated try/catch)

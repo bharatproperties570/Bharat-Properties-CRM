@@ -1549,8 +1549,8 @@ export const sendReply = async (req, res) => {
             type: isWhatsApp ? 'WhatsApp' : 'Messaging',
             subject: `Reply via ${isWhatsAppWeb ? 'WhatsApp Web' : isWhatsAppAPI ? 'WhatsApp API' : channel.toUpperCase()}${attachment ? ` (${attachment.type})` : ''}`,
             description: outgoingMessage || `Sent ${attachment?.type || 'message'}`,
-            entityType: entityType || 'Unknown',
-            entityId: entityId || null,
+            entityType: isGroup ? 'WhatsAppGroup' : (entityType || 'General'),
+            entityId: isGroup ? cleanPhone : (entityId || null),
             dueDate: new Date(),
             status: 'Completed',
             visibleTo: 'Everyone',
@@ -2756,11 +2756,12 @@ export const getThreadHistory = async (req, res) => {
             const timeMs = new Date(m.time).getTime();
             const isFuzzyDup = seenFuzzy.some(existing => 
                 existing.sender === m.sender &&
+                (!isGroup || existing.senderName === m.senderName) &&
                 existing.text === m.text &&
                 Math.abs(existing.timeMs - timeMs) < 3000
             );
             if (isFuzzyDup) return false;
-            seenFuzzy.push({ sender: m.sender, text: m.text, timeMs });
+            seenFuzzy.push({ sender: m.sender, senderName: m.senderName, text: m.text, timeMs });
             return true;
         }).sort((a, b) => new Date(a.time) - new Date(b.time));
 

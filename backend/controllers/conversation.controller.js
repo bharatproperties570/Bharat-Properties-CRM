@@ -144,8 +144,40 @@ export const getUnreadConversations = async (req, res) => {
 export const markConversationAsRead = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!id) {
+            return res.status(200).json({ success: true, message: "No conversation identifier provided" });
+        }
+
         const isObjId = mongoose.Types.ObjectId.isValid(id);
-        const query = isObjId ? { _id: id } : { phoneNumber: id };
+        const isGroup = String(id).includes('@g.us');
+        
+        let query;
+        if (isObjId) {
+            query = { _id: id };
+        } else if (isGroup) {
+            query = {
+                $or: [
+                    { phoneNumber: id },
+                    { 'metadata.groupJid': id },
+                    { 'metadata.sessionId': id }
+                ]
+            };
+        } else {
+            const cleanDigits = String(id).replace(/\D/g, '');
+            const cleanPhone10 = cleanDigits.slice(-10);
+            const phoneVariants = [id];
+            if (cleanDigits) phoneVariants.push(cleanDigits);
+            if (cleanPhone10 && cleanPhone10.length === 10) {
+                phoneVariants.push(cleanPhone10, '+91' + cleanPhone10, '91' + cleanPhone10, '0' + cleanPhone10);
+            }
+            query = {
+                $or: [
+                    { phoneNumber: { $in: phoneVariants } },
+                    ...(cleanPhone10.length === 10 ? [{ phoneNumber: { $regex: cleanPhone10 + '$' } }] : []),
+                    { 'metadata.sessionId': id }
+                ]
+            };
+        }
 
         const conversation = await Conversation.findOneAndUpdate(
             query,
@@ -153,21 +185,13 @@ export const markConversationAsRead = async (req, res) => {
             { new: true, timestamps: false }
         );
         
-        if (!conversation) {
-            // Also try with phone normalization if not found
-            const cleanPhone = String(id).replace(/\D/g, '').slice(-10);
-            const fallbackConv = await Conversation.findOneAndUpdate(
-                { phoneNumber: { $regex: cleanPhone + '$' } },
-                { $set: { 'metadata.unreadCount': 0 } },
-                { new: true, timestamps: false }
-            );
-            if (!fallbackConv) {
-                return res.status(404).json({ success: false, message: "Conversation not found" });
-            }
-            return res.status(200).json({ success: true, data: fallbackConv });
-        }
-        
-        res.status(200).json({ success: true, data: conversation });
+        // 🛡️ Enterprise Strategy: Marking as read is idempotent. If no conversation document exists yet,
+        // it means 0 unread messages exist. Return 200 OK gracefully to prevent false 404 UI error toasts.
+        return res.status(200).json({ 
+            success: true, 
+            message: conversation ? "Conversation marked as read" : "Already read or no conversation to update", 
+            data: conversation || null 
+        });
     } catch (error) {
         console.error("Failed to mark conversation as read:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
