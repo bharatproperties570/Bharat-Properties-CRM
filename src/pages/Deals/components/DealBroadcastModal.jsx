@@ -118,6 +118,15 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         singleDeal?.unitType || spec.unitType || inv.unitType || invSpec.unitType || dealBuiltupType,
         ''
     );
+    const dealTransactionType = getSafeString(
+        singleDeal?.transactionType ||
+        singleDeal?.transaction_type ||
+        singleDeal?.dealType ||
+        singleDeal?.deal_type ||
+        inv?.transactionType ||
+        spec?.transactionType,
+        ''
+    );
     const dealBlock = getSafeString(singleDeal?.block || inv.block, '');
     const dealUnitNo = getSafeString(singleDeal?.unitNo || singleDeal?.unitNumber || inv.unitNumber || inv.unitNo, '');
     
@@ -328,6 +337,11 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         '\\{\\{block_name\\}\\}': dealBlock,
         '\\{\\{unitType\\}\\}': dealUnitType,
         '\\{\\{unittype\\}\\}': dealUnitType,
+        '\\{\\{transactionType\\}\\}': dealTransactionType,
+        '\\{\\{transaction_type\\}\\}': dealTransactionType,
+        '\\{\\{transactiontype\\}\\}': dealTransactionType,
+        '\\{\\{dealType\\}\\}': dealTransactionType,
+        '\\{\\{deal_type\\}\\}': dealTransactionType,
         '\\{\\{property_price\\}\\}': dealPrice,
         '\\{\\{price\\}\\}': dealPrice,
         '\\{\\{property_location\\}\\}': dealLoc,
@@ -428,6 +442,11 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         dealcode: dealRef,
         ref: dealRef,
         shareableid: dealRef,
+        transactiontype: dealTransactionType,
+        transaction_type: dealTransactionType,
+        transactionType: dealTransactionType,
+        dealtype: dealTransactionType,
+        deal_type: dealTransactionType,
         companyname: 'Bharat Properties'
     };
 
@@ -989,11 +1008,22 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
             unitno: dealUnitNo,
             unitnumber: dealUnitNo,
             unit_no: dealUnitNo,
-            block: dealBlock
+            block: dealBlock,
+            transactiontype: dealTransactionType,
+            transaction_type: dealTransactionType,
+            transactionType: dealTransactionType,
+            dealtype: dealTransactionType,
+            deal_type: dealTransactionType
         };
 
         const resolveSource = (source, idx) => {
             switch (source) {
+                case 'transactionType':
+                case 'transaction_type':
+                case 'transactiontype':
+                case 'dealType':
+                case 'deal_type':
+                    return dealTransactionType;
                 case 'customer_name': return recipientName;
                 case 'first_name': return recipientFirstName;
                 case 'property_list_default':

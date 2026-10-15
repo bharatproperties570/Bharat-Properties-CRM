@@ -102,6 +102,15 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         deal?.unitType || spec.unitType || inv.unitType || invSpec.unitType || dealBuiltupType,
         ''
     );
+    const dealTransactionType = getSafeString(
+        deal?.transactionType ||
+        deal?.transaction_type ||
+        deal?.dealType ||
+        deal?.deal_type ||
+        inv?.transactionType ||
+        spec?.transactionType,
+        ''
+    );
     const dealBlock = getSafeString(deal?.block || inv.block, '');
     const dealUnitNo = getSafeString(deal?.unitNo || deal?.unitNumber || inv.unitNumber || inv.unitNo, '');
     
@@ -290,6 +299,11 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         '\\{\\{block_name\\}\\}': dealBlock,
         '\\{\\{unitType\\}\\}': dealUnitType,
         '\\{\\{unittype\\}\\}': dealUnitType,
+        '\\{\\{transactionType\\}\\}': dealTransactionType,
+        '\\{\\{transaction_type\\}\\}': dealTransactionType,
+        '\\{\\{transactiontype\\}\\}': dealTransactionType,
+        '\\{\\{dealType\\}\\}': dealTransactionType,
+        '\\{\\{deal_type\\}\\}': dealTransactionType,
         '\\{\\{property_price\\}\\}': dealPrice,
         '\\{\\{price\\}\\}': dealPrice,
         '\\{\\{property_location\\}\\}': dealLoc,
@@ -390,6 +404,11 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
         dealcode: dealRef,
         ref: dealRef,
         shareableid: dealRef,
+        transactiontype: dealTransactionType,
+        transaction_type: dealTransactionType,
+        transactionType: dealTransactionType,
+        dealtype: dealTransactionType,
+        deal_type: dealTransactionType,
         companyname: 'Bharat Properties'
     };
 
@@ -854,11 +873,22 @@ function MarketingTab({ dealId, deal, onRefresh }) {
             unitno: dealUnitNo || getSafeString(deal?.dealCode, 'DEAL-REF'),
             unit_no: dealUnitNo || getSafeString(deal?.dealCode, 'DEAL-REF'),
             block: dealBlock,
+            transactiontype: dealTransactionType,
+            transaction_type: dealTransactionType,
+            transactionType: dealTransactionType,
+            dealtype: dealTransactionType,
+            deal_type: dealTransactionType,
             companyname: 'Bharat Properties'
         };
 
         const resolveSource = (source, idx) => {
             switch(source) {
+                case 'transactionType':
+                case 'transaction_type':
+                case 'transactiontype':
+                case 'dealType':
+                case 'deal_type':
+                    return dealTransactionType;
                 case 'customer_name': return recipientName;
                 case 'first_name': return recipientFirstName;
                 case 'property_list_default':

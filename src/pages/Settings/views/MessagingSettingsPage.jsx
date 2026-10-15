@@ -5,7 +5,7 @@ import { systemSettingsAPI } from '../../../utils/api';
 import { useWhatsAppTemplatesDb, useSaveWhatsAppTemplatesMutation, useSubmitWhatsAppTemplateMutation, useSyncWhatsAppTemplatesCommand } from '../../../utils/crmHooks';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
-import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
+import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban, Search, Copy, Check, X } from 'lucide-react';
 import smsService from '../../../services/smsService';
 import whatsappService from '../../../services/whatsappService';
 import VariableTextarea from '../../../components/VariableTextarea';
@@ -1965,112 +1965,435 @@ Suraj Keshwar
 };
 
 
+const ALL_TEMPLATE_VARIABLES = [
+    // 🤝 Deal & Transaction Data (Populated from Deal Form & Inventory)
+    { var: '{{transactionType}}', desc: 'Deal Transaction Type selected in Deal Form (e.g. Full White, Collector Rate, Flexible, Sale, Resale)', ctx: 'Deal / Transaction', example: 'Full White' },
+    { var: '{{transaction_type}}', desc: 'Deal Transaction Type (lowercase alias for standard compatibility)', ctx: 'Deal / Transaction', example: 'Full White' },
+    { var: '{{dealType}}', desc: 'Deal Type (Direct, Brokerage, Co-broking, Investor)', ctx: 'Deal / Transaction', example: 'Direct' },
+    { var: '{{dealCode}}', desc: 'Deal Reference / Tracking Code (e.g. DEAL-0042)', ctx: 'Deal / Transaction', example: 'DEAL-8492' },
+    { var: '{{stage}}', desc: 'Deal Stage (e.g. Site Visit, Negotiation, Deal Won)', ctx: 'Deal / Transaction', example: 'Negotiation' },
+    { var: '{{property_price}}', desc: 'Deal / Listed Price (e.g. ₹ 85 Lac / ₹ 1.25 Cr)', ctx: 'Deal / Transaction', example: '₹ 80 Lac' },
+    { var: '{{price}}', desc: 'Deal Asking Price (Short alias)', ctx: 'Deal / Transaction', example: '₹ 80 Lac' },
+
+    // 👤 Customer / Lead Data
+    { var: '{{first_name}}', desc: 'Customer First Name', ctx: 'Lead/Contact', example: 'Rohit' },
+    { var: '{{last_name}}', desc: 'Customer Last Name / Surname', ctx: 'Lead/Contact', example: 'Sharma' },
+    { var: '{{full_name}}', desc: 'Customer Full Name', ctx: 'Lead/Contact', example: 'Rohit Sharma' },
+    { var: '{{mobile}}', desc: 'Customer Mobile Number', ctx: 'Lead/Contact', example: '+91 9876543210' },
+    { var: '{{email}}', desc: 'Customer Email Address', ctx: 'Lead/Contact', example: 'client@example.com' },
+    { var: '{{lead_source}}', desc: 'Lead Source (e.g. Website, Facebook, Referral)', ctx: 'Lead/Contact', example: 'Website' },
+    { var: '{{lead_status}}', desc: 'Lead Status (e.g. New, Follow-up, Qualified)', ctx: 'Lead/Contact', example: 'Qualified' },
+    { var: '{{lead_stage}}', desc: 'Sales Stage (e.g. Negotiation, Won)', ctx: 'Lead/Contact', example: 'Negotiation' },
+    { var: '{{lead_requirement}}', desc: 'Property Requirement (Buy/Rent & Property Type)', ctx: 'Lead/Contact', example: 'Residential Plot' },
+    { var: '{{budget_min}}', desc: 'Minimum Budget', ctx: 'Lead/Contact', example: '₹ 50 Lac' },
+    { var: '{{budget_max}}', desc: 'Maximum Budget', ctx: 'Lead/Contact', example: '₹ 1 Cr' },
+    { var: '{{preferred_city}}', desc: 'Preferred City', ctx: 'Lead/Contact', example: 'Kurukshetra' },
+    { var: '{{preferred_area}}', desc: 'Preferred Area / Locality / Sector', ctx: 'Lead/Contact', example: 'Sector 3' },
+
+    // 🏢 Property / Inventory Data
+    { var: '{{project_name}}', desc: 'Property Project Name (Cleaned without sale suffixes)', ctx: 'Property', example: 'Sector 3 Kurukshetra' },
+    { var: '{{unit_number}}', desc: 'Property Unit / Plot Number', ctx: 'Property', example: 'Plot #42' },
+    { var: '{{block_name}}', desc: 'Property Block / Tower', ctx: 'Property', example: 'Block A' },
+    { var: '{{unit_type}}', desc: 'Unit Type (e.g. 2 BHK, 3 BHK, Residential Plot)', ctx: 'Property', example: 'Residential Plot' },
+    { var: '{{property_category}}', desc: 'Property Category (e.g. Residential, Commercial)', ctx: 'Property', example: 'Residential' },
+    { var: '{{property_subcategory}}', desc: 'Property Sub-Category (e.g. Plot, Flat, Villa)', ctx: 'Property', example: 'Plot' },
+    { var: '{{builtup_type}}', desc: 'Built-up Type', ctx: 'Property', example: 'Independent' },
+    { var: '{{size_label}}', desc: 'Size Type / Label (e.g. 250 Sq.Yd., 8 Marla)', ctx: 'Property', example: '250 Sq.Yd.' },
+    { var: '{{property_size}}', desc: 'Property Size / Area', ctx: 'Property', example: '250 Sq.Yd.' },
+    { var: '{{property_direction}}', desc: 'Property Direction (East, North, West, South)', ctx: 'Property', example: 'East' },
+    { var: '{{property_facing}}', desc: 'Property Facing (e.g. Park Facing, Road Facing)', ctx: 'Property', example: 'Housing Board' },
+    { var: '{{road_width}}', desc: 'Road Width in front of property', ctx: 'Property', example: '9 Mtr (30 Feet) Wide' },
+    { var: '{{property_location}}', desc: 'Property Location / Address', ctx: 'Property', example: 'Sector 3, Kurukshetra' },
+
+    // 👥 System & Assignment Data
+    { var: '{{EmployeeName}}', desc: 'Assigned Employee / User Name', ctx: 'System & Assignment', example: 'Bharat Properties' },
+    { var: '{{EmployeeMobile}}', desc: 'Assigned Employee Mobile Number', ctx: 'System & Assignment', example: '+91 9991333570' },
+    { var: '{{agent_name}}', desc: 'Assigned Agent / Staff Full Name', ctx: 'System & Assignment', example: 'Bharat Properties' },
+    { var: '{{agent_mobile}}', desc: 'Assigned Agent Mobile Number', ctx: 'System & Assignment', example: '+91 9991333570' },
+    { var: '{{agent_email}}', desc: 'Assigned Agent Email Address', ctx: 'System & Assignment', example: 'deals@bharatproperties.co' },
+    { var: '{{team}}', desc: 'Assigned Team (e.g. Sales, Rental, Luxury)', ctx: 'System & Assignment', example: 'Sales Team' },
+    { var: '{{assignedTo}}', desc: 'Assigned User / Staff Name', ctx: 'System & Assignment', example: 'Bharat Properties' },
+    { var: '{{visibleTo}}', desc: 'Visibility Scope (Everyone / Team / Private)', ctx: 'System & Assignment', example: 'Everyone' },
+    { var: '{{company_name}}', desc: 'Your Company Name (Bharat Properties)', ctx: 'System & Assignment', example: 'Bharat Properties' },
+
+    // 📋 Feedback / Updates Data
+    { var: '{{OwnerName}}', desc: 'Owner Name for Feedback & Site Visit updates', ctx: 'Feedback', example: 'Mr. Rajesh Kumar' },
+    { var: '{{subcategory}}', desc: 'Property Sub-Category for Feedback updates', ctx: 'Feedback', example: 'Plot' },
+    { var: '{{unitnumber}}', desc: 'Property Unit Number for Feedback updates', ctx: 'Feedback', example: 'Plot #42' },
+    { var: '{{projectname}}', desc: 'Property Project Name for Feedback updates', ctx: 'Feedback', example: 'Sector 3' },
+    { var: '{{DiscussionSummary}}', desc: 'Combined Status, Feedback and Next Action', ctx: 'Feedback', example: 'Client visited site and approved location' },
+
+    // ⚡ Dynamic / Match Data
+    { var: '{{property_list_default}}', desc: 'Formatted multi-property bulleted list', ctx: 'Match / Portfolio', example: '1️⃣ 🏢 Deal A | 💰 ₹80 Lac ...' },
+    { var: '{{property_list_dtl}}', desc: 'Detailed property list with specs & pricing', ctx: 'Match / Portfolio', example: '1️⃣ 🏢 Project\n📍 Sector 3\n💰 ₹80 Lac ...' },
+    { var: '{{requirement_summary}}', desc: 'Summary of customer property requirement', ctx: 'Match / Portfolio', example: 'Looking for Plot in Sector 3 (Budget: ₹80 Lac)' },
+    { var: '{{properties_count}}', desc: 'Total number of properties matched', ctx: 'Match / Portfolio', example: '3' },
+    { var: '{{match_percentage}}', desc: 'AI Match Percentage Score', ctx: 'Match / Portfolio', example: '98%' },
+
+    // 💳 Payment & Reminders Data
+    { var: '{{amount}}', desc: 'Due Amount (For payment reminders)', ctx: 'System & Assignment', example: '₹ 80,000' },
+    { var: '{{due_date}}', desc: 'Due Date (For payment & event reminders)', ctx: 'System & Assignment', example: 'This Weekend' },
+    { var: '{{document_list}}', desc: 'Required Document List checklist', ctx: 'System & Assignment', example: '• Aadhaar • PAN • Cheque' }
+];
+
+const VARIABLE_CATEGORIES = [
+    { id: 'ALL', label: 'All Categories' },
+    { id: 'Deal / Transaction', label: 'Deal & Transaction' },
+    { id: 'Lead/Contact', label: 'Lead & Contact' },
+    { id: 'Property', label: 'Property & Inventory' },
+    { id: 'System & Assignment', label: 'Staff & System' },
+    { id: 'Match / Portfolio', label: 'Matches & Portfolio' },
+    { id: 'Feedback', label: 'Feedback & Updates' }
+];
+
+const getContextBadgeStyle = (ctx) => {
+    switch (ctx) {
+        case 'Deal / Transaction':
+            return { bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
+        case 'Lead/Contact':
+            return { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+        case 'Property':
+            return { bg: '#f5f3ff', color: '#7c3aed', border: '#ddd6fe' };
+        case 'System & Assignment':
+            return { bg: '#fffbeb', color: '#d97706', border: '#fde68a' };
+        case 'Match / Portfolio':
+            return { bg: '#ecfeff', color: '#0891b2', border: '#a5f3fc' };
+        case 'Feedback':
+            return { bg: '#fff1f2', color: '#e11d48', border: '#fecdd3' };
+        default:
+            return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+    }
+};
+
 const VariableRegistryTab = () => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [activeCategory, setActiveCategory] = useState('ALL');
+    const [copiedVar, setCopiedVar] = useState(null);
+
+    const handleCopy = (variableSyntax) => {
+        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(variableSyntax);
+            setCopiedVar(variableSyntax);
+            toast.success(`Copied ${variableSyntax} to clipboard!`, { id: 'copy-var-toast', duration: 2000 });
+            setTimeout(() => setCopiedVar(null), 2000);
+        }
+    };
+
+    const filteredVariables = useMemo(() => {
+        const query = searchTerm.trim().toLowerCase().replace(/[{}]/g, '');
+        return ALL_TEMPLATE_VARIABLES.filter(item => {
+            const matchesCategory = activeCategory === 'ALL' || item.ctx === activeCategory;
+            if (!matchesCategory) return false;
+
+            if (!query) return true;
+            const cleanVar = item.var.toLowerCase().replace(/[{}]/g, '');
+            const cleanDesc = item.desc.toLowerCase();
+            const cleanCtx = item.ctx.toLowerCase();
+            const cleanEx = (item.example || '').toLowerCase();
+
+            return cleanVar.includes(query) || cleanDesc.includes(query) || cleanCtx.includes(query) || cleanEx.includes(query);
+        });
+    }, [searchTerm, activeCategory]);
+
     return (
         <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
-                <div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Database size={20} color="var(--primary-color)" /> Supported Template Variables
+            {/* Header Card */}
+            <div style={{
+                marginBottom: '20px',
+                background: 'var(--bg-card)',
+                padding: '20px 24px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+                    <div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Database size={22} color="var(--primary-color, #6366f1)" />
+                            <span>Supported Template Variables</span>
+                        </div>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px', maxWidth: '750px', lineHeight: '1.4' }}>
+                            Use these dynamic variables inside your WhatsApp, SMS, RCS, and Email templates.
+                            When broadcasting or sending messages from deals, leads, or inventory, the CRM automatically replaces them with real live data.
+                        </div>
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        Use these exact word variables in your WhatsApp and SMS templates. The CRM will automatically populate them with real data when sending.
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, padding: '6px 12px', borderRadius: '8px', background: '#f1f5f9', color: '#475569' }}>
+                            {filteredVariables.length} of {ALL_TEMPLATE_VARIABLES.length} Variables
+                        </span>
+                    </div>
+                </div>
+
+                {/* 🔍 Search Input & Filters Bar */}
+                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ position: 'relative', width: '100%' }}>
+                        <Search size={17} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <input
+                            type="text"
+                            placeholder="Search variables by syntax (e.g. transactionType, price, mobile), description, or context..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '11px 40px 11px 42px',
+                                borderRadius: '10px',
+                                border: '1.5px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#0f172a',
+                                fontSize: '0.9rem',
+                                outline: 'none',
+                                transition: 'all 0.15s ease',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                            }}
+                            onFocus={e => {
+                                e.target.style.borderColor = '#6366f1';
+                                e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.12)';
+                            }}
+                            onBlur={e => {
+                                e.target.style.borderColor = '#cbd5e1';
+                                e.target.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                            }}
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                title="Clear Search"
+                                style={{
+                                    position: 'absolute',
+                                    right: '12px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    background: '#e2e8f0',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '22px',
+                                    height: '22px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#475569'
+                                }}
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Category Filter Pills */}
+                    <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', alignItems: 'center' }}>
+                        {VARIABLE_CATEGORIES.map(cat => {
+                            const count = cat.id === 'ALL'
+                                ? ALL_TEMPLATE_VARIABLES.length
+                                : ALL_TEMPLATE_VARIABLES.filter(v => v.ctx === cat.id).length;
+                            const isActive = activeCategory === cat.id;
+
+                            return (
+                                <button
+                                    key={cat.id}
+                                    type="button"
+                                    onClick={() => setActiveCategory(cat.id)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        borderRadius: '9999px',
+                                        fontSize: '0.78rem',
+                                        fontWeight: isActive ? 700 : 500,
+                                        border: `1px solid ${isActive ? '#6366f1' : '#e2e8f0'}`,
+                                        background: isActive ? '#6366f1' : '#ffffff',
+                                        color: isActive ? '#ffffff' : '#64748b',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        whiteSpace: 'nowrap',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <span>{cat.label}</span>
+                                    <span style={{
+                                        fontSize: '0.68rem',
+                                        padding: '1px 6px',
+                                        borderRadius: '9999px',
+                                        background: isActive ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                                        color: isActive ? '#ffffff' : '#64748b',
+                                        fontWeight: 700
+                                    }}>
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+            {/* Variables Table */}
+            <div style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+            }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                         <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '250px' }}>Variable Syntax</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>Description & Data Source</th>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '120px' }}>Context</th>
+                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '280px', color: 'var(--text-main)', fontWeight: 700 }}>
+                                Variable Syntax
+                            </th>
+                            <th style={{ padding: '14px 18px', textAlign: 'left', color: 'var(--text-main)', fontWeight: 700 }}>
+                                Description & Data Source
+                            </th>
+                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '150px', color: 'var(--text-main)', fontWeight: 700 }}>
+                                Sample Data
+                            </th>
+                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '160px', color: 'var(--text-main)', fontWeight: 700 }}>
+                                Context
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {[
-                            // Customer / Lead Data
-                            { var: '{{first_name}}', desc: 'Customer First Name', ctx: 'Lead/Contact' },
-                            { var: '{{last_name}}', desc: 'Customer Last Name', ctx: 'Lead/Contact' },
-                            { var: '{{full_name}}', desc: 'Customer Full Name', ctx: 'Lead/Contact' },
-                            { var: '{{mobile}}', desc: 'Customer Mobile Number', ctx: 'Lead/Contact' },
-                            { var: '{{email}}', desc: 'Customer Email Address', ctx: 'Lead/Contact' },
-                            { var: '{{lead_source}}', desc: 'Lead Source (e.g. Website, Facebook)', ctx: 'Lead' },
-                            { var: '{{lead_status}}', desc: 'Lead Status (e.g. New, Follow-up)', ctx: 'Lead' },
-                            { var: '{{lead_stage}}', desc: 'Sales Stage (e.g. Negotiation)', ctx: 'Lead' },
-                            { var: '{{lead_requirement}}', desc: 'Property Requirement (Buy/Rent)', ctx: 'Lead' },
-                            { var: '{{budget_min}}', desc: 'Minimum Budget', ctx: 'Lead' },
-                            { var: '{{budget_max}}', desc: 'Maximum Budget', ctx: 'Lead' },
-                            { var: '{{preferred_city}}', desc: 'Preferred City', ctx: 'Lead' },
-                            { var: '{{preferred_area}}', desc: 'Preferred Area/Locality', ctx: 'Lead' },
-                            
-                            // Feedback / Update Data
-                            { var: '{{OwnerName}}', desc: 'Owner Name for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{EmployeeName}}', desc: 'Agent Name for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{EmployeeMobile}}', desc: 'Agent Mobile for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{subcategory}}', desc: 'Property Sub-Category for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{unitnumber}}', desc: 'Property Unit Number for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{projectname}}', desc: 'Property Project Name for Feedback updates', ctx: 'Feedback' },
-                            { var: '{{DiscussionSummary}}', desc: 'Combined Status and Next Action', ctx: 'Feedback' },
-
-                            // System & Assignment Data
-                            { var: '{{team}}', desc: 'Assigned Team (e.g. Sales, Rental)', ctx: 'Assignment' },
-                            { var: '{{assignedTo}}', desc: 'Assigned User / Staff Name', ctx: 'Assignment' },
-                            { var: '{{visibleTo}}', desc: 'Visibility Scope (Everyone / Team / Private)', ctx: 'Assignment' },
-                            { var: '{{EmployeeName}}', desc: 'Assigned Employee / User Name', ctx: 'Assignment' },
-                            { var: '{{EmployeeMobile}}', desc: 'Assigned Employee Mobile Number', ctx: 'Assignment' },
-
-                            // Agent / System Data
-                            { var: '{{agent_name}}', desc: 'Assigned Agent Full Name', ctx: 'System' },
-                            { var: '{{agent_mobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
-                            { var: '{{agent_email}}', desc: 'Assigned Agent Email', ctx: 'System' },
-                            { var: '{{company_name}}', desc: 'Your Company Name', ctx: 'System' },
-                            
-                            // Property / Inventory Data
-                            { var: '{{project_name}}', desc: 'Property Project Name', ctx: 'Property' },
-                            { var: '{{unit_number}}', desc: 'Property Unit Number', ctx: 'Property' },
-                            { var: '{{block_name}}', desc: 'Property Block / Tower', ctx: 'Property' },
-                            { var: '{{unit_type}}', desc: 'Unit Type (e.g. 2 BHK, 3 BHK)', ctx: 'Property' },
-                            { var: '{{property_category}}', desc: 'Property Category (e.g. Residential)', ctx: 'Property' },
-                            { var: '{{property_subcategory}}', desc: 'Property Sub-Category (e.g. Apartment)', ctx: 'Property' },
-                            { var: '{{builtup_type}}', desc: 'Built-up Type', ctx: 'Property' },
-                            { var: '{{size_label}}', desc: 'Size Type (e.g. Sq.Ft)', ctx: 'Property' },
-                            { var: '{{property_direction}}', desc: 'Property Direction', ctx: 'Property' },
-                            { var: '{{property_facing}}', desc: 'Property Facing (e.g. North, East)', ctx: 'Property' },
-                            { var: '{{road_width}}', desc: 'Road Width', ctx: 'Property' },
-                            { var: '{{property_price}}', desc: 'Property Price', ctx: 'Property' },
-                            { var: '{{property_size}}', desc: 'Property Size / Area', ctx: 'Property' },
-                            { var: '{{property_location}}', desc: 'Property Location / Address', ctx: 'Property' },
-                            
-                            // Dynamic / Match Data
-                            { var: '{{property_list_default}}', desc: 'Formatted list of matched properties', ctx: 'Match' },
-                            { var: '{{property_list_dtl}}', desc: 'Detailed list with specs & pricing', ctx: 'Match' },
-                            { var: '{{requirement_summary}}', desc: 'Summary of what customer is looking for', ctx: 'Match' },
-                            { var: '{{properties_count}}', desc: 'Total number of properties matched', ctx: 'Match' },
-                            { var: '{{match_percentage}}', desc: 'Match Percentage Score (AI generated)', ctx: 'Match' },
-                            
-                            // Legacy / Static Data
-                            { var: '{{amount}}', desc: 'Due Amount (For reminders)', ctx: 'System' },
-                            { var: '{{due_date}}', desc: 'Due Date (For reminders)', ctx: 'System' },
-                            { var: '{{document_list}}', desc: 'Required Document List', ctx: 'System' }
-                        ].map((item, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '12px 16px' }}>
-                                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: 'var(--primary-color)', padding: '6px 12px', borderRadius: '6px', display: 'inline-block', fontWeight: 800, fontSize: '0.8rem', fontFamily: 'monospace' }}>
-                                        {item.var}
+                        {filteredVariables.length === 0 ? (
+                            <tr>
+                                <td colSpan="4" style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>
+                                    <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
+                                    <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                                        No variables found matching &quot;{searchTerm}&quot;
                                     </div>
-                                </td>
-                                <td style={{ padding: '12px 16px', color: 'var(--text-main)', fontWeight: 600 }}>
-                                    {item.desc}
-                                </td>
-                                <td style={{ padding: '12px 16px' }}>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '4px 8px', borderRadius: '4px', background: item.ctx === 'Lead' || item.ctx === 'Lead/Contact' ? '#dbeafe' : item.ctx === 'Property' ? '#dcfce7' : '#f3e8ff', color: item.ctx === 'Lead' || item.ctx === 'Lead/Contact' ? '#2563eb' : item.ctx === 'Property' ? '#16a34a' : '#9333ea' }}>
-                                        {item.ctx}
-                                    </span>
+                                    <div style={{ fontSize: '0.82rem', marginTop: '4px', color: 'var(--text-muted)' }}>
+                                        Check for typos or try clearing your search query.
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setSearchTerm(''); setActiveCategory('ALL'); }}
+                                        style={{
+                                            marginTop: '14px',
+                                            padding: '7px 16px',
+                                            borderRadius: '7px',
+                                            border: '1px solid #cbd5e1',
+                                            background: '#ffffff',
+                                            color: '#334155',
+                                            fontSize: '0.82rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Clear Search & Filters
+                                    </button>
                                 </td>
                             </tr>
-                        ))}
+                        ) : (
+                            filteredVariables.map((item, i) => {
+                                const badge = getContextBadgeStyle(item.ctx);
+                                const isCopied = copiedVar === item.var;
+
+                                return (
+                                    <tr
+                                        key={item.var}
+                                        style={{
+                                            borderBottom: i < filteredVariables.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                            transition: 'background 0.12s ease'
+                                        }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        {/* Variable Syntax + Copy button */}
+                                        <td style={{ padding: '12px 18px' }}>
+                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                                <div
+                                                    onClick={() => handleCopy(item.var)}
+                                                    title="Click to copy syntax"
+                                                    style={{
+                                                        background: '#f8fafc',
+                                                        border: '1px solid #e2e8f0',
+                                                        color: 'var(--primary-color, #4f46e5)',
+                                                        padding: '5px 10px',
+                                                        borderRadius: '6px',
+                                                        fontWeight: 800,
+                                                        fontSize: '0.82rem',
+                                                        fontFamily: 'monospace',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.12s ease',
+                                                        userSelect: 'all'
+                                                    }}
+                                                    onMouseEnter={e => {
+                                                        e.currentTarget.style.borderColor = '#818cf8';
+                                                        e.currentTarget.style.background = '#eef2ff';
+                                                    }}
+                                                    onMouseLeave={e => {
+                                                        e.currentTarget.style.borderColor = '#e2e8f0';
+                                                        e.currentTarget.style.background = '#f8fafc';
+                                                    }}
+                                                >
+                                                    {item.var}
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCopy(item.var)}
+                                                    title={`Copy ${item.var}`}
+                                                    style={{
+                                                        border: 'none',
+                                                        background: isCopied ? '#ecfdf5' : 'transparent',
+                                                        color: isCopied ? '#059669' : '#94a3b8',
+                                                        cursor: 'pointer',
+                                                        padding: '4px',
+                                                        borderRadius: '4px',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'all 0.15s ease'
+                                                    }}
+                                                    onMouseEnter={e => {
+                                                        if (!isCopied) {
+                                                            e.currentTarget.style.color = '#4f46e5';
+                                                            e.currentTarget.style.background = '#f1f5f9';
+                                                        }
+                                                    }}
+                                                    onMouseLeave={e => {
+                                                        if (!isCopied) {
+                                                            e.currentTarget.style.color = '#94a3b8';
+                                                            e.currentTarget.style.background = 'transparent';
+                                                        }
+                                                    }}
+                                                >
+                                                    {isCopied ? <Check size={13} color="#059669" /> : <Copy size={13} />}
+                                                </button>
+                                            </div>
+                                        </td>
+
+                                        {/* Description */}
+                                        <td style={{ padding: '12px 18px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                            {item.desc}
+                                        </td>
+
+                                        {/* Sample Data */}
+                                        <td style={{ padding: '12px 18px', color: '#64748b', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                                            {item.example || '—'}
+                                        </td>
+
+                                        {/* Context Badge */}
+                                        <td style={{ padding: '12px 18px' }}>
+                                            <span style={{
+                                                fontSize: '0.72rem',
+                                                fontWeight: 700,
+                                                padding: '4px 10px',
+                                                borderRadius: '6px',
+                                                background: badge.bg,
+                                                color: badge.color,
+                                                border: `1px solid ${badge.border}`,
+                                                display: 'inline-block',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {item.ctx}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
                     </tbody>
                 </table>
             </div>

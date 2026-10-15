@@ -921,7 +921,7 @@ const VariableTextarea = ({
 
                             {/* Category Pills */}
                             <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-                                {['ALL', 'System & Assignment', 'Lead – Basic', 'Inventory – Unit', 'Booking', 'Activity'].map(cat => (
+                                {['ALL', 'Deal / Transaction', 'System & Assignment', 'Lead – Basic', 'Inventory – Unit', 'Booking', 'Activity'].map(cat => (
                                     <button
                                         key={cat}
                                         type="button"

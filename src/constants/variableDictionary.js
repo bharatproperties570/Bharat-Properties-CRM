@@ -152,6 +152,15 @@ export const variableDictionary = [
     { id: 'approvedBank',            label: 'Approved Bank',             category: 'Project – Stats', type: 'text' },
 
     // ─────────────────────────────────────────────
+    // 🤝 DEAL / TRANSACTION — Deal Details
+    // ─────────────────────────────────────────────
+    { id: 'transactionType',         label: 'Deal Transaction Type (Full White/Collector Rate/Flexible)', category: 'Deal / Transaction', type: 'dropdown' },
+    { id: 'transaction_type',        label: 'Transaction Type (lowercase alias)', category: 'Deal / Transaction', type: 'dropdown' },
+    { id: 'dealType',                label: 'Deal Type (Direct/Brokerage)',        category: 'Deal / Transaction', type: 'dropdown' },
+    { id: 'dealCode',                label: 'Deal Reference Code (ID)',            category: 'Deal / Transaction', type: 'text' },
+    { id: 'stage',                   label: 'Deal Stage (Active/Won/Hold)',        category: 'Deal / Transaction', type: 'dropdown' },
+
+    // ─────────────────────────────────────────────
     // 📑 BOOKING — Transaction Details
     // ─────────────────────────────────────────────
     { id: 'type',                    label: 'Booking Type (Sale/Rent)',  category: 'Booking',  type: 'dropdown' },

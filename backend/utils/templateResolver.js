@@ -345,6 +345,12 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'dealCode': getPropVal('dealCode') || 'DEAL-REF',
         'ref': getPropVal('dealCode') || 'DEAL-REF',
         'shareableId': getPropVal('dealCode') || 'DEAL-REF',
+        'transactionType': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
+        'transactiontype': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
+        'transaction_type': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
+        'dealType': getPropVal('dealType') || recipient?.dealType || 'Direct',
+        'dealtype': getPropVal('dealType') || recipient?.dealType || 'Direct',
+        'deal_type': getPropVal('dealType') || recipient?.dealType || 'Direct',
         
         // Dynamic / Match Data
         'property_list': propertyListDefault,
@@ -628,7 +634,12 @@ export const interpolateTemplateText = (rawText, { recipient = {}, agent = {}, p
         'lead_status': recipient?.status || 'Active',
         'lead_stage': recipient?.stage || 'Negotiation',
         'intent': recipient?.intent || 'High',
-        'transaction_type': 'Purchase',
+        'transaction_type': property?.transactionType || recipient?.transactionType || 'Full White',
+        'transactiontype': property?.transactionType || recipient?.transactionType || 'Full White',
+        'transactionType': property?.transactionType || recipient?.transactionType || 'Full White',
+        'deal_type': property?.dealType || recipient?.dealType || 'Direct',
+        'dealtype': property?.dealType || recipient?.dealType || 'Direct',
+        'dealType': property?.dealType || recipient?.dealType || 'Direct',
         'document_list': '• Aadhaar Card\n• PAN Card\n• Address Proof'
     };
 
