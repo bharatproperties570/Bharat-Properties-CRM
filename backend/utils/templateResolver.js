@@ -81,6 +81,8 @@ export function cleanProjectName(val) {
     if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
         s = s.split(' - ')[0].trim();
     }
+    s = s.replace(/\s*(?:\||-)?\s*ordinary\s*(?:for\s*)?(?:sell|sale)?/gi, '').trim();
+    s = s.replace(/\s*(?:\||-)?\s*(?:for\s*)?(?:sell|sale)$/gi, '').trim();
     return s;
 }
 
@@ -345,6 +347,10 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'dealCode': getPropVal('dealCode') || 'DEAL-REF',
         'ref': getPropVal('dealCode') || 'DEAL-REF',
         'shareableId': getPropVal('dealCode') || 'DEAL-REF',
+        'intent': getPropVal('intent') || getPropVal('primaryDealIntent') || recipient?.intent || 'Sell',
+        'deal_intent': getPropVal('intent') || getPropVal('primaryDealIntent') || recipient?.intent || 'Sell',
+        'dealIntent': getPropVal('intent') || getPropVal('primaryDealIntent') || recipient?.intent || 'Sell',
+        'primaryDealIntent': getPropVal('intent') || getPropVal('primaryDealIntent') || recipient?.intent || 'Sell',
         'transactionType': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
         'transactiontype': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
         'transaction_type': getPropVal('transactionType') || recipient?.transactionType || 'Full White',
@@ -633,7 +639,10 @@ export const interpolateTemplateText = (rawText, { recipient = {}, agent = {}, p
         'due_date': activityDate,
         'lead_status': recipient?.status || 'Active',
         'lead_stage': recipient?.stage || 'Negotiation',
-        'intent': recipient?.intent || 'High',
+        'intent': property?.intent || property?.primaryDealIntent || recipient?.intent || 'Sell',
+        'deal_intent': property?.intent || property?.primaryDealIntent || recipient?.intent || 'Sell',
+        'dealintent': property?.intent || property?.primaryDealIntent || recipient?.intent || 'Sell',
+        'primarydealintent': property?.intent || property?.primaryDealIntent || recipient?.intent || 'Sell',
         'transaction_type': property?.transactionType || recipient?.transactionType || 'Full White',
         'transactiontype': property?.transactionType || recipient?.transactionType || 'Full White',
         'transactionType': property?.transactionType || recipient?.transactionType || 'Full White',

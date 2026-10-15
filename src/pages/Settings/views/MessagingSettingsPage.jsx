@@ -1967,6 +1967,8 @@ Suraj Keshwar
 
 const ALL_TEMPLATE_VARIABLES = [
     // 🤝 Deal & Transaction Data (Populated from Deal Form & Inventory)
+    { var: '{{intent}}', desc: 'Primary Deal Intent (e.g. Sell, Rent, Lease, Purchase) selected in Deal Form', ctx: 'Deal / Transaction', example: 'Sell' },
+    { var: '{{deal_intent}}', desc: 'Deal Intent (lowercase alias for standard compatibility)', ctx: 'Deal / Transaction', example: 'Sell' },
     { var: '{{transactionType}}', desc: 'Deal Transaction Type selected in Deal Form (e.g. Full White, Collector Rate, Flexible, Sale, Resale)', ctx: 'Deal / Transaction', example: 'Full White' },
     { var: '{{transaction_type}}', desc: 'Deal Transaction Type (lowercase alias for standard compatibility)', ctx: 'Deal / Transaction', example: 'Full White' },
     { var: '{{dealType}}', desc: 'Deal Type (Direct, Brokerage, Co-broking, Investor)', ctx: 'Deal / Transaction', example: 'Direct' },

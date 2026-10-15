@@ -108,6 +108,8 @@ export function cleanProjectName(val) {
     if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
         s = s.split(' - ')[0].trim();
     }
+    s = s.replace(/\s*(?:\||-)?\s*ordinary\s*(?:for\s*)?(?:sell|sale)?/gi, '').trim();
+    s = s.replace(/\s*(?:\||-)?\s*(?:for\s*)?(?:sell|sale)$/gi, '').trim();
     return s;
 }
 
@@ -228,6 +230,32 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     // 5. Resolve Pricing
     const rawPrice = primaryDeal.price || primaryDeal.quotePrice || primaryDeal.value || meta.price || inventory.price?.value;
     const price = formatCurrency(rawPrice, 'Price on Request');
+
+    // 5b. Resolve Intent (Sell / Rent / Lease)
+    const rawIntent = await resolveLookupValue(
+        primaryDeal.intent ||
+        primaryDeal.primaryDealIntent ||
+        inventory.intent ||
+        primarySpec.intent ||
+        invSpec.intent ||
+        recipient.intent ||
+        'Sell',
+        'Sell'
+    );
+    const intent = rawIntent || 'Sell';
+
+    // 5c. Resolve Transaction Type (Full White / Collector Rate / Flexible)
+    const rawTransactionType = await resolveLookupValue(
+        primaryDeal.transactionType ||
+        primaryDeal.transaction_type ||
+        primaryDeal.dealType ||
+        inventory.transactionType ||
+        primarySpec.transactionType ||
+        recipient.transactionType ||
+        'Full White',
+        'Full White'
+    );
+    const transactionType = rawTransactionType || 'Full White';
 
     // 6. Resolve Owner / Contact Details
     const ownerMobile = (
@@ -362,6 +390,8 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     register(['EmployeeName', 'employeeName', 'employee_name', 'employeename', 'agent_name', 'agentname', 'agentName', 'assignedTo', 'assigned_to', 'assignedto'], agentName);
     register(['EmployeeMobile', 'employeeMobile', 'employee_mobile', 'employeemobile', 'agent_mobile', 'agentmobile', 'agentMobile', 'agent_phone', 'agentphone'], agentMobile);
     register(['EmployeeEmail', 'employeeEmail', 'employee_email', 'employeemail', 'agent_email', 'agentemail', 'agentEmail'], agentEmail);
+    register(['intent', 'deal_intent', 'dealIntent', 'primaryDealIntent', 'primarydealintent'], intent);
+    register(['transactionType', 'transaction_type', 'transactiontype', 'dealType', 'deal_type', 'dealtype'], transactionType);
     register(['team', 'team_name', 'teamName'], assignedTeam);
     register(['visibleTo', 'visible_to', 'visibleto', 'visibility'], assignedVisibility);
     register(['company_name', 'companyname', 'company'], companyName);
@@ -383,6 +413,11 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
             block,
             subCategory,
             category,
+            intent,
+            deal_intent: intent,
+            primaryDealIntent: intent,
+            transactionType,
+            transaction_type: transactionType,
             size: formattedSize,
             sizeType: rawSizeType,
             direction,
