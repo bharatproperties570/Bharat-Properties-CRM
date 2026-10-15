@@ -471,27 +471,41 @@ export const BaileysConnectionManager = {
                     const currentInt = await WhatsAppIntegrationModel.findById(integrationId).select('connectedBy').lean();
                     const userOwner = currentInt?.connectedBy || null;
 
-                    // Lookup participant name if in group
+                    // Enterprise Identity Resolution: Prioritize CRM Lead / Contact name over raw WhatsApp pushName
                     const pushName = (msg.pushName && String(msg.pushName).trim()) ? String(msg.pushName).trim() : null;
-                    let memberName = isGroup ? (pushName || (participantId ? (participantId.length === 10 ? `+91 ${participantId}` : `+${participantId}`) : 'Group Member')) : (pushName || participantId);
-                    if (isGroup && !isFromMe && participantId) {
+                    let matchedEntity = null;
+                    let resolvedCrmName = null;
+                    const lookupPhone = isGroup ? participantId : targetPhone;
+                    const clean10 = String(lookupPhone || '').replace(/\D/g, '').slice(-10);
+
+                    if (clean10 && (!isFromMe || isGroup)) {
                         try {
                             const Lead = (await import('../../models/Lead.js')).default;
                             const Contact = (await import('../../models/Contact.js')).default;
-                            const clean10 = String(participantId).replace(/\D/g, '').slice(-10);
-                            if (clean10) {
-                                const reg = new RegExp(clean10 + '$');
-                                const [l, c] = await Promise.all([
-                                    Lead.findOne({ mobile: reg }).select('firstName lastName fullName').lean(),
-                                    Contact.findOne({ 'phones.number': reg }).select('name').lean()
-                                ]);
-                                if (l) memberName = (l.fullName || `${l.firstName || ''} ${l.lastName || ''}`).trim() || memberName;
-                                else if (c?.name) memberName = c.name;
+                            const reg = new RegExp(clean10 + '$');
+                            const [l, c] = await Promise.all([
+                                Lead.findOne({ mobile: reg, isDeleted: { $ne: true } }).select('firstName lastName fullName assignedTo owner').lean(),
+                                Contact.findOne({ 'phones.number': reg, isDeleted: { $ne: true } }).select('name assignedTo owner').lean()
+                            ]);
+                            if (l) {
+                                resolvedCrmName = (l.fullName || `${l.firstName || ''} ${l.lastName || ''}`).trim();
+                                matchedEntity = { id: l._id, type: 'Lead', assignee: l.assignedTo || l.owner };
+                            } else if (c?.name) {
+                                resolvedCrmName = c.name;
+                                matchedEntity = { id: c._id, type: 'Contact', assignee: c.assignedTo || c.owner };
                             }
                         } catch (e) {}
                     }
 
-                    const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : (pushName || participantId));
+                    // For groups: memberName is CrmName > pushName > formatted phone
+                    const memberName = isGroup 
+                        ? (resolvedCrmName || pushName || (participantId ? (participantId.length === 10 ? `+91 ${participantId}` : `+${participantId}`) : 'Group Member'))
+                        : null;
+
+                    // For 1-on-1: customerName is CrmName > pushName > formatted phone
+                    const customerDisplayName = resolvedCrmName || pushName || (cleanPhone.length === 10 ? `+91 ${cleanPhone}` : cleanPhone);
+
+                    const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : customerDisplayName);
                     const msgDate = new Date(msgTsSeconds ? msgTsSeconds * 1000 : Date.now());
 
                     // Phase A: Create Activity record (Isolated try/catch)
@@ -499,8 +513,8 @@ export const BaileysConnectionManager = {
                         await Activity.create({
                             type: 'WhatsApp',
                             subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
-                            entityType: isGroup ? 'WhatsAppGroup' : (isFromMe ? 'User' : 'General'),
-                            entityId: isGroup ? remoteJid : (isFromMe ? userOwner : null),
+                            entityType: isGroup ? 'WhatsAppGroup' : (isFromMe ? 'User' : (matchedEntity?.type || 'General')),
+                            entityId: isGroup ? remoteJid : (isFromMe ? userOwner : (matchedEntity?.id || null)),
                             description: messageText,
                             dueDate: new Date(),
                             status: 'Completed',
@@ -527,7 +541,7 @@ export const BaileysConnectionManager = {
                             participants: [
                                 { 
                                     mobile: isGroup ? (isFromMe ? targetPhone : participantId) : targetPhone, 
-                                    name: resolvedSenderName 
+                                    name: isGroup ? (isFromMe ? 'Agent' : memberName) : customerDisplayName
                                 }
                             ],
                             performedBy: resolvedSenderName,
@@ -563,11 +577,13 @@ export const BaileysConnectionManager = {
                                 isGroup: isGroup,
                                 groupName: groupDisplay,
                                 groupJid: isGroup ? remoteJid : null,
-                                title: groupDisplay || (isGroup ? remoteJid : targetPhone),
+                                title: groupDisplay || (isGroup ? remoteJid : (resolvedCrmName || targetPhone)),
                                 'metadata.isGroup': isGroup,
                                 'metadata.groupName': groupDisplay,
                                 'metadata.groupJid': isGroup ? remoteJid : null,
                                 ...(isLid ? { 'metadata.lid': remoteJid } : {}),
+                                ...(matchedEntity?.type === 'Lead' ? { lead: matchedEntity.id } : {}),
+                                ...(matchedEntity?.type === 'Contact' ? { contact: matchedEntity.id } : {}),
                                 channel: 'whatsapp',
                                 status: 'active'
                             },
@@ -607,33 +623,10 @@ export const BaileysConnectionManager = {
                     if (!isFromMe) {
                         try {
                             const NotificationEngine = (await import('../NotificationEngine.js')).default;
-                            let senderLabel = isGroup ? `${groupDisplay} - ${memberName}` : (targetPhone || 'Customer');
+                            let senderLabel = isGroup ? `${groupDisplay} - ${memberName}` : (resolvedCrmName || targetPhone || 'Customer');
                             const recipientUserIds = new Set();
                             if (userOwner) recipientUserIds.add(String(userOwner));
-
-                            if (!isGroup) {
-                                try {
-                                    const Lead = (await import('../../models/Lead.js')).default;
-                                    const Contact = (await import('../../models/Contact.js')).default;
-                                    const clean10 = String(targetPhone).replace(/\D/g, '').slice(-10);
-                                    if (clean10) {
-                                        const reg = new RegExp(clean10 + '$');
-                                        const [l, c] = await Promise.all([
-                                            Lead.findOne({ mobile: reg }).select('firstName lastName assignedTo owner').lean(),
-                                            Contact.findOne({ 'phones.number': reg }).select('name assignedTo owner').lean()
-                                        ]);
-                                        if (l) {
-                                            senderLabel = `${l.firstName || ''} ${l.lastName || ''}`.trim() || targetPhone;
-                                            const assignee = l.assignedTo || l.owner;
-                                            if (assignee) recipientUserIds.add(String(assignee));
-                                        } else if (c?.name) {
-                                            senderLabel = c.name;
-                                            const assignee = c.assignedTo || c.owner;
-                                            if (assignee) recipientUserIds.add(String(assignee));
-                                        }
-                                    }
-                                } catch (e) {}
-                            }
+                            if (matchedEntity?.assignee) recipientUserIds.add(String(matchedEntity.assignee));
 
                             // Include integration's allowed users if defined
                             if (Array.isArray(currentInt?.allowedUsers)) {

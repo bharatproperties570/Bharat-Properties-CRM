@@ -2052,6 +2052,7 @@ export const getMessagingActivities = async (req, res) => {
         const [leads, contacts] = await Promise.all([
             allSearchIdentifiers.length || uniqueIdentifiers.length || uniqueEntityIds.length
                 ? Lead.find({
+                    isDeleted: { $ne: true },
                     $or: [
                         { mobile: { $in: allSearchIdentifiers } },
                         { email: { $in: uniqueIdentifiers } },
