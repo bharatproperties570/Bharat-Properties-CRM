@@ -245,7 +245,11 @@ class WhatsAppService {
             }
 
             if (!sock) {
-                return { success: false, error: 'WhatsApp socket not connected or still pairing', provider: 'baileys' };
+                const isDev = process.env.NODE_ENV !== 'production';
+                const errorDetail = isDev
+                    ? 'Local Dev Environment: WhatsApp Web socket is hosted on Production (api.bharatproperties.co) to prevent session conflicts. Please send group messages from https://crm.bharatproperties.co'
+                    : 'WhatsApp socket not connected or still pairing';
+                return { success: false, error: errorDetail, provider: 'baileys' };
             }
             if (!sock.user || !sock.user.id) {
                 return { success: false, error: 'WhatsApp Web is not fully connected. Please scan the QR code in Profile page.', provider: 'baileys' };
