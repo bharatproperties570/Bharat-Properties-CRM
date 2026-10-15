@@ -39,7 +39,7 @@ const PriceTrendTooltip = ({ active, payload, isDark, trendMetricUnit, activeCat
   );
 };
 
-const MarketPriceTrendChart = ({ deals = [], sizes = [], getLookupValue, isDark }) => {
+const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLookupValue, isDark }) => {
   const [trendMetricUnit, setTrendMetricUnit] = useState('Sq.Yd');
   const [trendPriceType, setTrendPriceType] = useState('Expected'); // 'Expected' | 'Booking'
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -55,39 +55,113 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], getLookupValue, isDark 
     return map;
   }, [sizes]);
 
+  // Fast O(1) project name lookup map
+  const projectMap = useMemo(() => {
+    const map = new Map();
+    (projects || []).forEach(p => {
+      const id = p.id || p._id;
+      const name = p.name || p.projectName || p.title;
+      if (id && name) {
+        map.set(String(id), name);
+      }
+    });
+    return map;
+  }, [projects]);
+
+  // Enterprise Location Resolver: Guaranteed to return human-readable value, never raw hex IDs
+  const resolveLocationLabel = React.useCallback((deal) => {
+    // 1. Direct pre-resolved human-readable locationName (from backend enrichment)
+    if (deal.locationName && typeof deal.locationName === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.locationName.trim())) {
+      return deal.locationName.trim();
+    }
+    // 2. Resolve deal.location via lookup helper
+    if (deal.location) {
+      if (typeof deal.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.location.trim())) {
+        return deal.location.trim();
+      }
+      if (getLookupValue) {
+        const resolved = getLookupValue('Location', deal.location) || getLookupValue('City', deal.location) || getLookupValue('Area', deal.location);
+        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
+          return String(resolved).trim();
+        }
+      }
+    }
+    // 3. Resolve from linked inventory location
+    const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
+    const invLoc = inv?.address?.location || inv?.address?.locality || inv?.address?.area;
+    if (invLoc) {
+      if (typeof invLoc === 'string' && !/^[0-9a-fA-F]{24}$/.test(invLoc.trim())) {
+        return invLoc.trim();
+      }
+      if (getLookupValue) {
+        const resolved = getLookupValue('Location', invLoc) || getLookupValue('City', invLoc);
+        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
+          return String(resolved).trim();
+        }
+      }
+    }
+    // 4. Sector / Block / Project
+    const sec = deal.sector || inv?.sector;
+    if (sec && !/^[0-9a-fA-F]{24}$/.test(String(sec).trim())) return String(sec).trim();
+    const blk = deal.block || inv?.block;
+    if (blk && !/^[0-9a-fA-F]{24}$/.test(String(blk).trim())) return String(blk).trim();
+    const prj = deal.project || inv?.project;
+    if (prj) {
+      if (getLookupValue) {
+        const resolved = getLookupValue('Project', prj);
+        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) return String(resolved).trim();
+      }
+      if (projectMap.has(String(prj))) {
+        return projectMap.get(String(prj));
+      }
+      if (typeof prj === 'string' && !/^[0-9a-fA-F]{24}$/.test(prj.trim())) return prj.trim();
+    }
+    return 'Kurukshetra';
+  }, [getLookupValue, projectMap]);
+
+  // Enterprise Category Resolver
+  const resolveCategoryLabel = React.useCallback((deal) => {
+    if (deal.categoryName && typeof deal.categoryName === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.categoryName.trim())) {
+      return deal.categoryName.trim();
+    }
+    const catId = deal.category || deal.propertyType;
+    if (catId) {
+      if (getLookupValue) {
+        const val = getLookupValue('Category', catId) || getLookupValue('PropertyType', catId);
+        if (val && !/^[0-9a-fA-F]{24}$/.test(String(val).trim())) return String(val).trim();
+      }
+      if (typeof catId === 'string' && !/^[0-9a-fA-F]{24}$/.test(catId.trim())) {
+        return catId.trim();
+      }
+    }
+    return 'Residential';
+  }, [getLookupValue]);
+
   // Extract all unique categories for the dropdown
   const availableCategories = useMemo(() => {
     const cats = new Set();
     (deals || []).forEach(deal => {
-      const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
+      const categoryLabel = resolveCategoryLabel(deal);
       if (!categoryLabel.toLowerCase().includes('agri')) {
         cats.add(categoryLabel);
       }
     });
     return Array.from(cats).sort();
-  }, [deals, getLookupValue]);
+  }, [deals, resolveCategoryLabel]);
 
   // Extract all unique locations based on selected category
   const availableLocations = useMemo(() => {
     const locs = new Set();
     (deals || []).forEach(deal => {
-      const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
-      
+      const categoryLabel = resolveCategoryLabel(deal);
       if (categoryLabel?.toLowerCase().includes('agri')) return;
       if (selectedCategory !== 'All' && categoryLabel !== selectedCategory) return;
       
-      if (deal.location) {
-        let resolvedLocation = deal.location;
-        if (getLookupValue) {
-          resolvedLocation = getLookupValue('Location', deal.location) || getLookupValue('City', deal.location) || deal.location;
-        }
-        locs.add(typeof resolvedLocation === 'string' ? resolvedLocation.trim() : String(resolvedLocation).trim());
-      }
+      const locName = resolveLocationLabel(deal);
+      if (locName) locs.add(locName);
     });
     return Array.from(locs).sort();
-  }, [deals, getLookupValue, selectedCategory]);
+  }, [deals, selectedCategory, resolveCategoryLabel, resolveLocationLabel]);
 
   // Reset location when category changes
   React.useEffect(() => {
@@ -193,8 +267,7 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], getLookupValue, isDark 
       }
 
       // 2. Filter by Category
-      const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
+      const categoryLabel = resolveCategoryLabel(deal);
       
       // Exclude Agricultural for Sq.Ft/Sq.Yd metrics
       if (categoryLabel?.toLowerCase().includes('agri')) return;
@@ -256,14 +329,7 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], getLookupValue, isDark 
       if (pricePerSqFt < 10 || pricePerSqFt > 1000000) return;
 
       // 5. Resolve Location
-      let locationLabel = 'Kurukshetra';
-      if (deal.location) {
-        let resolvedLocation = deal.location;
-        if (getLookupValue) {
-          resolvedLocation = getLookupValue('Location', deal.location) || getLookupValue('City', deal.location) || deal.location;
-        }
-        locationLabel = typeof resolvedLocation === 'string' ? resolvedLocation.trim() : String(resolvedLocation).trim();
-      }
+      const locationLabel = resolveLocationLabel(deal);
 
       const cd = new Date(deal.createdAt || Date.now());
       const key = cd.toLocaleString('default', { month: 'short', year: '2-digit' });

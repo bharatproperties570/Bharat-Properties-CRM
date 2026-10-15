@@ -16,7 +16,7 @@ export const getDashboardStats = async (req, res) => {
         const { userId, teamId } = req.query;
         const userIdForCache = req.user?._id || req.user?.id || 'anonymous';
         // 🚀 PHASE 2.3-T: Per-user cache key includes filter params for isolation
-        const cacheKey = `dashboard_kpis_v3_${userIdForCache}_${userId || 'all'}_${teamId || 'all'}`;
+        const cacheKey = `dashboard_kpis_v4_${userIdForCache}_${userId || 'all'}_${teamId || 'all'}`;
         const DASHBOARD_CACHE_TTL = 300; // 5 minutes
         let cachedKpis = null;
         cachedKpis = await safeRedisCall('get', cacheKey);
@@ -189,13 +189,111 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
             Activity.aggregate([{ $match: { ...baseActQuery, status: { $in: PENDING_STATUSES } } }, { $project: { type: 1, dueDate: 1, bucket: { $switch: { branches: [ { case: { $lt: ["$dueDate", todayZero] }, then: "overdue" }, { case: { $and: [{ $gte: ["$dueDate", todayZero] }, { $lt: ["$dueDate", tomorrowZero] }] }, then: "today" }, { case: { $gte: ["$dueDate", tomorrowZero] }, then: "pending" } ], default: "pending" } }, category: { $switch: { branches: [ { case: { $in: ["$type", ["Task", "Call", "Call Back", "Followup"]] }, then: "Followup" }, { case: { $in: ["$type", ["Meeting", "Meeting Scheduled"]] }, then: "Meeting" }, { case: { $eq: ["$type", "Site Visit"] }, then: "Site Visit" } ], default: "Followup" } } } }, { $group: { _id: { category: "$category", bucket: "$bucket" }, count: { $sum: 1 } } }]),
             Activity.find({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES } }).sort({ createdAt: -1 }).limit(10).lean(),
             // Price Trend
-            Deal.aggregate([{ $match: baseDealQuery }, { $lookup: { from: 'inventories', localField: 'inventoryId', foreignField: '_id', pipeline: [{ $project: { builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1, area: 1, size: 1, sizeUnit: 1 } }], as: 'inventoryData' } }, { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } }, { $project: { price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1, stage: 1, location: 1, propertyType: 1, category: 1, createdAt: 1, unitSpecification: 1, inventoryId: 1, inventory: { builtUpArea: '$inventoryData.builtUpArea', builtupType: '$inventoryData.builtupType', ageOfConstruction: '$inventoryData.ageOfConstruction', constructionAge: '$inventoryData.constructionAge', unitSpecification: '$inventoryData.unitSpecification', area: '$inventoryData.area', size: '$inventoryData.size', sizeUnit: '$inventoryData.sizeUnit' } } }])
+            Deal.aggregate([
+                { $match: baseDealQuery },
+                { $lookup: {
+                    from: 'inventories',
+                    localField: 'inventoryId',
+                    foreignField: '_id',
+                    pipeline: [{
+                        $project: {
+                            builtUpArea: 1, builtupType: 1, ageOfConstruction: 1, constructionAge: 1, unitSpecification: 1,
+                            area: 1, size: 1, sizeUnit: 1, address: 1, sector: 1, block: 1, project: 1
+                        }
+                    }],
+                    as: 'inventoryData'
+                }},
+                { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } },
+                { $project: {
+                    price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1, stage: 1, location: 1, propertyType: 1, category: 1, createdAt: 1, unitSpecification: 1, inventoryId: 1,
+                    sector: 1, block: 1, project: 1,
+                    inventory: {
+                        builtUpArea: '$inventoryData.builtUpArea',
+                        builtupType: '$inventoryData.builtupType',
+                        ageOfConstruction: '$inventoryData.ageOfConstruction',
+                        constructionAge: '$inventoryData.constructionAge',
+                        unitSpecification: '$inventoryData.unitSpecification',
+                        area: '$inventoryData.area',
+                        size: '$inventoryData.size',
+                        sizeUnit: '$inventoryData.sizeUnit',
+                        address: '$inventoryData.address',
+                        sector: '$inventoryData.sector',
+                        block: '$inventoryData.block',
+                        project: '$inventoryData.project'
+                    }
+                }}
+            ])
         ]);
 
         // ━━ BATCH B: Dependent Queries ━━
         const activeStages = [...CATEGORY_MAPPING.INCOMING, ...CATEGORY_MAPPING.PROSPECT, ...CATEGORY_MAPPING.OPPORTUNITY, ...CATEGORY_MAPPING.NEGOTIATION];
         const activeStageIds = Object.entries(lookupMap).filter(([, val]) => activeStages.includes(val)).map(([id]) => new mongoose.Types.ObjectId(id));
-        const nfaCount = await Lead.countDocuments({ ...baseLeadQuery, stage: { $in: activeStageIds }, _id: { $nin: leadsWithActivities } });
+
+        // Enterprise Resolution: Collect all lookup and project IDs from priceTrendDeals to resolve human-readable labels
+        const priceTrendLookupIds = new Set();
+        const priceTrendProjectIds = new Set();
+
+        (priceTrendDeals || []).forEach(d => {
+            [d.location, d.category, d.propertyType, d.sector, d.inventory?.address?.location, d.inventory?.sector].forEach(id => {
+                if (id && mongoose.Types.ObjectId.isValid(String(id))) {
+                    priceTrendLookupIds.add(new mongoose.Types.ObjectId(String(id)));
+                }
+            });
+            [d.project, d.inventory?.project].forEach(id => {
+                if (id && mongoose.Types.ObjectId.isValid(String(id))) {
+                    priceTrendProjectIds.add(new mongoose.Types.ObjectId(String(id)));
+                }
+            });
+        });
+
+        const [nfaCount, trendLookupDocs, trendProjectDocs] = await Promise.all([
+            Lead.countDocuments({ ...baseLeadQuery, stage: { $in: activeStageIds }, _id: { $nin: leadsWithActivities } }),
+            priceTrendLookupIds.size > 0
+                ? Lookup.find({ _id: { $in: Array.from(priceTrendLookupIds) } }).select('_id lookup_value lookup_type').lean()
+                : Promise.resolve([]),
+            priceTrendProjectIds.size > 0
+                ? Project.find({ _id: { $in: Array.from(priceTrendProjectIds) } }).select('_id name projectName title').lean()
+                : Promise.resolve([])
+        ]);
+
+        const trendLookupMap = {};
+        trendLookupDocs.forEach(l => { trendLookupMap[l._id.toString()] = l.lookup_value; });
+
+        const trendProjectMap = {};
+        trendProjectDocs.forEach(p => { trendProjectMap[p._id.toString()] = p.name || p.projectName || p.title; });
+
+        const enrichedPriceTrendDeals = (priceTrendDeals || []).map(d => {
+            const rawLocId = d.location || d.inventory?.address?.location;
+            const locStr = rawLocId ? String(rawLocId) : '';
+            let loc = trendLookupMap[locStr] || null;
+
+            if (!loc) {
+                const secStr = String(d.sector || d.inventory?.sector || '');
+                if (secStr && !mongoose.Types.ObjectId.isValid(secStr)) loc = secStr;
+                else if (secStr && trendLookupMap[secStr]) loc = trendLookupMap[secStr];
+            }
+            if (!loc) {
+                const blkStr = String(d.block || d.inventory?.block || '');
+                if (blkStr && !mongoose.Types.ObjectId.isValid(blkStr)) loc = blkStr;
+            }
+            if (!loc) {
+                const prjStr = String(d.project || d.inventory?.project || '');
+                if (prjStr && trendProjectMap[prjStr]) loc = trendProjectMap[prjStr];
+            }
+            if (!loc) loc = 'Kurukshetra';
+
+            const rawCatId = d.category || d.propertyType;
+            const catStr = rawCatId ? String(rawCatId) : '';
+            let cat = trendLookupMap[catStr] || (typeof rawCatId === 'string' && !mongoose.Types.ObjectId.isValid(rawCatId) ? rawCatId : 'Residential');
+
+            return {
+                ...d,
+                location: loc,
+                locationName: loc,
+                category: cat,
+                categoryName: cat
+            };
+        });
 
         // ━━ DATA PROCESSING (IN-MEMORY) ━━
         const leadCategories = { INCOMING: 0, PROSPECT: 0, OPPORTUNITY: 0, NEGOTIATION: 0, WON: 0, LOST: 0 };
@@ -407,8 +505,8 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                 updatedAt: d.updatedAt || d.stageChangedAt
             })),
 
-            // Deals for Price Trend
-            priceTrendDeals
+            // Deals for Price Trend (Enriched with human-readable location & category)
+            priceTrendDeals: enrichedPriceTrendDeals
         };
 
         // 🚀 PHASE 2.3-T: Always cache per-user dashboard data (5 min TTL)

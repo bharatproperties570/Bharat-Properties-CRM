@@ -16,7 +16,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 const DashboardPage = ({ onNavigate }) => {
     const { isDark } = useTheme();
-    const { sizes, getLookupValue } = usePropertyConfig();
+    const { sizes, projects, getLookupValue } = usePropertyConfig();
     const {
         selectedFilter,
         setSelectedFilter,
@@ -205,6 +205,7 @@ const DashboardPage = ({ onNavigate }) => {
                         <MarketPriceTrendChart 
                             deals={metrics.priceTrendDeals} 
                             sizes={sizes} 
+                            projects={projects}
                             getLookupValue={getLookupValue} 
                             isDark={isDark} 
                         />
