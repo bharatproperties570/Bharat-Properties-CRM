@@ -517,491 +517,42 @@ const VariableTextarea = ({
                             </button>
                         </div>
 
-                        {/* Font Style & Emojis Controls */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {/* Font Style Dropdown Toggle */}
-                            {showFontStyles && (
-                                <div style={{ position: 'relative' }}>
-                                    <button
-                                        type="button"
-                                        className="font-dropdown-toggle-btn"
-                                        onClick={() => setIsFontDropdownOpen(prev => !prev)}
-                                        title="Font Styles (Change text to Bold Sans, Gothic, Script, etc.)"
-                                        style={{
-                                            fontSize: '0.74rem',
-                                            padding: '4px 10px',
-                                            borderRadius: '6px',
-                                            border: '1px solid #cbd5e1',
-                                            background: isFontDropdownOpen ? '#4338ca' : '#ffffff',
-                                            color: isFontDropdownOpen ? '#ffffff' : '#3730a3',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '5px',
-                                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                                        }}
-                                    >
-                                        <span style={{ fontSize: '0.85rem' }}>Aa</span>
-                                        <span>Font Style</span>
-                                        <i className={`fas fa-chevron-${isFontDropdownOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
-                                    </button>
-
-                                    {/* Font Style Dropdown Menu */}
-                                    {isFontDropdownOpen && (
-                                        <div
-                                            ref={fontDropdownRef}
-                                            style={{
-                                                position: 'absolute',
-                                                top: '34px',
-                                                right: 0,
-                                                width: '260px',
-                                                backgroundColor: '#ffffff',
-                                                border: '1px solid #cbd5e1',
-                                                borderRadius: '10px',
-                                                boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
-                                                zIndex: 10008,
-                                                padding: '6px',
-                                                animation: 'fadeIn 0.15s ease-out'
-                                            }}
-                                        >
-                                            <div style={{ padding: '6px 8px 4px', fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                                Select Stylized Font
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                {UNICODE_FONTS.map(font => (
-                                                    <div
-                                                        key={font.id}
-                                                        onClick={() => applyFontStyle(font)}
-                                                        style={{
-                                                            padding: '8px 10px',
-                                                            borderRadius: '6px',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center',
-                                                            transition: 'background 0.1s'
-                                                        }}
-                                                        onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; }}
-                                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                                    >
-                                                        <div>
-                                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-                                                                {font.preview}
-                                                            </div>
-                                                            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
-                                                                {font.label}
-                                                            </div>
-                                                        </div>
-                                                        <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: '#e0e7ff', color: '#3730a3', fontWeight: 700 }}>
-                                                            {font.badge}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div style={{ padding: '8px', marginTop: '4px', borderTop: '1px solid #f1f5f9', fontSize: '0.65rem', color: '#64748b', lineHeight: '1.3' }}>
-                                                💡 <em>Tip: Select words in body and click any font style to transform instantly. Best for headings and brand names.</em>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Full Emojis & Icons Popover Toggle */}
-                            {showEmojiPicker && (
-                                <div style={{ position: 'relative' }}>
-                                    <button
-                                        type="button"
-                                        className="emoji-picker-toggle-btn"
-                                        onClick={() => {
-                                            setIsEmojiPickerOpen(prev => !prev);
-                                            setEmojiSearch('');
-                                        }}
-                                        title="Browse All Emojis & Real Estate Icons"
-                                        style={{
-                                            fontSize: '0.74rem',
-                                            padding: '4px 10px',
-                                            borderRadius: '6px',
-                                            border: '1px solid #f59e0b',
-                                            background: isEmojiPickerOpen ? '#f59e0b' : '#fffbeb',
-                                            color: isEmojiPickerOpen ? '#ffffff' : '#b45309',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '5px',
-                                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                                        }}
-                                    >
-                                        <span style={{ fontSize: '0.85rem' }}>😊</span>
-                                        <span>Emojis & Icons</span>
-                                        <i className={`fas fa-chevron-${isEmojiPickerOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
-                                    </button>
-
-                                    {/* Emojis Popover Card */}
-                                    {isEmojiPickerOpen && (
-                                        <div
-                                            ref={emojiPickerRef}
-                                            style={{
-                                                position: 'absolute',
-                                                top: '34px',
-                                                right: 0,
-                                                width: '340px',
-                                                maxHeight: '340px',
-                                                backgroundColor: '#ffffff',
-                                                border: '1px solid #cbd5e1',
-                                                borderRadius: '12px',
-                                                boxShadow: '0 14px 36px rgba(0,0,0,0.2)',
-                                                zIndex: 10008,
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                overflow: 'hidden',
-                                                animation: 'fadeIn 0.15s ease-out'
-                                            }}
-                                        >
-                                            {/* Search Header */}
-                                            <div style={{ padding: '10px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '5px 10px' }}>
-                                                    <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.75rem' }}></i>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Search emoji (home, price, call, key...)"
-                                                        value={emojiSearch}
-                                                        onChange={e => setEmojiSearch(e.target.value)}
-                                                        style={{ border: 'none', outline: 'none', width: '100%', fontSize: '0.82rem' }}
-                                                        autoFocus
-                                                    />
-                                                    {emojiSearch && (
-                                                        <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem' }} onClick={() => setEmojiSearch('')}></i>
-                                                    )}
-                                                </div>
-
-                                                {/* Category Tabs */}
-                                                {!emojiSearch && (
-                                                    <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
-                                                        {EMOJI_CATEGORIES.map(cat => (
-                                                            <button
-                                                                key={cat.id}
-                                                                type="button"
-                                                                onClick={() => setActiveEmojiCategory(cat.id)}
-                                                                title={cat.name}
-                                                                style={{
-                                                                    fontSize: '0.7rem',
-                                                                    padding: '3px 7px',
-                                                                    borderRadius: '6px',
-                                                                    border: '1px solid',
-                                                                    borderColor: activeEmojiCategory === cat.id ? '#f59e0b' : '#e2e8f0',
-                                                                    background: activeEmojiCategory === cat.id ? '#fef3c7' : '#ffffff',
-                                                                    color: activeEmojiCategory === cat.id ? '#92400e' : '#64748b',
-                                                                    fontWeight: activeEmojiCategory === cat.id ? 700 : 500,
-                                                                    cursor: 'pointer',
-                                                                    whiteSpace: 'nowrap',
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '3px'
-                                                                }}
-                                                            >
-                                                                <span>{cat.icon}</span>
-                                                                <span>{cat.name.split(' ')[0]}</span>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Emoji Grid */}
-                                            <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
-                                                {filteredEmojis.length === 0 ? (
-                                                    <div style={{ gridColumn: 'span 6', padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
-                                                        No emojis found matching &quot;{emojiSearch}&quot;
-                                                    </div>
-                                                ) : (
-                                                    filteredEmojis.map((e, idx) => (
-                                                        <button
-                                                            key={`${e.char}-${idx}`}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                insertTextAtCursor(e.char);
-                                                            }}
-                                                            title={e.name}
-                                                            style={{
-                                                                fontSize: '1.25rem',
-                                                                width: '42px',
-                                                                height: '42px',
-                                                                borderRadius: '8px',
-                                                                border: '1px solid #f1f5f9',
-                                                                background: '#ffffff',
-                                                                cursor: 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                transition: 'all 0.12s ease'
-                                                            }}
-                                                            onMouseEnter={evt => {
-                                                                evt.currentTarget.style.transform = 'scale(1.18)';
-                                                                evt.currentTarget.style.background = '#fef3c7';
-                                                                evt.currentTarget.style.borderColor = '#f59e0b';
-                                                            }}
-                                                            onMouseLeave={evt => {
-                                                                evt.currentTarget.style.transform = 'scale(1)';
-                                                                evt.currentTarget.style.background = '#ffffff';
-                                                                evt.currentTarget.style.borderColor = '#f1f5f9';
-                                                            }}
-                                                        >
-                                                            {e.char}
-                                                        </button>
-                                                    ))
-                                                )}
-                                            </div>
-
-                                            <div style={{ padding: '6px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '0.68rem', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
-                                                <span>Click any emoji to insert at cursor</span>
-                                                <span style={{ fontWeight: 600 }}>{filteredEmojis.length} icons</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                        {/* ⚡ Instant 1-Click Quick Real Estate Emojis Bar */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflowX: 'auto', padding: '2px 0' }}>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginRight: '4px', whiteSpace: 'nowrap' }}>
+                                Quick Icons:
+                            </span>
+                            {QUICK_EMOJIS.map(emoji => (
+                                <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => insertTextAtCursor(emoji)}
+                                    title={`Click to insert ${emoji}`}
+                                    style={{
+                                        fontSize: '1rem',
+                                        padding: '2px 6px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #e2e8f0',
+                                        background: '#ffffff',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.12s ease'
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.background = '#fef3c7';
+                                        e.currentTarget.style.borderColor = '#f59e0b';
+                                        e.currentTarget.style.transform = 'scale(1.15)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.background = '#ffffff';
+                                        e.currentTarget.style.borderColor = '#e2e8f0';
+                                        e.currentTarget.style.transform = 'scale(1)';
+                                    }}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
                         </div>
                     </div>
-
-                    {/* Row 2: ⚡ Instant 1-Click Quick Real Estate Emojis Bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflowX: 'auto', padding: '2px 0' }}>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', marginRight: '4px', whiteSpace: 'nowrap' }}>
-                            Quick Icons:
-                        </span>
-                        {QUICK_EMOJIS.map(emoji => (
-                            <button
-                                key={emoji}
-                                type="button"
-                                onClick={() => insertTextAtCursor(emoji)}
-                                title={`Click to insert ${emoji}`}
-                                style={{
-                                    fontSize: '1rem',
-                                    padding: '2px 6px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #e2e8f0',
-                                    background: '#ffffff',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.12s ease'
-                                }}
-                                onMouseEnter={e => {
-                                    e.currentTarget.style.background = '#fef3c7';
-                                    e.currentTarget.style.borderColor = '#f59e0b';
-                                    e.currentTarget.style.transform = 'scale(1.15)';
-                                }}
-                                onMouseLeave={e => {
-                                    e.currentTarget.style.background = '#ffffff';
-                                    e.currentTarget.style.borderColor = '#e2e8f0';
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                }}
-                            >
-                                {emoji}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* 🏷️ Quick-Insert Variable Toolbar */}
-            {showQuickPills && (
-                <div style={{ marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '2px' }}>
-                            <i className="fas fa-magic" style={{ color: '#6366f1' }}></i> Insert:
-                        </span>
-
-                        {QUICK_VARIABLES.map(v => (
-                            <button
-                                key={v.id}
-                                type="button"
-                                onClick={() => insertVariableAtCursor(v.id)}
-                                title={`${v.label} (Click to insert {{${v.id}}})`}
-                                style={{
-                                    fontSize: '0.73rem',
-                                    padding: '3px 8px',
-                                    borderRadius: '6px',
-                                    border: `1px solid ${v.highlight ? '#bfdbfe' : '#e2e8f0'}`,
-                                    background: v.highlight ? '#eff6ff' : '#ffffff',
-                                    color: v.highlight ? '#1d4ed8' : '#334155',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '5px',
-                                    transition: 'all 0.15s ease',
-                                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                                }}
-                                onMouseEnter={e => {
-                                    e.currentTarget.style.borderColor = '#6366f1';
-                                    e.currentTarget.style.background = '#f5f3ff';
-                                    e.currentTarget.style.color = '#4f46e5';
-                                }}
-                                onMouseLeave={e => {
-                                    e.currentTarget.style.borderColor = v.highlight ? '#bfdbfe' : '#e2e8f0';
-                                    e.currentTarget.style.background = v.highlight ? '#eff6ff' : '#ffffff';
-                                    e.currentTarget.style.color = v.highlight ? '#1d4ed8' : '#334155';
-                                }}
-                            >
-                                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.75rem' }}>{`{{${v.id}}}`}</span>
-                                <span style={{ fontSize: '0.64rem', opacity: 0.85, color: '#64748b', fontWeight: 500 }}>{v.shortLabel}</span>
-                            </button>
-                        ))}
-
-                        {/* All Variables Popover Toggle Button */}
-                        <button
-                            type="button"
-                            className="variable-picker-btn"
-                            onClick={() => {
-                                setIsPickerOpen(prev => !prev);
-                                setPickerSearch('');
-                            }}
-                            style={{
-                                fontSize: '0.73rem',
-                                padding: '3px 10px',
-                                borderRadius: '6px',
-                                border: '1px solid #6366f1',
-                                background: isPickerOpen ? '#4f46e5' : '#f5f3ff',
-                                color: isPickerOpen ? '#ffffff' : '#4f46e5',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '5px',
-                                transition: 'all 0.15s ease'
-                            }}
-                        >
-                            <i className="fas fa-layer-group" style={{ fontSize: '0.7rem' }}></i>
-                            <span>All Variables</span>
-                            <i className={`fas fa-chevron-${isPickerOpen ? 'up' : 'down'}`} style={{ fontSize: '0.6rem' }}></i>
-                        </button>
-                    </div>
-
-                    {/* Popover Card for "All Variables" */}
-                    {isPickerOpen && (
-                        <div
-                            ref={pickerRef}
-                            style={{
-                                position: 'absolute',
-                                top: '80px',
-                                left: '0',
-                                right: '0',
-                                maxWidth: '580px',
-                                maxHeight: '360px',
-                                backgroundColor: '#ffffff',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '12px',
-                                boxShadow: '0 12px 36px rgba(0,0,0,0.18)',
-                                zIndex: 10005,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                overflow: 'hidden',
-                                animation: 'fadeIn 0.15s ease-out'
-                            }}
-                        >
-                            {/* Search bar & Category filter */}
-                            <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 12px', marginBottom: '10px' }}>
-                                    <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.8rem' }}></i>
-                                    <input
-                                        type="text"
-                                        placeholder="Search variable name, team, user, employee, etc..."
-                                        value={pickerSearch}
-                                        onChange={e => setPickerSearch(e.target.value)}
-                                        style={{ border: 'none', outline: 'none', width: '100%', fontSize: '0.85rem' }}
-                                        autoFocus
-                                    />
-                                    {pickerSearch && (
-                                        <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem' }} onClick={() => setPickerSearch('')}></i>
-                                    )}
-                                </div>
-
-                                {/* Category Pills */}
-                                <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-                                    {['ALL', 'System & Assignment', 'Lead – Basic', 'Inventory – Unit', 'Booking', 'Activity'].map(cat => (
-                                        <button
-                                            key={cat}
-                                            type="button"
-                                            onClick={() => setSelectedCategory(cat)}
-                                            style={{
-                                                fontSize: '0.68rem',
-                                                padding: '2px 8px',
-                                                borderRadius: '9999px',
-                                                border: '1px solid',
-                                                borderColor: selectedCategory === cat ? '#6366f1' : '#e2e8f0',
-                                                background: selectedCategory === cat ? '#6366f1' : '#ffffff',
-                                                color: selectedCategory === cat ? '#ffffff' : '#64748b',
-                                                fontWeight: selectedCategory === cat ? 700 : 500,
-                                                cursor: 'pointer',
-                                                whiteSpace: 'nowrap'
-                                            }}
-                                        >
-                                            {cat === 'ALL' ? 'All' : cat}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Variable list */}
-                            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
-                                {pickerFilteredVariables.length === 0 ? (
-                                    <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
-                                        No variables matching &quot;{pickerSearch}&quot;
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
-                                        {pickerFilteredVariables.map(v => {
-                                            const tStyle = TYPE_COLORS[v.type] || TYPE_COLORS.text;
-                                            return (
-                                                <div
-                                                    key={`${v.category}-${v.id}`}
-                                                    onClick={() => insertVariableAtCursor(v.id)}
-                                                    style={{
-                                                        padding: '8px 10px',
-                                                        borderRadius: '8px',
-                                                        border: '1px solid #f1f5f9',
-                                                        background: '#ffffff',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        gap: '2px',
-                                                        transition: 'all 0.12s ease'
-                                                    }}
-                                                    onMouseEnter={e => {
-                                                        e.currentTarget.style.borderColor = '#93c5fd';
-                                                        e.currentTarget.style.background = '#eff6ff';
-                                                    }}
-                                                    onMouseLeave={e => {
-                                                        e.currentTarget.style.borderColor = '#f1f5f9';
-                                                        e.currentTarget.style.background = '#ffffff';
-                                                    }}
-                                                >
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.82rem', color: '#1e40af' }}>{`{{${v.id}}}`}</span>
-                                                        <span style={{ fontSize: '0.58rem', padding: '1px 5px', borderRadius: '4px', background: tStyle.bg, color: tStyle.color, fontWeight: 700, textTransform: 'uppercase' }}>
-                                                            {v.type}
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ fontSize: '0.72rem', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                        {v.label}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
-                                                        {v.category}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Footer */}
-                            <div style={{ padding: '8px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', color: '#64748b' }}>
-                                <span>Click any variable to insert into template body</span>
-                                <span style={{ fontWeight: 600 }}>{pickerFilteredVariables.length} available</span>
-                            </div>
-                        </div>
-                    )}
                 </div>
             )}
 
@@ -1026,19 +577,434 @@ const VariableTextarea = ({
                 onBlur={(e)  => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
             />
 
-            {/* Formatting Legend / Hint bar */}
-            <div style={{ marginTop: '5px', fontSize: '0.72rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 700, color: '#047857' }}>WhatsApp Formatting:</span>
-                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>*bold*</span>
-                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>_italic_</span>
-                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>~strike~</span>
-                    <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>```mono```</span>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace', fontWeight: 700 }}>{'{{variable}}'}</span>
+            {/* 🎯 Bottom Toolbar: Aa Font Style, 😊 Emojis & Icons, All Variables in ONE single line */}
+            <div style={{
+                marginTop: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '8px',
+                position: 'relative'
+            }}>
+                {/* Left Side: Aa Font Style, 😊 Emojis & Icons, All Variables */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {/* 1. Aa Font Style */}
+                    {showFontStyles && (
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                type="button"
+                                className="font-dropdown-toggle-btn"
+                                onClick={() => {
+                                    setIsFontDropdownOpen(prev => !prev);
+                                    setIsEmojiPickerOpen(false);
+                                    setIsPickerOpen(false);
+                                }}
+                                title="Font Styles (Change text to Bold Sans, Gothic, Script, etc.)"
+                                style={{
+                                    fontSize: '0.74rem',
+                                    padding: '5px 12px',
+                                    borderRadius: '7px',
+                                    border: '1px solid #cbd5e1',
+                                    background: isFontDropdownOpen ? '#4338ca' : '#ffffff',
+                                    color: isFontDropdownOpen ? '#ffffff' : '#3730a3',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>Aa</span>
+                                <span>Font Style</span>
+                                <i className={`fas fa-chevron-${isFontDropdownOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
+                            </button>
+
+                            {/* Font Style Dropdown Menu */}
+                            {isFontDropdownOpen && (
+                                <div
+                                    ref={fontDropdownRef}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 'calc(100% + 6px)',
+                                        left: 0,
+                                        width: '260px',
+                                        backgroundColor: '#ffffff',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '10px',
+                                        boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+                                        zIndex: 10008,
+                                        padding: '6px',
+                                        animation: 'fadeIn 0.15s ease-out'
+                                    }}
+                                >
+                                    <div style={{ padding: '6px 8px 4px', fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Select Stylized Font
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        {UNICODE_FONTS.map(font => (
+                                            <div
+                                                key={font.id}
+                                                onClick={() => applyFontStyle(font)}
+                                                style={{
+                                                    padding: '8px 10px',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    transition: 'background 0.1s'
+                                                }}
+                                                onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                            >
+                                                <div>
+                                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
+                                                        {font.preview}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                                        {font.label}
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: '#e0e7ff', color: '#3730a3', fontWeight: 700 }}>
+                                                    {font.badge}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ padding: '8px', marginTop: '4px', borderTop: '1px solid #f1f5f9', fontSize: '0.65rem', color: '#64748b', lineHeight: '1.3' }}>
+                                        💡 <em>Tip: Select words in body and click any font style to transform instantly. Best for headings and brand names.</em>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 2. 😊 Emojis & Icons */}
+                    {showEmojiPicker && (
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                type="button"
+                                className="emoji-picker-toggle-btn"
+                                onClick={() => {
+                                    setIsEmojiPickerOpen(prev => !prev);
+                                    setIsFontDropdownOpen(false);
+                                    setIsPickerOpen(false);
+                                    setEmojiSearch('');
+                                }}
+                                title="Browse All Emojis & Real Estate Icons"
+                                style={{
+                                    fontSize: '0.74rem',
+                                    padding: '5px 12px',
+                                    borderRadius: '7px',
+                                    border: '1px solid #f59e0b',
+                                    background: isEmojiPickerOpen ? '#f59e0b' : '#fffbeb',
+                                    color: isEmojiPickerOpen ? '#ffffff' : '#b45309',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <span style={{ fontSize: '0.85rem' }}>😊</span>
+                                <span>Emojis & Icons</span>
+                                <i className={`fas fa-chevron-${isEmojiPickerOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
+                            </button>
+
+                            {/* Emojis Popover Card */}
+                            {isEmojiPickerOpen && (
+                                <div
+                                    ref={emojiPickerRef}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 'calc(100% + 6px)',
+                                        left: 0,
+                                        width: '340px',
+                                        maxHeight: '340px',
+                                        backgroundColor: '#ffffff',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 14px 36px rgba(0,0,0,0.2)',
+                                        zIndex: 10008,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        overflow: 'hidden',
+                                        animation: 'fadeIn 0.15s ease-out'
+                                    }}
+                                >
+                                    {/* Search Header */}
+                                    <div style={{ padding: '10px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '5px 10px' }}>
+                                            <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.75rem' }}></i>
+                                            <input
+                                                type="text"
+                                                placeholder="Search emoji (home, price, call, key...)"
+                                                value={emojiSearch}
+                                                onChange={e => setEmojiSearch(e.target.value)}
+                                                style={{ border: 'none', outline: 'none', width: '100%', fontSize: '0.82rem' }}
+                                                autoFocus
+                                            />
+                                            {emojiSearch && (
+                                                <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '0.7rem' }} onClick={() => setEmojiSearch('')}></i>
+                                            )}
+                                        </div>
+
+                                        {/* Category Tabs */}
+                                        {!emojiSearch && (
+                                            <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
+                                                {EMOJI_CATEGORIES.map(cat => (
+                                                    <button
+                                                        key={cat.id}
+                                                        type="button"
+                                                        onClick={() => setActiveEmojiCategory(cat.id)}
+                                                        title={cat.name}
+                                                        style={{
+                                                            fontSize: '0.7rem',
+                                                            padding: '3px 7px',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid',
+                                                            borderColor: activeEmojiCategory === cat.id ? '#f59e0b' : '#e2e8f0',
+                                                            background: activeEmojiCategory === cat.id ? '#fef3c7' : '#ffffff',
+                                                            color: activeEmojiCategory === cat.id ? '#92400e' : '#64748b',
+                                                            fontWeight: activeEmojiCategory === cat.id ? 700 : 500,
+                                                            cursor: 'pointer',
+                                                            whiteSpace: 'nowrap',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '3px'
+                                                        }}
+                                                    >
+                                                        <span>{cat.icon}</span>
+                                                        <span>{cat.name.split(' ')[0]}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Emoji Grid */}
+                                    <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                                        {filteredEmojis.length === 0 ? (
+                                            <div style={{ gridColumn: 'span 6', padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                                                No emojis found matching &quot;{emojiSearch}&quot;
+                                            </div>
+                                        ) : (
+                                            filteredEmojis.map((e, idx) => (
+                                                <button
+                                                    key={`${e.char}-${idx}`}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        insertTextAtCursor(e.char);
+                                                    }}
+                                                    title={e.name}
+                                                    style={{
+                                                        fontSize: '1.25rem',
+                                                        width: '42px',
+                                                        height: '42px',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #f1f5f9',
+                                                        background: '#ffffff',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'all 0.12s ease'
+                                                    }}
+                                                    onMouseEnter={evt => {
+                                                        evt.currentTarget.style.transform = 'scale(1.18)';
+                                                        evt.currentTarget.style.background = '#fef3c7';
+                                                        evt.currentTarget.style.borderColor = '#f59e0b';
+                                                    }}
+                                                    onMouseLeave={evt => {
+                                                        evt.currentTarget.style.transform = 'scale(1)';
+                                                        evt.currentTarget.style.background = '#ffffff';
+                                                        evt.currentTarget.style.borderColor = '#f1f5f9';
+                                                    }}
+                                                >
+                                                    {e.char}
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    <div style={{ padding: '6px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '0.68rem', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Click any emoji to insert at cursor</span>
+                                        <span style={{ fontWeight: 600 }}>{filteredEmojis.length} icons</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 3. All Variables Popover Toggle Button */}
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            type="button"
+                            className="variable-picker-btn"
+                            onClick={() => {
+                                setIsPickerOpen(prev => !prev);
+                                setIsFontDropdownOpen(false);
+                                setIsEmojiPickerOpen(false);
+                                setPickerSearch('');
+                            }}
+                            title="Browse & Select All CRM Variables"
+                            style={{
+                                fontSize: '0.74rem',
+                                padding: '5px 12px',
+                                borderRadius: '7px',
+                                border: '1px solid #6366f1',
+                                background: isPickerOpen ? '#4f46e5' : '#f5f3ff',
+                                color: isPickerOpen ? '#ffffff' : '#4f46e5',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                transition: 'all 0.15s ease'
+                            }}
+                        >
+                            <i className="fas fa-layer-group" style={{ fontSize: '0.72rem' }}></i>
+                            <span>All Variables</span>
+                            <i className={`fas fa-chevron-${isPickerOpen ? 'up' : 'down'}`} style={{ fontSize: '0.55rem' }}></i>
+                        </button>
+                    </div>
                 </div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                    {(value || '').length} chars
+
+                {/* Right Side: Clean Character Count */}
+                <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+                    {(value || '').length} characters
                 </div>
+
+                {/* Popover Card for "All Variables" */}
+                {isPickerOpen && (
+                    <div
+                        ref={pickerRef}
+                        style={{
+                            position: 'absolute',
+                            top: 'calc(100% + 6px)',
+                            left: '0',
+                            width: 'min(580px, 100%)',
+                            maxHeight: '360px',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 36px rgba(0,0,0,0.18)',
+                            zIndex: 10008,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                            animation: 'fadeIn 0.15s ease-out'
+                        }}
+                    >
+                        {/* Search bar & Category filter */}
+                        <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 12px', marginBottom: '10px' }}>
+                                <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                                <input
+                                    type="text"
+                                    placeholder="Search variable name, team, user, employee, etc..."
+                                    value={pickerSearch}
+                                    onChange={e => setPickerSearch(e.target.value)}
+                                    style={{ border: 'none', outline: 'none', width: '100%', fontSize: '0.85rem' }}
+                                    autoFocus
+                                />
+                                {pickerSearch && (
+                                    <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '0.75rem' }} onClick={() => setPickerSearch('')}></i>
+                                )}
+                            </div>
+
+                            {/* Category Pills */}
+                            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+                                {['ALL', 'System & Assignment', 'Lead – Basic', 'Inventory – Unit', 'Booking', 'Activity'].map(cat => (
+                                    <button
+                                        key={cat}
+                                        type="button"
+                                        onClick={() => setSelectedCategory(cat)}
+                                        style={{
+                                            fontSize: '0.68rem',
+                                            padding: '2px 8px',
+                                            borderRadius: '9999px',
+                                            border: '1px solid',
+                                            borderColor: selectedCategory === cat ? '#6366f1' : '#e2e8f0',
+                                            background: selectedCategory === cat ? '#6366f1' : '#ffffff',
+                                            color: selectedCategory === cat ? '#ffffff' : '#64748b',
+                                            fontWeight: selectedCategory === cat ? 700 : 500,
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap'
+                                        }}
+                                    >
+                                        {cat === 'ALL' ? 'All' : cat}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Variable list */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+                            {pickerFilteredVariables.length === 0 ? (
+                                <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                    No variables matching &quot;{pickerSearch}&quot;
+                                </div>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                                    {pickerFilteredVariables.map(v => {
+                                        const tStyle = TYPE_COLORS[v.type] || TYPE_COLORS.text;
+                                        return (
+                                            <div
+                                                key={`${v.category}-${v.id}`}
+                                                onClick={() => insertVariableAtCursor(v.id)}
+                                                style={{
+                                                    padding: '8px 10px',
+                                                    borderRadius: '8px',
+                                                    border: '1px solid #f1f5f9',
+                                                    background: '#ffffff',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: '2px',
+                                                    transition: 'all 0.12s ease'
+                                                }}
+                                                onMouseEnter={e => {
+                                                    e.currentTarget.style.borderColor = '#93c5fd';
+                                                    e.currentTarget.style.background = '#eff6ff';
+                                                }}
+                                                onMouseLeave={e => {
+                                                    e.currentTarget.style.borderColor = '#f1f5f9';
+                                                    e.currentTarget.style.background = '#ffffff';
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.82rem', color: '#1e40af' }}>{`{{${v.id}}}`}</span>
+                                                    <span style={{ fontSize: '0.58rem', padding: '1px 5px', borderRadius: '4px', background: tStyle.bg, color: tStyle.color, fontWeight: 700, textTransform: 'uppercase' }}>
+                                                        {v.type}
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '0.72rem', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {v.label}
+                                                </div>
+                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                                                    {v.category}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: '8px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', color: '#64748b' }}>
+                            <span>Click any variable to insert into template body</span>
+                            <span style={{ fontWeight: 600 }}>{pickerFilteredVariables.length} available</span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Inline Autocomplete Dropdown (triggers when typing {{) */}
