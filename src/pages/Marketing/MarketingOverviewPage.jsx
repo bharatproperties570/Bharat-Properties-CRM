@@ -209,6 +209,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
 
   // ══ PHASE 1 NEW STATES ══
   const [campFormTab, setCampFormTab] = useState('email'); // email|wa|sms|rcs
+  const [campaignStep, setCampaignStep] = useState(1); // 1=Audience | 2=Channel+Content | 3=Review+Launch
   const [emailData, setEmailData] = useState({ name: 'Exclusive Launch Invite', sender: 'Bharat Properties', replyTo: 'sales@bharatproperties.in', subject: '🏠 Special Invitation: Luxury Property Launch', content: 'Hello {lead_name},\n\nWe are excited to invite you to the exclusive unveiling of our latest project in Kurukshetra...\n\nBook your site visit today!' });
   const [waData, setWaData] = useState({ name: 'Festive Offer', content: '🏠 *Bharat Properties*\n\nSpecial Festive Offer! Get 10% off on all pre-bookings this week.\n\n👉 *Reply YES to know more!*' });
   const [smsData, setSmsData] = useState({ content: 'BP: 3BHK Kurukshetra Rs.35L. Ready possession. Park view. Book: bharat.co/3bhk STOP-SMS' });
@@ -1693,7 +1694,7 @@ export default function MarketingOverviewPage({ onNavigate }) {
               className="tact-btn primary" 
               id="header-run-campaign"
               aria-label="Launch new campaign"
-              onClick={() => setShowCampaignModal(true)}
+              onClick={() => { setShowCampaignModal(true); setCampaignStep(1); }}
               style={{ background: 'linear-gradient(135deg, var(--gold) 0%, #b8860b 100%)', border: 'none' }}
             >
               <Megaphone size={16} />
@@ -4043,937 +4044,781 @@ export default function MarketingOverviewPage({ onNavigate }) {
       `}</style>
 
       {/* ══ MODALS ══ */}
-      {showCampaignModal && (
-        <div className="modal-backdrop" style={{ zIndex: 2000 }}>
-          <div className="modal glass-bg" style={{ width: '95%', maxWidth: '900px', padding: 0, overflow: 'hidden', border: '1px solid rgba(201,146,26,0.3)', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
-            <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(7,22,43,0.8) 0%, rgba(13,31,56,0.8) 100%)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '40px', height: '40px', background: 'rgba(201,146,26,0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Megaphone size={20} color="var(--gold)" />
-                </div>
+      {showCampaignModal && (() => {
+        /* ── Step helpers ── */
+        const goStep = (n) => setCampaignStep(n);
+        const canGoNext = campaignStep === 1
+          ? (audienceConfig.source && audienceCount > 0)
+          : campaignStep === 2
+          ? (campFormTab === 'wa' ? !!selectedMetaTemplate : true)
+          : false;
+
+        const STEP_META = [
+          { n: 1, label: 'Audience',         icon: 'fas fa-users-cog' },
+          { n: 2, label: 'Channel + Content', icon: 'fas fa-paper-plane' },
+          { n: 3, label: 'Review & Launch',   icon: 'fas fa-rocket' },
+        ];
+
+        const CHANNEL_META = {
+          email: { label: 'Email',     icon: 'fas fa-envelope',    color: '#6366f1' },
+          wa:    { label: 'WhatsApp',  icon: 'fab fa-whatsapp',    color: '#25d366' },
+          sms:   { label: 'SMS',       icon: 'fas fa-sms',         color: '#f59e0b' },
+          rcs:   { label: 'RCS',       icon: 'fas fa-layer-group', color: 'var(--gold)' },
+        };
+
+        const cMeta = CHANNEL_META[campFormTab] || CHANNEL_META.email;
+
+        /* ─── SCHEDULING CARD (reused across channels) ─── */
+        const SchedulingCard = () => (
+          <div style={{ padding: '14px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: isScheduled ? '1px solid rgba(201,146,26,0.4)' : '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
                 <div>
-                  <div className="modal-title" style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>Campaign Engine v4.0</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text3)' }}>360° CRM Orchestration • Meta Verified Ready</div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Campaign Orchestration</div>
+                  <div style={{ fontSize: '9px', color: 'var(--text3)', marginTop: '1px' }}>{isScheduled ? 'Scheduled dispatch active' : 'Send immediately on launch'}</div>
                 </div>
               </div>
-              <button 
-                className="btn" 
-                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
-                onClick={() => setShowCampaignModal(false)}
+              <div
+                onClick={() => setIsScheduled(!isScheduled)}
+                style={{ width: '40px', height: '22px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)', flexShrink: 0 }}
               >
-                ✕
-              </button>
+                <div style={{ width: '16px', height: '16px', background: isScheduled ? '#07162B' : 'rgba(255,255,255,0.6)', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+              </div>
             </div>
-            
-            <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto', padding: '24px', background: 'var(--navy-mid)' }}>
-              
-              {/* ── CENTRAL CAMPAIGN IDENTITY ── */}
-              <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', display: 'block' }}>
-                    <i className="fas fa-tag"></i> Campaign Engine Identity
-                  </label>
-                  <input 
-                    value={campaignName} 
-                    onChange={e => setCampaignName(e.target.value)}
-                    placeholder="Enter Campaign Name (e.g. Sector 7 Plot Blast)..."
-                    style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '2px solid var(--gold)', color: 'var(--text)', fontSize: '18px', fontWeight: 700, padding: '4px 0', outline: 'none' }}
-                  />
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>ORCHESTRATION STATUS</div>
-                  <div style={{ color: 'var(--green)', fontSize: '11px', fontWeight: 800 }}>READY TO DISPATCH</div>
-                </div>
+            {isScheduled && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={e => setScheduledAt(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}
+                />
+                <select
+                  value={frequency}
+                  onChange={e => setFrequency(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}
+                >
+                  <option value="once">Once</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
               </div>
+            )}
+          </div>
+        );
 
-              {/* ── SMART AUDIENCE BUILDER ── */}
-              <div className="card" style={{ marginBottom: '1.5rem', border: '1px solid var(--gold)', background: 'linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%)' }}>
-                <div className="card-header" style={{ borderBottom: '1px solid rgba(201,146,26,0.1)' }}>
-                  <div className="card-title" style={{ color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-users-cog"></i> Smart Audience Selection (360° Control)
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600 }}>TARGET AUDIENCE:</div>
-                <div style={{ background: 'rgba(53,185,122,0.1)', color: '#35b97a', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: '1px solid rgba(53,185,122,0.2)' }}>
-                      {isCounting ? <span className="spinner-sm" style={{ width: '10px', height: '10px' }}></span> : audienceCount.toLocaleString()} Recipients
+        return (
+          <div className="modal-backdrop" style={{ zIndex: 2000 }}>
+            <div className="modal glass-bg" style={{ width: '96%', maxWidth: '940px', padding: 0, overflow: 'hidden', border: '1px solid rgba(201,146,26,0.35)', boxShadow: '0 24px 60px rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', maxHeight: '92vh' }}>
+
+              {/* ══ HEADER ══ */}
+              <div style={{ padding: '18px 24px 0', background: 'linear-gradient(90deg, rgba(7,22,43,0.98) 0%, rgba(13,31,56,0.98) 100%)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ width: '44px', height: '44px', background: 'rgba(201,146,26,0.14)', border: '1px solid rgba(201,146,26,0.35)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(201,146,26,0.2)', flexShrink: 0 }}>
+                      <Megaphone size={20} color="var(--gold)" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '17px', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>Campaign Engine v4.0</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', letterSpacing: '0.05em', marginTop: '2px' }}>360° CRM Orchestration • Meta Verified</div>
                     </div>
                   </div>
+                  <button
+                    onClick={() => { setShowCampaignModal(false); setCampaignStep(1); }}
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', width: '34px', height: '34px', borderRadius: '9px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '14px', flexShrink: 0 }}
+                  >✕</button>
                 </div>
-                <div className="card-body" style={{ padding: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginBottom: '16px' }}>
-                    {[
-                      { id: 'Lead', n: 'Leads', i: '🎯', desc: 'Active Inquiries' },
-                      { id: 'Contact', n: 'Contacts', i: '👤', desc: 'Professional Database' },
-                      { id: 'Deal', n: 'Deals', i: '🤝', desc: 'Current Transactions' },
-                      { id: 'inventory', n: 'Inventory', i: '🏢', desc: 'Property Owners' },
-                      { id: 'Excel', n: 'Import', i: '📤', desc: 'External CSV/XLSX' }
-                    ].map(s => (
-                      <div 
-                        key={s.id} 
-                        onClick={() => setAudienceConfig(p => ({ ...p, source: s.id, filters: {} }))}
-                        style={{ 
-                          padding: '12px', 
-                          borderRadius: '12px', 
-                          border: '1px solid', 
-                          borderColor: audienceConfig.source === s.id ? 'var(--gold)' : 'var(--border)',
-                          background: audienceConfig.source === s.id ? 'rgba(201,146,26,0.08)' : 'rgba(255,255,255,0.02)',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease'
-                        }}
+
+                {/* ── STEP INDICATOR STRIP ── */}
+                <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  {STEP_META.map((step, idx) => {
+                    const isActive   = campaignStep === step.n;
+                    const isDone     = campaignStep > step.n;
+                    return (
+                      <div
+                        key={step.n}
+                        onClick={() => isDone && goStep(step.n)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 22px 11px 0', flex: idx === 0 ? 'none' : 'none', marginRight: '4px', borderBottom: isActive ? '2px solid var(--gold)' : '2px solid transparent', marginBottom: '-1px', cursor: isDone ? 'pointer' : 'default', opacity: isActive ? 1 : isDone ? 0.75 : 0.38, transition: 'all 0.2s ease' }}
                       >
-                        <div style={{ fontSize: '20px', marginBottom: '4px' }}>{s.i}</div>
-                        <div style={{ fontWeight: 700, fontSize: '12px', color: audienceConfig.source === s.id ? 'var(--gold)' : 'var(--text)' }}>{s.n}</div>
-                        <div style={{ fontSize: '9px', color: 'var(--text3)' }}>{s.desc}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Contextual Filters */}
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', minWidth: '80px' }}>
-                      <i className="fas fa-filter"></i> Filters
-                    </div>
-                    
-                    {audienceConfig.source === 'Lead' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', flex: 1 }}>
-                        <select 
-                          value={audienceConfig.filters.status || 'all'} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, status: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="all">🎯 All Lead Stages</option>
-                          {(lookups.leadStages || lookups.leadStatuses || lookups.lead_status || []).map(s => (
-                            <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={audienceConfig.filters.project || 'all'} 
-                          onChange={e => {
-                            const sid = e.target.value;
-                            const sname = (dynamicProjects || []).find(p => (p?._id || p?.id) === sid)?.name || 'all';
-                            setAudienceConfig(p => ({ ...p, filters: { ...p.filters, project: sid, projectName: sname } }));
-                          }}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="all">🏢 All Projects</option>
-                          {(dynamicProjects || []).map(p => (
-                            <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name || p?.projectName}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={audienceConfig.filters.source || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, source: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🌍 All Sources</option>
-                          {(lookups.leadSources || lookups.lead_source || []).map(s => (
-                            <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={audienceConfig.filters.recency || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🕒 Any Recency</option>
-                          <option value="7">Last 7 Days</option>
-                          <option value="30">Last 30 Days</option>
-                          <option value="90">Last 90 Days</option>
-                        </select>
-                      </div>
-                    )}
-
-                    {audienceConfig.source === 'Contact' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
-                        <select 
-                          value={audienceConfig.filters.city || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, city: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🏙️ All Cities</option>
-                          <option value="Delhi">Delhi</option>
-                          <option value="Gurgaon">Gurgaon</option>
-                          <option value="Noida">Noida</option>
-                        </select>
-                        <select 
-                          value={audienceConfig.filters.profession || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, profession: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">💼 All Professions</option>
-                          {lookups.professions?.map(p => <option key={p._id} value={p._id}>{p.lookup_value}</option>)}
-                        </select>
-                        <select 
-                          value={audienceConfig.filters.recency || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🕒 Interaction Recency</option>
-                          <option value="30">Last 30 Days</option>
-                          <option value="90">Last 90 Days</option>
-                          <option value="365">Last 365 Days</option>
-                        </select>
-                      </div>
-                    )}
-
-                    {audienceConfig.source === 'Deal' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
-                        <select 
-                          value={audienceConfig.filters.stage || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, stage: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🏁 All Deal Stages</option>
-                          {lookups.dealStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
-                        </select>
-                        <select 
-                          value={audienceConfig.filters.partyType || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, partyType: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">🏢 Target All Parties</option>
-                          <option value="owner">Primary Owners</option>
-                          <option value="buyer">Buyers</option>
-                          <option value="associate">Associates/Brokers</option>
-                        </select>
-                        <select 
-                          value={audienceConfig.filters.owner || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, owner: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">👤 Deal Owner</option>
-                          {usersData?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
-                        </select>
-                        <input 
-                          type="number"
-                          placeholder="Min Value (₹)"
-                          value={audienceConfig.filters.minPrice || ''}
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, minPrice: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        />
-                        <input 
-                          type="number"
-                          placeholder="Max Value (₹)"
-                          value={audienceConfig.filters.maxPrice || ''}
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, maxPrice: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        />
-                        <select 
-                          value={audienceConfig.filters.type || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, type: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">📜 All Deal Types</option>
-                          <option value="Sale">Sale</option>
-                          <option value="Lease">Lease/Rent</option>
-                        </select>
-                      </div>
-                    )}
-
-                    {audienceConfig.source === 'inventory' && (
-                      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
-                        <select
-                          value={audienceConfig.filters.project || 'all'}
-                          onChange={e => {
-                            const selectedId = e.target.value;
-                            const selectedName = dynamicProjects.find(p => (p._id || p.id) === selectedId)?.name || 'all';
-                            setAudienceConfig(prev => ({ 
-                              ...prev, 
-                              filters: { 
-                                ...prev.filters, 
-                                project: selectedId,
-                                projectName: selectedName 
-                              } 
-                            }));
-                          }}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="all">🏢 All Projects</option>
-                          {(dynamicProjects || []).map(p => (
-                            <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name}</option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={audienceConfig.filters.category || 'all'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, category: e.target.value, subCategory: 'all', sizeLabel: 'all' } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="all">🏠 All Categories</option>
-                          {Object.keys(propertyConfig || {}).map(catKey => (
-                            <option key={catKey} value={catKey}>{catKey}</option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={audienceConfig.filters.subCategory || 'all'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, subCategory: e.target.value, sizeLabel: 'all' } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                          disabled={!audienceConfig.filters.category || audienceConfig.filters.category === 'all'}
-                        >
-                          <option value="all">📑 All Sub-Categories</option>
-                          {audienceConfig.filters.category && propertyConfig[audienceConfig.filters.category]?.subCategories?.map(sc => (
-                            <option key={sc.name} value={sc.name}>{sc.name}</option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={audienceConfig.filters.sizeLabel || 'all'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, sizeLabel: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                          disabled={!audienceConfig.filters.subCategory || audienceConfig.filters.subCategory === 'all'}
-                        >
-                          <option value="all">📐 Size Label (e.g. 2BHK)</option>
-                          {audienceConfig.filters.category && audienceConfig.filters.subCategory && 
-                            propertyConfig[audienceConfig.filters.category]?.subCategories
-                              ?.find(sc => sc.name === audienceConfig.filters.subCategory)
-                              ?.types?.map(t => (
-                                <option key={t.name} value={t.name}>{t.name}</option>
-                              ))
-                          }
-                        </select>
-
-                        <select
-                          value={audienceConfig.filters.status || 'all'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, status: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="all">⚡ Status</option>
-                          {(lookups.inventoryStatuses || []).map(s => (
-                            <option key={s._id} value={s.lookup_value}>{s.lookup_value}</option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={audienceConfig.filters.contactType || 'owner'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, contactType: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="owner">👥 Property Owner</option>
-                          <option value="associate">🤝 Associate / Agent</option>
-                        </select>
-                      </div>
-                    )}
-
-
-
-                    {audienceConfig.source === 'Excel' && (
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', background: 'rgba(201,146,26,0.05)', padding: '10px 15px', borderRadius: '8px', border: '1px dashed var(--gold)' }}>
-                          <div style={{ fontSize: '20px' }}>📁</div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
-                              {audienceConfig.fileName || 'Upload External Data'}
-                            </div>
-                            <div style={{ fontSize: '10px', color: 'var(--text3)' }}>
-                              {audienceConfig.tempCount ? `${audienceConfig.tempCount} contacts identified` : 'Supports .csv, .xlsx (Headers: Name, Mobile, Email)'}
-                            </div>
-                          </div>
-                          <input 
-                            type="file" 
-                            id="excel-upload" 
-                            hidden 
-                            accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                            onChange={async (e) => {
-                              const file = e.target.files[0];
-                              if (!file) return;
-                              const formData = new FormData();
-                              formData.append('file', file);
-                              toast.loading('Parsing Excel Data...', { id: 'xl-load' });
-                              try {
-                                const res = await api.post('/marketing/import-audience', formData, {
-                                    headers: { 'Content-Type': undefined }
-                                });
-                                if (res.data?.success) {
-                                  setAudienceConfig(p => ({ ...p, fileName: file.name, tempCount: res.data.count, tempRecipients: res.data.recipients }));
-                                  if (res.data.recipients && res.data.recipients.length > 0) {
-                                      setImportHeaders(Object.keys(res.data.recipients[0].context || {}).filter(k => k !== 'originalType'));
-                                  }
-                                  setAudienceCount(res.data.count);
-                                  toast.success(`Identified ${res.data.count} contacts`, { id: 'xl-load' });
-                                }
-                                } catch (err) {
-                                  const errMsg = err.response?.data?.error || err.message || 'Failed to parse file';
-                                  toast.error(errMsg, { id: 'xl-load' });
-                                }
-                            }}
-                          />
-                          <button className="tact-btn gold-ghost sm" onClick={() => document.getElementById('excel-upload').click()}>
-                            {audienceConfig.tempCount ? 'Change File' : 'Browse File'}
-                          </button>
+                        <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: isDone ? 'var(--gold)' : isActive ? 'var(--gold)' : 'rgba(255,255,255,0.08)', color: (isDone || isActive) ? '#07162B' : 'var(--text3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 900, flexShrink: 0 }}>
+                          {isDone ? '✓' : step.n}
                         </div>
-
-                        {importHeaders.length > 0 && audienceConfig.tempCount > 0 && (
-                          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase' }}>⚙️ Column Mapping (Manual Control)</div>
-                                {audienceConfig.mapping.mobile && (
-                                    <div style={{ fontSize: '10px', color: 'var(--25d366)', fontWeight: 700 }}>
-                                        🎯 Reachable: {audienceConfig.tempRecipients.filter(r => (r.context?.[audienceConfig.mapping.mobile] || '').toString().trim()).length} Recipients
-                                    </div>
-                                )}
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                                <div>
-                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>NAME</label>
-                                    <select value={audienceConfig.mapping.name} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, name: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
-                                        <option value="">Auto Match</option>
-                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>MOBILE</label>
-                                    <select value={audienceConfig.mapping.mobile} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, mobile: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
-                                        <option value="">Auto Match</option>
-                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>EMAIL</label>
-                                    <select value={audienceConfig.mapping.email} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, email: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
-                                        <option value="">Auto Match</option>
-                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                                    </select>
-                                </div>
-                            </div>
-                          </div>
+                        <span style={{ fontSize: '10px', fontWeight: 800, color: isActive ? 'var(--gold)' : 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                          <i className={step.icon} style={{ marginRight: '5px', fontSize: '9px' }}></i>
+                          {step.label}
+                        </span>
+                        {idx < STEP_META.length - 1 && (
+                          <div style={{ width: '28px', height: '1px', background: 'rgba(255,255,255,0.08)', margin: '0 6px 0 10px' }} />
                         )}
                       </div>
-                    )}
+                    );
+                  })}
 
-                    {!['Lead', 'Contact', 'Deal', 'Inventory', 'Excel'].includes(audienceConfig.source) && (
-                      <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '10px' }}>
-                        <i className="fas fa-info-circle mr-2"></i> Universal Search enabled. System will pull all professional contacts from the global directory.
-                      </div>
-                    )}
+                  {/* Audience count badge — far right */}
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', paddingBottom: '2px' }}>
+                    <div style={{ background: audienceCount > 0 ? 'rgba(53,185,122,0.15)' : 'rgba(255,255,255,0.04)', color: audienceCount > 0 ? '#35b97a' : 'var(--text3)', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: audienceCount > 0 ? '1px solid rgba(53,185,122,0.3)' : '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {isCounting ? <span className="spinner-sm" style={{ width: '10px', height: '10px' }}></span> : <i className="fas fa-users" style={{ fontSize: '9px' }}></i>}
+                      {isCounting ? '...' : audienceCount.toLocaleString()} Recipients
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* ── CAMPAIGN LAUNCH FORMS ── */}
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">📤 Step 2: Choose Channel & Content</div>
-                  {/* ── CHANNEL SELECTOR STRIP ── */}
-                  <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
-                    {['email', 'wa', 'sms', 'rcs'].map(t => (
-                      <button key={t} onClick={() => setCampFormTab(t)} style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '6px', border: '1px solid', borderColor: campFormTab === t ? 'var(--gold)' : 'var(--border)', background: campFormTab === t ? 'rgba(201,146,26,0.15)' : 'transparent', color: campFormTab === t ? 'var(--gold)' : 'var(--text3)', cursor: 'pointer', fontWeight: 700, textTransform: 'uppercase' }}>
-                        {t === 'wa' ? 'WhatsApp' : t.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="card-body">
-                  {campFormTab === 'email' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>REPLY-TO ADDRESS</label>
-                        <input value={emailData.replyTo} onChange={e => setEmailData(p => ({ ...p, replyTo: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SUBJECT LINE</label>
-                        <input value={emailData.subject} onChange={e => setEmailData(p => ({ ...p, subject: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>EMAIL BODY</label>
-                        <textarea value={emailData.content} onChange={e => setEmailData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
-                      </div>
-                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (EMAIL) ══ */}
-                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
-                            </div>
-                            <div 
-                                onClick={() => setIsScheduled(!isScheduled)}
-                                style={{ 
-                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
-                                }}
-                            >
-                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
-                            </div>
-                        </div>
-                        {isScheduled && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
-                                <input 
-                                    type="datetime-local" 
-                                    value={scheduledAt}
-                                    onChange={(e) => setScheduledAt(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
-                                />
-                                <select 
-                                    value={frequency} 
-                                    onChange={(e) => setFrequency(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                                >
-                                    <option value="once">Once</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                </select>
-                            </div>
-                        )}
-                      </div>
+              {/* ══ BODY (scrollable) ══ */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: 'var(--navy-mid)' }}>
 
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button className="tact-btn primary" onClick={() => launchCampaigns('email')} disabled={campLaunching} style={{ flex: 1 }}>
-                            {campLaunching ? <><span className="spinner-sm"></span> Launching...</> : ' Send Email Campaign (1,476 contacts)'}
-                          </button>
-                        </div>
+                {/* ━━━━━━━━━━━━━━━━━ STEP 1: AUDIENCE BUILDER ━━━━━━━━━━━━━━━━━ */}
+                {campaignStep === 1 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                    {/* Campaign Identity */}
+                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '9px', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <i className="fas fa-tag"></i> Campaign Identity
+                        </label>
+                        <input
+                          value={campaignName}
+                          onChange={e => setCampaignName(e.target.value)}
+                          placeholder="e.g. Sector 7 Plot Blast — Oct 2026"
+                          style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '2px solid var(--gold)', color: 'var(--text)', fontSize: '16px', fontWeight: 700, padding: '4px 0', outline: 'none' }}
+                        />
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>STATUS</div>
+                        <div style={{ color: 'var(--green)', fontSize: '11px', fontWeight: 800, marginTop: '2px' }}>⚡ READY</div>
                       </div>
                     </div>
-                  )}
-                  {campFormTab === 'wa' && (
-                    <div style={{ display: 'grid', gap: '16px' }}>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fab fa-whatsapp"></i> Meta Approved Templates</span>
-                          <button 
-                            onClick={() => fetchWhatsAppTemplates(true)} 
-                            disabled={isSyncingTemplates}
-                            style={{ background: 'none', border: 'none', color: isSyncingTemplates ? 'var(--text3)' : 'var(--green)', fontSize: '9px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            {isSyncingTemplates ? <><span className="spinner-sm"></span> Syncing...</> : <>↺ Sync with Meta</>}
-                          </button>
-                        </label>
-                        <div style={{ position: 'relative' }}>
-                          <select 
-                            value={selectedMetaTemplate?.name || ''} 
-                            onChange={e => handleTemplateSelection(e.target.value)} 
-                            style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
-                            disabled={isSyncingTemplates}
-                          >
-                            <option value="">{isSyncingTemplates ? 'Checking Meta Registry...' : waTemplates.length > 0 ? '-- Select Approved Template --' : '-- No Approved Templates Found --'}</option>
-                            {waTemplates.map((tpl, idx) => (
-                              <option key={idx} value={tpl.name}>{tpl.name} ({tpl.language})</option>
-                            ))}
-                          </select>
-                          <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+
+                    {/* Audience Source — PILL TABS */}
+                    <div style={{ background: 'linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%)', borderRadius: '16px', border: '1px solid rgba(201,146,26,0.2)', overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(201,146,26,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontWeight: 800, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          <i className="fas fa-users-cog"></i> Smart Audience Builder
                         </div>
-                        {waTemplates.length === 0 && !isSyncingTemplates && (
-                          <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '6px', border: '1px dashed var(--border)' }}>
-                            <i className="fas fa-info-circle"></i> If your template is approved but not showing, ensure your <strong>WABA ID</strong> is correct in Settings.
+                        <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600 }}>Select a source to begin</div>
+                      </div>
+
+                      <div style={{ padding: '16px 18px' }}>
+                        {/* Source pill tabs */}
+                        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '5px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '16px', flexWrap: 'wrap' }}>
+                          {[
+                            { id: 'Lead',      n: 'Leads',     icon: 'fas fa-crosshairs',  desc: 'Active Inquiries' },
+                            { id: 'Contact',   n: 'Contacts',  icon: 'fas fa-address-book', desc: 'CRM Database' },
+                            { id: 'Deal',      n: 'Deals',     icon: 'fas fa-handshake',   desc: 'Transactions' },
+                            { id: 'inventory', n: 'Inventory', icon: 'fas fa-building',    desc: 'Property Owners' },
+                            { id: 'Excel',     n: 'Import',    icon: 'fas fa-file-upload',  desc: 'CSV / XLSX' },
+                          ].map(s => {
+                            const isActive = audienceConfig.source === s.id;
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => setAudienceConfig(p => ({ ...p, source: s.id, filters: {} }))}
+                                style={{ flex: 1, minWidth: '100px', padding: '10px 8px', borderRadius: '9px', border: `1px solid ${isActive ? 'var(--gold)' : 'transparent'}`, background: isActive ? 'rgba(201,146,26,0.15)' : 'transparent', color: isActive ? 'var(--gold)' : 'var(--text3)', cursor: 'pointer', fontWeight: 700, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '7px', transition: 'all 0.18s ease', boxShadow: isActive ? '0 0 14px rgba(201,146,26,0.18)' : 'none', whiteSpace: 'nowrap' }}
+                              >
+                                <i className={s.icon} style={{ fontSize: '12px' }}></i>
+                                {s.n}
+                                {isActive && <i className="fas fa-check-circle" style={{ fontSize: '9px', marginLeft: 'auto' }}></i>}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Contextual Filters — grouped + labeled */}
+                        {audienceConfig.source && audienceConfig.source !== 'Excel' && (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border)', padding: '14px' }}>
+                            <div style={{ fontSize: '9px', fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <i className="fas fa-filter" style={{ color: 'var(--gold)' }}></i> Smart Filters — {audienceConfig.source === 'Lead' ? 'Lead Intelligence' : audienceConfig.source === 'Contact' ? 'Contact Database' : audienceConfig.source === 'Deal' ? 'Deal Pipeline' : 'Property Inventory'}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' }}>
+
+                              {/* ── LEAD FILTERS ── */}
+                              {audienceConfig.source === 'Lead' && (<>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Lead Stage</label>
+                                  <select value={audienceConfig.filters.status || 'all'} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, status: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="all">🎯 All Stages</option>
+                                    {(lookups.leadStages || lookups.leadStatuses || lookups.lead_status || []).map(s => <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Project</label>
+                                  <select value={audienceConfig.filters.project || 'all'} onChange={e => { const sid = e.target.value; const sname = (dynamicProjects || []).find(p => (p?._id || p?.id) === sid)?.name || 'all'; setAudienceConfig(p => ({ ...p, filters: { ...p.filters, project: sid, projectName: sname } })); }} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="all">🏢 All Projects</option>
+                                    {(dynamicProjects || []).map(p => <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name || p?.projectName}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Lead Source</label>
+                                  <select value={audienceConfig.filters.source || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, source: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🌍 All Sources</option>
+                                    {(lookups.leadSources || lookups.lead_source || []).map(s => <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Recency</label>
+                                  <select value={audienceConfig.filters.recency || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🕒 Any Recency</option>
+                                    <option value="7">Last 7 Days</option>
+                                    <option value="30">Last 30 Days</option>
+                                    <option value="90">Last 90 Days</option>
+                                  </select>
+                                </div>
+                              </>)}
+
+                              {/* ── CONTACT FILTERS ── */}
+                              {audienceConfig.source === 'Contact' && (<>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>City</label>
+                                  <select value={audienceConfig.filters.city || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, city: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🏙️ All Cities</option>
+                                    <option value="Delhi">Delhi</option>
+                                    <option value="Gurgaon">Gurgaon</option>
+                                    <option value="Noida">Noida</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Profession</label>
+                                  <select value={audienceConfig.filters.profession || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, profession: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">💼 All Professions</option>
+                                    {lookups.professions?.map(p => <option key={p._id} value={p._id}>{p.lookup_value}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Last Interaction</label>
+                                  <select value={audienceConfig.filters.recency || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🕒 Any Time</option>
+                                    <option value="30">Last 30 Days</option>
+                                    <option value="90">Last 90 Days</option>
+                                    <option value="365">Last 365 Days</option>
+                                  </select>
+                                </div>
+                              </>)}
+
+                              {/* ── DEAL FILTERS ── */}
+                              {audienceConfig.source === 'Deal' && (<>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Deal Stage</label>
+                                  <select value={audienceConfig.filters.stage || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, stage: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🏁 All Stages</option>
+                                    {lookups.dealStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Party Type</label>
+                                  <select value={audienceConfig.filters.partyType || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, partyType: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">🏢 All Parties</option>
+                                    <option value="owner">Primary Owners</option>
+                                    <option value="buyer">Buyers</option>
+                                    <option value="associate">Associates / Brokers</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Deal Owner</label>
+                                  <select value={audienceConfig.filters.owner || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, owner: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">👤 All Owners</option>
+                                    {usersData?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Deal Type</label>
+                                  <select value={audienceConfig.filters.type || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, type: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="">📜 All Types</option>
+                                    <option value="Sale">Sale</option>
+                                    <option value="Lease">Lease / Rent</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Min Value (₹)</label>
+                                  <input type="number" placeholder="₹ Min" value={audienceConfig.filters.minPrice || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, minPrice: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Max Value (₹)</label>
+                                  <input type="number" placeholder="₹ Max" value={audienceConfig.filters.maxPrice || ''} onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, maxPrice: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }} />
+                                </div>
+                              </>)}
+
+                              {/* ── INVENTORY FILTERS ── */}
+                              {audienceConfig.source === 'inventory' && (<>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Project</label>
+                                  <select value={audienceConfig.filters.project || 'all'} onChange={e => { const selectedId = e.target.value; const selectedName = dynamicProjects.find(p => (p._id || p.id) === selectedId)?.name || 'all'; setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, project: selectedId, projectName: selectedName } })); }} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="all">🏢 All Projects</option>
+                                    {(dynamicProjects || []).map(p => <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Category</label>
+                                  <select value={audienceConfig.filters.category || 'all'} onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, category: e.target.value, subCategory: 'all', sizeLabel: 'all' } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="all">🏠 All Categories</option>
+                                    {Object.keys(propertyConfig || {}).map(catKey => <option key={catKey} value={catKey}>{catKey}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Sub-Category</label>
+                                  <select value={audienceConfig.filters.subCategory || 'all'} onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, subCategory: e.target.value, sizeLabel: 'all' } }))} disabled={!audienceConfig.filters.category || audienceConfig.filters.category === 'all'} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px', opacity: (!audienceConfig.filters.category || audienceConfig.filters.category === 'all') ? 0.4 : 1 }}>
+                                    <option value="all">📑 All Sub-Categories</option>
+                                    {audienceConfig.filters.category && propertyConfig[audienceConfig.filters.category]?.subCategories?.map(sc => <option key={sc.name} value={sc.name}>{sc.name}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Contact Type</label>
+                                  <select value={audienceConfig.filters.contactType || 'owner'} onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, contactType: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="owner">👥 Property Owner</option>
+                                    <option value="associate">🤝 Associate / Agent</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Status</label>
+                                  <select value={audienceConfig.filters.status || 'all'} onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, status: e.target.value } }))} style={{ width: '100%', padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '11px' }}>
+                                    <option value="all">⚡ All Statuses</option>
+                                    {(lookups.inventoryStatuses || []).map(s => <option key={s._id} value={s.lookup_value}>{s.lookup_value}</option>)}
+                                  </select>
+                                </div>
+                              </>)}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* EXCEL IMPORT */}
+                        {audienceConfig.source === 'Excel' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', background: 'rgba(201,146,26,0.05)', padding: '14px 16px', borderRadius: '12px', border: '1px dashed var(--gold)' }}>
+                              <div style={{ fontSize: '22px' }}>📁</div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{audienceConfig.fileName || 'Upload External Data'}</div>
+                                <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>{audienceConfig.tempCount ? `${audienceConfig.tempCount} contacts identified` : 'Supports .csv, .xlsx (Headers: Name, Mobile, Email)'}</div>
+                              </div>
+                              <input type="file" id="excel-upload" hidden accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                                onChange={async (e) => {
+                                  const file = e.target.files[0];
+                                  if (!file) return;
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                  toast.loading('Parsing Excel Data...', { id: 'xl-load' });
+                                  try {
+                                    const res = await api.post('/marketing/import-audience', formData, { headers: { 'Content-Type': undefined } });
+                                    if (res.data?.success) {
+                                      setAudienceConfig(p => ({ ...p, fileName: file.name, tempCount: res.data.count, tempRecipients: res.data.recipients }));
+                                      if (res.data.recipients && res.data.recipients.length > 0) {
+                                        setImportHeaders(Object.keys(res.data.recipients[0].context || {}).filter(k => k !== 'originalType'));
+                                      }
+                                      setAudienceCount(res.data.count);
+                                      toast.success(`Identified ${res.data.count} contacts`, { id: 'xl-load' });
+                                    }
+                                  } catch (err) {
+                                    const errMsg = err.response?.data?.error || err.message || 'Failed to parse file';
+                                    toast.error(errMsg, { id: 'xl-load' });
+                                  }
+                                }}
+                              />
+                              <button className="tact-btn gold-ghost sm" onClick={() => document.getElementById('excel-upload').click()}>
+                                {audienceConfig.tempCount ? 'Change File' : 'Browse File'}
+                              </button>
+                            </div>
+                            {importHeaders.length > 0 && audienceConfig.tempCount > 0 && (
+                              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '10px' }}>⚙️ Column Mapping</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                  {['name', 'mobile', 'email'].map(field => (
+                                    <div key={field}>
+                                      <label style={{ fontSize: '9px', color: 'var(--text3)' }}>{field.toUpperCase()}</label>
+                                      <select value={audienceConfig.mapping?.[field] || ''} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, [field]: e.target.value } }))} style={{ width: '100%', padding: '6px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '10px', marginTop: '4px' }}>
+                                        <option value="">Auto Match</option>
+                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                      </select>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* No source selected hint */}
+                        {!audienceConfig.source && (
+                          <div style={{ textAlign: 'center', padding: '28px', color: 'var(--text3)', fontSize: '12px', fontWeight: 600 }}>
+                            <i className="fas fa-arrow-up" style={{ fontSize: '18px', marginBottom: '10px', display: 'block', opacity: 0.4 }}></i>
+                            Select an audience source above to configure smart filters
                           </div>
                         )}
                       </div>
+                    </div>
+                  </div>
+                )}
 
-                      {selectedMetaTemplate && (
-                        <div style={{ marginTop: '6px' }}>
-                          {/* PREVIEW HEADER */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <Sparkles size={12} /> Auto-Mapped Message Preview
-                            </span>
-                            <button 
-                              onClick={() => setShowWaAdvanced(!showWaAdvanced)} 
-                              style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '9px', cursor: 'pointer', textDecoration: 'underline' }}
+                {/* ━━━━━━━━━━━━━━━━━ STEP 2: CHANNEL + CONTENT ━━━━━━━━━━━━━━━━━ */}
+                {campaignStep === 2 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+
+                    {/* Channel tab strip */}
+                    <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '14px', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', padding: '6px', gap: '5px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.01)' }}>
+                        {Object.entries(CHANNEL_META).map(([id, meta]) => {
+                          const isActive = campFormTab === id;
+                          return (
+                            <button
+                              key={id}
+                              onClick={() => setCampFormTab(id)}
+                              style={{ flex: 1, padding: '9px 10px', borderRadius: '10px', border: `1px solid ${isActive ? meta.color : 'transparent'}`, background: isActive ? `${meta.color}18` : 'transparent', color: isActive ? meta.color : 'var(--text3)', cursor: 'pointer', fontWeight: 800, fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', transition: 'all 0.18s ease', boxShadow: isActive ? `0 0 14px ${meta.color}25` : 'none' }}
                             >
-                              {showWaAdvanced ? 'Hide Advanced Mapping' : 'Show Advanced Mapping'}
+                              <i className={meta.icon} style={{ fontSize: '13px' }}></i>
+                              {meta.label}
                             </button>
-                          </div>
+                          );
+                        })}
+                      </div>
 
-                          {/* WHATSAPP BUBBLE PREVIEW */}
-                          <div className="wa-preview-container" style={{ background: theme === 'dark' ? '#0b141a' : '#e5ddd5', padding: '20px', borderRadius: '12px', position: 'relative', overflow: 'hidden', backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundSize: 'cover' }}>
-<div className="wa-bubble-income" style={{ background: theme === 'dark' ? '#056162' : '#fff', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', position: 'relative', marginLeft: '4px', border: theme === 'dark' ? 'none' : '1px solid #eee' }}>
-                              <div style={{ fontSize: '13px', color: theme === 'dark' ? '#e9edef' : '#111b21', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
-                                {(selectedMetaTemplate.components.find(c => c.type === 'BODY')?.text || '').replace(/{{(\d+)}}/g, (match, p1) => {
-                                  const fieldRaw = waMapping[p1] || variableRegistry[p1];
-                                  if (!fieldRaw) return match;
-                                  
-                                  const field = typeof fieldRaw === 'object' ? fieldRaw.source : fieldRaw;
-                                  if (!field) return match;
-
-                                  const samples = {
-                                    // --- Semantic Aliases ---
-                                    name: 'Rajesh Kumar',
-                                    customer_name: 'Rajesh Kumar',
-                                    customer_first_name: 'Rajesh',
-                                    mobile: '9876543210',
-                                    email: 'rajesh@example.com',
-                                    project: 'Bharat Heights',
-                                    project_name: 'Bharat Heights',
-                                    unit: 'Plot 42',
-                                    unit_number: 'Plot 42',
-                                    price: '₹54.5L',
-                                    property_price: '₹54.5L',
-                                    location: 'Sector 7 Kurukshetra',
-                                    ai_summary: 'Looking for 3BHK high-rise floor',
-                                    agent: 'Sumeet Singh',
-                                    
-                                    // --- Legacy Compat ---
-                                    fullName: 'Rajesh Kumar', 
-                                    firstName: 'Rajesh', 
-                                    projectName: 'Bharat Heights',
-                                    budget: '₹54.5L', 
-                                    currentDate: new Date().toLocaleDateString('en-IN')
-                                  };
-                                  return samples[field] || `[${field.replace(/_/g, ' ')}]`;
-                                })}
-                              </div>
-                              <div style={{ fontSize: '9px', color: theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)', textAlign: 'right', marginTop: '4px' }}>
-                                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓
-                              </div>
+                      <div style={{ padding: '18px' }}>
+                        {/* EMAIL TAB */}
+                        {campFormTab === 'email' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div>
+                              <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Reply-To Address</label>
+                              <input value={emailData.replyTo} onChange={e => setEmailData(p => ({ ...p, replyTo: e.target.value }))} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Subject Line</label>
+                              <input value={emailData.subject} onChange={e => setEmailData(p => ({ ...p, subject: e.target.value }))} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Email Body</label>
+                              <textarea value={emailData.content} onChange={e => setEmailData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
                             </div>
                           </div>
-                          
-                          <div style={{ marginTop: '12px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <ShieldCheck size={12} color="var(--green)" /> Variables automatically resolved from your Enterprise Registry.
-                          </div>
+                        )}
 
-                          {/* ADVANCED MAPPING (REVEALABLE) */}
-                          {showWaAdvanced && (
-                            <div style={{ marginTop: '16px', background: 'rgba(255,255,255,0.02)', padding: '14px', border: '1px solid var(--border)', borderRadius: '10px' }}>
-                              <div style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, marginBottom: '10px', textTransform: 'uppercase' }}>Manual Parameter Override</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                {detectVariables(selectedMetaTemplate).map((vIdx) => (
-                                  <div key={vIdx} style={{ display: 'grid', gridTemplateColumns: '60px 1fr', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text2)' }}>{`{{${vIdx}}}`}</div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                      <select 
-                                        value={typeof (waMapping[vIdx] || variableRegistry[vIdx]) === 'object' ? (waMapping[vIdx] || variableRegistry[vIdx]).source : (waMapping[vIdx] || variableRegistry[vIdx] || '')} 
-                                        onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))}
-                                        style={{ width: '100%', padding: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '11px' }}
-                                      >
-                                        <option value="">Default (Registry)</option>
-                                        <option value="name">Full Name</option>
-                                        <option value="customer_first_name">First Name</option>
-                                        <option value="mobile">Mobile Number</option>
-                                        <option value="project">Project Name</option>
-                                        <option value="price">Price</option>
-                                        <option value="email">Email Address</option>
-                                        <option value="projectName">Project Name</option>
-                                        <option value="budget">Budget Selection</option>
-                                        <option value="location">Target Location</option>
-                                        <option value="city">City Name</option>
-                                        <option value="aiClosingProbability">Closing Probability (%)</option>
-                                        <option value="intentSummary">AI Intent Summary</option>
-                                        <option value="subCategory">Sub Category (Plot/Flat)</option>
-                                        <option value="sizeType">Size (10 Marla / 3 BHK)</option>
-                                        <option value="unitType">Unit Type (Corner / PLC)</option>
-                                        <option value="agentMobile">User/RM Mobile Number</option>
-                                        <option value="road">Road Width (ft/mtr)</option>
-                                        <option value="currentDate">Current Date</option>
-                                        <option value="agentName">Assigned RM Name</option>
-                                        <option value="custom">-- Custom Text --</option>
-                                      </select>
-                                      {waMapping[vIdx] === 'custom' && (
-                                        <input 
-                                          placeholder="Enter text..."
-                                          value={waMapping[`${vIdx}_val`] || ''}
-                                          onChange={e => setWaMapping(p => ({ ...p, [`${vIdx}_val`]: e.target.value }))}
-                                          style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                                        />
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                                {detectVariables(selectedMetaTemplate).length === 0 && (
-                                  <div style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', textAlign: 'center', padding: '10px' }}>
-                                    No dynamic variables found in this template.
+                        {/* WHATSAPP TAB */}
+                        {campFormTab === 'wa' && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '20px', alignItems: 'start' }}>
+                            {/* Left: controls */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                              <div>
+                                <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fab fa-whatsapp" style={{ color: '#25d366' }}></i> Meta Approved Templates</span>
+                                  <button onClick={() => fetchWhatsAppTemplates(true)} disabled={isSyncingTemplates} style={{ background: 'none', border: 'none', color: isSyncingTemplates ? 'var(--text3)' : 'var(--green)', fontSize: '9px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    {isSyncingTemplates ? <><span className="spinner-sm"></span> Syncing...</> : <>↺ Sync Meta</>}
+                                  </button>
+                                </label>
+                                <div style={{ position: 'relative' }}>
+                                  <select value={selectedMetaTemplate?.name || ''} onChange={e => handleTemplateSelection(e.target.value)} style={{ width: '100%', padding: '10px 36px 10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }} disabled={isSyncingTemplates}>
+                                    <option value="">{isSyncingTemplates ? 'Checking Meta Registry...' : waTemplates.length > 0 ? '-- Select Approved Template --' : '-- No Approved Templates Found --'}</option>
+                                    {waTemplates.map((tpl, idx) => <option key={idx} value={tpl.name}>{tpl.name} ({tpl.language})</option>)}
+                                  </select>
+                                  <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                                </div>
+                                {waTemplates.length === 0 && !isSyncingTemplates && (
+                                  <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', background: 'rgba(255,255,255,0.02)', padding: '8px 10px', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+                                    <i className="fas fa-info-circle"></i> If your template is approved but not showing, ensure your <strong>WABA ID</strong> is correct in Settings.
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
 
-                      {!selectedMetaTemplate && (
-                        <div style={{ opacity: 0.6 }}>
-                          <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>MANUAL FALLBACK CONTENT</label>
-                          <textarea 
-                            value={waData.content} 
-                            onChange={e => setWaData(p => ({ ...p, content: e.target.value }))} 
-                            placeholder="Type a message or select a template above..."
-                            rows={3} 
-                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical' }} 
-                          />
-                        </div>
-                      )}
+                              {!selectedMetaTemplate && (
+                                <div style={{ opacity: 0.55 }}>
+                                  <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Manual Fallback Content</label>
+                                  <textarea value={waData.content} onChange={e => setWaData(p => ({ ...p, content: e.target.value }))} placeholder="Type a message or select a template above..." rows={3} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px', resize: 'vertical' }} />
+                                </div>
+                              )}
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', gap: '10px' }}>
-                          <span>💬 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg).length.toLocaleString()} Targeted</span>
-                          <span style={{ color: 'var(--text2)' }}>|</span>
-                          <span style={{ color: 'var(--green)' }}>✓ {waMetrics.sent} Sent</span>
-                          <span style={{ color: 'var(--text2)' }}>|</span>
-                          <span style={{ color: 'var(--gold)' }}>👁 {waMetrics.read} Read</span>
-                        </div>
-                        <div style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(53,185,122,0.1)', color: 'var(--green)', borderRadius: '4px', fontWeight: 700 }}>
-                          {waMetrics.sent > 0 ? Math.round((waMetrics.delivered / waMetrics.sent) * 100) : 100}% DELIVERY RATE
-                        </div>
-                      </div>
+                              {selectedMetaTemplate && (
+                                <>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <Sparkles size={12} /> Auto-Mapped Preview
+                                    </span>
+                                    <button onClick={() => setShowWaAdvanced(!showWaAdvanced)} style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '9px', cursor: 'pointer', textDecoration: 'underline' }}>
+                                      {showWaAdvanced ? 'Hide Advanced' : 'Advanced Mapping'}
+                                    </button>
+                                  </div>
+                                  {showWaAdvanced && (
+                                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '14px', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                                      <div style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, marginBottom: '10px', textTransform: 'uppercase' }}>Manual Parameter Override</div>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        {detectVariables(selectedMetaTemplate).map((vIdx) => (
+                                          <div key={vIdx} style={{ display: 'grid', gridTemplateColumns: '60px 1fr', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text2)' }}>{`{{${vIdx}}}`}</div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                              <select value={typeof (waMapping[vIdx] || variableRegistry[vIdx]) === 'object' ? (waMapping[vIdx] || variableRegistry[vIdx]).source : (waMapping[vIdx] || variableRegistry[vIdx] || '')} onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))} style={{ width: '100%', padding: '6px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}>
+                                                <option value="">Default (Registry)</option>
+                                                <option value="name">Full Name</option>
+                                                <option value="customer_first_name">First Name</option>
+                                                <option value="mobile">Mobile Number</option>
+                                                <option value="project">Project Name</option>
+                                                <option value="price">Price</option>
+                                                <option value="location">Target Location</option>
+                                                <option value="currentDate">Current Date</option>
+                                                <option value="agentName">RM Name</option>
+                                                <option value="custom">-- Custom Text --</option>
+                                              </select>
+                                              {waMapping[vIdx] === 'custom' && (
+                                                <input placeholder="Enter text..." value={waMapping[`${vIdx}_val`] || ''} onChange={e => setWaMapping(p => ({ ...p, [`${vIdx}_val`]: e.target.value }))} style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} />
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {detectVariables(selectedMetaTemplate).length === 0 && (
+                                          <div style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', textAlign: 'center', padding: '8px' }}>No dynamic variables in this template.</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
 
-                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (WA) ══ */}
-                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                              <div style={{ display: 'flex', gap: '12px', fontSize: '10px', color: 'var(--text3)' }}>
+                                <span>💬 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg).length.toLocaleString()} Targeted</span>
+                                <span style={{ color: 'var(--green)' }}>✓ {waMetrics.sent} Sent</span>
+                                <span style={{ color: 'var(--gold)' }}>👁 {waMetrics.read} Read</span>
+                                <div style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 8px', background: 'rgba(53,185,122,0.1)', color: 'var(--green)', borderRadius: '4px', fontWeight: 700 }}>
+                                  {waMetrics.sent > 0 ? Math.round((waMetrics.delivered / waMetrics.sent) * 100) : 100}% DELIVERY
+                                </div>
+                              </div>
                             </div>
-                            <div 
-                                onClick={() => setIsScheduled(!isScheduled)}
-                                style={{ 
-                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
-                                }}
-                            >
-                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+
+                            {/* Right: WA Phone mockup */}
+                            <div style={{ flexShrink: 0 }}>
+                              <div style={{ fontSize: '9px', fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px', textAlign: 'center' }}>Live Preview</div>
+                              {/* Phone frame */}
+                              <div style={{ background: '#1a1a2e', borderRadius: '28px', padding: '10px', border: '3px solid rgba(255,255,255,0.1)', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', position: 'relative' }}>
+                                {/* Status bar */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', fontSize: '8px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>
+                                  <span>9:41</span>
+                                  <span>📶 🔋</span>
+                                </div>
+                                {/* WA header */}
+                                <div style={{ background: '#075e54', borderRadius: '10px 10px 0 0', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 900, color: '#07162B' }}>BP</div>
+                                  <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#fff' }}>Bharat Properties</div>
+                                    <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.6)' }}>Business Account • Verified</div>
+                                  </div>
+                                </div>
+                                {/* Chat area */}
+                                <div className="wa-preview-container" style={{ background: '#e5ddd5', backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundSize: 'cover', padding: '12px', minHeight: '160px', borderRadius: '0 0 10px 10px' }}>
+                                  {selectedMetaTemplate ? (
+                                    <div className="wa-bubble-income" style={{ background: '#fff', padding: '10px 12px', borderRadius: '8px 8px 8px 0', maxWidth: '90%', boxShadow: '0 1px 2px rgba(0,0,0,0.15)', border: '1px solid #eee' }}>
+                                      <div style={{ fontSize: '12px', color: '#111b21', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
+                                        {(selectedMetaTemplate.components.find(c => c.type === 'BODY')?.text || '').replace(/{{(\d+)}}/g, (match, p1) => {
+                                          const fieldRaw = waMapping[p1] || variableRegistry[p1];
+                                          if (!fieldRaw) return match;
+                                          const field = typeof fieldRaw === 'object' ? fieldRaw.source : fieldRaw;
+                                          const samples = { name: 'Rajesh Kumar', customer_name: 'Rajesh Kumar', customer_first_name: 'Rajesh', mobile: '9876543210', email: 'rajesh@example.com', project: 'Bharat Heights', project_name: 'Bharat Heights', price: '₹54.5L', location: 'Sector 7', agent: 'Sumeet Singh', fullName: 'Rajesh Kumar', firstName: 'Rajesh', projectName: 'Bharat Heights', budget: '₹54.5L', currentDate: new Date().toLocaleDateString('en-IN') };
+                                          return samples[field] || `[${field?.replace?.(/_/g, ' ') || '?'}]`;
+                                        })}
+                                      </div>
+                                      <div style={{ fontSize: '8px', color: 'rgba(0,0,0,0.4)', textAlign: 'right', marginTop: '4px' }}>
+                                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ textAlign: 'center', padding: '20px 10px', color: '#888', fontSize: '11px' }}>
+                                      <i className="fas fa-comment-dots" style={{ fontSize: '24px', marginBottom: '8px', display: 'block', opacity: 0.3 }}></i>
+                                      Select a template to preview
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {selectedMetaTemplate && (
+                                <div style={{ marginTop: '8px', fontSize: '9px', color: 'var(--text3)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                                  <ShieldCheck size={11} color="var(--green)" /> Variables from Enterprise Registry
+                                </div>
+                              )}
                             </div>
-                        </div>
-                        {isScheduled && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
-                                <input 
-                                    type="datetime-local" 
-                                    value={scheduledAt}
-                                    onChange={(e) => setScheduledAt(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
-                                />
-                                <select 
-                                    value={frequency} 
-                                    onChange={(e) => setFrequency(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                                >
-                                    <option value="once">Once</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                </select>
-                            </div>
+                          </div>
                         )}
-                      </div>
 
-                       <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
-                          className="tact-btn primary" 
-                          style={{ background: '#25d366', borderColor: '#25d366', flex: 1, padding: '12px' }} 
-                          onClick={() => launchCampaigns('wa')} 
-                          disabled={campLaunching}
-                        >
-                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch Broadcast (${audienceCount.toLocaleString()} contacts)`}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {campFormTab === 'sms' && (
-                    <div style={{ display: 'grid', gap: '16px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div>
-                            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Sender ID</label>
-                            <div style={{ position: 'relative' }}>
-                                <select 
-                                    value={smsData.senderId || ''} 
-                                    onChange={e => setSmsData(p => ({ ...p, senderId: e.target.value }))}
-                                    style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
-                                >
+                        {/* SMS TAB */}
+                        {campFormTab === 'sms' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                              <div>
+                                <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Sender ID</label>
+                                <div style={{ position: 'relative' }}>
+                                  <select value={smsData.senderId || ''} onChange={e => setSmsData(p => ({ ...p, senderId: e.target.value }))} style={{ width: '100%', padding: '10px 36px 10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}>
                                     <option value="">-- Select Sender ID --</option>
                                     {senderIds.map(sid => <option key={sid} value={sid}>{sid}</option>)}
-                                </select>
-                                <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                                  </select>
+                                  <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                                </div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '5px', alignItems: 'center' }}>
+                                  <span>DLT Template</span>
+                                  <button onClick={async () => { setIsSyncingSmsTemplates(true); toast.loading('Syncing...', { id: 'sms-sync' }); try { const res = await api.post('/marketing/sms/sync'); if (res.data?.success) { const refresh = await api.get('/marketing/sms/templates'); if (refresh.data?.success) { setSmsTemplates(refresh.data.data.templates || []); setSenderIds(refresh.data.data.senderIds || []); } toast.success(`Synced ${res.data.templateCount} Templates`, { id: 'sms-sync' }); } } catch (e) { toast.error(`Sync Error: ${e.response?.data?.error || e.message}`, { id: 'sms-sync' }); } finally { setIsSyncingSmsTemplates(false); } }} disabled={isSyncingSmsTemplates} style={{ background: 'none', border: 'none', color: isSyncingSmsTemplates ? 'var(--text3)' : 'var(--gold)', fontSize: '9px', cursor: 'pointer', fontWeight: 700 }}>
+                                    {isSyncingSmsTemplates ? 'Syncing...' : '↺ Refresh DLT'}
+                                  </button>
+                                </label>
+                                <div style={{ position: 'relative' }}>
+                                  <select value={selectedSmsTemplate?._id || ''} onChange={e => { const tpl = smsTemplates.find(t => (t._id || t.id) === e.target.value); setSelectedSmsTemplate(tpl); if (tpl) setSmsData(p => ({ ...p, content: tpl.body, senderId: tpl.dltHeaderId || p.senderId })); }} style={{ width: '100%', padding: '10px 36px 10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}>
+                                    <option value="">-- Select Template --</option>
+                                    {smsTemplates.map(tpl => <option key={tpl._id} value={tpl._id}>{tpl.name}</option>)}
+                                  </select>
+                                  <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                                </div>
+                              </div>
                             </div>
-                        </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase' }}>{selectedSmsTemplate ? 'DLT Template Body' : 'Manual SMS Content'}</label>
+                                <span style={{ fontSize: '10px', color: smsData.content.length > 160 ? 'var(--red)' : 'var(--text3)' }}>{smsData.content.length}/160 ({Math.ceil(smsData.content.length / 160)} segment)</span>
+                              </div>
+                              <textarea value={smsData.content} onChange={e => !selectedSmsTemplate && setSmsData(p => ({ ...p, content: e.target.value }))} readOnly={!!selectedSmsTemplate} rows={4} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px', resize: 'none', borderLeft: selectedSmsTemplate ? '3px solid var(--gold)' : '1px solid var(--border)', fontFamily: 'monospace' }} />
+                              {selectedSmsTemplate && (
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                                  <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>Template ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltTemplateId}</span></div>
+                                  <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>Header ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltHeaderId}</span></div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
+                        {/* RCS TAB */}
+                        {campFormTab === 'rcs' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <div>
+                              <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Rich Card Title</label>
+                              <input value={rcsData.title} onChange={e => setRcsData(p => ({ ...p, title: e.target.value }))} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: '5px' }}>Description</label>
+                              <input value={rcsData.desc} onChange={e => setRcsData(p => ({ ...p, desc: e.target.value }))} style={{ width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }} />
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '12px', padding: '14px' }}>
+                              <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '4px' }}>{rcsData.title}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '12px' }}>{rcsData.desc}</div>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <div style={{ flex: 1, textAlign: 'center', padding: '7px', background: 'var(--navy)', borderRadius: '8px', fontSize: '11px', fontWeight: 700, color: 'var(--gold)' }}>View Details</div>
+                                <div style={{ flex: 1, textAlign: 'center', padding: '7px', background: 'rgba(201,146,26,0.15)', borderRadius: '8px', fontSize: '11px', fontWeight: 700, color: 'var(--gold)' }}>Call Now</div>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '10px', color: 'var(--text3)' }}>✨ {audienceCount.toLocaleString()} contacts via Google Business Messaging • Rich media cards</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Scheduling card */}
+                    <SchedulingCard />
+                  </div>
+                )}
+
+                {/* ━━━━━━━━━━━━━━━━━ STEP 3: REVIEW & LAUNCH ━━━━━━━━━━━━━━━━━ */}
+                {campaignStep === 3 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                    {/* Summary card */}
+                    <div style={{ background: 'linear-gradient(135deg, rgba(201,146,26,0.08) 0%, rgba(13,31,56,0.9) 100%)', borderRadius: '18px', border: '1px solid rgba(201,146,26,0.3)', padding: '24px', boxShadow: '0 0 30px rgba(201,146,26,0.1)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                        <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#07162B', boxShadow: '0 0 20px rgba(201,146,26,0.4)' }}>
+                          <i className="fas fa-clipboard-check" style={{ fontSize: '18px' }}></i>
+                        </div>
                         <div>
-                            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                            <span>DLT Template</span>
-                            <button 
-                                onClick={async () => {
-                                    setIsSyncingSmsTemplates(true);
-                                    toast.loading('Syncing with SMSGatewayHub...', { id: 'sms-sync' });
-                                    try {
-                                        const res = await api.post('/marketing/sms/sync');
-                                        if (res.data?.success) {
-                                            const refresh = await api.get('/marketing/sms/templates');
-                                            if (refresh.data?.success) {
-                                                setSmsTemplates(refresh.data.data.templates || []);
-                                                setSenderIds(refresh.data.data.senderIds || []);
-                                            }
-                                            toast.success(`Synced ${res.data.templateCount} Templates`, { id: 'sms-sync' });
-                                        }
-                                    } catch (e) { 
-                                        const errorMsg = e.response?.data?.error || e.response?.data?.message || e.message || 'Sync failed';
-                                        toast.error(`Sync Error: ${errorMsg}`, { id: 'sms-sync' }); 
-                                    }
-                                    finally { setIsSyncingSmsTemplates(false); }
-                                }} 
-                                disabled={isSyncingSmsTemplates}
-                                style={{ background: 'none', border: 'none', color: isSyncingSmsTemplates ? 'var(--text3)' : 'var(--gold)', fontSize: '9px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                                {isSyncingSmsTemplates ? 'Syncing...' : '↺ Refresh DLT'}
-                            </button>
-                            </label>
-                            <div style={{ position: 'relative' }}>
-                            <select 
-                                value={selectedSmsTemplate?._id || ''} 
-                                onChange={e => {
-                                    const tpl = smsTemplates.find(t => (t._id || t.id) === e.target.value);
-                                    setSelectedSmsTemplate(tpl);
-                                    if (tpl) {
-                                        setSmsData(p => ({ ...p, content: tpl.body, senderId: tpl.dltHeaderId || p.senderId }));
-                                    }
-                                }} 
-                                style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
-                            >
-                                <option value="">-- Select Template --</option>
-                                {smsTemplates.map((tpl) => (
-                                <option key={tpl._id} value={tpl._id}>{tpl.name}</option>
-                                ))}
-                            </select>
-                            <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
-                            </div>
+                          <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--text)' }}>Campaign Review</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>Verify before dispatch</div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', background: 'rgba(53,185,122,0.15)', color: '#35b97a', padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: '1px solid rgba(53,185,122,0.3)' }}>
+                          ⚡ READY TO DISPATCH
                         </div>
                       </div>
 
-                      <div style={{ opacity: selectedSmsTemplate ? 1 : 0.6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' }}>
-                            {selectedSmsTemplate ? 'DLT TEMPLATE BODY' : 'MANUAL SMS CONTENT'}
-                          </label>
-                          <span style={{ fontSize: '10px', color: smsData.content.length > 160 ? 'var(--red)' : 'var(--text3)' }}>
-                            {smsData.content.length}/160 ({Math.ceil(smsData.content.length / 160)} segment)
-                          </span>
-                        </div>
-                        <textarea 
-                          value={smsData.content} 
-                          onChange={e => !selectedSmsTemplate && setSmsData(p => ({ ...p, content: e.target.value }))} 
-                          placeholder="Select a template above to ensure DLT compliance..."
-                          readOnly={!!selectedSmsTemplate}
-                          rows={4} 
-                          style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'none', borderLeft: selectedSmsTemplate ? '3px solid var(--gold)' : '1px solid var(--border)', fontFamily: 'monospace' }} 
-                        />
-                        {selectedSmsTemplate && (
-                            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                                <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-                                    Template ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltTemplateId}</span>
-                                </div>
-                                <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
-                                    Header ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltHeaderId}</span>
-                                </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                        {[
+                          { label: 'Campaign Name',   value: campaignName || '—',             icon: 'fas fa-tag',           color: 'var(--gold)' },
+                          { label: 'Audience Source', value: audienceConfig.source || 'None',  icon: 'fas fa-database',      color: '#8b5cf6' },
+                          { label: 'Recipients',      value: `${audienceCount.toLocaleString()} contacts`, icon: 'fas fa-users', color: '#35b97a' },
+                          { label: 'Channel',         value: cMeta.label,                     icon: cMeta.icon,             color: cMeta.color },
+                          { label: 'Schedule',        value: isScheduled ? (scheduledAt ? new Date(scheduledAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Scheduled (time not set)') : 'Immediate dispatch', icon: isScheduled ? 'fas fa-clock' : 'fas fa-bolt', color: isScheduled ? '#f59e0b' : '#35b97a' },
+                          { label: 'Frequency',       value: isScheduled ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : 'One-time', icon: 'fas fa-redo', color: '#06b6d4' },
+                          ...(campFormTab === 'wa' && selectedMetaTemplate ? [{ label: 'WA Template', value: selectedMetaTemplate.name, icon: 'fab fa-whatsapp', color: '#25d366' }] : []),
+                          ...(campFormTab === 'email' ? [{ label: 'Subject', value: emailData.subject || '—', icon: 'fas fa-envelope', color: '#6366f1' }] : []),
+                        ].map((row, i) => (
+                          <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '12px 14px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: `${row.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <i className={row.icon} style={{ fontSize: '12px', color: row.color }}></i>
                             </div>
-                        )}
-                      </div>
-
-                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (SMS) ══ */}
-                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '3px' }}>{row.label}</div>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.value}</div>
                             </div>
-                            <div 
-                                onClick={() => setIsScheduled(!isScheduled)}
-                                style={{ 
-                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
-                                }}
-                            >
-                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
-                            </div>
-                        </div>
-                        {isScheduled && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
-                                <input 
-                                    type="datetime-local" 
-                                    value={scheduledAt}
-                                    onChange={(e) => setScheduledAt(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
-                                />
-                                <select 
-                                    value={frequency} 
-                                    onChange={(e) => setFrequency(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                                >
-                                    <option value="once">Once</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                </select>
-                            </div>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                        <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching} style={{ flex: 1 }}>
-                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch SMS Campaign (${audienceCount.toLocaleString()} contacts)`}
-                        </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  )}
-                  {campFormTab === 'rcs' && (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>RICH CARD TITLE</label>
-                        <input value={rcsData.title} onChange={e => setRcsData(p => ({ ...p, title: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>DESCRIPTION</label>
-                        <input value={rcsData.desc} onChange={e => setRcsData(p => ({ ...p, desc: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '4px' }}>{rcsData.title}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '10px' }}>{rcsData.desc}</div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'var(--navy)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>View Details</div>
-                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'rgba(201,146,26,0.15)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>Call Now</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)' }}>✨ {audienceCount.toLocaleString()} contacts via Google Business Messaging · Rich media cards</div>
-                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (RCS) ══ */}
-                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
-                            </div>
-                            <div 
-                                onClick={() => setIsScheduled(!isScheduled)}
-                                style={{ 
-                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
-                                }}
-                            >
-                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
-                            </div>
-                        </div>
-                        {isScheduled && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
-                                <input 
-                                    type="datetime-local" 
-                                    value={scheduledAt}
-                                    onChange={(e) => setScheduledAt(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
-                                />
-                                <select 
-                                    value={frequency} 
-                                    onChange={(e) => setFrequency(e.target.value)}
-                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                                >
-                                    <option value="once">Once</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                </select>
-                            </div>
-                        )}
-                      </div>
 
-                      <button className="tact-btn primary" style={{ background: 'var(--gold)', borderColor: 'var(--gold)', color: '#07162B' }} onClick={() => launchCampaigns('rcs')} disabled={campLaunching}>
-                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `✨ Send RCS Rich Cards (${audienceCount.toLocaleString()} contacts)`}
-                      </button>
-                    </div>
+                    {/* Warning if no recipients */}
+                    {audienceCount === 0 && (
+                      <div style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.3)', borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fas fa-exclamation-triangle" style={{ color: '#f43f5e', fontSize: '16px', flexShrink: 0 }}></i>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 800, color: '#f43f5e' }}>No Recipients Found</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>Go back to Step 1 and adjust your audience filters.</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Launch button */}
+                    <button
+                      onClick={() => launchCampaigns(campFormTab)}
+                      disabled={campLaunching || audienceCount === 0}
+                      style={{ width: '100%', padding: '18px', borderRadius: '16px', border: 'none', background: campLaunching || audienceCount === 0 ? 'rgba(255,255,255,0.05)' : `linear-gradient(135deg, ${cMeta.color}, ${cMeta.color}cc)`, color: campLaunching || audienceCount === 0 ? 'var(--text3)' : campFormTab === 'wa' ? '#fff' : campFormTab === 'rcs' ? '#07162B' : '#fff', fontSize: '15px', fontWeight: 900, cursor: campLaunching || audienceCount === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', letterSpacing: '0.04em', boxShadow: campLaunching || audienceCount === 0 ? 'none' : `0 8px 28px ${cMeta.color}40`, transition: 'all 0.2s ease' }}
+                    >
+                      {campLaunching ? (
+                        <><span className="spinner-sm" style={{ width: '18px', height: '18px' }}></span> Dispatching {audienceCount.toLocaleString()} messages...</>
+                      ) : (
+                        <><i className={cMeta.icon} style={{ fontSize: '16px' }}></i> 🚀 Launch {cMeta.label} Broadcast — {audienceCount.toLocaleString()} Recipients</>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ══ FOOTER NAV ══ */}
+              <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                {/* Left: Cancel / Back */}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={() => { setShowCampaignModal(false); setCampaignStep(1); }}
+                    style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                  >
+                    Cancel
+                  </button>
+                  {campaignStep > 1 && (
+                    <button
+                      onClick={() => goStep(campaignStep - 1)}
+                      style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--text)', cursor: 'pointer', fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <i className="fas fa-arrow-left" style={{ fontSize: '10px' }}></i> Back
+                    </button>
                   )}
                 </div>
+
+                {/* Center: step indicator dots */}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[1, 2, 3].map(n => (
+                    <div key={n} style={{ width: n === campaignStep ? '20px' : '7px', height: '7px', borderRadius: '10px', background: n === campaignStep ? 'var(--gold)' : n < campaignStep ? 'rgba(201,146,26,0.5)' : 'rgba(255,255,255,0.1)', transition: 'all 0.3s ease' }} />
+                  ))}
+                </div>
+
+                {/* Right: Next / (on step 3 empty — launch is inside body) */}
+                {campaignStep < 3 && (
+                  <button
+                    onClick={() => goStep(campaignStep + 1)}
+                    disabled={!canGoNext}
+                    style={{ padding: '10px 24px', borderRadius: '10px', border: 'none', background: canGoNext ? 'var(--gold)' : 'rgba(255,255,255,0.05)', color: canGoNext ? '#07162B' : 'var(--text3)', cursor: canGoNext ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s ease', boxShadow: canGoNext ? '0 6px 20px rgba(201,146,26,0.3)' : 'none' }}
+                  >
+                    {campaignStep === 2 ? 'Review & Launch' : 'Next'}
+                    <i className="fas fa-arrow-right" style={{ fontSize: '11px' }}></i>
+                  </button>
+                )}
+                {campaignStep === 3 && <div style={{ width: '100px' }} />}
               </div>
             </div>
-
-            <div className="modal-footer" style={{ padding: '15px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.9)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn" style={{ padding: '8px 24px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }} onClick={() => setShowCampaignModal(false)}>Cancel</button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Real WhatsApp / SMS Message Modal ── */}
       {showMessageModal && (
