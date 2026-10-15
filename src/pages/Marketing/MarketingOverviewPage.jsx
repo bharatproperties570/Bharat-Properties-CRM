@@ -15,6 +15,7 @@ import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgents
 import smsService from '../../services/smsService';
 import { getDisplayScore } from '../../utils/leadScoring';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useUsers } from '../../utils/crmHooks';
 
 // ── Real CRM Modals (Phase A Integration) ──
 import SendMessageModal from '../../components/SendMessageModal';
@@ -144,6 +145,8 @@ const NEW_ANGLES_DATA = [];
 const PORTAL_DATA = [];
 
 export default function MarketingOverviewPage({ onNavigate }) {
+  const navigate = useNavigate();
+  const { data: usersData = [] } = useUsers();
   // ── CORE STATE WITH MIRROR PROTOCOL ──
   const { projects: dynamicProjects = [], propertyConfig = {}, sizes = [] } = usePropertyConfig();
   const [activePage, setActivePage] = useState('overview');
@@ -744,10 +747,10 @@ export default function MarketingOverviewPage({ onNavigate }) {
     addLog('[05/06] 💬  Multi-channel reply agent activated...', 'info');
     await sleep(300);
 
+    let activeComms = [];
     try {
       // First, attempt to fetch real comments for the orchestration view
       let liveComments = [];
-      let activeComms = [];
       try {
         const [igRes, fbRes] = await Promise.all([
           socialAPI.getInstagramComments('latest'),
