@@ -18,7 +18,12 @@ export const clientInterpolateTemplate = (rawText, recipient = {}, properties = 
     if (!rawText || typeof rawText !== 'string') return '';
 
     const firstProp = properties?.[0] || {};
-    const propTitle = firstProp.unitNo || firstProp.title || firstProp.projectName || firstProp.name || 'Verified Property';
+    const rawPropTitle = firstProp.projectName || firstProp.name || firstProp.title || firstProp.unitNo || '';
+    let cleanPropTitle = (typeof rawPropTitle === 'string' ? rawPropTitle.split(' | ')[0].trim() : '') || 'Verified Property';
+    if (cleanPropTitle.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(cleanPropTitle)) {
+        cleanPropTitle = cleanPropTitle.split(' - ')[0].trim();
+    }
+    const propTitle = cleanPropTitle;
     const propCat = firstProp.category || firstProp.propertyType || (recipient?.requirement || 'Prime Property');
     const propLoc = firstProp.location || firstProp.city || firstProp.sector || recipient?.location || 'Sector 3, Kurukshetra';
     const rawPrice = firstProp.price || firstProp.demandPrice || firstProp.dealValue || firstProp.expectedAmount || recipient?.budget;

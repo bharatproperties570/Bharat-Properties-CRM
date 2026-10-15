@@ -1048,10 +1048,22 @@ export const sanitizeDeal = async (req, res) => {
             return s;
         };
 
+        const cleanProjectNameLocal = (val) => {
+            if (!val) return '';
+            let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+            if (!s) return '';
+            s = s.split(' | ')[0].trim();
+            if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+                s = s.split(' - ')[0].trim();
+            }
+            return s;
+        };
+
         // Resolve core fields
         const catName = await resolveValue(deal.category) || "Property";
         const intentName = await resolveValue(deal.intent) || "Deal";
-        const projName = (await resolveValue(deal.projectName)) || (await resolveValue(proj.name)) || "Prime Project";
+        const rawProjName = (await resolveValue(deal.projectName)) || (await resolveValue(proj.name)) || "Prime Project";
+        const projName = cleanProjectNameLocal(rawProjName) || "Prime Project";
         const unitTypeName = (await resolveValue(deal.unitType)) || (await resolveValue(inv.unitType)) || "";
         const sizeUnitName = (await resolveValue(deal.sizeUnit)) || (await resolveValue(inv.sizeUnit)) || "Sq.Ft";
         const remarksText = await resolveValue(deal.remarks);
@@ -1116,7 +1128,8 @@ export const sanitizeDeal = async (req, res) => {
         ].filter(Boolean);
 
         deal.broadcastMetadata = {
-            title: `${projName} | ${unitTypeName || catName} for ${intentName}`,
+            title: projName,
+            projectName: projName,
             description: remarksText || `Excellent ${unitTypeName} ${catName} available in ${displayLocation}. High potential for ${intentName}.`,
             price: formattedPrice,
             location: displayLocation,

@@ -41,6 +41,18 @@ export const cleanSubCategory = (val) => {
     return s;
 };
 
+export const cleanProjectName = (val) => {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+    if (!s) return '';
+    // Strip suffixes like " | Ordinary for Sell", " | Plot for Sell", " | House for Sale", etc.
+    s = s.split(' | ')[0].trim();
+    if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+        s = s.split(' - ')[0].trim();
+    }
+    return s;
+};
+
 const isMarketingBroadcastContext = (tpl) => {
     if (!tpl) return false;
     const ctx = tpl.systemContext || tpl.context || tpl.ctx;
@@ -59,7 +71,8 @@ function interpolateTemplateString(rawText, { meta, deal, isHtml = false, recipi
     const spec = (deal?.unitSpecification && typeof deal.unitSpecification === 'object') ? deal.unitSpecification : {};
     const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
 
-    const dealTitle = getSafeString(meta?.title || deal?.projectName || deal?.title || inv.projectName, 'Featured Deal');
+    const rawDealTitle = deal?.projectName || inv.projectName || meta?.projectName || meta?.title || deal?.title || '';
+    const dealTitle = cleanProjectName(rawDealTitle) || 'Featured Deal';
     const rawSubCategory = getSafeString(
         deal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || deal?.propertyType,
         ''

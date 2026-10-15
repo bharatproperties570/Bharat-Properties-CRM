@@ -41,6 +41,18 @@ export const cleanSubCategory = (val) => {
     return s;
 };
 
+export const cleanProjectName = (val) => {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+    if (!s) return '';
+    // Strip suffixes like " | Ordinary for Sell", " | Plot for Sell", " | House for Sale", etc.
+    s = s.split(' | ')[0].trim();
+    if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+        s = s.split(' - ')[0].trim();
+    }
+    return s;
+};
+
 const isMarketingBroadcastContext = (tpl) => {
     if (!tpl) return false;
     const ctx = tpl.systemContext || tpl.context || tpl.ctx;
@@ -59,7 +71,7 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     const recipientName = recipient?.name || recipient?.fullName || recipient?.contactName || recipient?.clientName || '[Recipient / Broker Name]';
     const recipientFirstName = recipient?.firstName || (recipientName !== '[Recipient / Broker Name]' ? recipientName.split(' ')[0] : '[Recipient / Broker Name]');
 
-    const singleTitle = getSafeString(singleDeal?.title || singleDeal?.projectName, 'Featured Deal');
+    const singleTitle = cleanProjectName(singleDeal?.projectName || singleDeal?.title) || 'Featured Deal';
     const singleLoc = getSafeString(singleDeal?.location, 'Kurukshetra');
     const singleSpecs = getSafeString(singleDeal?.unitType, 'Prime Unit');
 
@@ -75,7 +87,8 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     const spec = (singleDeal?.unitSpecification && typeof singleDeal.unitSpecification === 'object') ? singleDeal.unitSpecification : {};
     const invSpec = (inv?.unitSpecification && typeof inv.unitSpecification === 'object') ? inv.unitSpecification : {};
 
-    const dealTitle = getSafeString(meta.title || singleDeal?.projectName || singleDeal?.title || inv.projectName, 'Featured Deal');
+    const rawDealTitle = singleDeal?.projectName || inv.projectName || meta?.projectName || meta?.title || singleDeal?.title || '';
+    const dealTitle = cleanProjectName(rawDealTitle) || 'Featured Deal';
     const rawSubCategory = getSafeString(
         singleDeal?.subCategory || spec.subCategory || inv.subCategory || invSpec.subCategory || singleDeal?.propertyType,
         ''
@@ -228,14 +241,14 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
         if (isHtml) {
             propertyList = `<div style="margin: 10px 0; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;">` +
                 selectedDeals.map((d, i) => {
-                    const pTitle = getSafeString(d.title || d.projectName, 'Deal');
+                    const pTitle = cleanProjectName(d.projectName || d.title) || 'Deal';
                     const pLoc = getSafeString(d.location, 'Kurukshetra');
                     const pPrice = d.price ? `₹${Number(d.price).toLocaleString('en-IN')}` : 'P.O.R';
                     return `<div style="padding: 6px 0; border-bottom: ${i < selectedDeals.length - 1 ? '1px dashed #cbd5e1' : 'none'};"><strong>${i + 1}. 🏢 ${pTitle}</strong> — <span style="color:#10b981;font-weight:700;">${pPrice}</span> • 📍 ${pLoc}</div>`;
                 }).join('') + `</div>`;
         } else {
             propertyList = selectedDeals.map((d, i) => {
-                const pTitle = getSafeString(d.title || d.projectName, 'Deal');
+                const pTitle = cleanProjectName(d.projectName || d.title) || 'Deal';
                 const pLoc = getSafeString(d.location, 'Kurukshetra');
                 return `${i + 1}️⃣ 🏢 *${pTitle}* | 💰 ₹${d.price ? Number(d.price).toLocaleString('en-IN') : 'P.O.R'} | 📍 ${pLoc}`;
             }).join('\n');

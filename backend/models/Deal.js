@@ -220,6 +220,7 @@ const DealSchema = new mongoose.Schema({
     shareableId: { type: String, unique: true, sparse: true }, // Short ID like BP-4521
     broadcastMetadata: {
         title: String,
+        projectName: String,
         description: String,
         price: String, // Can be "Price on Request" or formatted
         location: String,

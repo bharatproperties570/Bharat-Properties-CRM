@@ -72,6 +72,18 @@ export function cleanSubCategory(val) {
     return s;
 }
 
+export function cleanProjectName(val) {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+    if (!s) return '';
+    // Strip suffixes like " | Ordinary for Sell", " | Plot for Sell", " | House for Sale", etc.
+    s = s.split(' | ')[0].trim();
+    if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+        s = s.split(' - ')[0].trim();
+    }
+    return s;
+}
+
 export const resolveMessageTemplate = async (template, channel, recipient, properties, currentUser) => {
     let resolvedBody = '';
     const components = [];
@@ -176,7 +188,8 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
     }
 
     let priceVal = getPropVal('price');
-    let projectNameVal = getPropVal('projectName') || getPropVal('title') || getPropVal('unitNo');
+    let rawProjectName = getPropVal('projectName') || getPropVal('title') || getPropVal('unitNo');
+    let projectNameVal = cleanProjectName(rawProjectName);
 
     let locationRaw = getPropVal('location') || getPropVal('city') || getPropVal('sector');
     let locationResolved = await resolveLookup(locationRaw, 'Location', lookupsCache) || locationRaw;
@@ -206,7 +219,7 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
             };
             const loc = propVal('location') || propVal('city') || propVal('sector');
             const resolvedLoc = await resolveLookup(loc, 'Location', lookupsCache) || loc || 'Sector';
-            const pTitle = propVal('title') || propVal('projectName') || propVal('unitNo') || 'Unit';
+            const pTitle = cleanProjectName(propVal('projectName') || propVal('title') || propVal('unitNo')) || 'Unit';
             const pPrice = propVal('price') ? formatCurrency(propVal('price'), 'P.O.R') : 'P.O.R';
             propertyListDefault += `${i + 1}️⃣ 🏢 *${pTitle}* - 📍 ${resolvedLoc} | 💰 ${pPrice}\n`;
             

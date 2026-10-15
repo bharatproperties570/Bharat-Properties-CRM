@@ -99,6 +99,18 @@ export function cleanSubCategory(val) {
     return s;
 }
 
+export function cleanProjectName(val) {
+    if (!val) return '';
+    let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+    if (!s) return '';
+    // Strip suffixes like " | Ordinary for Sell", " | Plot for Sell", " | House for Sale", etc.
+    s = s.split(' | ')[0].trim();
+    if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+        s = s.split(' - ')[0].trim();
+    }
+    return s;
+}
+
 /**
  * Formats size specification from deal/inventory
  */
@@ -203,7 +215,8 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     const formattedSize = formatSize(primaryDeal.size || inventory.size, rawSizeType, rawSizeType || primaryDeal.propertyType || '');
 
     // 3. Resolve Project & Title
-    const projectName = primaryDeal.projectName || inventory.projectName || project.name || primaryDeal.title || meta.title || 'Verified Property';
+    const rawProject = primaryDeal.projectName || inventory.projectName || project.name || meta.projectName || primaryDeal.title || meta.title || '';
+    const projectName = cleanProjectName(rawProject) || 'Verified Property';
     const unitNo = primaryDeal.unitNo || primaryDeal.unitNumber || inventory.unitNumber || inventory.unitNo || '';
     const block = primaryDeal.block || inventory.block || '';
 
@@ -297,7 +310,7 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     let propertyList = '';
     if (deals && deals.length > 1) {
         propertyList = deals.map((d, i) => {
-            const pTitle = d.title || d.projectName || d.dealCode || 'Deal';
+            const pTitle = cleanProjectName(d.projectName || d.title || d.dealCode || 'Deal');
             const pLoc = d.location || 'Kurukshetra';
             const pPrice = d.price ? formatCurrency(d.price) : 'P.O.R';
             return `${i + 1}️⃣ 🏢 *${pTitle}* | 💰 ${pPrice} | 📍 ${pLoc}`;
