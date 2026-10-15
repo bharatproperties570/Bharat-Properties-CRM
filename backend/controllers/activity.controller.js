@@ -1878,10 +1878,11 @@ export const getMessagingActivities = async (req, res) => {
                 }
             }
 
-            const hasPrelinkedEntity = !!(a.entityId && a.entityType && !['Unknown', 'System'].includes(a.entityType));
+            const isCustomerEntity = Boolean(a.entityId && a.entityType && !['Unknown', 'System', 'User', 'WhatsAppGroup'].includes(a.entityType));
+            const hasPrelinkedEntity = isCustomerEntity;
             const initialParticipantName = isGroupItem
                 ? (resolvedGroupName || (a.participants?.[0]?.name && !a.participants[0].name.includes('@g.us') ? a.participants[0].name : null) || 'WhatsApp Group')
-                : (a.participants?.[0]?.name || identifier);
+                : (a.participants?.[0]?.name && a.participants[0].name !== 'Agent' ? a.participants[0].name : identifier);
 
             const actualActTime = a.details?.deliveredAt || a.details?.sentAt || a.details?.timestamp || a.performedAt || a.createdAt;
 
@@ -1894,8 +1895,8 @@ export const getMessagingActivities = async (req, res) => {
                     subject: a.subject,
                     description: snippet,
                     snippet: snippet,
-                    entityType: a.entityType !== 'Unknown' ? a.entityType : null,
-                    entityId: a.entityId || null,
+                    entityType: isCustomerEntity ? a.entityType : null,
+                    entityId: isCustomerEntity ? a.entityId : null,
                     participant: initialParticipantName,
                     phone: phone,
                     phoneNumber: phone,
@@ -2029,7 +2030,7 @@ export const getMessagingActivities = async (req, res) => {
             if (item.phone) identifierSet.add(item.phone);
             if (item.phoneNumber) identifierSet.add(item.phoneNumber);
             if (item.email) identifierSet.add(item.email.toLowerCase());
-            if (item.entityId && mongoose.Types.ObjectId.isValid(item.entityId)) {
+            if (item.entityId && mongoose.Types.ObjectId.isValid(item.entityId) && item.entityType && !['User', 'System', 'Unknown'].includes(item.entityType)) {
                 entityIdSet.add(item.entityId.toString());
             }
         }
@@ -2111,12 +2112,10 @@ export const getMessagingActivities = async (req, res) => {
         });
 
         // 4. Enrich conversation heads with resolved entity matches
-        const resolveEntityMatch = (identifier, phone, email, entityId) => {
-            if (entityId && identityMap.has(entityId.toString())) {
-                return identityMap.get(entityId.toString());
-            }
+        const resolveEntityMatch = (identifier, phone, email, entityId, entityType) => {
+            // First priority: Customer phone number lookup (matches actual customer in CRM)
             const clean10 = phone ? phone.replace(/\D/g, '').slice(-10) : '';
-            if (clean10 && identifierToNameMap.has(clean10)) {
+            if (clean10 && clean10.length === 10 && identifierToNameMap.has(clean10)) {
                 return identifierToNameMap.get(clean10);
             }
             if (phone && identifierToNameMap.has(phone)) {
@@ -2125,6 +2124,10 @@ export const getMessagingActivities = async (req, res) => {
             if (email && identifierToNameMap.has(email)) {
                 return identifierToNameMap.get(email);
             }
+            // Secondary priority: entityId only if valid customer entity (not User/System)
+            if (entityId && entityType !== 'User' && entityType !== 'System' && identityMap.has(entityId.toString())) {
+                return identityMap.get(entityId.toString());
+            }
             if (identifier && identifierToNameMap.has(identifier)) {
                 return identifierToNameMap.get(identifier);
             }
@@ -2132,7 +2135,7 @@ export const getMessagingActivities = async (req, res) => {
         };
 
         for (const item of conversationsMap.values()) {
-            const matched = resolveEntityMatch(item.phone || item.email, item.phone, item.email, item.entityId);
+            const matched = resolveEntityMatch(item.phone || item.email, item.phone, item.email, item.entityId, item.entityType);
             if (matched) {
                 if (!item.isGroup) {
                     item.participant = matched.name || item.participant;
@@ -2340,12 +2343,12 @@ export const getThreadHistory = async (req, res) => {
                     return s;
                 } catch (e) { return null; }
             })(),
-            phoneRegex ? Lead.findOne({ mobile: phoneRegex })
+            phoneRegex ? Lead.findOne({ mobile: phoneRegex, isDeleted: { $ne: true } })
                 .populate('assignedTo', 'fullName name mobile phone email')
                 .populate('assignment.assignedTo', 'fullName name mobile phone email')
                 .populate('owner', 'fullName name mobile phone email')
                 .lean() : null,
-            phoneRegex ? Contact.findOne({ 'phones.number': phoneRegex })
+            phoneRegex ? Contact.findOne({ 'phones.number': phoneRegex, isDeleted: { $ne: true } })
                 .populate('assignedTo', 'fullName name mobile phone email')
                 .populate('assignment.assignedTo', 'fullName name mobile phone email')
                 .populate('owner', 'fullName name mobile phone email')

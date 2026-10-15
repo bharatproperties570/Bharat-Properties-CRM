@@ -478,7 +478,7 @@ export const BaileysConnectionManager = {
                     const lookupPhone = isGroup ? participantId : targetPhone;
                     const clean10 = String(lookupPhone || '').replace(/\D/g, '').slice(-10);
 
-                    if (clean10 && (!isFromMe || isGroup)) {
+                    if (clean10) {
                         try {
                             const Lead = (await import('../../models/Lead.js')).default;
                             const Contact = (await import('../../models/Contact.js')).default;
@@ -513,8 +513,8 @@ export const BaileysConnectionManager = {
                         await Activity.create({
                             type: 'WhatsApp',
                             subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
-                            entityType: isGroup ? 'WhatsAppGroup' : (isFromMe ? 'User' : (matchedEntity?.type || 'General')),
-                            entityId: isGroup ? remoteJid : (isFromMe ? userOwner : (matchedEntity?.id || null)),
+                            entityType: isGroup ? 'WhatsAppGroup' : (matchedEntity?.type || 'General'),
+                            entityId: isGroup ? remoteJid : (matchedEntity?.id || null),
                             description: messageText,
                             dueDate: new Date(),
                             status: 'Completed',
@@ -696,7 +696,7 @@ export const BaileysConnectionManager = {
                                 subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
                                 description: prefix + messageText,
                                 snippet: prefix + messageText,
-                                participant: isGroup ? groupDisplay : targetPhone,
+                                participant: isGroup ? groupDisplay : (customerDisplayName || targetPhone),
                                 phone: targetPhone,
                                 phoneNumber: targetPhone,
                                 groupJid: isGroup ? remoteJid : null,
