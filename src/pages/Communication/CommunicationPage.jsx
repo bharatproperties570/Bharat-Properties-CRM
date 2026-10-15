@@ -1462,7 +1462,7 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
             const sendProvider = ch === 'WhatsApp_Web' ? 'BAILEYS' : (ch === 'WhatsApp_API' ? 'META' : undefined);
             const targetIntId = ch === 'WhatsApp_Web'
                 ? (item.whatsappIntegrationId || undefined)
-                : (item.businessPhoneNumberId || item.whatsappIntegrationId || undefined);
+                : (item.businessPhoneNumberId || undefined);
 
             const payload = { 
                 phoneNumber: item.phone, 
@@ -1521,7 +1521,7 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
         const sendProvider = ch === 'WhatsApp_Web' ? 'BAILEYS' : (ch === 'WhatsApp_API' ? 'META' : undefined);
         const targetIntId = ch === 'WhatsApp_Web'
             ? (item.whatsappIntegrationId || undefined)
-            : (item.businessPhoneNumberId || item.whatsappIntegrationId || undefined);
+            : (item.businessPhoneNumberId || undefined);
 
         if (type === 'location') {
             const loc = { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' };

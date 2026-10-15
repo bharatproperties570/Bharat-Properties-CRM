@@ -29,27 +29,32 @@ class WhatsAppService {
         if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
             const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
             const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
-                ? { _id: integrationIdOrPhoneId, status: 'ACTIVE' }
-                : { phoneNumberId: String(integrationIdOrPhoneId), status: 'ACTIVE' };
+                ? { _id: integrationIdOrPhoneId, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }
+                : { phoneNumberId: String(integrationIdOrPhoneId), provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' };
 
-            const integration = await WhatsAppIntegration.findOne(query).lean();
+            let integration = await WhatsAppIntegration.findOne(query).lean();
             if (!integration) {
-                throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' not found or inactive`);
+                // If explicit ID was not an active Meta account (e.g. was Baileys ID passed during cross-channel toggle), fall back to default Meta account
+                console.warn(`[WhatsAppService] Explicit account '${integrationIdOrPhoneId}' is not an active Meta account. Falling back to default Meta integration.`);
+                integration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
             }
-            if (integration.provider !== 'BAILEYS' && (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken))) {
-                throw new Error(`Target WhatsApp account '${integrationIdOrPhoneId}' has no valid credentials`);
+
+            if (integration) {
+                if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
+                    throw new Error(`Target WhatsApp account '${integration.accountLabel || integration._id}' has no valid credentials`);
+                }
+                return {
+                    integrationId: integration._id,
+                    token: integration.credentials?.systemUserToken,
+                    phoneId: integration.phoneNumberId,
+                    businessId: integration.wabaId,
+                    appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                    displayPhoneNumber: integration.displayPhoneNumber,
+                    accountLabel: integration.accountLabel || 'WhatsApp Account',
+                    connectionType: integration.connectionType,
+                    provider: integration.provider || 'META'
+                };
             }
-            return {
-                integrationId: integration._id,
-                token: integration.credentials?.systemUserToken,
-                phoneId: integration.phoneNumberId,
-                businessId: integration.wabaId,
-                appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
-                displayPhoneNumber: integration.displayPhoneNumber,
-                accountLabel: integration.accountLabel || 'WhatsApp Account',
-                connectionType: integration.connectionType,
-                provider: integration.provider || 'META'
-            };
         }
 
         // 2. Try default active WhatsAppIntegration (e.g. if configured as default)

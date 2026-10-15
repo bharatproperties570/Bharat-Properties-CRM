@@ -1459,7 +1459,10 @@ export const sendReply = async (req, res) => {
                 baileysAcc = await WhatsAppIntegration.findOne({ _id: targetAccount, provider: 'BAILEYS', status: 'ACTIVE' }).lean();
             }
             if (!baileysAcc) {
-                baileysAcc = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).lean();
+                baileysAcc = await WhatsAppIntegration.findOne({ isDefault: true, provider: 'BAILEYS', status: 'ACTIVE' }).lean();
+            }
+            if (!baileysAcc) {
+                baileysAcc = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).sort({ isDefault: -1, createdAt: -1 }).lean();
             }
             if (baileysAcc) {
                 targetAccount = baileysAcc._id.toString();
@@ -1470,7 +1473,10 @@ export const sendReply = async (req, res) => {
                 metaAcc = await WhatsAppIntegration.findOne({ _id: targetAccount, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
             }
             if (!metaAcc) {
-                metaAcc = await WhatsAppIntegration.findOne({ provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+                metaAcc = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+            }
+            if (!metaAcc) {
+                metaAcc = await WhatsAppIntegration.findOne({ provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).sort({ isDefault: -1, createdAt: -1 }).lean();
             }
             if (metaAcc) {
                 targetAccount = metaAcc._id.toString();
