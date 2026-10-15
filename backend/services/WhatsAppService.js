@@ -317,8 +317,9 @@ class WhatsAppService {
                 messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }] 
             };
         } catch (error) {
-            console.error(`[WhatsAppService/Baileys] Send error:`, error);
-            return { success: false, error: error.message, provider: 'baileys' };
+            const errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            console.error(`[WhatsAppService/Baileys] Send error:`, errText);
+            return { success: false, error: errText, provider: 'baileys' };
         }
     }
 

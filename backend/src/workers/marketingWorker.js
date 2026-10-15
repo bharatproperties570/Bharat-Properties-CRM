@@ -884,7 +884,7 @@ if (name === 'bna-broadcast') {
                     visibleTo: 'Everyone',
                     description: success 
                         ? (text || waMessage) 
-                        : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ')}`,
+                        : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`,
                     details: { 
                         results, 
                         dealId, 

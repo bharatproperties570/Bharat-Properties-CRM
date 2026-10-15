@@ -45,6 +45,10 @@ const extractBaileysMessageContent = (rawMsg) => {
 
 export const BaileysConnectionManager = {
     async initializeAll() {
+        if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_BAILEYS !== 'true') {
+            console.log('[BaileysConnectionManager] Non-production environment detected. Skipping Baileys auto-connect to protect production WhatsApp socket.');
+            return;
+        }
         try {
             const integrations = await WhatsAppIntegration.find({ 
                 provider: 'BAILEYS', 
@@ -59,6 +63,10 @@ export const BaileysConnectionManager = {
     },
 
     async connect(integrationId) {
+        if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_BAILEYS !== 'true') {
+            console.warn(`[BaileysConnectionManager] Skipping connect(${integrationId}) in non-production environment to protect production WhatsApp.`);
+            return null;
+        }
         // 1. If an active socket exists and is open or connecting, reuse it
         if (connections.has(integrationId)) {
             const existing = connections.get(integrationId);
