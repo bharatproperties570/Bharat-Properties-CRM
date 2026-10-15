@@ -138,8 +138,14 @@ export default function CommunicationPage() {
     const [sortConfig, setSortConfig] = useState({ label: 'Newest Active', by: 'date', order: -1, icon: 'fa-history' });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
+    // 🚀 Enterprise In-Flight & Deduplication Guards
+    const isFetchingRef = useRef(false);
+    const isFetchingGroupsRef = useRef(false);
+
     /* ── Fetch messaging activities ─── */
     const fetchActivities = useCallback(async (silent = false) => {
+        if (isFetchingRef.current) return;
+        isFetchingRef.current = true;
         if (!silent) setLoading(true); else setRefreshing(true);
         try {
             const params = {
@@ -234,7 +240,7 @@ export default function CommunicationPage() {
                     setBackendKpis(res.kpis);
                 }
             }
-        } catch(e){ console.error(e); } finally { setLoading(false); setRefreshing(false); }
+        } catch(e){ console.error(e); } finally { isFetchingRef.current = false; setLoading(false); setRefreshing(false); }
     }, [currentPage, recordsPerPage, sortConfig, searchQ, filters, channel, subTab]);
 
     /* ── Fetch emails ─── */
@@ -338,6 +344,8 @@ export default function CommunicationPage() {
 
 
     const fetchWAGroups = useCallback(async (isUserAction = false) => {
+        if (isFetchingGroupsRef.current && !isUserAction) return;
+        isFetchingGroupsRef.current = true;
         setLoadingGroups(true);
         try {
             const accRes = await whatsappService.getAccounts();
@@ -352,7 +360,7 @@ export default function CommunicationPage() {
             }
             const bId = baileysAcc.id || baileysAcc._id;
             setBaileysAccId(bId);
-            const res = await socialAPI.getBaileysGroups(bId);
+            const res = await socialAPI.getBaileysGroups(bId, isUserAction ? { refresh: true } : {});
             if (res && res.success) {
                 setWaGroups(res.data || []);
             } else if (isUserAction) {
@@ -362,6 +370,7 @@ export default function CommunicationPage() {
             console.error("Failed to load WA groups", err);
             if (isUserAction) toast.error("Error fetching WhatsApp Groups");
         } finally {
+            isFetchingGroupsRef.current = false;
             setLoadingGroups(false);
         }
     }, []);
@@ -378,18 +387,19 @@ export default function CommunicationPage() {
         return map;
     }, [waGroups]);
 
-    // Preload groups on mount so group names render properly in the default 'All' stream view
-    useEffect(() => {
-        fetchWAGroups(false);
-    }, [fetchWAGroups]);
-
-    /* ── Init & refresh ─── */
+    /* ── Init & refresh with Single Deduplicated Preload ─── */
+    const hasPreloadedGroupsRef = useRef(false);
     useEffect(() => { 
         if (channel !== 'Email' && channel !== 'AI' && subTab !== 'groups') {
             fetchActivities(); 
         }
         if (channel === 'AI') fetchAIConvos();
-        if (subTab === 'groups' || channel === 'WhatsApp_Web') fetchWAGroups(true);
+        if (subTab === 'groups' || channel === 'WhatsApp_Web') {
+            fetchWAGroups(false);
+        } else if (!hasPreloadedGroupsRef.current) {
+            hasPreloadedGroupsRef.current = true;
+            fetchWAGroups(false);
+        }
     }, [fetchActivities, fetchAIConvos, fetchWAGroups, channel, subTab, currentPage, recordsPerPage, sortConfig]);
     useEffect(() => { if (channel==='Email' && !liveEmails.length && !emailError) fetchEmails(); }, [channel, liveEmails.length, fetchEmails, emailError]);
 
@@ -401,7 +411,7 @@ export default function CommunicationPage() {
         }
     }, [channel, subTab]);
 
-    // Enterprise Silent Poll: 10s auto-refresh for incoming activities and thread updates
+    // Enterprise Silent Poll: 30s auto-refresh for incoming activities and thread updates (guarded by isFetchingRef)
     useEffect(() => {
         const interval = setInterval(() => {
             if (channel === 'AI') {
@@ -411,7 +421,7 @@ export default function CommunicationPage() {
             } else if (channel !== 'Email') {
                 fetchActivities(true);
             }
-        }, 20000);
+        }, 30000);
         return () => clearInterval(interval);
     }, [channel, subTab, fetchActivities, fetchAIConvos]);
 
@@ -534,7 +544,7 @@ export default function CommunicationPage() {
     const handleRefresh = () => {
         if (channel==='Email') fetchEmails();
         else if (channel==='AI') fetchAIConvos();
-        else if (subTab==='groups' || channel==='WhatsApp_Web') fetchWAGroups();
+        else if (subTab==='groups' || channel==='WhatsApp_Web') fetchWAGroups(true);
         else fetchActivities(true);
     };
 
@@ -1050,7 +1060,7 @@ export default function CommunicationPage() {
                                         Ensure your WhatsApp Web is linked in your Profile page to view and chat directly with all your WhatsApp Groups.
                                     </div>
                                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                                        <button onClick={fetchWAGroups} style={{ padding: '8px 16px', borderRadius: '8px', background: '#22c55e', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                        <button onClick={() => fetchWAGroups(true)} style={{ padding: '8px 16px', borderRadius: '8px', background: '#22c55e', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
                                             🔄 Reload Groups
                                         </button>
                                         <button onClick={() => window.open('/profile', '_blank')} style={{ padding: '8px 16px', borderRadius: '8px', background: T.badge, color: T.accent, border: `1px solid ${T.border}`, fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>

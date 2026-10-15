@@ -1525,14 +1525,29 @@ export const getBaileysStatus = async (req, res) => {
     }
 };
 
+// 🚀 Enterprise Architecture: WhatsApp Group Socket In-Memory Cache (5-min TTL)
+const groupsMemoryCache = new Map();
+const GROUPS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * GET /api/social/whatsapp/baileys/groups/:id
- * Get all participating groups from the Baileys socket
+ * Get all participating groups from the Baileys socket with 5-minute TTL memory caching
  */
 export const getBaileysGroups = async (req, res) => {
     try {
+        const integrationId = req.params.id;
+        const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+
+        // 1. Return immediately from in-memory cache unless explicit refresh requested
+        if (!forceRefresh && groupsMemoryCache.has(integrationId)) {
+            const cached = groupsMemoryCache.get(integrationId);
+            if (Date.now() - cached.timestamp < GROUPS_CACHE_TTL_MS && Array.isArray(cached.data) && cached.data.length > 0) {
+                return res.json({ success: true, data: cached.data, cached: true });
+            }
+        }
+
         const { default: WhatsAppIntegration } = await import('../models/WhatsAppIntegration.js');
-        const integration = await WhatsAppIntegration.findById(req.params.id);
+        const integration = await WhatsAppIntegration.findById(integrationId);
         if (!integration) {
             return res.status(404).json({ success: false, error: 'Integration not found' });
         }
@@ -1543,10 +1558,10 @@ export const getBaileysGroups = async (req, res) => {
         }
 
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
-        let sock = BaileysConnectionManager.getSocket(req.params.id);
+        let sock = BaileysConnectionManager.getSocket(integrationId);
         
         if (!sock) {
-            sock = await BaileysConnectionManager.connect(req.params.id).catch(() => null);
+            sock = await BaileysConnectionManager.connect(integrationId).catch(() => null);
         }
 
         let formatted = [];
@@ -1629,6 +1644,11 @@ export const getBaileysGroups = async (req, res) => {
             if (groupList.length > 0) {
                 formatted = groupList;
             }
+        }
+
+        // Cache the formatted groups in memory with current timestamp
+        if (formatted && formatted.length > 0) {
+            groupsMemoryCache.set(integrationId, { data: formatted, timestamp: Date.now() });
         }
 
         res.json({ success: true, data: formatted });

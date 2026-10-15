@@ -1819,9 +1819,22 @@ export const getMessagingActivities = async (req, res) => {
               );
 
         const [activities, rawConversations, rawSmsLogs] = await Promise.all([
-            Activity.find(query).sort({ createdAt: -1 }).limit(800).lean(),
-            Conversation.find(convFilter).sort({ updatedAt: -1 }).limit(100).lean(),
-            SmsLog.find(channel === 'all' || channel === 'SMS' ? {} : { _id: null }).sort({ sentAt: -1 }).limit(100).lean()
+            Activity.find(query)
+                .select('_id type subject description entityType entityId status outcome createdAt dueDate participants details')
+                .sort({ createdAt: -1 })
+                .limit(200)
+                .lean(),
+            Conversation.find(convFilter)
+                .select('_id channel phoneNumber businessPhoneNumberId businessPhoneNumber whatsappIntegrationId isGroup groupName title lead contact status createdAt updatedAt metadata messages')
+                .slice('messages', -1)
+                .sort({ updatedAt: -1 })
+                .limit(100)
+                .lean(),
+            SmsLog.find(channel === 'all' || channel === 'SMS' ? {} : { _id: null })
+                .select('_id to message entityType entityId status sentAt')
+                .sort({ sentAt: -1 })
+                .limit(100)
+                .lean()
         ]);
 
         // 2. High-Performance Grouping First (Reduce 1,000+ items to ~50 conversation threads)

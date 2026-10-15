@@ -99,4 +99,7 @@ const conversationSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// 🚀 Enterprise Optimization: Compound index for high-throughput Communication Hub sorting
+conversationSchema.index({ channel: 1, updatedAt: -1 });
+
 export default mongoose.model('Conversation', conversationSchema);
