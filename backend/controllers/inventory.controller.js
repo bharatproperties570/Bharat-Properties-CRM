@@ -1550,6 +1550,27 @@ export const bulkDeleteInventory = async (req, res) => {
     }
 };
 
+// 🚀 ENTERPRISE HARDENED: Dot-notation flattener to prevent subdocument overwrite
+const flattenToDotNotation = (obj, prefix = '') => {
+    const flattened = {};
+    for (const key of Object.keys(obj)) {
+        const val = obj[key];
+        const path = prefix ? `${prefix}.${key}` : key;
+        if (
+            val && 
+            typeof val === 'object' && 
+            !Array.isArray(val) && 
+            !(val instanceof mongoose.Types.ObjectId) && 
+            !(val instanceof Date)
+        ) {
+            Object.assign(flattened, flattenToDotNotation(val, path));
+        } else {
+            flattened[path] = val;
+        }
+    }
+    return flattened;
+};
+
 export const bulkUpdateInventory = async (req, res) => {
     try {
         const { ids, updates } = req.body;
@@ -1561,14 +1582,97 @@ export const bulkUpdateInventory = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 🛡️ Data Loss Prevention: Flatten any nested objects (e.g. address) into dot notation
+        // This ensures setting address.city NEVER erases address.pincode, address.street, etc.
+        const sanitizedUpdates = flattenToDotNotation(updates);
+
+        // 🛡️ Reference Resolution & Data Normalization
+        if (sanitizedUpdates.assignedTo) {
+            sanitizedUpdates.assignedTo = await resolveUser(sanitizedUpdates.assignedTo);
+        }
+        if (sanitizedUpdates.team) {
+            sanitizedUpdates.team = await resolveTeam(sanitizedUpdates.team);
+        }
+
+        // Handle price numeric mapping
+        if (updates.price !== undefined && updates.price !== null && updates.price !== '') {
+            const numPrice = Number(updates.price);
+            if (!isNaN(numPrice)) {
+                sanitizedUpdates['price.value'] = numPrice;
+                sanitizedUpdates['price.currency'] = 'INR';
+            }
+            delete sanitizedUpdates.price;
+        }
+
+        // Handle deal intent mapping
+        if (sanitizedUpdates.primaryDealIntent) {
+            sanitizedUpdates.intent = [sanitizedUpdates.primaryDealIntent];
+        }
+
+        // Enterprise Attribution Tracking
+        sanitizedUpdates.updatedBy = req.user?._id;
+        sanitizedUpdates.updatedAt = new Date();
         
         const result = await Inventory.updateMany(
             { _id: { $in: ids }, ...visibilityFilter },
-            { $set: updates }
+            { $set: sanitizedUpdates }
         );
 
         if (result.matchedCount === 0) {
             return res.status(404).json({ success: false, error: "No matching inventory items found or permission denied" });
+        }
+
+        const updatedKeys = Object.keys(sanitizedUpdates).filter(k => !['updatedBy', 'updatedAt'].includes(k));
+
+        // 🚀 ENTERPRISE AUDIT TRAIL: Log Activity
+        try {
+            const Activity = mongoose.models.Activity || (await import('../models/Activity.js')).default;
+            await Activity.create({
+                type: 'System',
+                subject: `Bulk Inventory Update (${result.modifiedCount} Properties)`,
+                entityType: 'Inventory',
+                status: 'Completed',
+                visibleTo: 'Everyone',
+                description: `Bulk update applied to ${result.modifiedCount} properties by ${req.user?.fullName || req.user?.name || 'Authorized User'}. Fields modified: ${updatedKeys.join(', ')}`,
+                details: {
+                    modifiedCount: result.modifiedCount,
+                    matchedCount: result.matchedCount,
+                    inventoryIds: ids,
+                    updatedFields: updatedKeys,
+                    updates: sanitizedUpdates
+                },
+                performedBy: req.user?.fullName || req.user?.name || 'Authorized User',
+                dueDate: new Date()
+            });
+        } catch (actErr) {
+            console.warn('[BulkUpdate] Failed to record Activity log:', actErr.message);
+        }
+
+        // 🚀 ENTERPRISE REALTIME HUB: Push to active CRM windows
+        try {
+            const RealtimeHub = (await import('../services/RealtimeHub.js')).default;
+            if (RealtimeHub && typeof RealtimeHub.emitMessage === 'function') {
+                RealtimeHub.emitMessage({
+                    channel: 'Inventory',
+                    action: 'bulk-update',
+                    data: {
+                        ids,
+                        modifiedCount: result.modifiedCount,
+                        performedBy: req.user?._id
+                    }
+                });
+            }
+        } catch (rtErr) {
+            console.warn('[BulkUpdate] RealtimeHub emit notice:', rtErr.message);
+        }
+
+        // 🚀 CACHE INVALIDATION: Invalidate Dashboard & Inventory caches
+        try {
+            const { invalidateDashboardCache } = await import('../src/config/redis.js');
+            await invalidateDashboardCache(req.user?._id);
+        } catch (cErr) {
+            // non-fatal
         }
 
         res.status(200).json({ 

@@ -1,6 +1,7 @@
 import express from "express";
 import { getInventory, getInventoryById, addInventory, bulkAddInventory, updateInventory, deleteInventory, bulkDeleteInventory, matchInventory, importInventory, checkDuplicatesImport, bulkUpdatePropertyOwners, getUniqueBlocks, getSuggestedOwners, bulkUpdateInventory, autoResolveConflicts } from "../controllers/inventory.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
+import { checkPermission } from "../middlewares/permission.middleware.js";
 
 const router = express.Router();
 
@@ -20,7 +21,7 @@ router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", addInventory);
 router.post("/bulk-delete", bulkDeleteInventory);
 router.post("/bulk-add", bulkAddInventory);
-router.post("/bulk-update", bulkUpdateInventory);
+router.post("/bulk-update", checkPermission('inventory', 'edit'), bulkUpdateInventory);
 router.delete("/:id", deleteInventory);
 
 export default router;

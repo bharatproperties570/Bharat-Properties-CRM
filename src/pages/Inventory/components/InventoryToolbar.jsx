@@ -95,8 +95,10 @@ const InventoryToolbar = ({
                         </>
                     )}
 
-                    <button className="action-btn" title="Add Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
-                    <button className="action-btn" title="Bulk Update" onClick={handleBulkUpdateClick}><i className="fas fa-layer-group"></i> Update</button>
+                    <PermissionGate module="inventory" action="edit">
+                        <button className="action-btn" title="Add Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
+                        <button className="action-btn" title="Bulk Update" onClick={handleBulkUpdateClick}><i className="fas fa-layer-group"></i> Update</button>
+                    </PermissionGate>
                     <div style={{ marginLeft: 'auto' }}>
                         <PermissionGate module="inventory" action="delete">
                             <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>

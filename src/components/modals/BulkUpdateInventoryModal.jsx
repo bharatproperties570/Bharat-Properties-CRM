@@ -34,7 +34,12 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
         zip: '', // mapped to pincode
         team: '',
         assignedTo: '',
-        visibleTo: ''
+        visibleTo: '',
+        status: '',
+        price: '',
+        primaryDealIntent: '',
+        transactionType: '',
+        remarks: ''
     });
 
     const [locationLookups, setLocationLookups] = useState({
@@ -55,7 +60,8 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                 block: '', size: '', sizeType: '', direction: '', roadWidth: '', facing: '', builtupType: '',
                 possessionStatus: '', category: '', subCategory: '', unitType: '',
                 country: '', state: '', city: '', tehsil: '', location: '', postOffice: '', zip: '',
-                team: '', assignedTo: '', visibleTo: ''
+                team: '', assignedTo: '', visibleTo: '',
+                status: '', price: '', primaryDealIntent: '', transactionType: '', remarks: ''
             });
             const uniqueProjects = [...new Set(selectedProperties.map(p => {
                 return (p.projectId && p.projectId.name) ? p.projectId.name : p.projectName;
@@ -128,9 +134,7 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
             if (selectedFields[field]) {
                 const val = formData[field];
                 
-                // If it's a known lookup, we should map it to its ID if we have it by name, 
-                // but actually the form stores IDs for location and lookup names for others.
-                // Let's resolve properly:
+                // If it's a known lookup, map to its ID if possible
                 if (['category', 'subCategory', 'unitType', 'direction', 'roadWidth', 'facing', 'builtupType', 'sizeType'].includes(field)) {
                     updates[field] = getLookupId(
                         field === 'sizeType' ? 'PropertyType' : 
@@ -139,8 +143,14 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                         val
                     ) || val;
                 } else if (['country', 'state', 'city', 'tehsil', 'location', 'postOffice', 'zip'].includes(field)) {
-                    if (!updates.address) updates.address = {};
-                    updates.address[field === 'zip' ? 'pincode' : field] = val || null;
+                    // 🛡️ Data Loss Prevention: Use dot-notation so sibling address fields are never wiped
+                    const subKey = field === 'zip' ? 'pincode' : field;
+                    updates[`address.${subKey}`] = val || null;
+                } else if (field === 'price') {
+                    updates.price = (val !== '' && val !== null && val !== undefined) ? Number(val) : null;
+                } else if (field === 'primaryDealIntent') {
+                    updates.primaryDealIntent = val || null;
+                    updates.intent = val ? [val] : [];
                 } else {
                     updates[field] = val || null;
                 }
@@ -150,6 +160,13 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
 
         if (!hasUpdates) {
             toast.error("Please select at least one field to update");
+            return;
+        }
+
+        // 🛡️ Enterprise Confirmation Prompt
+        const activeFieldsList = Object.keys(selectedFields).filter(f => selectedFields[f]);
+        const confirmMsg = `Are you sure you want to update ${selectedIds.length} properties?\n\nSelected fields to modify:\n• ${activeFieldsList.join('\n• ')}\n\nThis will apply changes to all selected inventory items.`;
+        if (!window.confirm(confirmMsg)) {
             return;
         }
 
@@ -207,6 +224,26 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
         );
     };
 
+    const renderInputField = (field, label, type = 'text', placeholder = '', disabledForce = false) => {
+        const isDisabled = !selectedFields[field] || disabledForce;
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', background: selectedFields[field] ? '#f8fafc' : '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <input type="checkbox" checked={!!selectedFields[field]} onChange={() => !disabledForce && handleFieldToggle(field)} style={{ ...checkboxStyle, opacity: disabledForce ? 0.5 : 1, cursor: disabledForce ? 'not-allowed' : 'pointer' }} disabled={disabledForce} />
+                    <span style={labelStyle}>{label}</span>
+                </div>
+                <input 
+                    type={type}
+                    style={{ ...inputStyle, opacity: isDisabled ? 0.6 : 1, cursor: isDisabled ? 'not-allowed' : 'text' }}
+                    value={formData[field] || ''}
+                    placeholder={placeholder || `Enter ${label}...`}
+                    onChange={(e) => handleInputChange(field, e.target.value)}
+                    disabled={isDisabled}
+                />
+            </div>
+        );
+    };
+
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
             <div style={{ background: '#fff', width: '90%', maxWidth: '900px', maxHeight: '90vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
@@ -221,6 +258,15 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                     <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#eff6ff', color: '#1e40af', borderRadius: '8px', fontSize: '0.85rem' }}>
                         <i className="fas fa-info-circle" style={{ marginRight: '8px' }}></i>
                         Only fields with the checkbox selected will be updated. Blank selected fields will clear the existing data.
+                    </div>
+
+                    <h4 style={{ fontSize: '1rem', marginBottom: '16px', color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px' }}>Commercial & Status</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+                        {renderField('status', 'Availability Status', ['Available', 'Hold', 'Sold', 'Under Negotiation', 'Investor Hold'])}
+                        {renderField('primaryDealIntent', 'Deal Intent', ['Sell', 'Rent', 'Lease'])}
+                        {renderField('transactionType', 'Transaction Type', ['Collector Rate', 'Full White', 'Market Rate', 'Mixed'])}
+                        {renderInputField('price', 'Demand Price (₹)', 'number', 'e.g. 25000000')}
+                        {renderInputField('remarks', 'Internal Remarks', 'text', 'e.g. Price negotiable, verified title')}
                     </div>
 
                     <h4 style={{ fontSize: '1rem', marginBottom: '16px', color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px' }}>Unit Details</h4>
