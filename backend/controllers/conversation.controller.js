@@ -5,14 +5,14 @@ import { getVisibilityFilter } from '../utils/visibility.js';
 import Lead from '../models/Lead.js';
 import Contact from '../models/Contact.js';
 
-const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfig, limitNum) => {
+const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfig, limitNum, projection = null) => {
     const visibilityFilter = await getVisibilityFilter(req.user);
     
     // Admin / All scope bypass
     if (Object.keys(visibilityFilter).length === 0) {
-        let q = Conversation.find(baseQuery);
+        let q = Conversation.find(baseQuery, projection);
         for (const p of populateConfigs) q = q.populate(p.path, p.select);
-        return await q.sort(sortConfig).limit(limitNum);
+        return await q.sort(sortConfig).limit(limitNum).lean();
     }
     
     // 1. Fetch IDs of active conversations
@@ -52,11 +52,10 @@ const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfi
         $or: visibilityOrConditions
     };
     
-    let q = Conversation.find(secureQuery);
+    let q = Conversation.find(secureQuery, projection);
     for (const p of populateConfigs) q = q.populate(p.path, p.select);
-    return await q.sort(sortConfig).limit(limitNum);
+    return await q.sort(sortConfig).limit(limitNum).lean();
 };
-
 
 
 export const getActiveConversations = async (req, res) => {
@@ -100,6 +99,18 @@ export const updateConversationStatus = async (req, res) => {
 
 export const getUnreadConversations = async (req, res) => {
     try {
+        const unreadProjection = {
+            status: 1,
+            phoneNumber: 1,
+            title: 1,
+            isGroup: 1,
+            groupName: 1,
+            metadata: 1,
+            lead: 1,
+            contact: 1,
+            messages: { $slice: -1 }
+        };
+
         const conversations = await getSecureConversations(
             { status: 'active', 'metadata.unreadCount': { $gt: 0 } },
             req,
@@ -108,7 +119,8 @@ export const getUnreadConversations = async (req, res) => {
                 { path: 'contact', select: 'name phones' }
             ],
             { 'metadata.lastMessageAt': -1, updatedAt: -1 },
-            50
+            50,
+            unreadProjection
         );
 
         // Strict enterprise check: A conversation is only truly unread if the LAST message was from the customer (role === 'user')

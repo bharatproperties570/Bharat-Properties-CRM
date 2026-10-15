@@ -193,12 +193,23 @@ const WhatsAppNotificationPoller = ({ onNavigate }) => {
             }
         };
 
-        // Poll immediately and then every 10 seconds
+        // Poll immediately and then every 15 seconds (paused when tab is hidden to prevent background CPU drain)
         fetchUnread();
-        pollerRef.current = setInterval(fetchUnread, 10000);
+        pollerRef.current = setInterval(() => {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            fetchUnread();
+        }, 15000);
+
+        const handleVisibilityChange = () => {
+            if (typeof document !== 'undefined' && !document.hidden) {
+                fetchUnread();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
             if (pollerRef.current) clearInterval(pollerRef.current);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [currentUser, onNavigate]);
 

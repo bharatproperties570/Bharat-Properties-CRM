@@ -40,8 +40,10 @@ export const getNotifications = async (req, res) => {
                 { type: 'system' }
             ]
         })
+            .select('user type title message link isRead createdAt readAt data metadata')
             .sort({ createdAt: -1 })
-            .limit(100);
+            .limit(100)
+            .lean();
 
         console.log(`[NotificationController] Raw count from DB: ${notifications.length}`);
 

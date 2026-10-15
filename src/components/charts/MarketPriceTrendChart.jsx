@@ -9,12 +9,13 @@ const PriceTrendTooltip = ({ active, payload, isDark, trendMetricUnit, activeCat
     <div style={{
       background: isDark ? '#1e293b' : '#ffffff',
       border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
-      boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.1)',
-      borderRadius: '10px', padding: '10px 14px', fontSize: '0.75rem',
-      color: isDark ? '#e2e8f0' : '#1e293b'
+      boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)',
+      borderRadius: '12px', padding: '12px 16px', fontSize: '0.78rem',
+      color: isDark ? '#e2e8f0' : '#1e293b',
+      zIndex: 100
     }}>
-      <div style={{ fontWeight: 700, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b' }}>{data.month}</div>
-      <div style={{ color: '#f59e0b', fontWeight: 800, marginBottom: 4, borderBottom: '1px solid #f59e0b40', paddingBottom: 4 }}>
+      <div style={{ fontWeight: 800, marginBottom: 8, color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.82rem' }}>{data.month}</div>
+      <div style={{ color: '#f59e0b', fontWeight: 800, marginBottom: 6, borderBottom: `1px solid ${isDark ? 'rgba(245, 158, 11, 0.3)' : 'rgba(245, 158, 11, 0.2)'}`, paddingBottom: 6 }}>
         Overall Index: ₹{new Intl.NumberFormat('en-IN').format(data.Overall || 0)} / {trendMetricUnit}
       </div>
       {activeCategories.map((loc, idx) => {
@@ -22,8 +23,8 @@ const PriceTrendTooltip = ({ active, payload, isDark, trendMetricUnit, activeCat
         const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e'];
         const lineCol = colors[idx % colors.length];
         return (
-          <div key={loc} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
-            <span style={{ color: lineCol, marginRight: 12, display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+          <div key={loc} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center', gap: '16px' }}>
+            <span style={{ color: lineCol, display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: lineCol }}></span>
               {loc}:
             </span>
@@ -31,25 +32,35 @@ const PriceTrendTooltip = ({ active, payload, isDark, trendMetricUnit, activeCat
           </div>
         );
       })}
-      <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '6px', fontStyle: 'italic' }}>
-        Based on {data.count} deals
+      <div style={{ fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '8px', fontStyle: 'italic', borderTop: `1px dashed ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, paddingTop: '4px' }}>
+        Based on {data.count} deals in window
       </div>
     </div>
   );
 };
 
-const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
+const MarketPriceTrendChart = ({ deals = [], sizes = [], getLookupValue, isDark }) => {
   const [trendMetricUnit, setTrendMetricUnit] = useState('Sq.Yd');
   const [trendPriceType, setTrendPriceType] = useState('Expected'); // 'Expected' | 'Booking'
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLocation, setSelectedLocation] = useState('Top 5');
+
+  // Fast O(1) size lookup map from sizes array
+  const sizeMap = useMemo(() => {
+    const map = new Map();
+    (sizes || []).forEach(s => {
+      if (s.id) map.set(String(s.id), s);
+      if (s._id) map.set(String(s._id), s);
+    });
+    return map;
+  }, [sizes]);
 
   // Extract all unique categories for the dropdown
   const availableCategories = useMemo(() => {
     const cats = new Set();
     (deals || []).forEach(deal => {
       const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId) || 'Other';
+      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
       if (!categoryLabel.toLowerCase().includes('agri')) {
         cats.add(categoryLabel);
       }
@@ -62,7 +73,7 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
     const locs = new Set();
     (deals || []).forEach(deal => {
       const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId) || 'Other';
+      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
       
       if (categoryLabel?.toLowerCase().includes('agri')) return;
       if (selectedCategory !== 'All' && categoryLabel !== selectedCategory) return;
@@ -83,10 +94,74 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
     setSelectedLocation('Top 5');
   }, [selectedCategory]);
 
-  // Set default category if "All" is too broad, otherwise keep "All"
-  // Here we'll stick with "All" to show market overall, but user can drill down.
+  // Enterprise Smart Area & Unit Resolver
+  const resolveDealArea = useMemo(() => {
+    return (deal) => {
+      // 1. Direct numeric size on deal
+      if (typeof deal.size === 'number' && deal.size > 0) {
+        return { area: deal.size, unit: deal.sizeUnit || 'Sq.Ft.' };
+      }
+      if (deal.size && typeof deal.size === 'object' && deal.size.value > 0) {
+        return { area: deal.size.value, unit: deal.size.unit || deal.sizeUnit || 'Sq.Ft.' };
+      }
+      
+      // 2. Parse string size (e.g. '14 Marla (381.04 Sq Yd)' or '250 Sq Yd')
+      if (typeof deal.size === 'string' && deal.size.trim()) {
+        const s = deal.size;
+        const sqYdMatch = s.match(/([0-9,.]+)\s*(?:sq\.?\s*yd|sqyd|yards)/i);
+        if (sqYdMatch) return { area: parseFloat(sqYdMatch[1].replace(/,/g, '')), unit: 'Sq.Yd' };
+        
+        const sqFtMatch = s.match(/([0-9,.]+)\s*(?:sq\.?\s*ft|sqft|feet)/i);
+        if (sqFtMatch) return { area: parseFloat(sqFtMatch[1].replace(/,/g, '')), unit: 'Sq.Ft.' };
+        
+        const marlaMatch = s.match(/([0-9,.]+)\s*marla/i);
+        if (marlaMatch) return { area: parseFloat(marlaMatch[1].replace(/,/g, '')) * 25, unit: 'Sq.Yd' };
+      }
 
-  const { trendData, activeCategories } = useMemo(() => {
+      // 3. Resolve via sizeConfig ID in deal
+      const sizeId = deal.sizeConfig && typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : deal.sizeConfig;
+      if (sizeId && sizeMap.has(String(sizeId))) {
+        const sLookup = sizeMap.get(String(sizeId));
+        const tot = parseFloat(sLookup.totalArea || sLookup.metadata?.totalArea);
+        if (tot > 0) return { area: tot, unit: sLookup.resultMetric || sLookup.metadata?.resultMetric || 'Sq.Yd' };
+      }
+
+      // 4. Resolve via unitSpecification.sizeLabel (Deal or linked Inventory)
+      const spec = deal.unitSpecification || deal.inventory?.unitSpecification || (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId.unitSpecification : null);
+      const sizeLabelId = spec?.sizeLabel;
+      if (sizeLabelId && sizeMap.has(String(sizeLabelId))) {
+        const lk = sizeMap.get(String(sizeLabelId));
+        const tot = parseFloat(lk.totalArea || lk.metadata?.totalArea);
+        if (tot > 0) return { area: tot, unit: lk.resultMetric || lk.metadata?.resultMetric || 'Sq.Yd' };
+      }
+
+      // 5. Compute from length x width in meters
+      if (spec && spec.length > 0 && spec.width > 0) {
+        // Dimensions in meters: length(m) * width(m) * 1.19599 = Sq.Yd
+        const sqYards = spec.length * spec.width * 1.19599;
+        if (sqYards > 0) return { area: Math.round(sqYards * 100) / 100, unit: 'Sq.Yd' };
+      }
+
+      // 6. Fallback to linked inventory (supporting both deal.inventory and populated deal.inventoryId)
+      const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
+      if (inv) {
+        if (typeof inv.area === 'number' && inv.area > 0) return { area: inv.area, unit: inv.sizeUnit || 'Sq.Ft.' };
+        if (typeof inv.size === 'number' && inv.size > 0) return { area: inv.size, unit: inv.sizeUnit || 'Sq.Ft.' };
+        if (typeof inv.size === 'object' && inv.size?.value > 0) return { area: inv.size.value, unit: inv.size.unit || inv.sizeUnit || 'Sq.Ft.' };
+        if (typeof inv.size === 'string') {
+          const sqYd = inv.size.match(/([0-9,.]+)\s*(?:sq\.?\s*yd|sqyd|yards)/i);
+          if (sqYd) return { area: parseFloat(sqYd[1].replace(/,/g, '')), unit: 'Sq.Yd' };
+          const sqFt = inv.size.match(/([0-9,.]+)\s*(?:sq\.?\s*ft|sqft|feet)/i);
+          if (sqFt) return { area: parseFloat(sqFt[1].replace(/,/g, '')), unit: 'Sq.Ft.' };
+        }
+      }
+
+      return null;
+    };
+  }, [sizeMap]);
+
+  // Main Trend Computation
+  const { trendData, activeCategories, totalDealsAnalyzed } = useMemo(() => {
     const months = {};
     const now = new Date();
     // Initialize last 12 months
@@ -97,8 +172,8 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
     }
 
     const locVolume = {}; // Track deal volume per location
+    let analyzedCount = 0;
 
-    // Helper to safely parse numbers from formatted strings
     const parseNumber = (val) => {
       if (val === null || val === undefined) return 0;
       if (typeof val === 'number') return val;
@@ -119,9 +194,9 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
 
       // 2. Filter by Category
       const categoryId = deal.category || deal.propertyType;
-      const categoryLabel = getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId) || 'Other';
+      const categoryLabel = (getLookupValue && (getLookupValue('Category', categoryId) || getLookupValue('PropertyType', categoryId))) || 'Other';
       
-      // Always exclude Agricultural for Sq.Ft/Sq.Yd metrics
+      // Exclude Agricultural for Sq.Ft/Sq.Yd metrics
       if (categoryLabel?.toLowerCase().includes('agri')) return;
 
       if (selectedCategory !== 'All' && categoryLabel !== selectedCategory) {
@@ -130,74 +205,36 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
 
       const rawPrice = trendPriceType === 'Booking' ? (deal.closedPrice || deal.price) : deal.price;
       const priceToUse = parseNumber(rawPrice);
-      
-      if (!priceToUse) return;
+      if (!priceToUse || priceToUse <= 0) return;
 
-      // 3. Resolve Area & Unit
-      const dealSize = parseNumber(deal.size);
-      const sizeId = deal.sizeConfig && typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : deal.sizeConfig;
-      const sizeLookup = sizeId ? sizes?.find(s => s.id === sizeId) : null;
-      let calcArea = sizeLookup?.totalArea ? parseNumber(sizeLookup.totalArea) : dealSize;
-      let calcUnit = sizeLookup?.resultMetric || deal.sizeUnit || (deal.size && deal.size.unit ? deal.size.unit : 'sq.ft.');
+      // 3. Resolve Area using Smart Engine
+      const areaInfo = resolveDealArea(deal);
+      if (!areaInfo || !areaInfo.area || areaInfo.area <= 0) return;
 
-      // Fallback to inventoryId size if Deal size is 0
-      if ((!calcArea || calcArea <= 0) && deal.inventoryId && typeof deal.inventoryId === 'object') {
-        const inv = deal.inventoryId;
-        const invSize = parseNumber(inv.size);
-        const invArea = parseNumber(inv.area);
-        calcArea = invArea > 0 ? invArea : invSize;
-        if (inv.sizeUnit) calcUnit = inv.sizeUnit;
-        else if (inv.size && inv.size.unit) calcUnit = inv.size.unit;
-      }
-
-      // Fallback 2: SizeLabel in unitSpecification (from Deal or Inventory)
-      if (!calcArea || calcArea <= 0) {
-        const specSizeId = deal.unitSpecification?.sizeLabel || (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId.unitSpecification?.sizeLabel : null);
-        if (specSizeId) {
-          const specSizeIdStr = String(specSizeId);
-          const specLookup = sizes?.find(s => String(s.id) === specSizeIdStr || String(s._id) === specSizeIdStr);
-          if (specLookup && specLookup.totalArea) {
-            calcArea = parseNumber(specLookup.totalArea);
-            calcUnit = specLookup.resultMetric || 'sq.ft.';
-          }
-        }
-      }
-
-      if (!calcArea || calcArea <= 0) return;
-
-      let areaInSqFt = calcArea;
-      const unitLower = String(calcUnit).toLowerCase();
-      if (unitLower.includes('sq.yd') || unitLower.includes('sq. yd') || unitLower.includes('sqyd') || unitLower.includes('sq yd')) {
-        areaInSqFt = calcArea * 9;
+      let areaInSqFt = areaInfo.area;
+      const unitLower = String(areaInfo.unit).toLowerCase();
+      if (unitLower.includes('sq.yd') || unitLower.includes('sq. yd') || unitLower.includes('sqyd') || unitLower.includes('yard')) {
+        areaInSqFt = areaInfo.area * 9;
       } else if (unitLower.includes('sq.mt') || unitLower.includes('sq. mt') || unitLower.includes('sqm') || unitLower.includes('sq mt')) {
-        areaInSqFt = calcArea * 10.7639;
+        areaInSqFt = areaInfo.area * 10.7639;
       } else if (unitLower.includes('acre')) {
-        areaInSqFt = calcArea * 43560;
+        areaInSqFt = areaInfo.area * 43560;
       }
 
-      // --- AVM: Residual Land Value Method for Built-up Properties ---
+      // 4. AVM: Residual Land Value Method for Built-up Properties
       const isBuiltUp = categoryLabel?.toLowerCase().includes('house') || categoryLabel?.toLowerCase().includes('villa') || categoryLabel?.toLowerCase().includes('floor');
       let effectiveLandPrice = priceToUse;
 
-      if (isBuiltUp && deal.inventoryId && typeof deal.inventoryId === 'object') {
-        const inv = deal.inventoryId;
+      const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
+      if (isBuiltUp && inv) {
         const builtUpArea = parseNumber(inv.builtUpArea);
-        
         if (builtUpArea > 0) {
-          // 1. Base Construction Cost Assumption (Updated for current market: ~60L-1Cr for 250 SqYd)
-          // 250 Sq.Yd plot typically yields ~1500-1800 Sq.Ft built-up.
-          // To hit 60L, rate is ~₹3500/Sq.Ft. To hit 1Cr, rate is ~₹5000/Sq.Ft.
           let baseCostPerSqFt = 3500;
-          
-          // 2. Adjust for Builtup Type (Premium finishes add significant cost)
           const builtTypeStr = (inv.builtupType || '').toLowerCase();
-          // Storey multiplier isn't directly added to per-sqft rate because builtUpArea already accounts for total size.
-          // However, multi-storey requires stronger foundation, so slight increase.
           if (builtTypeStr.includes('double') || builtTypeStr.includes('2')) baseCostPerSqFt += 200;
           if (builtTypeStr.includes('triple') || builtTypeStr.includes('3')) baseCostPerSqFt += 400;
           if (builtTypeStr.includes('premium') || builtTypeStr.includes('luxury') || builtTypeStr.includes('kothi')) baseCostPerSqFt += 1500;
 
-          // 3. Adjust for Depreciation based on Age
           const ageStr = (inv.ageOfConstruction || inv.constructionAge || '').toLowerCase();
           let ageYears = 0;
           if (ageStr.includes('1-5')) ageYears = 3;
@@ -205,15 +242,9 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
           else if (ageStr.includes('10-15')) ageYears = 12.5;
           else if (ageStr.includes('15+') || ageStr.includes('15-20') || ageStr.includes('old')) ageYears = 20;
 
-          // Depreciation: ~1.5% per year
           const depreciationMultiplier = Math.max(0.4, 1 - (ageYears * 0.015)); 
           const finalCostPerSqFt = baseCostPerSqFt * depreciationMultiplier;
-
-          // 4. Calculate Total Construction Value
           const constructionValue = builtUpArea * finalCostPerSqFt;
-
-          // 5. Extract Implied Land Value
-          // Safeguard: Ensure land value doesn't drop below 20% of total price in case of extreme builtUpArea data
           effectiveLandPrice = Math.max(priceToUse * 0.2, priceToUse - constructionValue); 
         }
       }
@@ -221,11 +252,11 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
       let pricePerSqFt = effectiveLandPrice / areaInSqFt;
       let finalPricePerUnit = trendMetricUnit === 'Sq.Yd' ? pricePerSqFt * 9 : pricePerSqFt;
 
-      // Skip extreme outliers to avoid skewing trends
-      if (pricePerSqFt < 10 || pricePerSqFt > 500000) return;
+      // Filter extreme unphysical rates
+      if (pricePerSqFt < 10 || pricePerSqFt > 1000000) return;
 
-      // 4. Resolve Location
-      let locationLabel = 'Unknown';
+      // 5. Resolve Location
+      let locationLabel = 'Kurukshetra';
       if (deal.location) {
         let resolvedLocation = deal.location;
         if (getLookupValue) {
@@ -234,7 +265,7 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
         locationLabel = typeof resolvedLocation === 'string' ? resolvedLocation.trim() : String(resolvedLocation).trim();
       }
 
-      const cd = new Date(deal.createdAt);
+      const cd = new Date(deal.createdAt || Date.now());
       const key = cd.toLocaleString('default', { month: 'short', year: '2-digit' });
       
       if (months[key]) {
@@ -246,11 +277,13 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
         months[key].locs[locationLabel].sum += finalPricePerUnit;
         months[key].locs[locationLabel].count++;
         
-        months[key].count++; // Total count for weighted average denominator
+        months[key].sum += finalPricePerUnit;
+        months[key].count++;
+        analyzedCount++;
       }
     });
 
-    // Determine Locations to plot lines
+    // Determine Locations to plot
     let plotLocations = [];
     if (selectedLocation === 'Top 5') {
       plotLocations = Object.entries(locVolume)
@@ -261,23 +294,15 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
       plotLocations = [selectedLocation];
     }
     
-    // Calculate Weighted Averages
+    // Calculate Averages and Carry-forward
     let lastOverallPrice = 0;
     const locLastPrices = {};
     plotLocations.forEach(loc => locLastPrices[loc] = 0);
 
     const data = Object.values(months).map(m => {
-      let overallSum = 0;
       const row = { month: m.month, count: m.count };
       
-      // Calculate Overall First (Using ALL locations, not just Top 5)
-      Object.entries(m.locs).forEach(([loc, locStats]) => {
-        if (locStats && locStats.count > 0) {
-          overallSum += locStats.sum; // sum of (price * count) for that loc
-        }
-      });
-      
-      let overallAvg = m.count > 0 ? Math.round(overallSum / m.count) : null;
+      let overallAvg = m.count > 0 ? Math.round(m.sum / m.count) : null;
       if (overallAvg !== null) {
         lastOverallPrice = overallAvg;
       } else if (lastOverallPrice > 0) {
@@ -285,7 +310,6 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
       }
       row.Overall = overallAvg;
 
-      // Calculate selected Location series
       plotLocations.forEach(loc => {
         const locStats = m.locs[loc];
         let locAvg = null;
@@ -301,121 +325,233 @@ const MarketPriceTrendChart = ({ deals, sizes, getLookupValue, isDark }) => {
       return row;
     });
 
-    return { trendData: data, activeCategories: plotLocations };
-  }, [deals, sizes, trendMetricUnit, trendPriceType, selectedCategory, selectedLocation, getLookupValue]);
+    return { 
+      trendData: data, 
+      activeCategories: plotLocations,
+      totalDealsAnalyzed: analyzedCount 
+    };
+  }, [deals, resolveDealArea, trendMetricUnit, trendPriceType, selectedCategory, selectedLocation, getLookupValue]);
 
-  const tickColor = isDark ? '#64748b' : '#94a3b8';
-  const gridStroke = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const tickColor = isDark ? '#94a3b8' : '#64748b';
+  const gridStroke = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const hasValidPoints = trendData.some(d => d.Overall > 0);
+
+  // Self-contained Enterprise Button Style
+  const btnStyle = (active) => ({
+    padding: '4px 10px',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    borderRadius: '8px',
+    cursor: 'pointer',
+    border: active ? '1px solid #6366f1' : `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#cbd5e1'}`,
+    background: active ? '#6366f1' : (isDark ? 'rgba(255,255,255,0.05)' : '#ffffff'),
+    color: active ? '#ffffff' : (isDark ? '#e2e8f0' : '#475569'),
+    transition: 'all 0.15s ease'
+  });
+
+  const selectStyle = {
+    padding: '4px 10px',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    borderRadius: '8px',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#cbd5e1'}`,
+    background: isDark ? '#1e293b' : '#ffffff',
+    color: isDark ? '#e2e8f0' : '#334155',
+    cursor: 'pointer',
+    maxWidth: '150px'
+  };
 
   return (
-    <div className="chart-card">
-      <div className="chart-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="chart-card-title"><i className="fas fa-chart-line" /> Market Price by Location (Per {trendMetricUnit})</div>
-        <div className="analytics-filters" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          
+    <div style={{
+      background: isDark ? 'rgba(30, 41, 59, 0.6)' : '#ffffff',
+      border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+      borderRadius: '20px',
+      padding: '22px 24px',
+      boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.03)',
+      backdropFilter: 'blur(12px)',
+      minHeight: '410px',
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'relative'
+    }}>
+      {/* Header with Title & Enterprise Filters */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '18px',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '10px',
+            background: isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)',
+            color: '#6366f1',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1rem'
+          }}>
+            <i className="fas fa-chart-line" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+              Market Price by Location (Per {trendMetricUnit})
+            </div>
+            <div style={{ fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+              {totalDealsAnalyzed} deals indexed across micro-markets
+            </div>
+          </div>
+        </div>
+
+        {/* Filter Controls */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Category Filter */}
-          <div style={{ marginRight: '8px', display: 'flex', gap: '4px' }}>
-            <select 
-              className="an-btn outline"
-              style={{ padding: '2px 8px', fontSize: '0.7rem', appearance: 'auto', maxWidth: '140px' }}
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+          <select 
+            style={selectStyle}
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="All">All Categories</option>
+            {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+          
+          {/* Location Filter */}
+          <select 
+            style={selectStyle}
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+          >
+            <option value="Top 5">Top 5 Locations</option>
+            {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+          </select>
+
+          {/* Pricing Type Toggle */}
+          <div style={{ display: 'flex', gap: '3px', borderRight: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`, paddingRight: '8px' }}>
+            <button 
+              style={btnStyle(trendPriceType === 'Expected')} 
+              onClick={() => setTrendPriceType('Expected')}
             >
-              <option value="All">All Categories</option>
-              {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
-            
-            <select 
-              className="an-btn outline"
-              style={{ padding: '2px 8px', fontSize: '0.7rem', appearance: 'auto', maxWidth: '140px' }}
-              value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
+              Expected
+            </button>
+            <button 
+              style={btnStyle(trendPriceType === 'Booking')} 
+              onClick={() => setTrendPriceType('Booking')}
             >
-              <option value="Top 5">Top 5 Locations</option>
-              {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-            </select>
+              Booking
+            </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '4px', borderRight: '1px solid var(--an-border)', paddingRight: '8px' }}>
+          {/* Unit Toggle */}
+          <div style={{ display: 'flex', gap: '3px' }}>
             <button 
-              className={`an-btn ${trendPriceType === 'Expected' ? 'primary' : 'outline'}`} 
-              onClick={() => setTrendPriceType('Expected')}
-              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-            >Expected</button>
-            <button 
-              className={`an-btn ${trendPriceType === 'Booking' ? 'primary' : 'outline'}`} 
-              onClick={() => setTrendPriceType('Booking')}
-              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-            >Booking</button>
-          </div>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button 
-              className={`an-btn ${trendMetricUnit === 'Sq.Ft' ? 'primary' : 'outline'}`} 
+              style={btnStyle(trendMetricUnit === 'Sq.Ft')} 
               onClick={() => setTrendMetricUnit('Sq.Ft')}
-              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-            >Sq.Ft</button>
+            >
+              Sq.Ft
+            </button>
             <button 
-              className={`an-btn ${trendMetricUnit === 'Sq.Yd' ? 'primary' : 'outline'}`} 
+              style={btnStyle(trendMetricUnit === 'Sq.Yd')} 
               onClick={() => setTrendMetricUnit('Sq.Yd')}
-              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-            >Sq.Yd</button>
+            >
+              Sq.Yd
+            </button>
           </div>
         </div>
       </div>
       
-      <ResponsiveContainer width="99%" height="100%">
-        <LineChart data={trendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
-              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.2} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-          <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis 
-            tick={{ fill: tickColor, fontSize: 10 }} 
-            axisLine={false} 
-            tickLine={false}
-            domain={['auto', 'auto']}
-            tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`}
-          />
-          <Tooltip content={<PriceTrendTooltip isDark={isDark} trendMetricUnit={trendMetricUnit} activeCategories={activeCategories} />} />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: '0.75rem', paddingTop: '10px' }} />
-          
-          {/* Render active categories */}
-          {activeCategories.map((loc, idx) => {
-            const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e'];
-            return (
+      {/* Chart Canvas with Guaranteed Non-Zero Height */}
+      <div style={{ width: '100%', height: '320px', minHeight: '320px', flex: 1, position: 'relative' }}>
+        {hasValidPoints ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={trendData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} />
+              <YAxis 
+                tick={{ fill: tickColor, fontSize: 10, fontWeight: 600 }} 
+                axisLine={false} 
+                tickLine={false}
+                domain={['auto', 'auto']}
+                tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`}
+              />
+              <Tooltip content={<PriceTrendTooltip isDark={isDark} trendMetricUnit={trendMetricUnit} activeCategories={activeCategories} />} />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: '0.75rem', paddingTop: '10px' }} />
+              
+              {/* Render active location lines */}
+              {activeCategories.map((loc, idx) => {
+                const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e'];
+                return (
+                  <Line 
+                    key={loc}
+                    type="monotone" 
+                    dataKey={loc} 
+                    name={loc}
+                    stroke={colors[idx % colors.length]} 
+                    strokeWidth={2} 
+                    dot={{ r: 3, fill: colors[idx % colors.length], strokeWidth: 0 }}
+                    activeDot={{ r: 5, fill: '#ffffff', stroke: colors[idx % colors.length], strokeWidth: 2 }}
+                    connectNulls={true}
+                  />
+                );
+              })}
+
+              {/* Bold Overall Trend */}
               <Line 
-                key={loc}
                 type="monotone" 
-                dataKey={loc} 
-                name={loc}
-                stroke={colors[idx % colors.length]} 
-                strokeWidth={2} 
-                dot={{ r: 3, fill: colors[idx % colors.length], strokeWidth: 0 }}
-                activeDot={{ r: 5, fill: '#ffffff', stroke: colors[idx % colors.length], strokeWidth: 2 }}
+                dataKey="Overall" 
+                name="Overall Index"
+                stroke="#f59e0b" 
+                strokeWidth={3.5} 
+                dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: '#ffffff', stroke: '#f59e0b', strokeWidth: 2 }}
                 connectNulls={true}
               />
-            );
-          })}
-
-          {/* Bold Overall Trend */}
-          <Line 
-            type="monotone" 
-            dataKey="Overall" 
-            name={`Overall Index`}
-            stroke="#f59e0b" 
-            strokeWidth={4} 
-            dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
-            activeDot={{ r: 6, fill: '#ffffff', stroke: '#f59e0b', strokeWidth: 2 }}
-            connectNulls={true}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: isDark ? '#94a3b8' : '#64748b',
+            background: isDark ? 'rgba(15, 23, 42, 0.4)' : '#f8fafc',
+            borderRadius: '12px',
+            border: `1px dashed ${isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'}`,
+            padding: '24px'
+          }}>
+            <i className="fas fa-chart-line" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.4 }} />
+            <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: '4px' }}>
+              No price benchmark data for {selectedCategory !== 'All' ? selectedCategory : 'selected filter'}
+            </div>
+            <div style={{ fontSize: '0.74rem', maxWidth: '380px', textAlign: 'center', lineHeight: 1.4 }}>
+              Switch to "All Categories" or click "Expected" to inspect broader market listings.
+            </div>
+            <button 
+              onClick={() => { setSelectedCategory('All'); setSelectedLocation('Top 5'); setTrendPriceType('Expected'); }}
+              style={{
+                marginTop: '12px',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                background: '#6366f1',
+                color: '#fff',
+                border: 'none',
+                fontWeight: 700,
+                fontSize: '0.72rem',
+                cursor: 'pointer'
+              }}
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
-export default MarketPriceTrendChart;
+export default React.memo(MarketPriceTrendChart);
