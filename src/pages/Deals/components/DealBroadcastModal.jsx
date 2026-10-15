@@ -183,8 +183,10 @@ function interpolateTemplateString(rawText, { isMultiDeal, singleMeta, singleDea
     }
 
     const employeeName = getSafeString(
+        assignedUser?.fullName ||
         assignedUser?.name ||
         (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
+        currentUser?.fullName ||
         currentUser?.name ||
         (currentUser?.firstName ? `${currentUser.firstName} ${currentUser.lastName || ''}`.trim() : ''),
         'Bharat Properties'
@@ -1057,7 +1059,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                     if (idx === '2') return resolveSource('property_list_default', idx);
                     if (idx === '3') return getSafeString(meta.price, 'Price on Request');
                     if (idx === '4') return getSafeString(meta.location, 'Kurukshetra');
-                    if (idx === '5') return getSafeString(meta.features?.[0], 'Prime Specs');
+                    if (idx === '5') return getSafeString(meta.features?.[0], dealFullSpecs || '');
                     if (idx === '6') return employeeName || 'Bharat Properties';
                     if (idx === '7') return employeeMobile || '+91 9991333570';
                     const cleanKey = String(source || idx).trim().toLowerCase().replace(/[^a-z0-9]/g, '');

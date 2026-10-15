@@ -217,11 +217,11 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         propertyListDefault = propertyListDefault.trim();
         propertyListDetailed = propertyListDetailed.trim();
     } else {
-        propertyListDefault = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}\n📏 Size: ${sizeVal || 'Prime Specs'}\n💰 Price: ${priceVal || 'Price on Request'}`;
-        propertyListDetailed = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}\n📏 Size: ${sizeVal || 'Prime Specs'}\n💰 Price: ${priceVal || 'Price on Request'}\n✨ Status: Verified & Ready for Inspection`;
+        propertyListDefault = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}${sizeVal ? `\n📏 Size: ${sizeVal}` : ''}\n💰 Price: ${priceVal || 'Price on Request'}`;
+        propertyListDetailed = `1️⃣ 🏢 *${projectNameVal || 'Verified Listing'}*\n📍 Location: ${locationResolved || 'Kurukshetra'}${sizeVal ? `\n📏 Size: ${sizeVal}` : ''}\n💰 Price: ${priceVal || 'Price on Request'}\n✨ Status: Verified & Ready for Inspection`;
     }
 
-    const agentName = recipient?.assignedTo?.name || recipient?.owner || recipient?.agentName || currentUser?.name || 'Bharat Properties';
+    const agentName = recipient?.assignedTo?.fullName || recipient?.assignedTo?.name || recipient?.owner || recipient?.agentName || currentUser?.fullName || currentUser?.name || 'Bharat Properties';
     const agentMobile = recipient?.assignment?.assignedTo?.mobile || recipient?.assignedTo?.mobile || recipient?.ownerMobile || recipient?.agentMobile || currentUser?.mobile || currentUser?.phone || '+91 9991333570';
     const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
 
@@ -410,7 +410,7 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
                         posVal = unifiedContext['property_location'] || 'Sector 3, Kurukshetra';
                         break;
                     case 5:
-                        posVal = unifiedContext['property_size'] || 'Prime Specs';
+                        posVal = unifiedContext['property_size'] || unifiedContext['size'] || '';
                         break;
                     case 6:
                         posVal = unifiedContext['agent_name'] || 'Bharat Properties';

@@ -23,13 +23,13 @@ export const clientInterpolateTemplate = (rawText, recipient = {}, properties = 
     const propLoc = firstProp.location || firstProp.city || firstProp.sector || recipient?.location || 'Sector 3, Kurukshetra';
     const rawPrice = firstProp.price || firstProp.demandPrice || firstProp.dealValue || firstProp.expectedAmount || recipient?.budget;
     const propPrice = rawPrice ? (String(rawPrice).startsWith('₹') ? String(rawPrice) : `₹${Number(rawPrice).toLocaleString('en-IN')}`) : 'Attractive Price';
-    const propSize = firstProp.size || firstProp.builtupArea || firstProp.area || 'Prime Specs';
+    const propSize = firstProp.sizeConfig || firstProp.size || firstProp.builtupArea || firstProp.area || '';
 
     const rName = recipient.name || recipient.fullName || recipient.clientName || recipient.leadName || recipient.contactName || 'Valued Client';
     const rFirstName = recipient.firstName || (rName !== 'Valued Client' ? rName.split(' ')[0] : 'Valued Client');
     const rPhone = recipient.phone || recipient.mobile || '';
 
-    const agentName = currentUser?.name || 'Bharat Properties';
+    const agentName = currentUser?.fullName || currentUser?.name || 'Bharat Properties';
     const agentMobile = currentUser?.phone || currentUser?.mobile || '+91 9991333570';
 
     let propertyList = '';

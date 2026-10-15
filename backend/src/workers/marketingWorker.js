@@ -654,17 +654,20 @@ if (name === 'bna-broadcast') {
         // 1. Resolve Deal Document with full population
         let primaryDeal = data.deal;
         let dealsList = data.deals;
-        if (!primaryDeal && dealId) {
+        if ((!primaryDeal || !primaryDeal.assignedTo?.fullName) && dealId) {
             try {
                 const DealModel = mongoose.model('Deal');
-                primaryDeal = await DealModel.findById(dealId)
+                const freshDeal = await DealModel.findById(dealId)
                     .populate('inventoryId')
                     .populate('owner')
                     .populate('projectId')
                     .populate('partyStructure.owner')
                     .populate('assignedTo')
                     .lean();
-                dealsList = [primaryDeal];
+                if (freshDeal) {
+                    primaryDeal = { ...freshDeal, ...primaryDeal, assignedTo: freshDeal.assignedTo || primaryDeal?.assignedTo, inventoryId: freshDeal.inventoryId || primaryDeal?.inventoryId };
+                    dealsList = [primaryDeal];
+                }
             } catch (e) {
                 await job.log(`Deal populate warning: ${e.message}`);
             }
@@ -760,7 +763,7 @@ if (name === 'bna-broadcast') {
                 deal: primaryDeal,
                 deals: dealsList || (primaryDeal ? [primaryDeal] : []),
                 recipient,
-                currentUser: { name: performedBy },
+                currentUser: { fullName: performedBy, name: performedBy },
                 meta
             });
 

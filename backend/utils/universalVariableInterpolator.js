@@ -107,12 +107,13 @@ export function formatSize(sizeObjOrStr, sizeTypeStr = '', defaultVal = '') {
 
     let res = '';
     if (typeof sizeObjOrStr === 'object' && sizeObjOrStr !== null) {
-        const val = sizeObjOrStr.value || sizeObjOrStr.size || sizeObjOrStr.area;
+        const val = sizeObjOrStr.value !== undefined ? sizeObjOrStr.value : (sizeObjOrStr.size || sizeObjOrStr.area);
         let unit = sizeObjOrStr.unit || sizeObjOrStr.sizeUnit || 'Sq.Yd.';
         unit = String(unit).replace(/\s*\(\s*sq\.?\s*yd\.?\s*\)/gi, '').trim();
-        if (val) res = `${val} ${unit}`.trim();
+        if (val && Number(val) > 0) res = `${val} ${unit}`.trim();
     } else if (sizeObjOrStr && String(sizeObjOrStr).trim()) {
-        res = String(sizeObjOrStr).trim();
+        const s = String(sizeObjOrStr).trim();
+        if (s !== '0' && !s.startsWith('0 ')) res = s;
     }
 
     const cleanSizeType = String(sizeTypeStr || '').trim();
@@ -188,12 +189,18 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
         primaryDeal.unitSpecification?.sizeLabel || 
         inventory.unitSpecification?.sizeLabel || 
         primaryDeal.sizeLabel || 
-        inventory.sizeLabel, 
+        inventory.sizeLabel ||
+        primaryDeal.sizeConfig ||
+        inventory.sizeConfig ||
+        primarySpec.sizeConfig ||
+        invSpec.sizeConfig ||
+        primaryDeal.unitSpecification?.size ||
+        inventory.sizeId, 
         ''
     );
 
     // 2. Resolve Size & Specs
-    const formattedSize = formatSize(primaryDeal.size || inventory.size, rawSizeType, 'Prime Specs');
+    const formattedSize = formatSize(primaryDeal.size || inventory.size, rawSizeType, rawSizeType || primaryDeal.propertyType || '');
 
     // 3. Resolve Project & Title
     const projectName = primaryDeal.projectName || inventory.projectName || project.name || primaryDeal.title || meta.title || 'Verified Property';
@@ -252,19 +259,21 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     } else if (primaryDeal.assignedTo && /^[0-9a-fA-F]{24}$/.test(String(primaryDeal.assignedTo))) {
         try {
             const User = mongoose.model('User');
-            assignedUser = await User.findById(primaryDeal.assignedTo).select('name firstName lastName mobile phone email team').lean();
+            assignedUser = await User.findById(primaryDeal.assignedTo).select('fullName name firstName lastName mobile phone email team').lean();
         } catch (e) {
             // ignore
         }
     }
-    if (!assignedUser && currentUser && (currentUser.name || currentUser.mobile)) {
+    if (!assignedUser && currentUser && (currentUser.fullName || currentUser.name || currentUser.mobile)) {
         assignedUser = currentUser;
     }
 
     const agentName = (
+        assignedUser?.fullName ||
         assignedUser?.name ||
         (assignedUser?.firstName ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim() : '') ||
-        currentUser.name ||
+        currentUser?.fullName ||
+        currentUser?.name ||
         'Bharat Properties'
     );
     const agentMobile = (
@@ -322,7 +331,7 @@ export async function buildUniversalContext({ deal, deals = [], recipient = {}, 
     register(['block', 'block_name', 'blockname', 'tower'], block);
     register(['subCategory', 'subcategory', 'sub_category', 'property_subcategory', 'property_sub_category'], subCategory);
     register(['category', 'property_category', 'propertycategory', 'propertyType', 'property_type', 'propertytype'], category);
-    register(['sizeType', 'sizetype', 'size_type', 'size_label', 'sizelabel', 'size', 'property_size', 'propertysize', 'specs', 'property_specs'], formattedSize);
+    register(['sizeType', 'sizetype', 'size_type', 'size_label', 'sizelabel', 'sizeLabel', 'sizeConfig', 'sizeconfig', 'size_config', 'size', 'property_size', 'propertysize', 'specs', 'property_specs'], formattedSize || rawSizeType);
     register(['direction', 'property_direction', 'propertydirection', 'orientation'], direction);
     register(['roadWidth', 'roadwidth', 'road_width', 'road'], roadWidth);
     register(['facing', 'property_facing', 'propertyfacing', 'corner'], facing);

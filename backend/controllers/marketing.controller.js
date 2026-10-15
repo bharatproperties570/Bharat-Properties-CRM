@@ -943,7 +943,7 @@ export const broadcastToBrokerGroup = async (req, res) => {
             smsTemplate: smsTemplate || null,
             rcsTemplate: rcsTemplate || null,
             emailTemplate: emailTemplate || null,
-            performedBy: req.user?.firstName || 'System'
+            performedBy: req.user?.fullName || req.user?.name || (req.user?.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : '') || 'Bharat Properties'
         };
 
         if (queue && isRedisOnline) {
@@ -1125,17 +1125,20 @@ async function _dispatchBNADirectly(data) {
     // 1. Resolve Deal Document with full population
     let primaryDeal = data.deal;
     let dealsList = data.deals;
-    if (!primaryDeal && dealId) {
+    if ((!primaryDeal || !primaryDeal.assignedTo?.fullName) && dealId) {
         try {
             const DealModel = mongoose.model('Deal');
-            primaryDeal = await DealModel.findById(dealId)
+            const freshDeal = await DealModel.findById(dealId)
                 .populate('inventoryId')
                 .populate('owner')
                 .populate('projectId')
                 .populate('partyStructure.owner')
                 .populate('assignedTo')
                 .lean();
-            dealsList = [primaryDeal];
+            if (freshDeal) {
+                primaryDeal = { ...freshDeal, ...primaryDeal, assignedTo: freshDeal.assignedTo || primaryDeal?.assignedTo, inventoryId: freshDeal.inventoryId || primaryDeal?.inventoryId };
+                dealsList = [primaryDeal];
+            }
         } catch (e) {
             console.warn('[BNA_DIRECT] Deal populate error:', e.message);
         }
@@ -1246,7 +1249,7 @@ async function _dispatchBNADirectly(data) {
             deal: primaryDeal,
             deals: dealsList || (primaryDeal ? [primaryDeal] : []),
             recipient,
-            currentUser: { name: performedBy },
+            currentUser: { fullName: performedBy, name: performedBy },
             meta
         });
 
