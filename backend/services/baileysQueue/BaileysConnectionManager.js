@@ -13,6 +13,83 @@ const reconnectTimers = new Map();
 const groupSubjectCache = new Map();
 const instanceId = `${process.pid}_${Math.random().toString(36).substring(2, 9)}`;
 const activeHeartbeats = new Map();
+const lidPhoneCache = new Map();
+
+/**
+ * Resolves a WhatsApp JID (phone, group, or LID) into a clean, normalized identifier.
+ * If JID is a group (@g.us), returns the group JID.
+ * If JID is an LID (@lid), looks up the reverse mapping in Baileys auth keys / database to find the actual phone number.
+ * If JID is a standard phone (@s.whatsapp.net), strips the suffix and normalizes.
+ */
+async function resolveJidToPhone(jid, integrationId) {
+    if (!jid) return { cleanPhone: '', targetPhone: '', rawPhone: '', isLid: false };
+
+    const isGroup = jid.endsWith('@g.us');
+    if (isGroup) {
+        const raw = jid.replace('@g.us', '');
+        return { cleanPhone: jid, targetPhone: jid, rawPhone: raw, isLid: false };
+    }
+
+    const isLid = jid.endsWith('@lid') || jid.includes('@lid');
+    if (isLid) {
+        const lidNum = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+        
+        // 1. Check in-memory cache
+        if (lidPhoneCache.has(lidNum)) {
+            const cachedPhone = lidPhoneCache.get(lidNum);
+            return { cleanPhone: cachedPhone, targetPhone: cachedPhone, rawPhone: cachedPhone, isLid: true };
+        }
+
+        try {
+            const BaileysAuth = (await import('../../models/BaileysAuth.js')).default;
+            // 2. Query MongoDB reverse LID mapping (Baileys stores fileId: lid-mapping-<lid>_reverse)
+            const reverseDoc = await BaileysAuth.findOne({
+                sessionId: String(integrationId),
+                fileId: `lid-mapping-${lidNum}_reverse`
+            }).lean();
+
+            if (reverseDoc?.data) {
+                let parsed = reverseDoc.data;
+                try {
+                    parsed = JSON.parse(reverseDoc.data);
+                } catch (e) {}
+                const phoneDigits = String(parsed).replace(/\D/g, '');
+                if (phoneDigits) {
+                    const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
+                    lidPhoneCache.set(lidNum, cleanPhone);
+                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                }
+            }
+
+            // 3. Fallback: Search forward LID mapping
+            const forwardDoc = await BaileysAuth.findOne({
+                sessionId: String(integrationId),
+                fileId: { $regex: '^lid-mapping-\\d+$' },
+                data: new RegExp(lidNum)
+            }).lean();
+
+            if (forwardDoc?.fileId) {
+                const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
+                if (phoneDigits) {
+                    const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
+                    lidPhoneCache.set(lidNum, cleanPhone);
+                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                }
+            }
+        } catch (err) {
+            console.error('[BaileysConnectionManager] Error resolving LID:', err.message);
+        }
+
+        // If resolution completely failed, keep as lid identifier rather than corrupting into fake phone
+        console.warn(`[BaileysConnectionManager] Could not resolve LID mapping for ${jid}`);
+        return { cleanPhone: jid, targetPhone: jid, rawPhone: jid, isLid: true };
+    }
+
+    // Standard phone JID (@s.whatsapp.net or raw)
+    const rawPhone = jid.replace(/@s\.whatsapp\.net/, '').split(':')[0];
+    const cleanPhone = normalizePhone(rawPhone) || rawPhone;
+    return { cleanPhone, targetPhone: cleanPhone, rawPhone, isLid: false };
+}
 
 /**
  * Universal text and media unwrapper for Baileys messages
@@ -341,9 +418,8 @@ export const BaileysConnectionManager = {
                 if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
                 const isGroup = remoteJid.endsWith('@g.us');
-                const rawPhone = remoteJid.replace(/@s\.whatsapp\.net|@g\.us/, '');
-                const cleanPhone = normalizePhone(rawPhone) || rawPhone;
-                const targetPhone = isGroup ? remoteJid : cleanPhone;
+                // Enterprise resolution: automatically resolves WhatsApp LIDs (@lid) to actual mobile numbers
+                const { cleanPhone, targetPhone, rawPhone, isLid } = await resolveJidToPhone(remoteJid, integrationId);
 
                 // Extract message text or media description
                 const messageText = extractBaileysMessageContent(msg.message);
@@ -363,12 +439,20 @@ export const BaileysConnectionManager = {
                         } catch (e) {}
                     }
 
-                    // Clean participant identifier (strips device suffix :1, :2)
+                    // Clean participant identifier (strips device suffix :1, :2 and resolves LID if applicable)
                     let participantRaw = '';
                     if (msg.key.participant) {
                         participantRaw = msg.key.participant.split('@')[0].split(':')[0];
                     }
-                    const participantId = participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone;
+                    let participantId = cleanPhone;
+                    if (msg.key.participant) {
+                        if (msg.key.participant.includes('@lid')) {
+                            const resolvedPart = await resolveJidToPhone(msg.key.participant, integrationId);
+                            participantId = resolvedPart.cleanPhone || participantRaw;
+                        } else {
+                            participantId = participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone;
+                        }
+                    }
 
                     // Resolve group subject / title
                     let groupSubject = isGroup ? groupSubjectCache.get(remoteJid) : null;
@@ -437,7 +521,8 @@ export const BaileysConnectionManager = {
                                 groupName: groupDisplay,
                                 participant: isGroup ? participantId : null,
                                 senderName: resolvedSenderName,
-                                whatsappIntegrationId: integrationId
+                                whatsappIntegrationId: integrationId,
+                                ...(isLid ? { lid: remoteJid } : {})
                             },
                             participants: [
                                 { 
@@ -467,7 +552,8 @@ export const BaileysConnectionManager = {
                                         groupJid: isGroup ? remoteJid : null,
                                         groupName: groupDisplay,
                                         senderName: resolvedSenderName,
-                                        participant: isGroup ? participantId : null
+                                        participant: isGroup ? participantId : null,
+                                        ...(isLid ? { lid: remoteJid } : {})
                                     }
                                 }
                             },
@@ -481,6 +567,7 @@ export const BaileysConnectionManager = {
                                 'metadata.isGroup': isGroup,
                                 'metadata.groupName': groupDisplay,
                                 'metadata.groupJid': isGroup ? remoteJid : null,
+                                ...(isLid ? { 'metadata.lid': remoteJid } : {}),
                                 channel: 'whatsapp',
                                 status: 'active'
                             },
@@ -493,13 +580,22 @@ export const BaileysConnectionManager = {
                             updateOps.$inc = { 'metadata.unreadCount': 1 };
                         }
 
+                        const queryFilters = [
+                            { phoneNumber: targetPhone }
+                        ];
+                        if (isGroup) {
+                            queryFilters.push({ 'metadata.groupJid': remoteJid });
+                        } else {
+                            if (rawPhone && rawPhone !== targetPhone) {
+                                queryFilters.push({ phoneNumber: rawPhone });
+                            }
+                            if (isLid) {
+                                queryFilters.push({ 'metadata.lid': remoteJid });
+                            }
+                        }
+
                         await Conversation.findOneAndUpdate(
-                            { 
-                                $or: [
-                                    { phoneNumber: targetPhone },
-                                    ...(isGroup ? [{ 'metadata.groupJid': remoteJid }] : [{ phoneNumber: rawPhone }])
-                                ]
-                            },
+                            { $or: queryFilters },
                             updateOps,
                             { upsert: true }
                         );

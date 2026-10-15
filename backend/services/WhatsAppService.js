@@ -274,7 +274,7 @@ class WhatsAppService {
             }
 
             let jid = String(mobile || '').trim();
-            if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us')) {
+            if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us') && !jid.includes('@lid')) {
                 const normalized = this._normalizeTarget(jid);
                 if (!normalized) {
                     return { success: false, error: 'Invalid phone number format for WhatsApp', provider: 'baileys' };

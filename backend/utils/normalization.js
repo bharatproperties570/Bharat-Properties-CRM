@@ -13,7 +13,7 @@
 export const normalizePhone = (phone) => {
     if (!phone) return '';
     const phoneStr = String(phone).trim();
-    if (phoneStr.includes('@g.us') || phoneStr.includes('@s.whatsapp.net')) {
+    if (phoneStr.includes('@g.us') || phoneStr.includes('@s.whatsapp.net') || phoneStr.includes('@lid')) {
         return phoneStr;
     }
     
