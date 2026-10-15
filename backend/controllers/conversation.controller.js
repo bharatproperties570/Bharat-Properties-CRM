@@ -16,7 +16,7 @@ const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfi
     }
     
     // 1. Fetch IDs of active conversations
-    const convos = await Conversation.find(baseQuery, 'lead contact').lean();
+    const convos = await Conversation.find(baseQuery, 'lead contact isGroup phoneNumber').lean();
     const leadIds = convos.map(c => c.lead).filter(Boolean);
     const contactIds = convos.map(c => c.contact).filter(Boolean);
     
@@ -34,18 +34,23 @@ const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfi
         allowedContactIds = allowedContacts.map(c => c._id);
     }
     
-    // 3. Final secure query
+    // 3. Final secure query:
+    // - Enforces strict RBAC on conversations linked to Leads or Contacts
+    // - Unassigned chats and WhatsApp groups belong to shared company channels and are visible to team members
+    const visibilityOrConditions = [
+        ...(allowedLeadIds.length > 0 ? [{ lead: { $in: allowedLeadIds } }] : []),
+        ...(allowedContactIds.length > 0 ? [{ contact: { $in: allowedContactIds } }] : []),
+        { isGroup: true },
+        { lead: null, contact: null },
+        { lead: { $exists: false }, contact: { $exists: false } },
+        { lead: null, contact: { $exists: false } },
+        { lead: { $exists: false }, contact: null }
+    ];
+
     const secureQuery = {
         ...baseQuery,
-        $or: [
-            { lead: { $in: allowedLeadIds } },
-            { contact: { $in: allowedContactIds } }
-        ]
+        $or: visibilityOrConditions
     };
-    
-    if (allowedLeadIds.length === 0 && allowedContactIds.length === 0) {
-        return [];
-    }
     
     let q = Conversation.find(secureQuery);
     for (const p of populateConfigs) q = q.populate(p.path, p.select);

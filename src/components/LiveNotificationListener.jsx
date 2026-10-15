@@ -8,10 +8,10 @@ const LiveNotificationListener = ({ onNavigate }) => {
             if (!newNotifications || !Array.isArray(newNotifications)) return;
 
             newNotifications.forEach(notif => {
-                // Focus specifically on WhatsApp Flow feedback for the futuristic toast
-                // or any other critical real-time notification
+                if (!notif) return;
+
+                // 1. Flow Feedback Toast
                 if (notif.title && notif.title.includes('Flow Feedback Received')) {
-                    
                     toast.custom((t) => (
                         <div
                             onClick={() => {
@@ -55,7 +55,6 @@ const LiveNotificationListener = ({ onNavigate }) => {
                                     Dismiss
                                 </button>
                             </div>
-                            {/* Futuristic glowing effect overlay */}
                             <div className="absolute inset-0 pointer-events-none" style={{
                                 background: 'linear-gradient(90deg, rgba(16,185,129,0) 0%, rgba(16,185,129,0.05) 50%, rgba(16,185,129,0) 100%)',
                                 animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
@@ -64,6 +63,70 @@ const LiveNotificationListener = ({ onNavigate }) => {
                     ), {
                         duration: 8000,
                         position: 'top-right',
+                    });
+                } 
+                // 2. Incoming WhatsApp Message Alert
+                else if (notif.type === 'messaging' || notif.type === 'whatsapp' || (notif.title && notif.title.includes('WhatsApp'))) {
+                    const toastKey = `wa_msg_${notif._id || notif.title}_${notif.message}`;
+                    if (!window.__bp_toasted_wa) window.__bp_toasted_wa = new Set();
+                    if (window.__bp_toasted_wa.has(toastKey)) return;
+                    window.__bp_toasted_wa.add(toastKey);
+                    if (window.__bp_toasted_wa.size > 200) {
+                        window.__bp_toasted_wa = new Set(Array.from(window.__bp_toasted_wa).slice(-100));
+                    }
+
+                    const isGroup = notif.title?.toLowerCase().includes('group') || notif.link?.includes('@g.us');
+                    const cleanTitle = notif.title ? notif.title.replace(/^💬\s*WhatsApp from\s*/i, '') : 'New Message';
+
+                    toast.custom((t) => (
+                        <div
+                            onClick={() => {
+                                toast.dismiss(t.id);
+                                if (notif.link && onNavigate) {
+                                    onNavigate(notif.link.replace(/^\//, ''));
+                                } else if (onNavigate) {
+                                    onNavigate('communication');
+                                }
+                            }}
+                            style={{
+                                maxWidth: '380px',
+                                width: '100%',
+                                background: '#fff',
+                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                                borderRadius: '14px',
+                                pointerEvents: 'auto',
+                                display: 'flex',
+                                padding: '14px 16px',
+                                border: '1px solid #e2e8f0',
+                                borderLeft: '6px solid #25D366',
+                                cursor: 'pointer',
+                                transition: 'all 0.25s ease',
+                                transform: t.visible ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.95)',
+                                opacity: t.visible ? 1 : 0
+                            }}
+                        >
+                            <div style={{ marginRight: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#dcf8c6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#128C7E', fontSize: '20px', flexShrink: 0 }}>
+                                    <i className={isGroup ? "fas fa-users" : "fab fa-whatsapp"}></i>
+                                </div>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }} title={cleanTitle}>
+                                        {cleanTitle}
+                                    </h4>
+                                    <span style={{ fontSize: '0.68rem', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '10px', fontWeight: 700, flexShrink: 0, marginLeft: '6px' }}>
+                                        WhatsApp
+                                    </span>
+                                </div>
+                                <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '260px' }}>
+                                    {notif.message}
+                                </p>
+                            </div>
+                        </div>
+                    ), {
+                        duration: 8000,
+                        position: 'top-right'
                     });
                 }
             });

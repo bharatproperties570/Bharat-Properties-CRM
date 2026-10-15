@@ -86,10 +86,13 @@ const WhatsAppNotificationPoller = ({ onNavigate }) => {
 
                         // If we haven't notified for this specific conversation's unread count yet
                         const cacheKey = `${convo._id}_${convo.metadata?.unreadCount || 1}`;
+                        const toastDedupeKey = `wa_msg_${convo._id}_${lastMsgObj.content || ''}`;
                         
-                        if (!notifiedCacheRef.current.has(cacheKey)) {
+                        if (!notifiedCacheRef.current.has(cacheKey) && (!window.__bp_toasted_wa || !window.__bp_toasted_wa.has(toastDedupeKey))) {
                             notifiedCacheRef.current.add(cacheKey);
                             saveStoredCache(notifiedCacheRef.current);
+                            if (!window.__bp_toasted_wa) window.__bp_toasted_wa = new Set();
+                            window.__bp_toasted_wa.add(toastDedupeKey);
 
                             // Detect WhatsApp Group
                             const isGroup = Boolean(
@@ -140,7 +143,11 @@ const WhatsAppNotificationPoller = ({ onNavigate }) => {
                                     onClick={() => {
                                         toast.dismiss(t.id);
                                         api.patch(`conversations/${convo._id}/read`).catch(() => {});
-                                        if (onNavigate) onNavigate('communication'); // Navigate to Omnichannel Inbox
+                                        if (onNavigate) {
+                                            const targetPhone = convo.phoneNumber || '';
+                                            const targetUrl = targetPhone ? `communication?channel=WhatsApp_Web&selected=${encodeURIComponent(targetPhone)}` : 'communication';
+                                            onNavigate(targetUrl);
+                                        }
                                     }}
                                     style={{
                                         maxWidth: '360px',

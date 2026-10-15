@@ -512,6 +512,9 @@ export const BaileysConnectionManager = {
                         try {
                             const NotificationEngine = (await import('../NotificationEngine.js')).default;
                             let senderLabel = isGroup ? `${groupDisplay} - ${memberName}` : (targetPhone || 'Customer');
+                            const recipientUserIds = new Set();
+                            if (userOwner) recipientUserIds.add(String(userOwner));
+
                             if (!isGroup) {
                                 try {
                                     const Lead = (await import('../../models/Lead.js')).default;
@@ -520,22 +523,51 @@ export const BaileysConnectionManager = {
                                     if (clean10) {
                                         const reg = new RegExp(clean10 + '$');
                                         const [l, c] = await Promise.all([
-                                            Lead.findOne({ mobile: reg }).select('firstName lastName').lean(),
-                                            Contact.findOne({ 'phones.number': reg }).select('name').lean()
+                                            Lead.findOne({ mobile: reg }).select('firstName lastName assignedTo owner').lean(),
+                                            Contact.findOne({ 'phones.number': reg }).select('name assignedTo owner').lean()
                                         ]);
-                                        if (l) senderLabel = `${l.firstName || ''} ${l.lastName || ''}`.trim() || targetPhone;
-                                        else if (c?.name) senderLabel = c.name;
+                                        if (l) {
+                                            senderLabel = `${l.firstName || ''} ${l.lastName || ''}`.trim() || targetPhone;
+                                            const assignee = l.assignedTo || l.owner;
+                                            if (assignee) recipientUserIds.add(String(assignee));
+                                        } else if (c?.name) {
+                                            senderLabel = c.name;
+                                            const assignee = c.assignedTo || c.owner;
+                                            if (assignee) recipientUserIds.add(String(assignee));
+                                        }
                                     }
                                 } catch (e) {}
                             }
 
+                            // Include integration's allowed users if defined
+                            if (Array.isArray(currentInt?.allowedUsers)) {
+                                currentInt.allowedUsers.forEach(u => u && recipientUserIds.add(String(u)));
+                            }
+
+                            // Ensure primary admins also receive inbound notifications for shared visibility
+                            if (recipientUserIds.size === 0 || isGroup) {
+                                try {
+                                    const User = (await import('../../models/User.js')).default;
+                                    const admins = await User.find({
+                                        $or: [
+                                            { email: { $in: ['bharatproperties570@gmail.com', 'shreykeshwar@gmail.com'] } }
+                                        ]
+                                    }).select('_id').lean();
+                                    admins.forEach(a => recipientUserIds.add(String(a._id)));
+                                } catch (e) {}
+                            }
+
                             const link = `/communication?channel=WhatsApp_Web&selected=${encodeURIComponent(targetPhone)}`;
-                            await NotificationEngine.notifyWhatsApp(
-                                userOwner,
-                                senderLabel,
-                                messageText,
-                                link,
-                                integrationId
+                            await Promise.allSettled(
+                                Array.from(recipientUserIds).map(targetUid =>
+                                    NotificationEngine.notifyWhatsApp(
+                                        targetUid,
+                                        senderLabel,
+                                        messageText,
+                                        link,
+                                        integrationId
+                                    )
+                                )
                             );
                         } catch (notifErr) {
                             console.error('[BaileysConnectionManager] Notification trigger error:', notifErr.message);

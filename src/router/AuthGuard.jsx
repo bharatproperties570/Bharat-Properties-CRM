@@ -47,7 +47,7 @@ export const AuthGuard = () => {
         else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;
         else if (view === 'dashboard') url = '/';
         else if (view === 'sequence-builder' && contactId) url = `/marketing/sequences/${contactId}`;
-        else url = `/${view}`;
+        else url = view ? (view.startsWith('/') ? view : `/${view}`) : '/';
         
         navigate(url);
     };
