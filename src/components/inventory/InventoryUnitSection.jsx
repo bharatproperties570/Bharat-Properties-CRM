@@ -183,9 +183,31 @@ const InventoryUnitSection = ({
                                 onChange={e => {
                                     const selectedSizeName = e.target.value;
                                     const availableSizes = sizes || [];
-                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName && 
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                        s.block === formData.block);
+                                    const norm = v => String(v || '').trim().toLowerCase();
+                                    const tProj = norm(formData.projectName);
+                                    const tBlock = norm(formData.block);
+
+                                    const isMatch = s => {
+                                        const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+                                        if (mappings.length > 0) {
+                                            return mappings.some(m => {
+                                                const mProj = norm(m.project || m.projectName);
+                                                const mBlock = norm(m.block);
+                                                if (mProj !== tProj) return false;
+                                                if (!mBlock || mBlock === 'all' || mBlock === 'all blocks') return true;
+                                                return mBlock === tBlock;
+                                            });
+                                        }
+                                        const rootProj = norm(s.project || s.projectName);
+                                        const rootBlock = norm(s.block);
+                                        if (rootProj === tProj) {
+                                            if (!rootBlock || rootBlock === 'all' || rootBlock === 'all blocks') return true;
+                                            return rootBlock === tBlock;
+                                        }
+                                        return false;
+                                    };
+
+                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName && isMatch(s));
                                     
                                     setFormData(prev => ({ 
                                         ...prev, 
@@ -200,10 +222,30 @@ const InventoryUnitSection = ({
                                 {(() => {
                                     if (!formData.projectName || !formData.block) return null;
                                     const availableSizes = sizes || [];
-                                    const filteredSizes = availableSizes.filter(s =>
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) &&
-                                        (s.block === formData.block)
-                                    );
+                                    const norm = v => String(v || '').trim().toLowerCase();
+                                    const tProj = norm(formData.projectName);
+                                    const tBlock = norm(formData.block);
+
+                                    const filteredSizes = availableSizes.filter(s => {
+                                        const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+                                        if (mappings.length > 0) {
+                                            return mappings.some(m => {
+                                                const mProj = norm(m.project || m.projectName);
+                                                const mBlock = norm(m.block);
+                                                if (mProj !== tProj) return false;
+                                                if (!mBlock || mBlock === 'all' || mBlock === 'all blocks') return true;
+                                                return mBlock === tBlock;
+                                            });
+                                        }
+                                        const rootProj = norm(s.project || s.projectName);
+                                        const rootBlock = norm(s.block);
+                                        if (rootProj === tProj) {
+                                            if (!rootBlock || rootBlock === 'all' || rootBlock === 'all blocks') return true;
+                                            return rootBlock === tBlock;
+                                        }
+                                        return false;
+                                    });
+
                                     return filteredSizes.map(sz => <option key={sz.id || sz._id} value={sz.name}>{sz.name}</option>);
                                 })()}
                             </select>

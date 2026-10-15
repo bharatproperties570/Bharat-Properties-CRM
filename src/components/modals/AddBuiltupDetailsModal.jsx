@@ -13,6 +13,7 @@ export default function AddBuiltupDetailsModal({
     onSave
 }) {
     const { propertyConfig, masterFields, getLookupId, getLookupValue } = usePropertyConfig();
+    const { mutateAsync: updateInventory } = useUpdateInventoryMutation();
 
     const [loading, setLoading] = useState(false);
     const [subCategory, setSubCategory] = useState('');

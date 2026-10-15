@@ -290,10 +290,33 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 <label style={labelStyle}>Size / Config</label>
                                 <select style={selectStyle} value={formData.sizeConfig} onChange={e => {
                                     const selectedValue = e.target.value;
+                                    const norm = v => String(v || '').trim().toLowerCase();
+                                    const tProj = norm(formData.projectName);
+                                    const tBlock = norm(formData.block);
+
+                                    const isMatch = s => {
+                                        const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+                                        if (mappings.length > 0) {
+                                            return mappings.some(m => {
+                                                const mProj = norm(m.project || m.projectName);
+                                                const mBlock = norm(m.block);
+                                                if (mProj !== tProj) return false;
+                                                if (!mBlock || mBlock === 'all' || mBlock === 'all blocks') return true;
+                                                return mBlock === tBlock;
+                                            });
+                                        }
+                                        const rootProj = norm(s.project || s.projectName);
+                                        const rootBlock = norm(s.block);
+                                        if (rootProj === tProj) {
+                                            if (!rootBlock || rootBlock === 'all' || rootBlock === 'all blocks') return true;
+                                            return rootBlock === tBlock;
+                                        }
+                                        return false;
+                                    };
+
                                     const selectedSize = sizes.find(s => 
                                         (s.value === selectedValue || s.name === selectedValue || s.id === selectedValue || s._id === selectedValue) && 
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                        s.block === formData.block
+                                        isMatch(s)
                                     );
                                     let width = selectedSize?.width || selectedSize?.metadata?.width || '';
                                     if (!width && selectedSize?.label) {
@@ -307,12 +330,35 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     });
                                 }}>
                                     <option value="">Select Size (Optional)</option>
-                                    {sizes.filter(s => 
-                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                        s.block === formData.block
-                                    ).map(s => (
-                                        <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
-                                    ))}
+                                    {(() => {
+                                        const norm = v => String(v || '').trim().toLowerCase();
+                                        const tProj = norm(formData.projectName);
+                                        const tBlock = norm(formData.block);
+
+                                        const isMatch = s => {
+                                            const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
+                                            if (mappings.length > 0) {
+                                                return mappings.some(m => {
+                                                    const mProj = norm(m.project || m.projectName);
+                                                    const mBlock = norm(m.block);
+                                                    if (mProj !== tProj) return false;
+                                                    if (!mBlock || mBlock === 'all' || mBlock === 'all blocks') return true;
+                                                    return mBlock === tBlock;
+                                                });
+                                            }
+                                            const rootProj = norm(s.project || s.projectName);
+                                            const rootBlock = norm(s.block);
+                                            if (rootProj === tProj) {
+                                                if (!rootBlock || rootBlock === 'all' || rootBlock === 'all blocks') return true;
+                                                return rootBlock === tBlock;
+                                            }
+                                            return false;
+                                        };
+
+                                        return sizes.filter(isMatch).map(s => (
+                                            <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
+                                        ));
+                                    })()}
                                 </select>
                             </div>
 

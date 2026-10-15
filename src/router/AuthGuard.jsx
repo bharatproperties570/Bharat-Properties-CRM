@@ -3,7 +3,6 @@ import { Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useUserContext } from '../context/UserContext';
 import MainLayout from '../layouts/MainLayout';
 import LiveNotificationListener from '../components/LiveNotificationListener';
-import WhatsAppNotificationPoller from '../components/WhatsAppNotificationPoller';
 import CallModal from '../components/CallModal';
 import CallResolutionModal from '../components/CallResolutionModal';
 import { useCall } from '../context/CallContext';
@@ -58,7 +57,6 @@ export const AuthGuard = () => {
     return (
         <>
             <LiveNotificationListener onNavigate={handleNavigate} />
-            <WhatsAppNotificationPoller onNavigate={handleNavigate} />
             <MainLayout currentView={currentView} onNavigate={handleNavigate}>
                 {(modalHandlers) => (
                     <Outlet context={{ 
