@@ -85,7 +85,7 @@ const ProtectedLayout = () => {
     );
 };
 
-// HOC to inject onNavigate and route params
+// HOC to inject onNavigate, modal handlers and route params
 const WithNav = ({ Component }) => {
     let context = {};
     try {
@@ -108,8 +108,24 @@ const WithNav = ({ Component }) => {
         }
     };
 
+    // Determine the right contextual onEdit based on component or route
+    let contextualOnEdit = context?.onEdit;
+    if (Component === CompanyPage || location.pathname.startsWith('/company')) {
+        contextualOnEdit = context?.onEditCompany || context?.onEdit;
+    } else if (Component === ContactsPage || Component === LeadsPage || location.pathname.startsWith('/contacts') || location.pathname.startsWith('/leads')) {
+        contextualOnEdit = context?.onEditContact || context?.onEdit;
+    }
+
     return <Component 
         {...context} 
+        onEdit={contextualOnEdit}
+        onEditContact={context?.onEditContact}
+        onEditCompany={context?.onEditCompany}
+        onAddActivity={context?.onAddActivity}
+        onAddProject={context?.onAddProject}
+        onEditProject={context?.onEditProject}
+        onAddInventory={context?.onAddInventory}
+        onAddDeal={context?.onAddDeal}
         {...params} 
         dealId={params?.id} 
         projectId={params?.id} 

@@ -177,15 +177,36 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             }
         };
 
+        const handleCustomEditContact = (e) => {
+            if (e.detail) {
+                setEditingContact(e.detail);
+                setModalEntityType(e.detail?.entityType || e.detail?.recordType || 'contact');
+                setShowAddContactModal(true);
+            }
+        };
+
+        const handleCustomEditCompany = (e) => {
+            if (e.detail) {
+                setEditingCompany(e.detail);
+                setShowAddCompanyModal(true);
+            }
+        };
+
         window.addEventListener('trigger-form', handleTriggerForm);
-        return () => window.removeEventListener('trigger-form', handleTriggerForm);
+        window.addEventListener('edit-contact', handleCustomEditContact);
+        window.addEventListener('edit-company', handleCustomEditCompany);
+        return () => {
+            window.removeEventListener('trigger-form', handleTriggerForm);
+            window.removeEventListener('edit-contact', handleCustomEditContact);
+            window.removeEventListener('edit-company', handleCustomEditCompany);
+        };
     }, []);
 
     // Handlers exposed to children
     const modalHandlers = {
         onEditContact: (contact) => {
             setEditingContact(contact);
-            setModalEntityType('contact');
+            setModalEntityType(contact?.entityType || contact?.recordType || 'contact');
             setShowAddContactModal(true);
         },
         onEditCompany: (company) => {

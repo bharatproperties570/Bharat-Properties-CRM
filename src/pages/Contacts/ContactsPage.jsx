@@ -381,7 +381,7 @@ const ContactCard = memo(function ContactCard({
 
 // ─── MAIN CONTACTS PAGE ───────────────────────────────────────────────────────
 
-function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
+function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
   const { isDark } = useTheme();
   const { startCall } = useCall();
   const { executeDistribution } = useDistribution();
@@ -646,8 +646,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const isIndeterminate = selectedIds.length > 0 && selectedIds.length < contacts.length;
 
   const handleEditClick = () => {
-    const selectedContact = contacts.find((c) => (c._id) === selectedIds[0]);
-    if (selectedContact && onEdit) onEdit(selectedContact);
+    const selectedContact = contacts.find((c) => String(c._id || c.id) === String(selectedIds[0])) || (typeof getSelectedContacts === 'function' ? getSelectedContacts()[0] : null);
+    if (!selectedContact) {
+      toast.error('Please select a contact to edit');
+      return;
+    }
+    const editFn = onEdit || onEditContact;
+    if (typeof editFn === 'function') {
+      editFn(selectedContact);
+    } else {
+      window.dispatchEvent(new CustomEvent('edit-contact', { detail: selectedContact }));
+    }
   };
 
   const handleSendMail = () => {

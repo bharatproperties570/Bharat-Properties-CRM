@@ -60,8 +60,19 @@ export const AuthGuard = () => {
             <LiveNotificationListener onNavigate={handleNavigate} />
             <WhatsAppNotificationPoller onNavigate={handleNavigate} />
             <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                {/* modalHandlers shim if needed by context? We pass nothing for now, as AppRouter used to spread modalHandlers */}
-                <Outlet context={{ onNavigate: handleNavigate }} />
+                {(modalHandlers) => (
+                    <Outlet context={{ 
+                        onNavigate: handleNavigate,
+                        ...modalHandlers,
+                        onEditContact: modalHandlers?.onEditContact,
+                        onEditCompany: modalHandlers?.onEditCompany,
+                        onAddActivity: modalHandlers?.onAddActivity,
+                        onAddDeal: modalHandlers?.onAddDeal,
+                        onAddInventory: modalHandlers?.onAddInventory,
+                        onAddProject: modalHandlers?.onAddProject,
+                        onEditProject: modalHandlers?.onEditProject
+                    }} />
+                )}
             </MainLayout>
             <CallModalWrapper />
             <CallResolutionModal />
