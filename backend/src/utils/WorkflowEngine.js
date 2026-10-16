@@ -250,39 +250,123 @@ export class WorkflowEngine {
                         const audConfig = autoAction.audienceConfig || {};
                         let rawRecipients = [];
 
-                        // 3a. WhatsApp Broker Community Groups
+                        // 3a. Broker Groups (Company Groups & WhatsApp Groups)
                         if (audConfig.sendToBrokerGroups !== false) {
                             try {
+                                const Company = mongoose.models.Company || mongoose.model('Company');
+                                let companyQuery = {};
+                                if (Array.isArray(audConfig.selectedGroups) && audConfig.selectedGroups.length > 0) {
+                                    companyQuery = { groups: { $in: audConfig.selectedGroups } };
+                                } else if (audConfig.groupFilter === 'bna_only') {
+                                    companyQuery = { $or: [{ tags: { $in: ['bna', 'broker'] } }, { isVerifiedBroker: true }] };
+                                } else {
+                                    companyQuery = { $or: [{ isVerifiedBroker: true }, { 'groups.0': { $exists: true } }] };
+                                }
+                                if (companyId) companyQuery.companyId = companyId;
+
+                                const companies = await Company.find(companyQuery).lean();
+                                companies.forEach(c => {
+                                    const phone = c.phones?.[0]?.phoneNumber || c.mobile || '';
+                                    const email = c.emails?.[0]?.address || c.email || '';
+                                    if (phone || email) {
+                                        rawRecipients.push({
+                                            id: c._id,
+                                            name: c.name || 'Broker',
+                                            mobile: phone,
+                                            email: email,
+                                            isVerified: Boolean(c.isVerifiedBroker),
+                                            context: { originalType: 'Company' }
+                                        });
+                                    }
+                                });
+
                                 const WhatsAppGroup = mongoose.models.WhatsAppGroup || mongoose.model('WhatsAppGroup', new mongoose.Schema({ jid: String, name: String, tags: [String] }, { strict: false }));
                                 const groupFilter = audConfig.groupFilter === 'bna_only' ? { tags: { $in: ['bna', 'broker'] } } : {};
-                                const groups = await WhatsAppGroup.find(groupFilter).lean();
-                                
-                                groups.forEach(g => {
-                                    rawRecipients.push({
-                                        id: g.jid || g._id,
-                                        name: g.name || 'Broker Community Group',
-                                        mobile: g.jid,
-                                        email: '',
-                                        isVerified: false,
-                                        isGroup: true,
-                                        context: { originalType: 'WhatsAppGroup' }
-                                    });
+                                const wGroups = await WhatsAppGroup.find(groupFilter).lean();
+                                wGroups.forEach(g => {
+                                    if (g.jid) {
+                                        rawRecipients.push({
+                                            id: g.jid || g._id,
+                                            name: g.name || 'Broker Community Group',
+                                            mobile: g.jid,
+                                            email: '',
+                                            isVerified: false,
+                                            isGroup: true,
+                                            context: { originalType: 'WhatsAppGroup' }
+                                        });
+                                    }
                                 });
                             } catch (gErr) {
-                                console.warn('[WorkflowEngine] Could not load WhatsAppGroup model:', gErr.message);
+                                console.warn('[WorkflowEngine] Error querying Broker Groups:', gErr.message);
                             }
                         }
 
-                        // 3b. AI Matched Buyers
-                        if (audConfig.includeMatchedBuyers) {
+                        // 3b. Contact Groups
+                        if (audConfig.includeContactGroups !== false) {
+                            try {
+                                const Contact = mongoose.models.Contact || mongoose.model('Contact');
+                                let contactQuery = {};
+                                if (Array.isArray(audConfig.selectedContactGroups) && audConfig.selectedContactGroups.length > 0) {
+                                    contactQuery = { groups: { $in: audConfig.selectedContactGroups } };
+                                } else if (audConfig.allContactGroups) {
+                                    contactQuery = { 'groups.0': { $exists: true } };
+                                }
+                                if (companyId) contactQuery.companyId = companyId;
+
+                                if (Object.keys(contactQuery).length > 0) {
+                                    const contacts = await Contact.find(contactQuery).lean();
+                                    contacts.forEach(c => {
+                                        const phone = c.phones?.[0]?.number || c.mobile || c.phone || '';
+                                        const email = c.emails?.[0]?.address || c.email || '';
+                                        if (phone || email) {
+                                            rawRecipients.push({
+                                                id: c._id,
+                                                name: `${c.name || ''} ${c.surname || ''}`.trim() || 'Contact',
+                                                mobile: phone,
+                                                email: email,
+                                                isVerified: false,
+                                                context: { originalType: 'Contact' }
+                                            });
+                                        }
+                                    });
+                                }
+                            } catch (cErr) {
+                                console.warn('[WorkflowEngine] Error querying Contact Groups:', cErr.message);
+                            }
+                        }
+
+                        // 3c. WhatsApp Web Groups (@g.us)
+                        if (audConfig.includeWaGroups !== false) {
+                            try {
+                                if (Array.isArray(audConfig.selectedWaGroups) && audConfig.selectedWaGroups.length > 0) {
+                                    audConfig.selectedWaGroups.forEach(jid => {
+                                        rawRecipients.push({
+                                            id: jid,
+                                            name: 'WhatsApp Group',
+                                            mobile: jid,
+                                            email: '',
+                                            isVerified: false,
+                                            isGroup: true,
+                                            context: { originalType: 'WhatsAppGroup' }
+                                        });
+                                    });
+                                }
+                            } catch (wErr) {
+                                console.warn('[WorkflowEngine] Error querying WhatsApp Groups:', wErr.message);
+                            }
+                        }
+
+                        // 3d. AI Matched Buyers
+                        if (audConfig.includeMatchedBuyers !== false) {
                             try {
                                 const LeadModel = mongoose.model('Lead');
-                                const minScore = audConfig.minMatchScore || 80;
-                                const matchedLeads = await LeadModel.find({
-                                    companyId: companyId,
+                                const minScore = audConfig.minMatchScore || 75;
+                                const leadFilter = {
                                     stage: { $nin: ['Won', 'Lost', 'Closed'] }
-                                }).limit(50).lean();
+                                };
+                                if (companyId) leadFilter.companyId = companyId;
 
+                                const matchedLeads = await LeadModel.find(leadFilter).limit(50).lean();
                                 matchedLeads.forEach(l => {
                                     const phone = l.mobile || l.primaryPhone || '';
                                     if (phone) {
@@ -303,7 +387,7 @@ export class WorkflowEngine {
                             }
                         }
 
-                        // 3c. Tagged Investor Contacts
+                        // 3e. Tagged Investor Contacts
                         if (audConfig.includeInvestorContacts) {
                             try {
                                 const ContactModel = mongoose.models.Contact || mongoose.model('Contact');

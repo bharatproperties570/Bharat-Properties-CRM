@@ -146,6 +146,17 @@ export const AutomatedActionsProvider = ({ children }) => {
         }
     }, []);
 
+    const updateAction = useCallback(async (id, updatedData) => {
+        try {
+            const savedAction = await automationAPI.updateAutomatedAction(id, updatedData);
+            setActions(prev => prev.map(a => (a.id === id || a._id === id) ? (savedAction?.data || savedAction || { ...a, ...updatedData }) : a));
+            toast.success("Automated action updated successfully");
+        } catch (error) {
+            console.error("Failed to update action:", error);
+            toast.error("Failed to update action");
+        }
+    }, []);
+
     const toggleAction = useCallback(async (id) => {
         try {
             const actionToUpdate = actions.find(a => a.id === id || a._id === id);
@@ -177,6 +188,7 @@ export const AutomatedActionsProvider = ({ children }) => {
         auditLogs,
         invokeAction,
         addAction,
+        updateAction,
         toggleAction,
         deleteAction
     };

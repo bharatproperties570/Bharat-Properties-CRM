@@ -1,18 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAutomatedActions } from '../context/AutomatedActionsContext';
 import { useTriggers } from '../context/TriggersContext';
 import { emailTemplates } from '../constants/templates';
-import { systemSettingsAPI } from '../utils/api';
+import { api, socialAPI, systemSettingsAPI } from '../utils/api';
+import whatsappService from '../services/whatsappService';
 import smsService from '../services/smsService';
 
 const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
-    const { addAction } = useAutomatedActions();
+    const { addAction, updateAction } = useAutomatedActions();
     const { triggers = [] } = useTriggers();
     
     const [waTemplates, setWaTemplates] = useState([]);
     const [smsTemplatesList, setSmsTemplatesList] = useState([]);
     const [emailTemplatesList, setEmailTemplatesList] = useState(emailTemplates || []);
     const [rcsTemplatesList, setRcsTemplatesList] = useState([]);
+
+    // 🎯 Target Audience State (Exact Match to Deal Broadcast Marketing Form)
+    const [activeAudienceTab, setActiveAudienceTab] = useState('matched_leads'); // 'matched_leads' | 'broker' | 'contact' | 'wa_group'
+    const [brokerGroups, setBrokerGroups] = useState([]);
+    const [contactGroups, setContactGroups] = useState([]);
+    const [waGroups, setWaGroups] = useState([]);
+    const [loadingAudienceData, setLoadingAudienceData] = useState(false);
+    const [waGroupSearch, setWaGroupSearch] = useState('');
 
     useEffect(() => {
         const fetchTemplates = async () => {
@@ -38,6 +47,39 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
         fetchTemplates();
     }, []);
 
+    // 🚀 Load live Audience groups (Broker Groups, Contact Groups, WhatsApp Web Groups)
+    useEffect(() => {
+        if (!isOpen) return;
+        const fetchAudienceData = async () => {
+            setLoadingAudienceData(true);
+            try {
+                const [bgRes, cgRes, accRes] = await Promise.all([
+                    api.get('/company-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    api.get('/contact-groups', { _silentError: true }).catch(() => ({ data: { data: [] } })),
+                    whatsappService.getAccounts().catch(() => ({ data: [] }))
+                ]);
+
+                setBrokerGroups(bgRes.data?.data || []);
+                setContactGroups(cgRes.data?.data || []);
+
+                const accounts = accRes.data || [];
+                const baileysAcc = accounts.find(a => a.provider === 'baileys' || a.accountType === 'baileys') || accounts[0];
+                if (baileysAcc) {
+                    const bId = baileysAcc.id || baileysAcc._id;
+                    const gRes = await socialAPI.getBaileysGroups(bId).catch(() => ({ data: [] }));
+                    if (gRes && gRes.success) {
+                        setWaGroups(gRes.data || []);
+                    }
+                }
+            } catch (err) {
+                console.warn('[CreateAutomatedActionModal] Failed to load audience data', err);
+            } finally {
+                setLoadingAudienceData(false);
+            }
+        };
+        fetchAudienceData();
+    }, [isOpen]);
+
     const [fieldKey, setFieldKey] = useState('');
     const [fieldVal, setFieldVal] = useState('');
     
@@ -53,12 +95,30 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
             templates: { whatsapp: '', sms: '', email: '', rcs: '' }
         },
         audienceConfig: {
-            sendToBrokerGroups: true,
-            groupFilter: 'all',
+            // 1. Matched Leads
             includeMatchedBuyers: true,
-            minMatchScore: 80,
-            includeInvestorContacts: true,
+            matchedLeadFilter: 'all', // 'all' | 'preferred'
+            minMatchScore: 75,
+
+            // 2. Broker Groups
+            sendToBrokerGroups: true,
+            allBrokerGroups: true,
+            selectedGroups: [],
+            groupFilter: 'all', // 'all' | 'bna_only'
+
+            // 3. Contact Groups
+            includeContactGroups: true,
+            allContactGroups: true,
+            selectedContactGroups: [],
+            includeInvestorContacts: false,
             contactTag: 'Investor',
+
+            // 4. WhatsApp Web Groups
+            includeWaGroups: true,
+            allWaGroups: false,
+            selectedWaGroups: [],
+
+            // Transport & Rate Limiting
             throttleSeconds: 4,
             whatsappMode: 'baileys' // 'baileys' (WhatsApp Web) or 'cloud_api' (Meta)
         },
@@ -79,15 +139,24 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                     channels: { whatsapp: true, sms: false, email: false, rcs: false },
                     templates: { whatsapp: '', sms: '', email: '', rcs: '' }
                 },
-                audienceConfig: editData.audienceConfig || {
-                    sendToBrokerGroups: true,
-                    groupFilter: 'all',
-                    includeMatchedBuyers: true,
-                    minMatchScore: 80,
-                    includeInvestorContacts: true,
-                    contactTag: 'Investor',
-                    throttleSeconds: 4,
-                    whatsappMode: 'baileys'
+                audienceConfig: {
+                    includeMatchedBuyers: editData.audienceConfig?.includeMatchedBuyers ?? true,
+                    matchedLeadFilter: editData.audienceConfig?.matchedLeadFilter || 'all',
+                    minMatchScore: editData.audienceConfig?.minMatchScore ?? 75,
+                    sendToBrokerGroups: editData.audienceConfig?.sendToBrokerGroups ?? true,
+                    allBrokerGroups: editData.audienceConfig?.allBrokerGroups ?? (editData.audienceConfig?.selectedGroups?.length ? false : true),
+                    selectedGroups: editData.audienceConfig?.selectedGroups || [],
+                    groupFilter: editData.audienceConfig?.groupFilter || 'all',
+                    includeContactGroups: editData.audienceConfig?.includeContactGroups ?? true,
+                    allContactGroups: editData.audienceConfig?.allContactGroups ?? (editData.audienceConfig?.selectedContactGroups?.length ? false : true),
+                    selectedContactGroups: editData.audienceConfig?.selectedContactGroups || [],
+                    includeInvestorContacts: editData.audienceConfig?.includeInvestorContacts ?? false,
+                    contactTag: editData.audienceConfig?.contactTag || 'Investor',
+                    includeWaGroups: editData.audienceConfig?.includeWaGroups ?? true,
+                    allWaGroups: editData.audienceConfig?.allWaGroups ?? false,
+                    selectedWaGroups: editData.audienceConfig?.selectedWaGroups || [],
+                    throttleSeconds: editData.audienceConfig?.throttleSeconds || 4,
+                    whatsappMode: editData.audienceConfig?.whatsappMode || 'baileys'
                 },
                 delay: editData.delay || {
                     isActive: false,
@@ -103,6 +172,86 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
             }
         }
     }, [editData]);
+
+    // ── Filtered WhatsApp Groups by Search Query ──
+    const filteredWaGroups = useMemo(() => {
+        if (!waGroupSearch.trim()) return waGroups;
+        const q = waGroupSearch.toLowerCase();
+        return waGroups.filter(g => (g.subject || g.name || '').toLowerCase().includes(q));
+    }, [waGroups, waGroupSearch]);
+
+    // ── Live Audience Reach & Deduplicated Member Count Engine ──
+    const audienceStats = useMemo(() => {
+        const aud = formData.audienceConfig || {};
+
+        // 1. Broker Members Count
+        let brokerCount = 0;
+        if (aud.sendToBrokerGroups) {
+            if (aud.allBrokerGroups || !aud.selectedGroups || aud.selectedGroups.length === 0) {
+                brokerCount = brokerGroups.reduce((sum, g) => sum + (Number(g.memberCount ?? (Array.isArray(g.memberIds) ? g.memberIds.length : 0)) || 0), 0);
+            } else {
+                const bSet = new Set();
+                let fallback = 0;
+                aud.selectedGroups.forEach(gid => {
+                    const g = brokerGroups.find(bg => String(bg._id) === String(gid));
+                    if (g?.memberIds?.length > 0) {
+                        g.memberIds.forEach(id => bSet.add(String(id)));
+                    } else {
+                        fallback += (Number(g?.memberCount) || 0);
+                    }
+                });
+                brokerCount = bSet.size > 0 ? bSet.size : fallback;
+            }
+        }
+
+        // 2. Contact Members Count
+        let contactCount = 0;
+        if (aud.includeContactGroups) {
+            if (aud.allContactGroups || !aud.selectedContactGroups || aud.selectedContactGroups.length === 0) {
+                contactCount = contactGroups.reduce((sum, g) => sum + (Number(g.memberCount ?? (Array.isArray(g.memberIds) ? g.memberIds.length : 0)) || 0), 0);
+            } else {
+                const cSet = new Set();
+                let fallback = 0;
+                aud.selectedContactGroups.forEach(gid => {
+                    const g = contactGroups.find(cg => String(cg._id) === String(gid));
+                    if (g?.memberIds?.length > 0) {
+                        g.memberIds.forEach(id => cSet.add(String(id)));
+                    } else {
+                        fallback += (Number(g?.memberCount) || 0);
+                    }
+                });
+                contactCount = cSet.size > 0 ? cSet.size : fallback;
+            }
+        }
+
+        // 3. WhatsApp Groups Count & Participants
+        let waGroupsCount = 0;
+        let waParticipantsCount = 0;
+        if (aud.includeWaGroups) {
+            if (aud.allWaGroups) {
+                waGroupsCount = waGroups.length;
+                waParticipantsCount = waGroups.reduce((sum, g) => sum + (Number(g.participantsCount) || 1), 0);
+            } else {
+                waGroupsCount = (aud.selectedWaGroups || []).length;
+                (aud.selectedWaGroups || []).forEach(jid => {
+                    const g = waGroups.find(wg => String(wg.id || wg.jid) === String(jid));
+                    waParticipantsCount += (Number(g?.participantsCount) || 1);
+                });
+            }
+        }
+
+        const totalDirectRecipients = brokerCount + contactCount + waGroupsCount;
+        const totalAudienceReach = brokerCount + contactCount + waParticipantsCount;
+
+        return {
+            brokerCount,
+            contactCount,
+            waGroupsCount,
+            waParticipantsCount,
+            totalDirectRecipients,
+            totalAudienceReach
+        };
+    }, [formData.audienceConfig, brokerGroups, contactGroups, waGroups]);
 
     if (!isOpen) return null;
 
@@ -135,7 +284,11 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
         if (payload.actionType === 'update_field' && fieldKey) {
             payload.fieldMapping = { [fieldKey]: fieldVal };
         }
-        addAction(payload);
+        if (editData && (editData._id || editData.id) && updateAction) {
+            updateAction(editData._id || editData.id, payload);
+        } else {
+            addAction(payload);
+        }
         onClose();
     };
 
@@ -146,7 +299,7 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 }}>
-            <div style={{ background: '#fff', width: '600px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ background: '#fff', width: formData.actionType === 'broadcast_deal' ? '760px' : '600px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
                 {/* Header */}
                 <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
@@ -254,121 +407,685 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                 </div>
                             </div>
 
-                            {/* Section 1: Audience Selection */}
-                            <div style={{ background: '#fff', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
-                                    <i className="fas fa-users" style={{ color: '#3b82f6' }}></i> Target Audience
-                                </label>
-                                
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {/* 1. Broker Groups */}
-                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
-                                            <input 
-                                                type="checkbox"
-                                                checked={formData.audienceConfig?.sendToBrokerGroups ?? true}
-                                                onChange={(e) => setFormData({
-                                                    ...formData,
-                                                    audienceConfig: { ...formData.audienceConfig, sendToBrokerGroups: e.target.checked }
-                                                })}
-                                            />
-                                            <span>WhatsApp Broker Community Groups</span>
+                            {/* Section 1: Audience Selection (Identical to Deal Broadcast Marketing Form) */}
+                            <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                                {/* Header with Live Total Audience Reach Pill & Actions */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 900, color: '#334155', letterSpacing: '0.5px', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fas fa-bullseye" style={{ color: '#4f46e5', fontSize: '13px' }}></i>
+                                            TARGET AUDIENCE
                                         </label>
-                                        {formData.audienceConfig?.sendToBrokerGroups && (
-                                            <div style={{ marginTop: '8px', paddingLeft: '24px', display: 'flex', gap: '16px' }}>
-                                                <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                    <input 
-                                                        type="radio" 
-                                                        name="groupFilter" 
-                                                        value="all"
-                                                        checked={(formData.audienceConfig?.groupFilter || 'all') === 'all'}
-                                                        onChange={() => setFormData({
-                                                            ...formData,
-                                                            audienceConfig: { ...formData.audienceConfig, groupFilter: 'all' }
-                                                        })}
-                                                    />
-                                                    All Active Groups
-                                                </label>
-                                                <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                    <input 
-                                                        type="radio" 
-                                                        name="groupFilter" 
-                                                        value="bna_only"
-                                                        checked={formData.audienceConfig?.groupFilter === 'bna_only'}
-                                                        onChange={() => setFormData({
-                                                            ...formData,
-                                                            audienceConfig: { ...formData.audienceConfig, groupFilter: 'bna_only' }
-                                                        })}
-                                                    />
-                                                    Filtered by Tag: "bna / broker"
-                                                </label>
-                                            </div>
-                                        )}
+                                        <span style={{
+                                            fontSize: '0.68rem', fontWeight: 800, padding: '3px 9px', borderRadius: '12px',
+                                            background: audienceStats.totalAudienceReach > 0 ? '#dcfce7' : '#f1f5f9',
+                                            color: audienceStats.totalAudienceReach > 0 ? '#15803d' : '#64748b',
+                                            border: audienceStats.totalAudienceReach > 0 ? '1px solid #bbf7d0' : '1px solid #e2e8f0'
+                                        }}>
+                                            <i className="fas fa-bullseye" style={{ marginRight: '5px' }}></i>
+                                            {audienceStats.totalAudienceReach} Audience Reach ({audienceStats.totalDirectRecipients} Direct)
+                                        </span>
                                     </div>
-
-                                    {/* 2. Matched Buyers */}
-                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
-                                            <input 
-                                                type="checkbox"
-                                                checked={formData.audienceConfig?.includeMatchedBuyers ?? true}
-                                                onChange={(e) => setFormData({
-                                                    ...formData,
-                                                    audienceConfig: { ...formData.audienceConfig, includeMatchedBuyers: e.target.checked }
-                                                })}
-                                            />
-                                            <span>AI Matched Prospective Buyers</span>
-                                        </label>
-                                        {formData.audienceConfig?.includeMatchedBuyers && (
-                                            <div style={{ marginTop: '8px', paddingLeft: '24px' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                                                    <span>Minimum Match Score Threshold</span>
-                                                    <span style={{ color: '#2563eb', fontWeight: 700 }}>{formData.audienceConfig?.minMatchScore || 80}%</span>
-                                                </div>
-                                                <input 
-                                                    type="range" 
-                                                    min="50" max="100" step="5"
-                                                    value={formData.audienceConfig?.minMatchScore || 80}
-                                                    onChange={(e) => setFormData({
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {activeAudienceTab === 'matched_leads' && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setFormData({
                                                         ...formData,
-                                                        audienceConfig: { ...formData.audienceConfig, minMatchScore: Number(e.target.value) }
+                                                        audienceConfig: {
+                                                            ...formData.audienceConfig,
+                                                            matchedLeadFilter: formData.audienceConfig?.matchedLeadFilter === 'preferred' ? 'all' : 'preferred',
+                                                            minMatchScore: formData.audienceConfig?.matchedLeadFilter === 'preferred' ? 70 : 80
+                                                        }
                                                     })}
-                                                    style={{ width: '100%', accentColor: '#2563eb' }}
-                                                />
-                                            </div>
+                                                    style={{ fontSize: '0.7rem', fontWeight: 800, color: '#f59e0b', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                                >
+                                                    {formData.audienceConfig?.matchedLeadFilter === 'preferred' ? '⭐ Preferred Active' : '⭐ Filter Preferred (≥80%)'}
+                                                </button>
+                                                <span style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>|</span>
+                                            </>
                                         )}
-                                    </div>
-
-                                    {/* 3. Investor Contacts */}
-                                    <div style={{ border: '1px solid #f1f5f9', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
-                                            <input 
-                                                type="checkbox"
-                                                checked={formData.audienceConfig?.includeInvestorContacts ?? false}
-                                                onChange={(e) => setFormData({
-                                                    ...formData,
-                                                    audienceConfig: { ...formData.audienceConfig, includeInvestorContacts: e.target.checked }
-                                                })}
-                                            />
-                                            <span>Contacts Tagged as Investors / VIPs</span>
-                                        </label>
-                                        {formData.audienceConfig?.includeInvestorContacts && (
-                                            <div style={{ marginTop: '8px', paddingLeft: '24px' }}>
-                                                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Contact Tag Filter</label>
-                                                <input 
-                                                    type="text"
-                                                    value={formData.audienceConfig?.contactTag || 'Investor'}
-                                                    placeholder="e.g. Investor, High Networth"
-                                                    onChange={(e) => setFormData({
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (activeAudienceTab === 'matched_leads') {
+                                                    setFormData({
                                                         ...formData,
-                                                        audienceConfig: { ...formData.audienceConfig, contactTag: e.target.value }
-                                                    })}
-                                                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem' }}
-                                                />
-                                            </div>
-                                        )}
+                                                        audienceConfig: { ...formData.audienceConfig, includeMatchedBuyers: true }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'broker') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, sendToBrokerGroups: true, allBrokerGroups: true, selectedGroups: brokerGroups.map(g => g._id) }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'contact') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeContactGroups: true, allContactGroups: true, selectedContactGroups: contactGroups.map(g => g._id) }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'wa_group') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeWaGroups: true, allWaGroups: true, selectedWaGroups: waGroups.map(g => g.id) }
+                                                    });
+                                                }
+                                            }}
+                                            style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4f46e5', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                        >
+                                            Select All
+                                        </button>
+                                        <span style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>|</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (activeAudienceTab === 'matched_leads') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeMatchedBuyers: false }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'broker') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, allBrokerGroups: false, selectedGroups: [] }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'contact') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, allContactGroups: false, selectedContactGroups: [] }
+                                                    });
+                                                }
+                                                if (activeAudienceTab === 'wa_group') {
+                                                    setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, allWaGroups: false, selectedWaGroups: [] }
+                                                    });
+                                                }
+                                            }}
+                                            style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                        >
+                                            Clear
+                                        </button>
                                     </div>
                                 </div>
+
+                                {/* 4 Audience Segment Tabs (Exact match to Deal Broadcast Modal) */}
+                                <div style={{
+                                    display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '14px',
+                                    borderBottom: '1px solid #e2e8f0', paddingBottom: '8px'
+                                }}>
+                                    {/* Tab 1: Matched Leads */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveAudienceTab('matched_leads')}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', fontSize: '0.74rem', fontWeight: 800,
+                                            background: activeAudienceTab === 'matched_leads' ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : '#f8fafc',
+                                            color: activeAudienceTab === 'matched_leads' ? '#fff' : '#64748b',
+                                            border: activeAudienceTab === 'matched_leads' ? 'none' : '1px solid #e2e8f0',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-bullseye"></i>
+                                        <span>Matched Leads</span>
+                                        <span style={{
+                                            fontSize: '0.64rem', padding: '1px 6px', borderRadius: '10px',
+                                            background: activeAudienceTab === 'matched_leads' ? 'rgba(255,255,255,0.25)' : (formData.audienceConfig?.includeMatchedBuyers ? '#fef3c7' : '#e2e8f0'),
+                                            color: activeAudienceTab === 'matched_leads' ? '#fff' : (formData.audienceConfig?.includeMatchedBuyers ? '#92400e' : '#475569')
+                                        }}>
+                                            {formData.audienceConfig?.includeMatchedBuyers ? (formData.audienceConfig?.matchedLeadFilter === 'preferred' ? '⭐ Preferred' : 'Active') : 'Off'}
+                                        </span>
+                                    </button>
+
+                                    {/* Tab 2: Broker Groups */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveAudienceTab('broker')}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', fontSize: '0.74rem', fontWeight: 800,
+                                            background: activeAudienceTab === 'broker' ? '#4f46e5' : '#f8fafc',
+                                            color: activeAudienceTab === 'broker' ? '#fff' : '#64748b',
+                                            border: activeAudienceTab === 'broker' ? 'none' : '1px solid #e2e8f0',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-handshake"></i>
+                                        <span>Brokers</span>
+                                        <span style={{
+                                            fontSize: '0.64rem', padding: '1px 6px', borderRadius: '10px',
+                                            background: activeAudienceTab === 'broker' ? 'rgba(255,255,255,0.25)' : (formData.audienceConfig?.sendToBrokerGroups ? '#e0e7ff' : '#e2e8f0'),
+                                            color: activeAudienceTab === 'broker' ? '#fff' : (formData.audienceConfig?.sendToBrokerGroups ? '#3730a3' : '#475569')
+                                        }}>
+                                            {formData.audienceConfig?.sendToBrokerGroups ? (formData.audienceConfig?.allBrokerGroups ? `All (${audienceStats.brokerCount})` : `${formData.audienceConfig?.selectedGroups?.length || 0}G`) : 'Off'}
+                                        </span>
+                                    </button>
+
+                                    {/* Tab 3: Contact Groups */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveAudienceTab('contact')}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', fontSize: '0.74rem', fontWeight: 800,
+                                            background: activeAudienceTab === 'contact' ? '#10b981' : '#f8fafc',
+                                            color: activeAudienceTab === 'contact' ? '#fff' : '#64748b',
+                                            border: activeAudienceTab === 'contact' ? 'none' : '1px solid #e2e8f0',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-users"></i>
+                                        <span>Contacts</span>
+                                        <span style={{
+                                            fontSize: '0.64rem', padding: '1px 6px', borderRadius: '10px',
+                                            background: activeAudienceTab === 'contact' ? 'rgba(255,255,255,0.25)' : (formData.audienceConfig?.includeContactGroups ? '#dcfce7' : '#e2e8f0'),
+                                            color: activeAudienceTab === 'contact' ? '#fff' : (formData.audienceConfig?.includeContactGroups ? '#166534' : '#475569')
+                                        }}>
+                                            {formData.audienceConfig?.includeContactGroups ? (formData.audienceConfig?.allContactGroups ? `All (${audienceStats.contactCount})` : `${formData.audienceConfig?.selectedContactGroups?.length || 0}G`) : 'Off'}
+                                        </span>
+                                    </button>
+
+                                    {/* Tab 4: WA Groups */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveAudienceTab('wa_group')}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', fontSize: '0.74rem', fontWeight: 800,
+                                            background: activeAudienceTab === 'wa_group' ? '#059669' : '#f8fafc',
+                                            color: activeAudienceTab === 'wa_group' ? '#fff' : '#64748b',
+                                            border: activeAudienceTab === 'wa_group' ? 'none' : '1px solid #e2e8f0',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fab fa-whatsapp"></i>
+                                        <span>WA Groups</span>
+                                        <span style={{
+                                            fontSize: '0.64rem', padding: '1px 6px', borderRadius: '10px',
+                                            background: activeAudienceTab === 'wa_group' ? 'rgba(255,255,255,0.25)' : (formData.audienceConfig?.includeWaGroups ? '#dcfce7' : '#e2e8f0'),
+                                            color: activeAudienceTab === 'wa_group' ? '#fff' : (formData.audienceConfig?.includeWaGroups ? '#166534' : '#475569')
+                                        }}>
+                                            {formData.audienceConfig?.includeWaGroups ? (formData.audienceConfig?.allWaGroups ? `All (${waGroups.length}G)` : `${formData.audienceConfig?.selectedWaGroups?.length || 0}G`) : 'Off'}
+                                        </span>
+                                    </button>
+                                </div>
+
+                                {/* ── Tab Content 0: Matched Leads (AI Intent Matching) ── */}
+                                {activeAudienceTab === 'matched_leads' && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb', padding: '10px 14px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#92400e', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={formData.audienceConfig?.includeMatchedBuyers ?? true}
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeMatchedBuyers: e.target.checked }
+                                                    })}
+                                                    style={{ accentColor: '#d97706', width: '16px', height: '16px' }}
+                                                />
+                                                <span>Enable AI Deal-to-Lead Matching Engine</span>
+                                            </label>
+                                            <span style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 600 }}>Dynamic Auto-Dispatch</span>
+                                        </div>
+
+                                        {formData.audienceConfig?.includeMatchedBuyers && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '4px' }}>
+                                                {/* Sub-bar: Filter Pills */}
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Match Filter:</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setFormData({
+                                                            ...formData,
+                                                            audienceConfig: { ...formData.audienceConfig, matchedLeadFilter: 'all' }
+                                                        })}
+                                                        style={{
+                                                            padding: '4px 12px', borderRadius: '14px', fontSize: '0.72rem', fontWeight: 800,
+                                                            border: (formData.audienceConfig?.matchedLeadFilter || 'all') === 'all' ? '1px solid #4f46e5' : '1px solid #cbd5e1',
+                                                            background: (formData.audienceConfig?.matchedLeadFilter || 'all') === 'all' ? '#e0e7ff' : 'transparent',
+                                                            color: (formData.audienceConfig?.matchedLeadFilter || 'all') === 'all' ? '#3730a3' : '#64748b',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        All Verified Matches
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setFormData({
+                                                            ...formData,
+                                                            audienceConfig: { ...formData.audienceConfig, matchedLeadFilter: 'preferred', minMatchScore: Math.max(75, formData.audienceConfig?.minMatchScore || 80) }
+                                                        })}
+                                                        style={{
+                                                            padding: '4px 12px', borderRadius: '14px', fontSize: '0.72rem', fontWeight: 800,
+                                                            border: formData.audienceConfig?.matchedLeadFilter === 'preferred' ? '1px solid #f59e0b' : '1px solid #cbd5e1',
+                                                            background: formData.audienceConfig?.matchedLeadFilter === 'preferred' ? '#fef3c7' : 'transparent',
+                                                            color: formData.audienceConfig?.matchedLeadFilter === 'preferred' ? '#92400e' : '#64748b',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        ⭐ High / Preferred ≥ 75%
+                                                    </button>
+                                                </div>
+
+                                                {/* Score Slider */}
+                                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
+                                                        <span>Minimum Match Score Threshold</span>
+                                                        <span style={{ color: '#2563eb', fontWeight: 800, fontSize: '0.85rem' }}>{formData.audienceConfig?.minMatchScore || 75}%</span>
+                                                    </div>
+                                                    <input 
+                                                        type="range" 
+                                                        min="50" max="100" step="5"
+                                                        value={formData.audienceConfig?.minMatchScore || 75}
+                                                        onChange={(e) => setFormData({
+                                                            ...formData,
+                                                            audienceConfig: { ...formData.audienceConfig, minMatchScore: Number(e.target.value) }
+                                                        })}
+                                                        style={{ width: '100%', accentColor: '#2563eb' }}
+                                                    />
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px' }}>
+                                                        <span>50% (Broad reach)</span>
+                                                        <span>75% (High intent)</span>
+                                                        <span>100% (Exact match only)</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Informational Callout */}
+                                                <div style={{ display: 'flex', gap: '8px', background: '#f0f9ff', padding: '10px 12px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                                                    <i className="fas fa-info-circle" style={{ color: '#0284c7', fontSize: '14px', marginTop: '2px' }}></i>
+                                                    <div style={{ fontSize: '0.74rem', color: '#0369a1', lineHeight: 1.45 }}>
+                                                        <strong>AI Intent Engine:</strong> Whenever this business rule triggers on a deal, the system dynamically searches active buyer leads in the database whose requirement, budget range, and locality match this deal criteria.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── Tab Content 1: Broker Groups ── */}
+                                {activeAudienceTab === 'broker' && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={formData.audienceConfig?.sendToBrokerGroups ?? true}
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, sendToBrokerGroups: e.target.checked }
+                                                    })}
+                                                    style={{ accentColor: '#4f46e5', width: '16px', height: '16px' }}
+                                                />
+                                                <span>WhatsApp Broker Community Groups</span>
+                                            </label>
+                                            <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: 700 }}>
+                                                {audienceStats.brokerCount} Total Brokers
+                                            </span>
+                                        </div>
+
+                                        {formData.audienceConfig?.sendToBrokerGroups && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                {/* Selection Mode Radios */}
+                                                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '4px' }}>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="brokerSelectionMode" 
+                                                            checked={formData.audienceConfig?.allBrokerGroups && (formData.audienceConfig?.groupFilter || 'all') === 'all'}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allBrokerGroups: true, groupFilter: 'all', selectedGroups: [] }
+                                                            })}
+                                                        />
+                                                        All Active Broker Groups
+                                                    </label>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="brokerSelectionMode" 
+                                                            checked={!formData.audienceConfig?.allBrokerGroups}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allBrokerGroups: false, selectedGroups: formData.audienceConfig?.selectedGroups?.length ? formData.audienceConfig.selectedGroups : brokerGroups.map(g => g._id) }
+                                                            })}
+                                                        />
+                                                        Select Specific Groups
+                                                    </label>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="brokerSelectionMode" 
+                                                            checked={formData.audienceConfig?.groupFilter === 'bna_only'}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allBrokerGroups: true, groupFilter: 'bna_only', selectedGroups: [] }
+                                                            })}
+                                                        />
+                                                        Filtered by Tag: "bna / broker"
+                                                    </label>
+                                                </div>
+
+                                                {/* Group Chips Grid */}
+                                                {!formData.audienceConfig?.allBrokerGroups && (
+                                                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', maxHeight: '180px', overflowY: 'auto' }}>
+                                                        {loadingAudienceData ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }}></i> Loading broker groups...
+                                                            </div>
+                                                        ) : brokerGroups.length === 0 ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                No broker groups found. Create groups under Settings &gt; Groups.
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                {brokerGroups.map(g => {
+                                                                    const isSelected = (formData.audienceConfig?.selectedGroups || []).includes(g._id);
+                                                                    const mCount = Number(g.memberCount ?? (Array.isArray(g.memberIds) ? g.memberIds.length : 0));
+                                                                    return (
+                                                                        <button
+                                                                            key={g._id}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const prev = formData.audienceConfig?.selectedGroups || [];
+                                                                                const next = isSelected ? prev.filter(id => id !== g._id) : [...prev, g._id];
+                                                                                setFormData({
+                                                                                    ...formData,
+                                                                                    audienceConfig: { ...formData.audienceConfig, selectedGroups: next }
+                                                                                });
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '6px 12px', borderRadius: '16px', fontSize: '0.74rem', fontWeight: 700,
+                                                                                border: `1.5px solid ${isSelected ? (g.color || '#4f46e5') : '#cbd5e1'}`,
+                                                                                background: isSelected ? (g.color || '#4f46e5') : '#fff',
+                                                                                color: isSelected ? '#fff' : '#334155',
+                                                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                                                                                transition: 'all 0.15s'
+                                                                            }}
+                                                                        >
+                                                                            {isSelected && <i className="fas fa-check" style={{ fontSize: '10px' }}></i>}
+                                                                            <span>{g.name}</span>
+                                                                            <span style={{
+                                                                                fontSize: '0.62rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px',
+                                                                                background: isSelected ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                                                                                color: isSelected ? '#fff' : '#64748b'
+                                                                            }}>
+                                                                                {mCount} {mCount === 1 ? 'Broker' : 'Brokers'}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── Tab Content 2: Contact Groups ── */}
+                                {activeAudienceTab === 'contact' && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={formData.audienceConfig?.includeContactGroups ?? true}
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeContactGroups: e.target.checked }
+                                                    })}
+                                                    style={{ accentColor: '#10b981', width: '16px', height: '16px' }}
+                                                />
+                                                <span>Send to Contact Groups</span>
+                                            </label>
+                                            <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
+                                                {audienceStats.contactCount} Total Contacts
+                                            </span>
+                                        </div>
+
+                                        {formData.audienceConfig?.includeContactGroups && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                {/* Selection Mode Radios */}
+                                                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '4px' }}>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="contactSelectionMode" 
+                                                            checked={Boolean(formData.audienceConfig?.allContactGroups)}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allContactGroups: true, selectedContactGroups: [] }
+                                                            })}
+                                                        />
+                                                        All Contact Groups
+                                                    </label>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="contactSelectionMode" 
+                                                            checked={!formData.audienceConfig?.allContactGroups}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allContactGroups: false, selectedContactGroups: formData.audienceConfig?.selectedContactGroups?.length ? formData.audienceConfig.selectedContactGroups : contactGroups.map(g => g._id) }
+                                                            })}
+                                                        />
+                                                        Select Specific Groups
+                                                    </label>
+                                                </div>
+
+                                                {/* Contact Group Chips Grid */}
+                                                {!formData.audienceConfig?.allContactGroups && (
+                                                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', maxHeight: '180px', overflowY: 'auto' }}>
+                                                        {loadingAudienceData ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }}></i> Loading contact groups...
+                                                            </div>
+                                                        ) : contactGroups.length === 0 ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                No contact groups found. Create groups under Contacts &gt; Groups.
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                {contactGroups.map(g => {
+                                                                    const isSelected = (formData.audienceConfig?.selectedContactGroups || []).includes(g._id);
+                                                                    const mCount = Number(g.memberCount ?? (Array.isArray(g.memberIds) ? g.memberIds.length : 0));
+                                                                    return (
+                                                                        <button
+                                                                            key={g._id}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const prev = formData.audienceConfig?.selectedContactGroups || [];
+                                                                                const next = isSelected ? prev.filter(id => id !== g._id) : [...prev, g._id];
+                                                                                setFormData({
+                                                                                    ...formData,
+                                                                                    audienceConfig: { ...formData.audienceConfig, selectedContactGroups: next }
+                                                                                });
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '6px 12px', borderRadius: '16px', fontSize: '0.74rem', fontWeight: 700,
+                                                                                border: `1.5px solid ${isSelected ? (g.color || '#10b981') : '#cbd5e1'}`,
+                                                                                background: isSelected ? (g.color || '#10b981') : '#fff',
+                                                                                color: isSelected ? '#fff' : '#334155',
+                                                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                                                                                transition: 'all 0.15s'
+                                                                            }}
+                                                                        >
+                                                                            {isSelected && <i className="fas fa-check" style={{ fontSize: '10px' }}></i>}
+                                                                            <span>{g.name}</span>
+                                                                            <span style={{
+                                                                                fontSize: '0.62rem', fontWeight: 800, padding: '1px 6px', borderRadius: '10px',
+                                                                                background: isSelected ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                                                                                color: isSelected ? '#fff' : '#64748b'
+                                                                            }}>
+                                                                                {mCount} {mCount === 1 ? 'Contact' : 'Contacts'}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Investor Tag Option */}
+                                                <div style={{ border: '1px solid #e2e8f0', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginTop: '4px' }}>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', color: '#1e293b' }}>
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={formData.audienceConfig?.includeInvestorContacts ?? false}
+                                                            onChange={(e) => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, includeInvestorContacts: e.target.checked }
+                                                            })}
+                                                        />
+                                                        <span>Also include Contacts Tagged as Investors / VIPs</span>
+                                                    </label>
+                                                    {formData.audienceConfig?.includeInvestorContacts && (
+                                                        <div style={{ marginTop: '8px', paddingLeft: '24px' }}>
+                                                            <label style={{ fontSize: '0.72rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Contact Tag Filter</label>
+                                                            <input 
+                                                                type="text"
+                                                                value={formData.audienceConfig?.contactTag || 'Investor'}
+                                                                placeholder="e.g. Investor, High Networth"
+                                                                onChange={(e) => setFormData({
+                                                                    ...formData,
+                                                                    audienceConfig: { ...formData.audienceConfig, contactTag: e.target.value }
+                                                                })}
+                                                                style={{ width: '100%', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem' }}
+                             />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── Tab Content 3: WhatsApp Web Groups (@g.us) ── */}
+                                {activeAudienceTab === 'wa_group' && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={formData.audienceConfig?.includeWaGroups ?? true}
+                                                    onChange={(e) => setFormData({
+                                                        ...formData,
+                                                        audienceConfig: { ...formData.audienceConfig, includeWaGroups: e.target.checked }
+                                                    })}
+                                                    style={{ accentColor: '#059669', width: '16px', height: '16px' }}
+                                                />
+                                                <span>Send to WhatsApp Web Groups (@g.us)</span>
+                                            </label>
+                                            <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700 }}>
+                                                {audienceStats.waGroupsCount} Groups • {audienceStats.waParticipantsCount} Members
+                                            </span>
+                                        </div>
+
+                                        {formData.audienceConfig?.includeWaGroups && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                {/* Selection Mode Radios */}
+                                                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '4px' }}>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="waSelectionMode" 
+                                                            checked={Boolean(formData.audienceConfig?.allWaGroups)}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allWaGroups: true, selectedWaGroups: [] }
+                                                            })}
+                                                        />
+                                                        All Participating Groups ({waGroups.length})
+                                                    </label>
+                                                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name="waSelectionMode" 
+                                                            checked={!formData.audienceConfig?.allWaGroups}
+                                                            onChange={() => setFormData({
+                                                                ...formData,
+                                                                audienceConfig: { ...formData.audienceConfig, allWaGroups: false, selectedWaGroups: formData.audienceConfig?.selectedWaGroups?.length ? formData.audienceConfig.selectedWaGroups : waGroups.map(g => g.id) }
+                                                            })}
+                                                        />
+                                                        Select Specific Groups
+                                                    </label>
+                                                </div>
+
+                                                {/* Search filter for WA Groups */}
+                                                {!formData.audienceConfig?.allWaGroups && (
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Filter WhatsApp groups by name..."
+                                                        value={waGroupSearch}
+                                                        onChange={e => setWaGroupSearch(e.target.value)}
+                                                        style={{
+                                                            width: '100%', padding: '6px 10px', borderRadius: '8px', fontSize: '0.78rem',
+                                                            border: '1px solid #cbd5e1', outline: 'none'
+                                                        }}
+                                                    />
+                                                )}
+
+                                                {/* WA Group Chips Grid */}
+                                                {!formData.audienceConfig?.allWaGroups && (
+                                                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', maxHeight: '180px', overflowY: 'auto' }}>
+                                                        {loadingAudienceData ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }}></i> Loading WhatsApp groups...
+                                                            </div>
+                                                        ) : filteredWaGroups.length === 0 ? (
+                                                            <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                                {waGroups.length === 0 ? 'No WhatsApp Web groups found. Please ensure WhatsApp Web is connected in Profile.' : 'No groups match your search.'}
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                {filteredWaGroups.map(g => {
+                                                                    const isSelected = (formData.audienceConfig?.selectedWaGroups || []).includes(g.id);
+                                                                    return (
+                                                                        <button
+                                                                            key={g.id}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const prev = formData.audienceConfig?.selectedWaGroups || [];
+                                                                                const next = isSelected ? prev.filter(id => id !== g.id) : [...prev, g.id];
+                                                                                setFormData({
+                                                                                    ...formData,
+                                                                                    audienceConfig: { ...formData.audienceConfig, selectedWaGroups: next }
+                                                                                });
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '5px 10px', borderRadius: '14px', fontSize: '0.72rem', fontWeight: 700,
+                                                                                border: `1.5px solid ${isSelected ? '#10b981' : '#cbd5e1'}`,
+                                                                                background: isSelected ? '#10b981' : '#fff',
+                                                                                color: isSelected ? '#fff' : '#334155',
+                                                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                                                                                maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                                                                            }}
+                                                                        >
+                                                                            <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#10b981' }}></i>
+                                                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.subject || g.name || 'Group'}</span>
+                                                                            <span style={{
+                                                                                fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '8px',
+                                                                                background: isSelected ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                                                                                color: isSelected ? '#fff' : '#64748b'
+                                                                            }}>
+                                                                                {g.participantsCount || 1}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Section 2: Omnichannel Channels */}
