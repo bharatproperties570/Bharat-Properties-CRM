@@ -6,8 +6,21 @@ import './AddressMasterSettings.css';
 const GEOGRAPHY_TYPES = ['Country', 'State', 'City', 'Location', 'Tehsil', 'PostOffice', 'Pincode'];
 
 const AddressMasterSettingsPage = () => {
-    const { data: allLookups = [] } = useLookups(GEOGRAPHY_TYPES);
-    const { createLookup, updateLookup, deleteLookup, mergeOrMoveLookup } = useLookupMutations();
+    const { data: allLookups = [], refetch: refetchLookups } = useLookups(GEOGRAPHY_TYPES);
+    const { createLookup, updateLookup, deleteLookup, mergeOrMoveLookup, mergeOrMoveStreamLookup } = useLookupMutations();
+
+    // Canonical refresh helpers aligned with TanStack Query caching
+    const refreshLookups = async () => {
+        try {
+            return await refetchLookups();
+        } catch (e) {
+            console.error('Failed to refetch lookups:', e);
+        }
+    };
+    const loadCountries = refreshLookups;
+    const loadAllStates = refreshLookups;
+    const loadCityChildren = refreshLookups;
+    const loadPincodesForPostOffice = refreshLookups;
     // Columns data
     const [countries, setCountries] = useState([]);
     const [states, setStates] = useState([]);
@@ -255,10 +268,10 @@ const AddressMasterSettingsPage = () => {
     };
 
     const refreshData = async (type) => {
-        if (type === 'Country') await loadCountries();
-        else if (type === 'State') await loadAllStates();
-        else if (type === 'City' && selectedStateId) await handleStateClick(selectedStateId);
-        else if (selectedCityId) await loadCityChildren(selectedCityId);
+        await refreshLookups();
+        if (type === 'City' && selectedStateId) {
+            handleStateClick(selectedStateId);
+        }
     };
 
     // Load Initial Data
@@ -541,11 +554,9 @@ const AddressMasterSettingsPage = () => {
                 setSelectedItem(null);
 
                 // Refresh affected column view
-                if (selectedItem.lookup_type === 'State' || newType === 'State') await loadAllStates();
-                if (selectedItem.lookup_type === 'City' || newType === 'City') {
-                    if (selectedStateId) handleStateClick(selectedStateId);
-                } else {
-                    if (selectedCityId) await loadCityChildren(selectedCityId);
+                await refreshLookups();
+                if ((selectedItem.lookup_type === 'City' || newType === 'City') && selectedStateId) {
+                    handleStateClick(selectedStateId);
                 }
             } else {
                 showMessage(res.message || 'Conversion operation failed', 'error');
@@ -600,12 +611,9 @@ const AddressMasterSettingsPage = () => {
             setSelectedItem(null);
 
             // Refresh affected column view
-            if (type === 'State') {
-                await loadAllStates();
-            } else if (type === 'City') {
-                if (selectedStateId) handleStateClick(selectedStateId);
-            } else if (type) {
-                if (selectedCityId) await loadCityChildren(selectedCityId);
+            await refreshLookups();
+            if (type === 'City' && selectedStateId) {
+                handleStateClick(selectedStateId);
             }
         } catch (err) {
             console.error(err);
@@ -696,12 +704,9 @@ const AddressMasterSettingsPage = () => {
                 setSelectedItem(null);
 
                 // Refresh appropriate view
-                if (type === 'State') {
-                    await loadAllStates();
-                } else if (type === 'City') {
-                    if (selectedStateId) handleStateClick(selectedStateId);
-                } else if (type) {
-                    if (selectedCityId) await loadCityChildren(selectedCityId);
+                await refreshLookups();
+                if (type === 'City' && selectedStateId) {
+                    handleStateClick(selectedStateId);
                 }
                 setActionLoading(false);
             }, 1000);
