@@ -175,7 +175,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 
 const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarget = document.body }) => {
     const { isDark } = useTheme();
-    const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [], sizes: allSizes = [] } = usePropertyConfig();
+    const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [], sizes: allSizes = [], dealMasterFields = {} } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
     const [availableBlocks, setAvailableBlocks] = useState([]);
@@ -625,7 +625,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                             <div>
                                 <label style={styles.label}>Source</label>
                                 <MultiSelectDropdown
-                                    options={['Walk-in', 'Newspaper', '99acres', 'Social Media', 'Cold Calling', 'Own Website']}
+                                    options={dealMasterFields?.sources || ['Walk-in', 'Newspaper', '99acres', 'Social Media', 'Cold Calling', 'Own Website', 'Referral']}
                                     selected={filters.source || []}
                                     onChange={(val) => updateFilter('source', val)}
                                     placeholder="Select Sources"

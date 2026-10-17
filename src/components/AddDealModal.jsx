@@ -249,7 +249,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     location: cleanStr(deal.location, prev.location),
                     size: cleanStr(deal.size, prev.size),
                     sizeUnit: cleanStr(deal.sizeUnit, prev.sizeUnit),
-                    source: cleanStr(deal.source, prev.source),
+                    source: getLookupValue('Source', deal.source) || cleanStr(deal.source, prev.source),
                     dealType: cleanStr(deal.dealType, prev.dealType),
                     transactionType: cleanStr(deal.transactionType, prev.transactionType),
                     price: finalPrice,
@@ -637,7 +637,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 category: getLookupId('Category', formData.category),
                 subCategory: getLookupId('SubCategory', formData.subCategory),
                 propertyType: getLookupId('PropertyType', formData.propertyType),
-                source: getLookupId('Source', formData.source),
+                source: getLookupId('Source', formData.source) || formData.source,
                 team: formData.team || null,
                 assignedTo: formData.assignedTo || null,
                 status: formData.status,
@@ -1484,12 +1484,20 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         value={formData.source}
                         onChange={e => handleInputChange('source', e.target.value)}
                     >
-                        <option value="Walk-in">Walk-in</option>
-                        <option value="Newspaper">Newspaper</option>
-                        <option value="99acres">99acres</option>
-                        <option value="Social Media">Social Media</option>
-                        <option value="Cold Calling">Cold Calling</option>
-                        <option value="Own Website">Own Website</option>
+                        {(() => {
+                            const rawSources = dealMasterFields?.sources && dealMasterFields.sources.length > 0
+                                ? dealMasterFields.sources
+                                : ['Walk-in', 'Newspaper', '99acres', 'Social Media', 'Cold Calling', 'Own Website', 'Referral'];
+                            const sourcesList = formData.source && !rawSources.includes(formData.source)
+                                ? [formData.source, ...rawSources]
+                                : rawSources;
+                            return sourcesList.map(src => {
+                                const sVal = typeof src === 'string' ? src : renderValue(src);
+                                return (
+                                    <option key={sVal} value={sVal}>{sVal}</option>
+                                );
+                            });
+                        })()}
                     </select>
                 </div>
                 <div>

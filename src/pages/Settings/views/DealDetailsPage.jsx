@@ -110,6 +110,14 @@ const IntegritySettingsView = ({ showToast }) => {
     );
 };
 
+const FIELD_LABELS = {
+    dealTypes: 'Deal Types',
+    buyerTypes: 'Buyer Types',
+    sources: 'Deal Sources'
+};
+
+const getFieldLabel = (field) => FIELD_LABELS[field] || field.replace(/([A-Z])/g, ' $1').trim();
+
 const DealDetailsPage = () => {
     const { dealMasterFields, updateDealMasterFields } = usePropertyConfig();
 
@@ -143,7 +151,8 @@ const DealDetailsPage = () => {
         }));
 
         const csvContent = generateCSV(dataToExport);
-        const fileName = `deal_${activeDetailField.replace(/([A-Z])/g, '_$1').toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`;
+        const fileKey = activeDetailField === 'sources' ? 'sources' : activeDetailField.replace(/([A-Z])/g, '_$1').toLowerCase();
+        const fileName = `deal_${fileKey}_${new Date().toISOString().split('T')[0]}.csv`;
         downloadFile(csvContent, fileName);
         showToast("Export successful!");
     };
@@ -154,7 +163,7 @@ const DealDetailsPage = () => {
         const currentList = dealMasterFields[activeDetailField] || [];
         if (!currentList.includes(newItemValue.trim())) {
             updateDealMasterFields(activeDetailField, newItemValue.trim(), 'add');
-            showToast(`'${newItemValue}' added to ${activeDetailField}`);
+            showToast(`'${newItemValue}' added to ${getFieldLabel(activeDetailField)}`);
             setNewItemValue('');
             setShowAddItemForm(false);
         } else {
@@ -173,7 +182,7 @@ const DealDetailsPage = () => {
         <div style={{ display: 'flex', gap: '32px', height: '100%' }}>
             {/* Left Panel: Field List */}
             <div style={{ width: '240px', borderRight: '1px solid var(--border-color)', paddingRight: '16px' }}>
-                {['dealTypes', 'buyerTypes'].map(field => (
+                {['dealTypes', 'buyerTypes', 'sources'].map(field => (
                     <div
                         key={field}
                         onClick={() => { setActiveDetailField(field); setShowAddItemForm(false); setNewItemValue(''); }}
@@ -185,11 +194,10 @@ const DealDetailsPage = () => {
                             fontWeight: activeDetailField === field ? 600 : 500,
                             color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
                             background: activeDetailField === field ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                            marginBottom: '8px',
-                            textTransform: 'capitalize'
+                            marginBottom: '8px'
                         }}
                     >
-                        {field.replace(/([A-Z])/g, ' $1').trim()}
+                        {getFieldLabel(field)}
                     </div>
                 ))}
             </div>
@@ -197,8 +205,8 @@ const DealDetailsPage = () => {
             {/* Right Panel: Value List */}
             <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'capitalize' }}>
-                        {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                        {getFieldLabel(activeDetailField)} List
                     </h3>
                     {!showAddItemForm ? (
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
