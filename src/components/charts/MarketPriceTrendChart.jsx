@@ -68,54 +68,91 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
     return map;
   }, [projects]);
 
-  // Enterprise Location Resolver: Guaranteed to return human-readable value, never raw hex IDs
+const formatProjectTitle = (val) => {
+  if (!val) return '';
+  let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
+  if (!s) return '';
+  s = s.split(' | ')[0].trim();
+  if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+    s = s.split(' - ')[0].trim();
+  }
+  s = s.replace(/\s*(?:\||-)?\s*ordinary\s*(?:for\s*)?(?:sell|sale)?/gi, '').trim();
+  s = s.replace(/\s*(?:\||-)?\s*(?:for\s*)?(?:sell|sale)$/gi, '').trim();
+  return s
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (c) => c.toUpperCase())
+    .replace(/\bKurukshetra\b/i, 'Kurukshetra')
+    .replace(/\bSrs\b/i, 'SRS')
+    .replace(/\bHuda\b/i, 'HUDA')
+    .replace(/\b(i|ii|iii|iv|v)\b/gi, (m) => m.toUpperCase())
+    .trim();
+};
+
+  // Enterprise Location Resolver: Strictly per Project Name, NEVER standalone block name
   const resolveLocationLabel = React.useCallback((deal) => {
-    // 1. Direct pre-resolved human-readable locationName (from backend enrichment)
-    if (deal.locationName && typeof deal.locationName === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.locationName.trim())) {
-      return deal.locationName.trim();
+    // 1. Primary: Direct Project Name from deal
+    if (deal.projectName && typeof deal.projectName === 'string' && deal.projectName.trim()) {
+      return formatProjectTitle(deal.projectName.trim());
     }
-    // 2. Resolve deal.location via lookup helper
+
+    // 2. Project reference from deal or inventory (via projectMap or lookup)
+    const prj = deal.project || deal.projectId || deal.inventory?.project;
+    if (prj) {
+      if (projectMap.has(String(prj))) {
+        return formatProjectTitle(projectMap.get(String(prj)));
+      }
+      if (getLookupValue) {
+        const resolved = getLookupValue('Project', prj);
+        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
+          return formatProjectTitle(String(resolved).trim());
+        }
+      }
+      if (typeof prj === 'string' && !/^[0-9a-fA-F]{24}$/.test(prj.trim())) {
+        return formatProjectTitle(prj.trim());
+      }
+    }
+
+    // 3. Pre-resolved human-readable locationName (from backend enrichment, rejecting block names)
+    if (deal.locationName && typeof deal.locationName === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.locationName.trim())) {
+      const loc = deal.locationName.trim();
+      if (!/(?:block|huda market|part\s*i)/i.test(loc)) {
+        return formatProjectTitle(loc);
+      }
+    }
+
+    // 4. Resolve deal.location via lookup helper
     if (deal.location) {
       if (typeof deal.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.location.trim())) {
-        return deal.location.trim();
+        return formatProjectTitle(deal.location.trim());
       }
       if (getLookupValue) {
         const resolved = getLookupValue('Location', deal.location) || getLookupValue('City', deal.location) || getLookupValue('Area', deal.location);
         if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
-          return String(resolved).trim();
+          return formatProjectTitle(String(resolved).trim());
         }
       }
     }
-    // 3. Resolve from linked inventory location
+
+    // 5. Resolve from linked inventory location
     const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
     const invLoc = inv?.address?.location || inv?.address?.locality || inv?.address?.area;
     if (invLoc) {
       if (typeof invLoc === 'string' && !/^[0-9a-fA-F]{24}$/.test(invLoc.trim())) {
-        return invLoc.trim();
+        return formatProjectTitle(invLoc.trim());
       }
       if (getLookupValue) {
         const resolved = getLookupValue('Location', invLoc) || getLookupValue('City', invLoc);
         if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
-          return String(resolved).trim();
+          return formatProjectTitle(String(resolved).trim());
         }
       }
     }
-    // 4. Sector / Block / Project
+
+    // 6. Sector
     const sec = deal.sector || inv?.sector;
-    if (sec && !/^[0-9a-fA-F]{24}$/.test(String(sec).trim())) return String(sec).trim();
-    const blk = deal.block || inv?.block;
-    if (blk && !/^[0-9a-fA-F]{24}$/.test(String(blk).trim())) return String(blk).trim();
-    const prj = deal.project || inv?.project;
-    if (prj) {
-      if (getLookupValue) {
-        const resolved = getLookupValue('Project', prj);
-        if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) return String(resolved).trim();
-      }
-      if (projectMap.has(String(prj))) {
-        return projectMap.get(String(prj));
-      }
-      if (typeof prj === 'string' && !/^[0-9a-fA-F]{24}$/.test(prj.trim())) return prj.trim();
-    }
+    if (sec && !/^[0-9a-fA-F]{24}$/.test(String(sec).trim())) return formatProjectTitle(String(sec).trim());
+
+    // Explicitly NO standalone block names (deal.block / inv.block excluded)
     return 'Kurukshetra';
   }, [getLookupValue, projectMap]);
 
@@ -465,7 +502,7 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
           </div>
           <div>
             <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
-              Market Price by Location (Per {trendMetricUnit})
+              Market Price by Project (Per {trendMetricUnit})
             </div>
             <div style={{ fontSize: '0.68rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
               {totalDealsAnalyzed} deals indexed across micro-markets
@@ -485,13 +522,13 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
             {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
           </select>
           
-          {/* Location Filter */}
+          {/* Project / Location Filter */}
           <select 
             style={selectStyle}
             value={selectedLocation}
             onChange={(e) => setSelectedLocation(e.target.value)}
           >
-            <option value="Top 5">Top 5 Locations</option>
+            <option value="Top 5">Top 5 Projects</option>
             {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
           </select>
 

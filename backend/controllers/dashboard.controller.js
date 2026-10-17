@@ -11,12 +11,30 @@ import mongoose from "mongoose";
 import { safeRedisCall } from "../src/config/redis.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 
+const formatProjectTitle = (name) => {
+    if (!name || typeof name !== 'string') return '';
+    let s = name.split(' | ')[0].trim();
+    if (s.includes(' - ') && /(?:sell|sale|rent|ordinary|corner|plot|house|flat|booth|shop|sco)/i.test(s)) {
+        s = s.split(' - ')[0].trim();
+    }
+    s = s.replace(/\s*(?:\||-)?\s*ordinary\s*(?:for\s*)?(?:sell|sale)?/gi, '').trim();
+    s = s.replace(/\s*(?:\||-)?\s*(?:for\s*)?(?:sell|sale)$/gi, '').trim();
+    return s
+        .toLowerCase()
+        .replace(/\b([a-z])/g, (c) => c.toUpperCase())
+        .replace(/\bKurukshetra\b/i, 'Kurukshetra')
+        .replace(/\bSrs\b/i, 'SRS')
+        .replace(/\bHuda\b/i, 'HUDA')
+        .replace(/\b(i|ii|iii|iv|v)\b/gi, (m) => m.toUpperCase())
+        .trim();
+};
+
 export const getDashboardStats = async (req, res) => {
     try {
         const { userId, teamId } = req.query;
         const userIdForCache = req.user?._id || req.user?.id || 'anonymous';
-        // 🚀 PHASE 2.3-T: Per-user cache key includes filter params for isolation
-        const cacheKey = `dashboard_kpis_v4_${userIdForCache}_${userId || 'all'}_${teamId || 'all'}`;
+        // 🚀 PHASE 2.3-T: Per-user cache key includes filter params for isolation (v5: project-centric location)
+        const cacheKey = `dashboard_kpis_v5_${userIdForCache}_${userId || 'all'}_${teamId || 'all'}`;
         const DASHBOARD_CACHE_TTL = 300; // 5 minutes
         let cachedKpis = null;
         cachedKpis = await safeRedisCall('get', cacheKey);
@@ -206,7 +224,7 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                 { $unwind: { path: '$inventoryData', preserveNullAndEmptyArrays: true } },
                 { $project: {
                     price: 1, closedPrice: 1, size: 1, sizeUnit: 1, sizeConfig: 1, stage: 1, location: 1, propertyType: 1, category: 1, createdAt: 1, unitSpecification: 1, inventoryId: 1,
-                    sector: 1, block: 1, project: 1,
+                    sector: 1, block: 1, project: 1, projectName: 1, projectId: 1,
                     inventory: {
                         builtUpArea: '$inventoryData.builtUpArea',
                         builtupType: '$inventoryData.builtupType',
@@ -239,7 +257,7 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
                     priceTrendLookupIds.add(new mongoose.Types.ObjectId(String(id)));
                 }
             });
-            [d.project, d.inventory?.project].forEach(id => {
+            [d.project, d.projectId, d.inventory?.project].forEach(id => {
                 if (id && mongoose.Types.ObjectId.isValid(String(id))) {
                     priceTrendProjectIds.add(new mongoose.Types.ObjectId(String(id)));
                 }
@@ -263,23 +281,34 @@ const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
         trendProjectDocs.forEach(p => { trendProjectMap[p._id.toString()] = p.name || p.projectName || p.title; });
 
         const enrichedPriceTrendDeals = (priceTrendDeals || []).map(d => {
-            const rawLocId = d.location || d.inventory?.address?.location;
-            const locStr = rawLocId ? String(rawLocId) : '';
-            let loc = trendLookupMap[locStr] || null;
+            // Enterprise Requirement: Resolve location strictly per Project Name, NEVER block name
+            let loc = '';
 
+            // 1. Direct Project Name from deal or project master
+            if (d.projectName && typeof d.projectName === 'string' && d.projectName.trim()) {
+                loc = formatProjectTitle(d.projectName);
+            } else {
+                const prjId = String(d.project || d.projectId || d.inventory?.project || '');
+                if (trendProjectMap[prjId]) {
+                    loc = formatProjectTitle(trendProjectMap[prjId]);
+                } else if (prjId && !mongoose.Types.ObjectId.isValid(prjId)) {
+                    loc = formatProjectTitle(prjId);
+                }
+            }
+
+            // 2. Secondary fallback: Lookup Location or Sector (if project not present)
+            if (!loc) {
+                const rawLocId = d.location || d.inventory?.address?.location;
+                const locStr = rawLocId ? String(rawLocId) : '';
+                if (trendLookupMap[locStr]) loc = formatProjectTitle(trendLookupMap[locStr]);
+            }
             if (!loc) {
                 const secStr = String(d.sector || d.inventory?.sector || '');
-                if (secStr && !mongoose.Types.ObjectId.isValid(secStr)) loc = secStr;
-                else if (secStr && trendLookupMap[secStr]) loc = trendLookupMap[secStr];
+                if (secStr && !mongoose.Types.ObjectId.isValid(secStr)) loc = formatProjectTitle(secStr);
+                else if (secStr && trendLookupMap[secStr]) loc = formatProjectTitle(trendLookupMap[secStr]);
             }
-            if (!loc) {
-                const blkStr = String(d.block || d.inventory?.block || '');
-                if (blkStr && !mongoose.Types.ObjectId.isValid(blkStr)) loc = blkStr;
-            }
-            if (!loc) {
-                const prjStr = String(d.project || d.inventory?.project || '');
-                if (prjStr && trendProjectMap[prjStr]) loc = trendProjectMap[prjStr];
-            }
+
+            // Explicitly exclude standalone block names (d.block / inventory.block)
             if (!loc) loc = 'Kurukshetra';
 
             const rawCatId = d.category || d.propertyType;
