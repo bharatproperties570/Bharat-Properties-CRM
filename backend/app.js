@@ -200,10 +200,17 @@ app.get("/api/ready", (req, res) => {
 });
 
 app.get("/api/health", (req, res) => {
+    const memory = process.memoryUsage();
     res.status(200).json({
         success: true,
         message: "API is healthy and reachable",
         timestamp: new Date().toISOString(),
+        uptime: `${Math.floor(process.uptime())}s`,
+        memory: {
+            rss: `${Math.round(memory.rss / 1024 / 1024)} MB`,
+            heapUsed: `${Math.round(memory.heapUsed / 1024 / 1024)} MB`,
+            heapTotal: `${Math.round(memory.heapTotal / 1024 / 1024)} MB`
+        },
         env: process.env.NODE_ENV || 'development'
     });
 });

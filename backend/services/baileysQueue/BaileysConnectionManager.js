@@ -15,6 +15,16 @@ const instanceId = `${process.pid}_${Math.random().toString(36).substring(2, 9)}
 const activeHeartbeats = new Map();
 const lidPhoneCache = new Map();
 
+// 🚀 Phase 4 Enterprise Optimization: Bounded Memory Caches (Max 2,000 entries)
+const MAX_CACHE_ENTRIES = 2000;
+function safeSetBoundedCache(map, key, value) {
+    if (map.size >= MAX_CACHE_ENTRIES) {
+        const firstKey = map.keys().next().value;
+        if (firstKey) map.delete(firstKey);
+    }
+    map.set(key, value);
+}
+
 /**
  * Resolves a WhatsApp JID (phone, group, or LID) into a clean, normalized identifier.
  * If JID is a group (@g.us), returns the group JID.
@@ -56,7 +66,7 @@ async function resolveJidToPhone(jid, integrationId) {
                 const phoneDigits = String(parsed).replace(/\D/g, '');
                 if (phoneDigits) {
                     const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    lidPhoneCache.set(lidNum, cleanPhone);
+                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
                     return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
                 }
             }
@@ -72,7 +82,7 @@ async function resolveJidToPhone(jid, integrationId) {
                 const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
                 if (phoneDigits) {
                     const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    lidPhoneCache.set(lidNum, cleanPhone);
+                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
                     return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
                 }
             }
@@ -208,9 +218,13 @@ export const BaileysConnectionManager = {
                     auth: state,
                     printQRInTerminal: false,
                     logger,
+                    syncFullHistory: false,
+                    markOnlineOnConnect: false,
+                    shouldIgnoreJid: (jid) => !jid || jid === 'status@broadcast' || jid.endsWith('@broadcast') || jid.includes('newsletter'),
                     connectTimeoutMs: 30000,
                     keepAliveIntervalMs: 25000,
-                    defaultQueryTimeoutMs: 20000
+                    defaultQueryTimeoutMs: 20000,
+                    fireInitQueries: false
                 });
 
                 connections.set(integrationId, sock);
@@ -381,7 +395,7 @@ export const BaileysConnectionManager = {
                             sock.groupFetchAllParticipating().then(groups => {
                                 Object.values(groups || {}).forEach(g => {
                                     if (g.id && g.subject) {
-                                        groupSubjectCache.set(g.id, g.subject);
+                                        safeSetBoundedCache(groupSubjectCache, g.id, g.subject);
                                     }
                                 });
                                 console.log(`[BaileysConnectionManager] Cached ${groupSubjectCache.size} group subjects`);
@@ -415,7 +429,7 @@ export const BaileysConnectionManager = {
 
                 const isFromMe = !!msg.key.fromMe;
                 const remoteJid = msg.key.remoteJid;
-                if (!remoteJid || remoteJid === 'status@broadcast') continue;
+                if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.endsWith('@broadcast') || remoteJid.includes('newsletter')) continue;
 
                 const isGroup = remoteJid.endsWith('@g.us');
                 // Enterprise resolution: automatically resolves WhatsApp LIDs (@lid) to actual mobile numbers
@@ -477,7 +491,7 @@ export const BaileysConnectionManager = {
     },
 
     setGroupSubject(jid, subject) {
-        if (jid && subject) groupSubjectCache.set(jid, subject);
+        if (jid && subject) safeSetBoundedCache(groupSubjectCache, jid, subject);
     },
 
     getAllGroupSubjects() {
