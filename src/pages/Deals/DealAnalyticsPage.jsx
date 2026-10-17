@@ -94,7 +94,7 @@ const KPICard = ({ icon, iconBg, label, value, sub, trend, trendDir, color }) =>
 // ── Main Component ───────────────────────────────────────────────
 const DealAnalyticsPage = ({ onNavigate }) => {
     const { isDark } = useTheme();
-  const { sizes, getLookupValue } = usePropertyConfig();
+  const { sizes, projects, getLookupValue } = usePropertyConfig();
   const tickColor   = isDark ? '#64748b' : '#94a3b8';
   const gridStroke  = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
   const Tip = (props) => <CustomTooltip {...props} isDark={isDark} />;
@@ -538,7 +538,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
 
         {/* ── SECTION 3.5: Market Unit Price Trend ── */}
         <div className="analytics-section" style={{ marginTop: '20px' }}>
-          <MarketPriceTrendChart deals={filteredDeals} sizes={sizes} getLookupValue={getLookupValue} isDark={isDark} />
+          <MarketPriceTrendChart deals={filteredDeals} sizes={sizes} projects={projects} getLookupValue={getLookupValue} isDark={isDark} />
         </div>
 
         {/* ── SECTION 4: Intent + Deal Type + Market Gap ── */}

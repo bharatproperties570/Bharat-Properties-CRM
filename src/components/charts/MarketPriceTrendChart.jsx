@@ -68,6 +68,11 @@ const MarketPriceTrendChart = ({ deals = [], sizes = [], projects = [], getLooku
     return map;
   }, [projects]);
 
+const isBlockName = (val) => {
+  if (!val) return false;
+  return /(?:block|huda market|housing board colony|part\s*i)/i.test(String(val).trim());
+};
+
 const formatProjectTitle = (val) => {
   if (!val) return '';
   let s = typeof val === 'object' ? (val.name || val.title || val.projectName || val.lookup_value || '') : String(val);
@@ -92,67 +97,76 @@ const formatProjectTitle = (val) => {
   const resolveLocationLabel = React.useCallback((deal) => {
     // 1. Primary: Direct Project Name from deal
     if (deal.projectName && typeof deal.projectName === 'string' && deal.projectName.trim()) {
-      return formatProjectTitle(deal.projectName.trim());
+      const p = formatProjectTitle(deal.projectName.trim());
+      if (p && !isBlockName(p)) return p;
     }
 
     // 2. Project reference from deal or inventory (via projectMap or lookup)
     const prj = deal.project || deal.projectId || deal.inventory?.project;
     if (prj) {
       if (projectMap.has(String(prj))) {
-        return formatProjectTitle(projectMap.get(String(prj)));
+        const p = formatProjectTitle(projectMap.get(String(prj)));
+        if (p && !isBlockName(p)) return p;
       }
       if (getLookupValue) {
         const resolved = getLookupValue('Project', prj);
         if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
-          return formatProjectTitle(String(resolved).trim());
+          const p = formatProjectTitle(String(resolved).trim());
+          if (p && !isBlockName(p)) return p;
         }
       }
       if (typeof prj === 'string' && !/^[0-9a-fA-F]{24}$/.test(prj.trim())) {
-        return formatProjectTitle(prj.trim());
+        const p = formatProjectTitle(prj.trim());
+        if (p && !isBlockName(p)) return p;
       }
     }
 
-    // 3. Pre-resolved human-readable locationName (from backend enrichment, rejecting block names)
+    // 3. Pre-resolved human-readable locationName (from backend enrichment, strictly rejecting block names)
     if (deal.locationName && typeof deal.locationName === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.locationName.trim())) {
-      const loc = deal.locationName.trim();
-      if (!/(?:block|huda market|part\s*i)/i.test(loc)) {
-        return formatProjectTitle(loc);
-      }
+      const loc = formatProjectTitle(deal.locationName.trim());
+      if (loc && !isBlockName(loc)) return loc;
     }
 
-    // 4. Resolve deal.location via lookup helper
+    // 4. Resolve deal.location via lookup helper (strictly rejecting block names)
     if (deal.location) {
       if (typeof deal.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(deal.location.trim())) {
-        return formatProjectTitle(deal.location.trim());
+        const loc = formatProjectTitle(deal.location.trim());
+        if (loc && !isBlockName(loc)) return loc;
       }
       if (getLookupValue) {
         const resolved = getLookupValue('Location', deal.location) || getLookupValue('City', deal.location) || getLookupValue('Area', deal.location);
         if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
-          return formatProjectTitle(String(resolved).trim());
+          const loc = formatProjectTitle(String(resolved).trim());
+          if (loc && !isBlockName(loc)) return loc;
         }
       }
     }
 
-    // 5. Resolve from linked inventory location
+    // 5. Resolve from linked inventory location (strictly rejecting block names)
     const inv = (deal.inventory && typeof deal.inventory === 'object') ? deal.inventory : (deal.inventoryId && typeof deal.inventoryId === 'object' ? deal.inventoryId : null);
     const invLoc = inv?.address?.location || inv?.address?.locality || inv?.address?.area;
     if (invLoc) {
       if (typeof invLoc === 'string' && !/^[0-9a-fA-F]{24}$/.test(invLoc.trim())) {
-        return formatProjectTitle(invLoc.trim());
+        const loc = formatProjectTitle(invLoc.trim());
+        if (loc && !isBlockName(loc)) return loc;
       }
       if (getLookupValue) {
         const resolved = getLookupValue('Location', invLoc) || getLookupValue('City', invLoc);
         if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved).trim())) {
-          return formatProjectTitle(String(resolved).trim());
+          const loc = formatProjectTitle(String(resolved).trim());
+          if (loc && !isBlockName(loc)) return loc;
         }
       }
     }
 
-    // 6. Sector
+    // 6. Sector (strictly rejecting block names)
     const sec = deal.sector || inv?.sector;
-    if (sec && !/^[0-9a-fA-F]{24}$/.test(String(sec).trim())) return formatProjectTitle(String(sec).trim());
+    if (sec && !/^[0-9a-fA-F]{24}$/.test(String(sec).trim())) {
+      const loc = formatProjectTitle(String(sec).trim());
+      if (loc && !isBlockName(loc)) return loc;
+    }
 
-    // Explicitly NO standalone block names (deal.block / inv.block excluded)
+    // Explicitly NO standalone block names
     return 'Kurukshetra';
   }, [getLookupValue, projectMap]);
 
@@ -186,7 +200,7 @@ const formatProjectTitle = (val) => {
     return Array.from(cats).sort();
   }, [deals, resolveCategoryLabel]);
 
-  // Extract all unique locations based on selected category
+  // Extract all unique locations based on selected category (guaranteed NO blocks)
   const availableLocations = useMemo(() => {
     const locs = new Set();
     (deals || []).forEach(deal => {
@@ -195,7 +209,7 @@ const formatProjectTitle = (val) => {
       if (selectedCategory !== 'All' && categoryLabel !== selectedCategory) return;
       
       const locName = resolveLocationLabel(deal);
-      if (locName) locs.add(locName);
+      if (locName && !isBlockName(locName)) locs.add(locName);
     });
     return Array.from(locs).sort();
   }, [deals, selectedCategory, resolveCategoryLabel, resolveLocationLabel]);
@@ -367,6 +381,7 @@ const formatProjectTitle = (val) => {
 
       // 5. Resolve Location
       const locationLabel = resolveLocationLabel(deal);
+      if (isBlockName(locationLabel)) return;
 
       const cd = new Date(deal.createdAt || Date.now());
       const key = cd.toLocaleString('default', { month: 'short', year: '2-digit' });
@@ -390,11 +405,12 @@ const formatProjectTitle = (val) => {
     let plotLocations = [];
     if (selectedLocation === 'Top 5') {
       plotLocations = Object.entries(locVolume)
+        .filter(([loc]) => !isBlockName(loc))
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(entry => entry[0]);
     } else {
-      plotLocations = [selectedLocation];
+      plotLocations = isBlockName(selectedLocation) ? [] : [selectedLocation];
     }
     
     // Calculate Averages and Carry-forward
