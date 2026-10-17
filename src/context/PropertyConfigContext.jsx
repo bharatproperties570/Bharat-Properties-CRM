@@ -186,8 +186,19 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [apiProjects]);
 
 
-    // --- LOOKUPS STATE ---
-    const [lookups, setLookups] = useState({}); // { type: [lookupObjects] }
+    // --- LOOKUPS STATE (L1 Persistent Cache for Zero-Latency First Render) ---
+    const [lookups, setLookups] = useState(() => {
+        try {
+            const cached = safeStorage.getItem('bp_lookups_l1_cache');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                return (parsed && typeof parsed === 'object') ? parsed : {};
+            }
+        } catch (e) {
+            console.warn('[LookupsCache] Read failed:', e);
+        }
+        return {};
+    });
 
     // --- HOISTED STATES (Fixes ReferenceError: Cannot access before initialization) ---
     // Moved to top so they are initialized before useCallback/useEffect hooks that depend on them.
@@ -1664,6 +1675,11 @@ export const PropertyConfigProvider = ({ children }) => {
 
         console.log('[PropertyConfigContext] Grouped Lookups:', Object.keys(newLookups));
         setLookups(newLookups);
+        try {
+            safeStorage.setItem('bp_lookups_l1_cache', JSON.stringify(newLookups));
+        } catch (e) {
+            console.warn('[LookupsCache] Write failed:', e);
+        }
 
         const getValues = (type) => helperGet(newLookups, type)?.map(l => l.lookup_value) || [];
 

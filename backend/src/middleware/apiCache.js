@@ -94,10 +94,24 @@ export function cacheMiddleware(customTtl = null) {
         const ttl = customTtl || CACHE_ROUTES[basePath];
         if (!ttl) return next();
 
-        // Cache key: path + query + user scope
-        const userId = req.user?._id || req.user?.id || 'anon';
-        const cachePath = req.originalUrl || req.url;
-        const cacheKey = `${cachePath}|${userId}`;
+        // Normalize cache key: strip cache-busters (_t, timestamp) & sort params for deterministic hits
+        let cleanPath = req.originalUrl || req.url;
+        try {
+            const urlObj = new URL(cleanPath, 'http://localhost');
+            urlObj.searchParams.delete('_t');
+            urlObj.searchParams.delete('t');
+            urlObj.searchParams.delete('_');
+            urlObj.searchParams.delete('timestamp');
+            urlObj.searchParams.sort();
+            cleanPath = urlObj.pathname + (urlObj.search ? urlObj.search : '');
+        } catch (e) {
+            // fallback
+        }
+
+        // Master data like lookups and roles are universal across organization users
+        const isUniversalMasterData = basePath.includes('/lookups') || basePath.includes('/lookup') || basePath.includes('/roles');
+        const userScope = isUniversalMasterData ? 'org_universal' : (req.user?._id || req.user?.id || 'anon');
+        const cacheKey = `${cleanPath}|${userScope}`;
 
         const cached = apiCache.get(cacheKey);
         if (cached) {

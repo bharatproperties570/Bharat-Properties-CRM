@@ -207,7 +207,7 @@ export const automationAPI = {
 
 
 
-export const getNotifications = () => api.get('/notifications').then(res => res.data);
+export const getNotifications = () => api.get('/notifications', { _silentError: true }).then(res => res.data);
 export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`).then(res => res.data);
 export const markAllNotificationsAsRead = () => api.put('/notifications/read-all').then(res => res.data);
 export const triggerTestNotification = () => api.post('/notifications/test').then(res => res.data);
@@ -429,11 +429,17 @@ api.interceptors.response.use(
             const isSilentRoute = reqUrl.includes('system-settings') || 
                                   reqUrl.includes('settings/key') || 
                                   reqUrl.includes('/read') || 
+                                  reqUrl.includes('lookups') || 
+                                  reqUrl.includes('lookup') || 
+                                  reqUrl.includes('notifications') || 
                                   (reqUrl.includes('conversations') && reqUrl.includes('/read'));
 
             // 🛡️ Enterprise Strategy: Do not trigger intrusive UI toasts for missing system settings or read marks
             if (normalizedCode === 'NOT_FOUND' && isSilentRoute) {
                 // Silently ignored for optional system setting or read mark 404s
+            } else if (isSilentRoute && (normalizedCode === 'TIMEOUT' || normalizedCode === 'NETWORK_ERROR')) {
+                // 🛡️ Senior Circuit Breaker: Do not distract the user with red toasts for background polling / lookups timeouts
+                console.warn(`[SilentDegrade] Background request to ${reqUrl} experienced ${normalizedCode}. Suppressed toast.`);
             } else if (['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'SERVER_ERROR', 'NETWORK_ERROR', 'TIMEOUT'].includes(normalizedCode)) {
                 showDeduplicatedToast(normalizedUserMessage, 'error');
             }
@@ -529,23 +535,21 @@ const apiRequest = async (endpoint, options = {}) => {
 export const lookupsAPI = {
     getMultiple: (typesArray) => {
         if (!typesArray || !typesArray.length) return Promise.resolve({ status: 'success', data: [] });
-        const uniqueTypes = [...new Set(typesArray)].filter(Boolean);
+        const uniqueTypes = [...new Set(typesArray)].filter(Boolean).sort();
         const typesStr = uniqueTypes.join(',');
-        return apiRequest(`/lookups?lookup_type=${encodeURIComponent(typesStr)}&_t=${Date.now()}`);
+        return apiRequest(`/lookups?lookup_type=${encodeURIComponent(typesStr)}`);
     },
     getAll: (type = null) => {
         let url = '/lookups';
         if (type) {
-            url += `?lookup_type=${encodeURIComponent(type)}&_t=${Date.now()}`;
-        } else {
-            url += `?_t=${Date.now()}`;
+            url += `?lookup_type=${encodeURIComponent(type)}`;
         }
         return apiRequest(url);
     },
-    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}&_t=${Date.now()}`),
-    getStates: () => apiRequest(`/lookups?lookup_type=State&_t=${Date.now()}`),
-    getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}&_t=${Date.now()}`),
-    getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}&_t=${Date.now()}`),
+    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}`),
+    getStates: () => apiRequest(`/lookups?lookup_type=State`),
+    getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}`),
+    getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}`),
     create: (data) => apiRequest('/lookups', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/lookups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/lookups/${id}`, { method: 'DELETE' }),

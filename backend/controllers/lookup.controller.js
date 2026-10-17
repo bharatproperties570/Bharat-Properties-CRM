@@ -38,7 +38,7 @@ export const getLookups = async (req, res) => {
                 _id: { $in: idArray.map(id => new mongoose.Types.ObjectId(id)) }
             }).lean();
             console.log(`[LOOKUP_FETCH] Batch ID fetch: ${idArray.length} requested, ${lookupsByIds.length} found`);
-            res.set('Cache-Control', 'no-store');
+            res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
             return res.json({ status: "success", data: lookupsByIds });
         }
 
@@ -111,7 +111,7 @@ export const getLookups = async (req, res) => {
         }
 
         console.log(`[LOOKUP_FETCH] Success: Found ${lookups.length} records for ${lookup_type}`);
-        res.set('Cache-Control', 'no-store');
+        res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
         res.json({ status: "success", data: lookups });
     } catch (error) {
         console.error(`[LOOKUP_FETCH] Error fetching lookups for ${lookup_type}:`, error);
