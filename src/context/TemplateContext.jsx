@@ -2,7 +2,18 @@ import React, { createContext, useContext, useState } from 'react';
 
 const TemplateContext = createContext();
 
-export const useTemplates = () => useContext(TemplateContext);
+export const useTemplates = () => {
+    const context = useContext(TemplateContext);
+    if (!context) {
+        return {
+            templates: [],
+            addTemplate: () => {},
+            updateTemplate: () => {},
+            deleteTemplate: () => {}
+        };
+    }
+    return context;
+};
 
 export const TemplateProvider = ({ children }) => {
     // Seed with standard Enterprise Real Estate Templates

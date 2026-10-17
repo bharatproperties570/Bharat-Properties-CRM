@@ -138,22 +138,30 @@ export const AutomatedActionsProvider = ({ children }) => {
     const addAction = useCallback(async (newAction) => {
         try {
             const savedAction = await automationAPI.createAutomatedAction(newAction);
-            setActions(prev => [...prev, savedAction]);
+            const actualAction = savedAction?.data || savedAction;
+            setActions(prev => [...prev, actualAction]);
             toast.success("Automated action saved successfully");
+            return actualAction;
         } catch (error) {
             console.error("Failed to create action:", error);
-            toast.error("Failed to save action");
+            const errorMsg = error?.response?.data?.error || error?.message || "Failed to save action";
+            toast.error(errorMsg);
+            throw error;
         }
     }, []);
 
     const updateAction = useCallback(async (id, updatedData) => {
         try {
             const savedAction = await automationAPI.updateAutomatedAction(id, updatedData);
-            setActions(prev => prev.map(a => (a.id === id || a._id === id) ? (savedAction?.data || savedAction || { ...a, ...updatedData }) : a));
+            const actualAction = savedAction?.data || savedAction || { ...updatedData, id };
+            setActions(prev => prev.map(a => (a.id === id || a._id === id) ? actualAction : a));
             toast.success("Automated action updated successfully");
+            return actualAction;
         } catch (error) {
             console.error("Failed to update action:", error);
-            toast.error("Failed to update action");
+            const errorMsg = error?.response?.data?.error || error?.message || "Failed to update action";
+            toast.error(errorMsg);
+            throw error;
         }
     }, []);
 
@@ -203,6 +211,17 @@ export const AutomatedActionsProvider = ({ children }) => {
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAutomatedActions = () => {
     const context = useContext(AutomatedActionsContext);
-    if (!context) throw new Error('useAutomatedActions must be used within an AutomatedActionsProvider');
+    if (!context) {
+        console.warn('⚠️ [AutomatedActionsContext] useAutomatedActions called outside provider, returning fallback.');
+        return {
+            actions: [],
+            auditLogs: [],
+            invokeAction: async () => null,
+            addAction: async () => {},
+            updateAction: async () => {},
+            toggleAction: async () => {},
+            deleteAction: async () => {}
+        };
+    }
     return context;
 };

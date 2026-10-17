@@ -45,7 +45,11 @@ const SequenceSchema = new mongoose.Schema({
         },
         action: {
             type: { type: String, required: true }, // 'fire_automated_action', 'broadcast_deal', 'send_communication', 'send_whatsapp', 'send_email', 'create_task', 'update_field'
-            automatedActionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AutomatedAction' },
+            automatedActionId: { 
+                type: mongoose.Schema.Types.ObjectId, 
+                ref: 'AutomatedAction',
+                set: v => (v === '' ? undefined : v)
+            },
             templateId: String,
             instruction: String,
             data: mongoose.Schema.Types.Mixed

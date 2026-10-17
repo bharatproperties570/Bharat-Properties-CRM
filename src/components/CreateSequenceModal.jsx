@@ -5,10 +5,10 @@ import { useAutomatedActions } from '../context/AutomatedActionsContext';
 import { useTemplates } from '../context/TemplateContext';
 
 const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
-    const { addSequence, updateSequence } = useSequences();
-    const { triggers = [] } = useTriggers();
-    const { actions: automatedActions = [] } = useAutomatedActions();
-    const { templates = [] } = useTemplates();
+    const { addSequence = () => {}, updateSequence = () => {} } = useSequences() || {};
+    const { triggers = [] } = useTriggers() || {};
+    const { actions: automatedActions = [] } = useAutomatedActions() || {};
+    const { templates = [] } = useTemplates() || {};
     
     const [activeTab, setActiveTab] = useState('basic');
     
@@ -87,13 +87,20 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
 
     if (!isOpen) return null;
 
+    // Defensive array guarantees
+    const safeTriggers = Array.isArray(triggers) ? triggers : [];
+    const safeAutomatedActions = Array.isArray(automatedActions) ? automatedActions : [];
+    const safeTemplates = Array.isArray(templates) ? templates : [];
+    const safeSteps = Array.isArray(formData?.steps) ? formData.steps : [];
+    const exitCond = formData?.exitConditions || defaultData.exitConditions || {};
+
     // Filter triggers belonging to the currently selected module
-    const moduleTriggers = triggers.filter(t => (t.module || '').toLowerCase() === (formData.module || '').toLowerCase());
+    const moduleTriggers = safeTriggers.filter(t => (t?.module || '').toLowerCase() === (formData?.module || '').toLowerCase());
 
     // Filter automated actions belonging to the currently selected module or generic
-    const moduleAutomatedActions = automatedActions.filter(a => {
-        const actionMod = (a.targetModule || '').toLowerCase();
-        const curMod = (formData.module || '').toLowerCase();
+    const moduleAutomatedActions = safeAutomatedActions.filter(a => {
+        const actionMod = (a?.targetModule || '').toLowerCase();
+        const curMod = (formData?.module || '').toLowerCase();
         return actionMod === curMod || actionMod === 'all' || actionMod === 'other';
     });
 
@@ -201,7 +208,7 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                     {[
                         { id: 'basic', label: '1. Basic Setup', icon: 'fa-info-circle' },
                         { id: 'trigger', label: `2. Module Triggers (${moduleTriggers.length})`, icon: 'fa-bolt' },
-                        { id: 'steps', label: `3. Steps & Intervals (${formData.steps.length})`, icon: 'fa-layer-group' },
+                        { id: 'steps', label: `3. Steps & Intervals (${safeSteps.length})`, icon: 'fa-layer-group' },
                         { id: 'exit', label: '4. Exit Criteria', icon: 'fa-sign-out-alt' }
                     ].map(tab => (
                         <div
@@ -401,7 +408,7 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {formData.steps.map((step, index) => (
+                                {safeSteps.map((step, index) => (
                                     <div
                                         key={step.id || index}
                                         style={{
@@ -540,7 +547,7 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                                                 >
                                                                     <option value="">-- Select Template --</option>
                                                                     <option value="deal_broadcast">deal_broadcast (Omnichannel)</option>
-                                                                    {templates.map(t => (
+                                                                    {safeTemplates.map(t => (
                                                                         <option key={t.id || t._id} value={t.name || t.id}>{t.name}</option>
                                                                     ))}
                                                                 </select>
@@ -617,19 +624,19 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                             {/* DEALS MODULE EXIT CONDITIONS */}
                             {formData.module === 'deals' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onStageNotOpen ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onStageNotOpen ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onStageNotOpen ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onStageNotOpen: e.target.checked }
-                                            })}
+                                            checked={exitCond.onStageNotOpen ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onStageNotOpen: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
                                             <span style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>
-                                                Stop when Deal stage is not 'Open' (Negotiation, Booked, Closed Won, Lost)
+                                                 Stop when Deal stage is not 'Open' (Negotiation, Booked, Closed Won, Lost)
                                             </span>
                                             <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
                                                 Prevents automated marketing broadcasts after a deal advances into active negotiations or gets booked.
@@ -637,14 +644,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                         </div>
                                     </label>
 
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onPriceChanged ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onPriceChanged ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onPriceChanged ?? false}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onPriceChanged: e.target.checked }
-                                            })}
+                                            checked={exitCond.onPriceChanged ?? false}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onPriceChanged: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -657,14 +664,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                         </div>
                                     </label>
 
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onInactive ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onInactive ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onInactive ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onInactive: e.target.checked }
-                                            })}
+                                            checked={exitCond.onInactive ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onInactive: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -682,14 +689,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                             {/* LEADS MODULE EXIT CONDITIONS */}
                             {formData.module === 'leads' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onDealCreated ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onDealCreated ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onDealCreated ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onDealCreated: e.target.checked }
-                                            })}
+                                            checked={exitCond.onDealCreated ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onDealCreated: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -702,14 +709,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                         </div>
                                     </label>
 
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onLost ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onLost ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onLost ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onLost: e.target.checked }
-                                            })}
+                                            checked={exitCond.onLost ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onLost: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -719,14 +726,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                         </div>
                                     </label>
 
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onManualActivity ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onManualActivity ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onManualActivity ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onManualActivity: e.target.checked }
-                                            })}
+                                            checked={exitCond.onManualActivity ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onManualActivity: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -741,14 +748,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                             {/* INVENTORY MODULE EXIT CONDITIONS */}
                             {formData.module === 'inventory' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onSold ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onSold ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onSold ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onSold: e.target.checked }
-                                            })}
+                                            checked={exitCond.onSold ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onSold: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>
@@ -763,14 +770,14 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                             {/* ACTIVITIES MODULE EXIT CONDITIONS */}
                             {formData.module === 'activities' && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: formData.exitConditions.onCompleted ? '#eff6ff' : '#fff' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', background: exitCond.onCompleted ? '#eff6ff' : '#fff' }}>
                                         <input
                                             type="checkbox"
-                                            checked={formData.exitConditions.onCompleted ?? true}
-                                            onChange={(e) => setFormData({
-                                                ...formData,
-                                                exitConditions: { ...formData.exitConditions, onCompleted: e.target.checked }
-                                            })}
+                                            checked={exitCond.onCompleted ?? true}
+                                            onChange={(e) => setFormData(prev => ({
+                                                ...prev,
+                                                exitConditions: { ...(prev?.exitConditions || defaultData.exitConditions), onCompleted: e.target.checked }
+                                            }))}
                                             style={{ width: '16px', height: '16px', accentColor: '#2563eb' }}
                                         />
                                         <div>

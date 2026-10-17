@@ -280,9 +280,17 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
     ];
 
     const handleSave = () => {
+        if (!formData.name || formData.name.trim() === '') {
+            alert('Action Name is required');
+            return;
+        }
+
         const payload = { ...formData };
         if (payload.actionType === 'update_field' && fieldKey) {
             payload.fieldMapping = { [fieldKey]: fieldVal };
+        }
+        if (!payload.invokedByTrigger || payload.invokedByTrigger === '') {
+            delete payload.invokedByTrigger;
         }
         if (editData && (editData._id || editData.id) && updateAction) {
             updateAction(editData._id || editData.id, payload);
@@ -350,18 +358,22 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                     </div>
 
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: '8px' }}>Invoked By Trigger</label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: '8px' }}>
+                            Invoked By Trigger <span style={{ fontWeight: 400, color: '#64748b' }}>(Optional - can be invoked by a Sequence)</span>
+                        </label>
                         <select
-                            value={formData.invokedByTrigger}
+                            value={formData.invokedByTrigger || ''}
                             onChange={e => setFormData({ ...formData, invokedByTrigger: e.target.value })}
                             style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem' }}
                         >
-                            <option value="">-- Select a Trigger --</option>
-                            {triggers.map(t => (
+                            <option value="">-- None / Invoked by Sequence or Manual --</option>
+                            {(triggers || []).map(t => (
                                 <option key={t._id || t.id} value={t._id || t.id}>{t.name} ({t.module})</option>
                             ))}
                         </select>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '0.7rem', color: '#94a3b8' }}>Automated actions cannot run without a trigger.</p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.7rem', color: '#94a3b8' }}>
+                            Triggers are optional. Leave blank if this action will be executed in a multi-step Sequence.
+                        </p>
                     </div>
 
                     {formData.actionType === 'update_field' && (

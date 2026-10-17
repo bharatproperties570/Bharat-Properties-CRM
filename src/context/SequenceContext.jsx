@@ -330,4 +330,26 @@ export const SequenceProvider = ({ children }) => {
 };
 
 // eslint-disable-next-line react-refresh/only-export-components
-export const useSequences = () => useContext(SequenceContext);
+export const useSequences = () => {
+    const context = useContext(SequenceContext);
+    if (!context) {
+        console.warn('⚠️ [SequenceContext] useSequences called outside provider, returning fallback.');
+        return {
+            sequences: [],
+            enrollments: [],
+            sequenceLogs: [],
+            enrollInSequence: () => {},
+            evaluateAndEnroll: () => {},
+            updateEnrollmentStatus: () => {},
+            addSequence: () => {},
+            updateSequence: () => {},
+            deleteSequence: () => {},
+            toggleSequence: () => {},
+            getEnrollmentCount: () => 0,
+            getSequenceStats: () => ({ total: 0, active: 0, completed: 0, stopped: 0, paused: 0 }),
+            isEnrolled: () => false,
+            getActiveEnrollments: () => []
+        };
+    }
+    return context;
+};
