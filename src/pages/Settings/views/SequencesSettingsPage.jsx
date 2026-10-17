@@ -3,7 +3,7 @@ import { useSequences } from '../../../context/SequenceContext';
 import CreateSequenceModal from '../../../components/CreateSequenceModal';
 
 const SequencesSettingsPage = () => {
-    const { sequences, toggleSequence, deleteSequence, getEnrollmentCount, enrollments } = useSequences();
+    const { sequences = [], toggleSequence, deleteSequence, getEnrollmentCount, enrollments = [] } = useSequences() || {};
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -14,14 +14,19 @@ const SequencesSettingsPage = () => {
     const [sortBy, setSortBy] = useState('name'); // name, enrolled, created
     const [sortOrder, setSortOrder] = useState('asc'); // asc, desc
 
+    const safeSequences = Array.isArray(sequences) ? sequences : [];
+    const safeEnrollments = Array.isArray(enrollments) ? enrollments : [];
+
     // Calculate real stats
-    const totalEnrolled = enrollments.filter(e => e.status === 'active').length;
-    const totalCompleted = enrollments.filter(e => e.status === 'completed').length;
-    const completionRate = enrollments.length > 0 ? Math.round((totalCompleted / enrollments.length) * 100) : 0;
+    const totalEnrolled = safeEnrollments.filter(e => e?.status === 'active').length;
+    const totalCompleted = safeEnrollments.filter(e => e?.status === 'completed').length;
+    const completionRate = safeEnrollments.length > 0 ? Math.round((totalCompleted / safeEnrollments.length) * 100) : 0;
 
     // Filter and sort sequences
-    let filteredSequences = sequences.filter(s => {
-        const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
+    let filteredSequences = safeSequences.filter(s => {
+        if (!s) return false;
+        const name = (s.name || '').toLowerCase();
+        const matchesSearch = name.includes((searchTerm || '').toLowerCase());
         const matchesStatus = filterStatus === 'all' ||
             (filterStatus === 'active' && s.active) ||
             (filterStatus === 'paused' && !s.active);
@@ -31,12 +36,16 @@ const SequencesSettingsPage = () => {
     // Sort sequences
     filteredSequences.sort((a, b) => {
         let comparison = 0;
+        const seqAId = a?._id || a?.id;
+        const seqBId = b?._id || b?.id;
         if (sortBy === 'name') {
-            comparison = a.name.localeCompare(b.name);
+            comparison = (a?.name || '').localeCompare(b?.name || '');
         } else if (sortBy === 'enrolled') {
-            comparison = getEnrollmentCount(a.id) - getEnrollmentCount(b.id);
+            const countA = typeof getEnrollmentCount === 'function' ? getEnrollmentCount(seqAId) : 0;
+            const countB = typeof getEnrollmentCount === 'function' ? getEnrollmentCount(seqBId) : 0;
+            comparison = countA - countB;
         } else if (sortBy === 'created') {
-            comparison = new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+            comparison = new Date(a?.createdAt || 0) - new Date(b?.createdAt || 0);
         }
         return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -51,11 +60,14 @@ const SequencesSettingsPage = () => {
         setIsDeleteConfirmOpen(true);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
         if (sequenceToDelete) {
-            const result = deleteSequence(sequenceToDelete.id);
-            if (!result.success) {
-                alert(result.message);
+            const targetId = sequenceToDelete._id || sequenceToDelete.id;
+            if (typeof deleteSequence === 'function') {
+                const result = await deleteSequence(targetId);
+                if (result && !result.success) {
+                    alert(result.message);
+                }
             }
         }
         setIsDeleteConfirmOpen(false);
@@ -93,10 +105,10 @@ const SequencesSettingsPage = () => {
             {/* Stats Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
                 {[
-                    { label: 'Active Sequences', value: sequences.filter(s => s.active).length, icon: 'fa-play', color: '#3b82f6' },
+                    { label: 'Active Sequences', value: safeSequences.filter(s => s?.active).length, icon: 'fa-play', color: '#3b82f6' },
                     { label: 'Total Enrolled', value: totalEnrolled, icon: 'fa-users', color: '#10b981' },
                     { label: 'Completion Rate', value: `${completionRate}%`, icon: 'fa-check-circle', color: '#8b5cf6' },
-                    { label: 'Total Sequences', value: sequences.length, icon: 'fa-list', color: '#f59e0b' }
+                    { label: 'Total Sequences', value: safeSequences.length, icon: 'fa-list', color: '#f59e0b' }
                 ].map((stat, i) => (
                     <div key={i} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -167,76 +179,85 @@ const SequencesSettingsPage = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredSequences.map((seq) => (
-                            <tr key={seq.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                <td style={{ padding: '16px' }}>
-                                    <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{seq.name}</div>
-                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Purpose: {seq.purpose}</div>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <span style={{ fontSize: '13px', color: 'var(--text-main)', background: 'var(--bg-light)', padding: '4px 8px', borderRadius: '4px' }}>
-                                        {seq.trigger.type}
-                                    </span>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>{seq.steps.length} Steps</div>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
-                                        {getEnrollmentCount(seq.id)} Active
-                                    </div>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <button
-                                        onClick={() => toggleSequence(seq.id)}
-                                        style={{
-                                            padding: '4px 12px',
-                                            borderRadius: '20px',
-                                            fontSize: '12px',
-                                            fontWeight: '600',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            background: seq.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                            color: seq.active ? '#166534' : '#991b1b'
-                                        }}
-                                    >
-                                        {seq.active ? 'Active' : 'Paused'}
-                                    </button>
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
-                                        <i
-                                            className="fas fa-edit"
-                                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                            onClick={() => handleEdit(seq)}
-                                            onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
-                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                            title="Edit Sequence"
-                                        ></i>
-                                        <i
-                                            className="fas fa-copy"
-                                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                            onClick={() => {
-                                                const duplicate = { ...seq, name: `${seq.name} (Copy)`, id: undefined };
-                                                setEditingSequence(duplicate);
-                                                setIsEditModalOpen(true);
+                        {filteredSequences.map((seq, idx) => {
+                            const seqId = seq._id || seq.id || `seq_${idx}`;
+                            const triggerLabel = seq.trigger?.type 
+                                || (seq.linkedTriggers && seq.linkedTriggers.length > 0 ? `${seq.linkedTriggers.length} Linked Triggers` : '')
+                                || (seq.module ? `On ${seq.module} Event` : 'Manual / Event');
+                            const stepsCount = Array.isArray(seq.steps) ? seq.steps.length : 0;
+                            const activeCount = typeof getEnrollmentCount === 'function' ? getEnrollmentCount(seqId) : 0;
+
+                            return (
+                                <tr key={seqId} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '16px' }}>
+                                        <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{seq.name || 'Untitled Sequence'}</div>
+                                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Purpose: {seq.purpose || 'N/A'}</div>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <span style={{ fontSize: '13px', color: 'var(--text-main)', background: 'var(--bg-light)', padding: '4px 8px', borderRadius: '4px' }}>
+                                            {triggerLabel}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>{stepsCount} Steps</div>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
+                                            {activeCount} Active
+                                        </div>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <button
+                                            onClick={() => typeof toggleSequence === 'function' && toggleSequence(seqId)}
+                                            style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                background: seq.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                                color: seq.active ? '#166534' : '#991b1b'
                                             }}
-                                            onMouseEnter={(e) => e.target.style.color = '#10b981'}
-                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                            title="Duplicate Sequence"
-                                        ></i>
-                                        <i
-                                            className="fas fa-trash-alt"
-                                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                            onClick={() => handleDelete(seq)}
-                                            onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                            title="Delete Sequence"
-                                        ></i>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                                        >
+                                            {seq.active ? 'Active' : 'Paused'}
+                                        </button>
+                                    </td>
+                                    <td style={{ padding: '16px' }}>
+                                        <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
+                                            <i
+                                                className="fas fa-edit"
+                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                                                onClick={() => handleEdit(seq)}
+                                                onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
+                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                                                title="Edit Sequence"
+                                            ></i>
+                                            <i
+                                                className="fas fa-copy"
+                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                                                onClick={() => {
+                                                    const duplicate = { ...seq, name: `${seq.name || 'Sequence'} (Copy)`, id: undefined, _id: undefined };
+                                                    setEditingSequence(duplicate);
+                                                    setIsEditModalOpen(true);
+                                                }}
+                                                onMouseEnter={(e) => e.target.style.color = '#10b981'}
+                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                                                title="Duplicate Sequence"
+                                            ></i>
+                                            <i
+                                                className="fas fa-trash-alt"
+                                                style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                                                onClick={() => handleDelete(seq)}
+                                                onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                                                onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                                                title="Delete Sequence"
+                                            ></i>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
 
