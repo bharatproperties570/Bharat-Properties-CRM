@@ -31,6 +31,10 @@ const DealIntakePage = () => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
     const [monitoredSources, setMonitoredSources] = useState([]);
+    const [intakeGroups, setIntakeGroups] = useState([]);
+    const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+    const [selectedGroupFilter, setSelectedGroupFilter] = useState('all');
+    const [isScanningGroups, setIsScanningGroups] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null); // New state for 2-step import
@@ -81,6 +85,7 @@ const DealIntakePage = () => {
             }
         };
         fetchSupportData();
+        loadIntakeGroups();
     }, []);
 
 
@@ -88,7 +93,7 @@ const DealIntakePage = () => {
 
     const loadIntakeHistory = async () => {
         try {
-            const response = await intakeAPI.getIntakes();
+            const response = await intakeAPI.getIntakes({ limit: 300 });
             if (response.success) {
                 setIntakeItems(response.data.map(item => ({
                     ...item,
@@ -135,6 +140,65 @@ const DealIntakePage = () => {
             }
         } catch (error) {
             toast.error("Failed to delete monitor");
+        }
+    };
+
+    // ===== WHATSAPP GROUPS LIVE INGESTION HANDLERS =====
+    const loadIntakeGroups = async () => {
+        try {
+            const response = await intakeAPI.getGroups();
+            if (response.success) {
+                setIntakeGroups(response.data || []);
+            }
+        } catch (err) {
+            console.error("Failed to load intake groups:", err);
+        }
+    };
+
+    const handleToggleGroup = async (id) => {
+        try {
+            const response = await intakeAPI.toggleGroup(id);
+            if (response.success) {
+                toast.success(response.message);
+                loadIntakeGroups();
+            }
+        } catch (err) {
+            toast.error("Failed to toggle group");
+        }
+    };
+
+    const handleScanGroupsNow = async () => {
+        try {
+            setIsScanningGroups(true);
+            const response = await intakeAPI.scanGroupsNow();
+            if (response.success) {
+                toast.success("WhatsApp group scanner triggered! Scanning new messages...");
+                setTimeout(async () => {
+                    await Promise.all([loadIntakeHistory(), loadIntakeGroups()]);
+                    setIsScanningGroups(false);
+                }, 3000);
+            }
+        } catch (err) {
+            toast.error("Failed to trigger scan");
+            setIsScanningGroups(false);
+        }
+    };
+
+    const handleBackfillGroup = async (id = 'all') => {
+        if (!window.confirm("Are you sure you want to re-scan historical messages from this group? Existing duplicate deals will be automatically skipped.")) return;
+        try {
+            setIsScanningGroups(true);
+            const response = await intakeAPI.backfillGroup(id);
+            if (response.success) {
+                toast.success(response.message);
+                setTimeout(async () => {
+                    await Promise.all([loadIntakeHistory(), loadIntakeGroups()]);
+                    setIsScanningGroups(false);
+                }, 3500);
+            }
+        } catch (err) {
+            toast.error("Failed to start backfill");
+            setIsScanningGroups(false);
         }
     };
 
@@ -907,11 +971,21 @@ const DealIntakePage = () => {
         toast.success("Contact Added & Linked");
     };
 
-    // Filter intake items by category
+    // Filter intake items by category and WhatsApp Group source
     const filteredIntakeItems = useMemo(() => {
-        if (categoryFilter === 'all') return intakeItems;
-        return intakeItems.filter(item => (item.category || 'new') === categoryFilter);
-    }, [intakeItems, categoryFilter]);
+        let items = intakeItems;
+        if (categoryFilter !== 'all') {
+            items = items.filter(item => (item.category || 'new') === categoryFilter);
+        }
+        if (selectedGroupFilter !== 'all') {
+            if (selectedGroupFilter === 'whatsapp_group_all') {
+                items = items.filter(item => item.source_type === 'whatsapp_group' || (item.source && item.source.startsWith('WhatsApp Group')));
+            } else {
+                items = items.filter(item => item.raw_source_data?.groupJid === selectedGroupFilter);
+            }
+        }
+        return items;
+    }, [intakeItems, categoryFilter, selectedGroupFilter]);
 
     return (
         <div style={{ display: 'flex', height: '100vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
@@ -962,6 +1036,39 @@ const DealIntakePage = () => {
                             }}
                         >
                             <i className="fas fa-redo-alt" style={{ color: '#8b5cf6' }}></i>
+                        </button>
+                        <button
+                            onClick={() => {
+                                loadIntakeGroups();
+                                setIsGroupModalOpen(true);
+                            }}
+                            title="WhatsApp Groups Hub (Live Ingestion)"
+                            style={{
+                                background: isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4',
+                                border: '1px solid #bbf7d0',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                position: 'relative'
+                            }}
+                        >
+                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.05rem' }}></i>
+                            {intakeGroups.some(g => g.totalProcessed > 0) && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '-2px',
+                                    right: '-2px',
+                                    width: '8px',
+                                    height: '8px',
+                                    background: '#22c55e',
+                                    borderRadius: '50%',
+                                    border: '2px solid #fff'
+                                }} />
+                            )}
                         </button>
                         <button
                             onClick={() => setIsAddModalOpen(true)}
@@ -1031,6 +1138,38 @@ const DealIntakePage = () => {
                             );
                         })}
                     </div>
+
+                    {/* WhatsApp Groups / Source Filter Dropdown */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i> Source:
+                        </span>
+                        <select
+                            value={selectedGroupFilter}
+                            onChange={(e) => setSelectedGroupFilter(e.target.value)}
+                            style={{
+                                flex: 1,
+                                fontSize: '0.75rem',
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: isDark ? 'var(--surface-color, #1e293b)' : '#fff',
+                                color: isDark ? 'var(--text-main, #f8fafc)' : '#1e293b',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            <option value="all">All Sources ({intakeItems.length})</option>
+                            <option value="whatsapp_group_all">
+                                🟢 All WhatsApp Groups ({intakeItems.filter(i => i.source_type === 'whatsapp_group' || (i.source && i.source.startsWith('WhatsApp Group'))).length})
+                            </option>
+                            {intakeGroups.filter(g => g.totalProcessed > 0).map(g => (
+                                <option key={g.groupJid} value={g.groupJid}>
+                                    💬 {g.groupName || g.groupJid} ({intakeItems.filter(i => i.raw_source_data?.groupJid === g.groupJid).length})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1091,7 +1230,29 @@ const DealIntakePage = () => {
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
+                                        {item.source_type === 'whatsapp_group' || (item.source && item.source.startsWith('WhatsApp Group')) ? (
+                                            <span style={{
+                                                fontSize: '0.68rem',
+                                                fontWeight: 800,
+                                                color: '#166534',
+                                                background: isDark ? 'rgba(34, 197, 94, 0.15)' : '#dcfce7',
+                                                border: '1px solid #bbf7d0',
+                                                padding: '2px 8px',
+                                                borderRadius: '4px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                maxWidth: '180px',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }} title={item.source}>
+                                                <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i>
+                                                {item.raw_source_data?.groupName || item.extracted_entities?._whatsappGroup?.groupName || item.source}
+                                            </span>
+                                        ) : (
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
+                                        )}
                                         {(item.status === 'Needs Review' || item.verification_status === 'needs_review' || item.verification_status === 'suspicious') && (
                                             <span style={{ 
                                                 fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', 
@@ -1284,6 +1445,51 @@ const DealIntakePage = () => {
                                 </div>
                             )}
 
+                            {/* WhatsApp Group Ingestion Provenance */}
+                            {(currentItem?.source_type === 'whatsapp_group' || currentItem?.extracted_entities?._whatsappGroup || (currentItem?.source && currentItem?.source.startsWith('WhatsApp Group'))) && (
+                                <div style={{ padding: '12px 40px', background: isDark ? 'rgba(34, 197, 94, 0.08)' : '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.1rem' }}></i>
+                                            Live WhatsApp Group Provenance
+                                        </div>
+                                        <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #86efac' }}>
+                                            LIVE ENGINE
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '0.78rem' }}>
+                                        <div>
+                                            <span style={{ color: '#15803d', fontWeight: 600 }}>Group: </span>
+                                            <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
+                                                {currentItem?.extracted_entities?._whatsappGroup?.groupName || currentItem?.raw_source_data?.groupName || currentItem?.source}
+                                            </strong>
+                                        </div>
+                                        <div>
+                                            <span style={{ color: '#15803d', fontWeight: 600 }}>Sender: </span>
+                                            <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
+                                                {currentItem?.extracted_entities?._whatsappGroup?.senderName || currentItem?.raw_source_data?.senderName || 'Group Member'}
+                                            </strong>
+                                        </div>
+                                        {(currentItem?.extracted_entities?._whatsappGroup?.participant || currentItem?.raw_source_data?.participant) && (
+                                            <div>
+                                                <span style={{ color: '#15803d', fontWeight: 600 }}>Participant ID: </span>
+                                                <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
+                                                    {currentItem?.extracted_entities?._whatsappGroup?.participant || currentItem?.raw_source_data?.participant}
+                                                </strong>
+                                            </div>
+                                        )}
+                                        {currentItem?.receivedAt && (
+                                            <div>
+                                                <span style={{ color: '#15803d', fontWeight: 600 }}>Received At: </span>
+                                                <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
+                                                    {new Date(currentItem.receivedAt).toLocaleString()}
+                                                </strong>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Raw Source Data Box */}
                             <div style={{ padding: '16px 40px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1302,7 +1508,7 @@ const DealIntakePage = () => {
                                     fontFamily: 'monospace',
                                     lineHeight: '1.4'
                                 }}>
-                                    {currentItem?.content || "No raw content available."}
+                                    {currentItem?.content || currentItem?.description || "No raw content available."}
                                 </div>
                             </div>
 
@@ -2471,6 +2677,180 @@ const DealIntakePage = () => {
                         <button 
                             onClick={() => setIsMonitorModalOpen(false)}
                             style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                            Done
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* WhatsApp Groups Live Ingestion Modal */}
+            {isGroupModalOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                    <div style={{ background: isDark ? 'var(--surface-color, #1e293b)' : '#fff', width: '680px', maxHeight: '90vh', borderRadius: '16px', padding: '28px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.4rem' }}></i>
+                                    WhatsApp Groups Live Ingestion Hub
+                                </h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>
+                                    Live property messages from connected groups are automatically parsed into Deal Intake via AI.
+                                </p>
+                            </div>
+                            <button onClick={() => setIsGroupModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer' }}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        {/* Top Action Bar */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '16px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#475569', fontWeight: 600 }}>
+                                Connected Groups: <strong>{intakeGroups.length}</strong> | Total Processed: <strong>{intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0)}</strong> deals
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={handleScanGroupsNow}
+                                    disabled={isScanningGroups}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #22c55e',
+                                        background: isScanningGroups ? '#e2e8f0' : '#22c55e',
+                                        color: '#fff',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 700,
+                                        cursor: isScanningGroups ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <i className={`fas fa-sync-alt ${isScanningGroups ? 'fa-spin' : ''}`}></i>
+                                    {isScanningGroups ? 'Scanning...' : 'Scan Now'}
+                                </button>
+                                <button
+                                    onClick={() => handleBackfillGroup('all')}
+                                    disabled={isScanningGroups}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#fff',
+                                        color: isDark ? 'var(--text-main)' : '#475569',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 700,
+                                        cursor: isScanningGroups ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                    title="Resets scan cursor and re-evaluates all historical messages"
+                                >
+                                    <i className="fas fa-history"></i>
+                                    Backfill All
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Groups List */}
+                        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '16px', maxHeight: '420px', paddingRight: '4px' }}>
+                            {intakeGroups.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px', color: isDark ? 'var(--text-muted)' : '#64748b' }}>
+                                    <i className="fab fa-whatsapp" style={{ fontSize: '2.5rem', opacity: 0.2, marginBottom: '10px' }}></i>
+                                    <p>No WhatsApp groups detected yet.</p>
+                                    <p style={{ fontSize: '0.8rem' }}>Group messages arriving via WhatsApp Scanner will be registered automatically.</p>
+                                </div>
+                            ) : (
+                                intakeGroups.map(group => (
+                                    <div
+                                        key={group._id}
+                                        style={{
+                                            padding: '12px 16px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '10px',
+                                            marginBottom: '8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            background: group.is_active ? (isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff') : (isDark ? 'rgba(255, 255, 255, 0.01)' : '#f8fafc'),
+                                            borderLeft: group.is_active ? '4px solid #22c55e' : '4px solid #cbd5e1'
+                                        }}
+                                    >
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: group.is_active ? (isDark ? 'var(--text-main)' : '#0f172a') : '#94a3b8' }}>
+                                                    {group.groupName || 'Unnamed Group'}
+                                                </span>
+                                                <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                                                    {group.totalProcessed || 0} Deals
+                                                </span>
+                                                <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: '#f1f5f9', color: '#64748b', fontWeight: 600 }}>
+                                                    {group.totalSkipped || 0} Filtered
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '0.72rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontFamily: 'monospace' }}>
+                                                {group.groupJid}
+                                            </div>
+                                            {group.lastProcessedAt && (
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '4px' }}>
+                                                    Last scan: {new Date(group.lastProcessedAt).toLocaleString()}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <button
+                                                onClick={() => handleBackfillGroup(group._id)}
+                                                title="Re-scan all messages from this group"
+                                                style={{
+                                                    padding: '5px 10px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid #cbd5e1',
+                                                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#fff',
+                                                    color: isDark ? 'var(--text-main)' : '#475569',
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <i className="fas fa-history" style={{ marginRight: '4px' }}></i>
+                                                Re-scan
+                                            </button>
+                                            <button
+                                                onClick={() => handleToggleGroup(group._id)}
+                                                style={{
+                                                    padding: '5px 12px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid #e2e8f0',
+                                                    background: group.is_active ? '#dcfce7' : '#fee2e2',
+                                                    color: group.is_active ? '#15803d' : '#b91c1c',
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {group.is_active ? 'ACTIVE' : 'PAUSED'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <button
+                            onClick={() => setIsGroupModalOpen(false)}
+                            style={{
+                                width: '100%',
+                                padding: '10px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                background: '#22c55e',
+                                color: '#fff',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                fontSize: '0.9rem'
+                            }}
                         >
                             Done
                         </button>

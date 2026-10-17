@@ -3,7 +3,8 @@ import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares
 import { 
     processOCR, processZIP, processPDF, processURL, 
     getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake,
-    createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource
+    createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource,
+    getIntakeGroups, toggleIntakeGroup, triggerGroupScan, backfillIntakeGroup
 } from './intake.controller.js';
 import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
@@ -68,5 +69,13 @@ router.post('/monitors', createAutomatedSource);
 router.get('/monitors', getAutomatedSources);
 router.patch('/monitors/:id/toggle', toggleAutomatedSource);
 router.delete('/monitors/:id', deleteAutomatedSource);
+
+/**
+ * WhatsApp Group Intake Routes
+ */
+router.get('/groups', getIntakeGroups);
+router.patch('/groups/:id/toggle', toggleIntakeGroup);
+router.post('/groups/scan-now', triggerGroupScan);
+router.post('/groups/:id/backfill', backfillIntakeGroup);
 
 export default router;

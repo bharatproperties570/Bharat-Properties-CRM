@@ -834,7 +834,14 @@ export const parsingRulesAPI = {
 
 // Intake API
 export const intakeAPI = {
-    getIntakes: () => apiRequest('/intake'),
+    getIntakes: (params = {}) => {
+        const query = new URLSearchParams();
+        if (params.source_type) query.append('source_type', params.source_type);
+        if (params.groupJid) query.append('groupJid', params.groupJid);
+        if (params.limit) query.append('limit', params.limit);
+        const qs = query.toString();
+        return apiRequest(`/intake${qs ? '?' + qs : ''}`);
+    },
     getById: (id) => apiRequest(`/intake/${id}`),
     createIntake: (data) => apiRequest('/intake', { method: 'POST', body: JSON.stringify(data) }),
     updateStatus: (id, status) => apiRequest(`/intake/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
@@ -854,6 +861,10 @@ export const intakeAPI = {
         return apiRequest('/intake/ocr', { method: 'POST', body: formData });
     },
     processURL: (url, source = 'Website') => apiRequest('/intake/url', { method: 'POST', body: JSON.stringify({ url, source }) }),
+    getGroups: () => apiRequest('/intake/groups'),
+    toggleGroup: (id, reason) => apiRequest(`/intake/groups/${id}/toggle`, { method: 'PATCH', body: JSON.stringify({ reason }) }),
+    scanGroupsNow: () => apiRequest('/intake/groups/scan-now', { method: 'POST' }),
+    backfillGroup: (id = 'all') => apiRequest(`/intake/groups/${id}/backfill`, { method: 'POST' }),
 };
 
 // Auth API

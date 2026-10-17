@@ -6,9 +6,11 @@ import path from 'path';
 import mongoose from 'mongoose';
 import { parseContent } from './intakeParser.js';
 import Intake from '../../../models/Intake.js';
+import IntakeGroupCursor from '../../../models/IntakeGroupCursor.js';
 import AutomatedIntakeSource from '../../../models/AutomatedIntakeSource.js';
 import { addToIntakeQueue } from '../../../services/intakeQueue/IntakeQueue.js';
 import automatedIntakeService from '../../../services/intakeQueue/AutomatedIntakeService.js';
+import groupMessageScanner from '../../../services/intakeQueue/GroupMessageScanner.js';
 import connectorRegistry from '../../../services/intakeConnectors/ConnectorRegistry.js';
 
 // Ensure uploads directory exists
@@ -26,6 +28,14 @@ export const getIntakes = async (req, res) => {
         if (req.user && req.user.tenantId) {
             matchStage.tenantId = new mongoose.Types.ObjectId(req.user.tenantId);
         }
+        if (req.query.source_type) {
+            matchStage.source_type = req.query.source_type;
+        }
+        if (req.query.groupJid) {
+            matchStage['raw_source_data.groupJid'] = req.query.groupJid;
+        }
+
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
 
         const pipeline = [];
         if (Object.keys(matchStage).length > 0) {
@@ -34,7 +44,7 @@ export const getIntakes = async (req, res) => {
         
         pipeline.push(
             { $sort: { receivedAt: -1 } },
-            { $limit: 100 },
+            { $limit: limit },
             {
                 $addFields: {
                     contentSnippet: {
@@ -459,4 +469,102 @@ export const deleteAutomatedSource = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+/**
+ * Get all WhatsApp group intake cursors and statistics
+ */
+export const getIntakeGroups = async (req, res) => {
+    try {
+        const groups = await IntakeGroupCursor.find({})
+            .sort({ totalProcessed: -1, updatedAt: -1 })
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            data: groups,
+            scannerHealth: groupMessageScanner.getHealth()
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Toggle active status for a WhatsApp group intake cursor
+ */
+export const toggleIntakeGroup = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const group = await IntakeGroupCursor.findById(id);
+
+        if (!group) {
+            return res.status(404).json({ success: false, message: 'Group cursor not found' });
+        }
+
+        group.is_active = !group.is_active;
+        if (!group.is_active) {
+            group.deactivation_reason = req.body?.reason || 'Manually disabled by admin';
+        } else {
+            group.deactivation_reason = null;
+        }
+        await group.save();
+
+        res.status(200).json({
+            success: true,
+            message: `Group intake ${group.is_active ? 'enabled' : 'disabled'} for ${group.groupName || group.groupJid}`,
+            data: group
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Manually trigger group message scan
+ */
+export const triggerGroupScan = async (req, res) => {
+    try {
+        // Run scan asynchronously to avoid HTTP timeout
+        groupMessageScanner.triggerNow().catch(err => {
+            console.error('[triggerGroupScan] Background scan error:', err);
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'WhatsApp group scan triggered in background'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Backfill historical messages for a group (resets cursor to -1 and triggers scan)
+ */
+export const backfillIntakeGroup = async (req, res) => {
+    try {
+        const { id } = req.params;
+        let query = {};
+        if (id && id !== 'all') {
+            query._id = id;
+        }
+
+        const updateResult = await IntakeGroupCursor.updateMany(query, {
+            $set: { lastProcessedIndex: -1, is_active: true }
+        });
+
+        // Trigger scan
+        groupMessageScanner.triggerNow().catch(err => {
+            console.error('[backfillIntakeGroup] Background scan error:', err);
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Backfill initiated for ${updateResult.modifiedCount} group(s). Cursor reset to beginning.`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
