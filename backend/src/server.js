@@ -107,12 +107,12 @@ async function startServer() {
         const { notificationWorker } = await import("./workers/notificationWorker.js");
         const { intakeWorker } = await import("../services/intakeQueue/IntakeQueue.js");
         const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
-        const { baileysWorker } = await import("../services/baileysQueue/baileysWorker.js");
+        const { baileysWorker, baileysInboundWorker } = await import("../services/baileysQueue/baileysWorker.js");
 
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
             distributionWorker, domainEventWorker, notificationWorker,
-            intakeWorker, automationWorker, baileysWorker
+            intakeWorker, automationWorker, baileysWorker, baileysInboundWorker
         ];
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");

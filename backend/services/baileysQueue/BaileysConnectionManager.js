@@ -425,296 +425,35 @@ export const BaileysConnectionManager = {
                 const messageText = extractBaileysMessageContent(msg.message);
                 if (!messageText) continue;
 
-                // Write to Activity and Conversation asynchronously with enterprise isolation
-                (async () => {
-                    const messageId = msg.key.id;
-                    const Activity = (await import('../../models/Activity.js')).default;
-                    const Conversation = (await import('../../models/Conversation.js')).default;
+                // ── Phase 2: Enterprise Inbound Decoupling via BullMQ ─────────────
+                // Fast non-blocking enqueue (<2ms) keeps Node.js event loop free for API traffic
+                const messageId = msg.key.id;
+                const inboundJobData = {
+                    integrationId,
+                    messageId,
+                    remoteJid,
+                    participant: msg.key.participant || null,
+                    isFromMe,
+                    isGroup,
+                    cleanPhone,
+                    targetPhone,
+                    rawPhone,
+                    isLid,
+                    messageText,
+                    pushName: (msg.pushName && String(msg.pushName).trim()) ? String(msg.pushName).trim() : null,
+                    msgTsSeconds
+                };
 
-                    // 1. Idempotent Deduplication Check
-                    if (messageId) {
-                        try {
-                            const exists = await Activity.findOne({ 'details.messageId': messageId }).select('_id').lean();
-                            if (exists) return; // Already recorded, skip duplicate
-                        } catch (e) {}
-                    }
-
-                    // Clean participant identifier (strips device suffix :1, :2 and resolves LID if applicable)
-                    let participantRaw = '';
-                    if (msg.key.participant) {
-                        participantRaw = msg.key.participant.split('@')[0].split(':')[0];
-                    }
-                    let participantId = cleanPhone;
-                    if (msg.key.participant) {
-                        if (msg.key.participant.includes('@lid')) {
-                            const resolvedPart = await resolveJidToPhone(msg.key.participant, integrationId);
-                            participantId = resolvedPart.cleanPhone || participantRaw;
-                        } else {
-                            participantId = participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone;
-                        }
-                    }
-
-                    // Resolve group subject / title
-                    let groupSubject = isGroup ? groupSubjectCache.get(remoteJid) : null;
-                    if (isGroup && !groupSubject) {
-                        try {
-                            const metadata = await sock.groupMetadata(remoteJid).catch(() => null);
-                            if (metadata?.subject) {
-                                groupSubject = metadata.subject;
-                                groupSubjectCache.set(remoteJid, metadata.subject);
-                            }
-                        } catch (e) {}
-                    }
-                    const groupDisplay = groupSubject || (isGroup ? `Group (${remoteJid.split('@')[0]})` : null);
-
-                    const WhatsAppIntegrationModel = (await import('../../models/WhatsAppIntegration.js')).default;
-                    const currentInt = await WhatsAppIntegrationModel.findById(integrationId).select('connectedBy').lean();
-                    const userOwner = currentInt?.connectedBy || null;
-
-                    // Enterprise Identity Resolution: Prioritize CRM Lead / Contact name over raw WhatsApp pushName
-                    const pushName = (msg.pushName && String(msg.pushName).trim()) ? String(msg.pushName).trim() : null;
-                    let matchedEntity = null;
-                    let resolvedCrmName = null;
-                    const lookupPhone = isGroup ? participantId : targetPhone;
-                    const clean10 = String(lookupPhone || '').replace(/\D/g, '').slice(-10);
-
-                    if (clean10) {
-                        try {
-                            const Lead = (await import('../../models/Lead.js')).default;
-                            const Contact = (await import('../../models/Contact.js')).default;
-                            const reg = new RegExp(clean10 + '$');
-                            const [l, c] = await Promise.all([
-                                Lead.findOne({ mobile: reg, isDeleted: { $ne: true } }).select('firstName lastName fullName assignedTo owner').lean(),
-                                Contact.findOne({ 'phones.number': reg, isDeleted: { $ne: true } }).select('name assignedTo owner').lean()
-                            ]);
-                            if (l) {
-                                resolvedCrmName = (l.fullName || `${l.firstName || ''} ${l.lastName || ''}`).trim();
-                                matchedEntity = { id: l._id, type: 'Lead', assignee: l.assignedTo || l.owner };
-                            } else if (c?.name) {
-                                resolvedCrmName = c.name;
-                                matchedEntity = { id: c._id, type: 'Contact', assignee: c.assignedTo || c.owner };
-                            }
-                        } catch (e) {}
-                    }
-
-                    // For groups: memberName is CrmName > pushName > formatted phone
-                    const memberName = isGroup 
-                        ? (resolvedCrmName || pushName || (participantId ? (participantId.length === 10 ? `+91 ${participantId}` : `+${participantId}`) : 'Group Member'))
-                        : null;
-
-                    // For 1-on-1: customerName is CrmName > pushName > formatted phone
-                    const customerDisplayName = resolvedCrmName || pushName || (cleanPhone.length === 10 ? `+91 ${cleanPhone}` : cleanPhone);
-
-                    const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : customerDisplayName);
-                    const msgDate = new Date(msgTsSeconds ? msgTsSeconds * 1000 : Date.now());
-
-                    // Phase A: Create Activity record (Isolated try/catch)
-                    try {
-                        await Activity.create({
-                            type: 'WhatsApp',
-                            subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
-                            entityType: isGroup ? 'WhatsAppGroup' : (matchedEntity?.type || 'General'),
-                            entityId: isGroup ? remoteJid : (matchedEntity?.id || null),
-                            description: messageText,
-                            dueDate: new Date(),
-                            status: 'Completed',
-                            visibleTo: 'Everyone',
-                            ...(userOwner ? { assignedTo: userOwner, createdBy: userOwner } : {}),
-                            details: {
-                                direction: isFromMe ? 'Outgoing' : 'Incoming',
-                                platform: 'WhatsApp Web',
-                                message: messageText,
-                                text: messageText,
-                                renderedBody: messageText,
-                                from: isFromMe ? null : (isGroup ? participantId : cleanPhone),
-                                to: isFromMe ? (isGroup ? remoteJid : cleanPhone) : null,
-                                messageId: messageId,
-                                phoneNumber: targetPhone,
-                                isGroup: isGroup,
-                                groupJid: isGroup ? remoteJid : null,
-                                groupName: groupDisplay,
-                                participant: isGroup ? participantId : null,
-                                senderName: resolvedSenderName,
-                                whatsappIntegrationId: integrationId,
-                                ...(isLid ? { lid: remoteJid } : {})
-                            },
-                            participants: [
-                                { 
-                                    mobile: isGroup ? (isFromMe ? targetPhone : participantId) : targetPhone, 
-                                    name: isGroup ? (isFromMe ? 'Agent' : memberName) : customerDisplayName
-                                }
-                            ],
-                            performedBy: resolvedSenderName,
-                            performedAt: msgDate
-                        });
-                    } catch (actErr) {
-                        console.error('[BaileysConnectionManager] Error creating Activity:', actErr.message);
-                    }
-
-                    // Phase B: Update Conversation (Isolated try/catch)
-                    try {
-                        const updateOps = {
-                            $push: {
-                                messages: {
-                                    role: isFromMe ? 'assistant' : 'user',
-                                    content: messageText,
-                                    timestamp: msgDate,
-                                    metadata: { 
-                                        messageId: messageId,
-                                        whatsappIntegrationId: integrationId,
-                                        isGroup: isGroup,
-                                        groupJid: isGroup ? remoteJid : null,
-                                        groupName: groupDisplay,
-                                        senderName: resolvedSenderName,
-                                        participant: isGroup ? participantId : null,
-                                        ...(isLid ? { lid: remoteJid } : {})
-                                    }
-                                }
-                            },
-                            $set: {
-                                updatedAt: new Date(),
-                                whatsappIntegrationId: integrationId,
-                                isGroup: isGroup,
-                                groupName: groupDisplay,
-                                groupJid: isGroup ? remoteJid : null,
-                                title: groupDisplay || (isGroup ? remoteJid : (resolvedCrmName || targetPhone)),
-                                'metadata.isGroup': isGroup,
-                                'metadata.groupName': groupDisplay,
-                                'metadata.groupJid': isGroup ? remoteJid : null,
-                                ...(isLid ? { 'metadata.lid': remoteJid } : {}),
-                                ...(matchedEntity?.type === 'Lead' ? { lead: matchedEntity.id } : {}),
-                                ...(matchedEntity?.type === 'Contact' ? { contact: matchedEntity.id } : {}),
-                                channel: 'whatsapp',
-                                status: 'active'
-                            },
-                            $setOnInsert: {
-                                phoneNumber: targetPhone
-                            }
-                        };
-
-                        if (!isFromMe) {
-                            updateOps.$inc = { 'metadata.unreadCount': 1 };
-                        }
-
-                        const queryFilters = [
-                            { phoneNumber: targetPhone }
-                        ];
-                        if (isGroup) {
-                            queryFilters.push({ 'metadata.groupJid': remoteJid });
-                        } else {
-                            if (rawPhone && rawPhone !== targetPhone) {
-                                queryFilters.push({ phoneNumber: rawPhone });
-                            }
-                            if (isLid) {
-                                queryFilters.push({ 'metadata.lid': remoteJid });
-                            }
-                        }
-
-                        await Conversation.findOneAndUpdate(
-                            { $or: queryFilters },
-                            updateOps,
-                            { upsert: true }
-                        );
-                    } catch (convErr) {
-                        console.error('[BaileysConnectionManager] Error updating Conversation:', convErr.message);
-                    }
-
-                    // Phase C: Trigger NotificationEngine (Isolated try/catch)
-                    if (!isFromMe) {
-                        try {
-                            const NotificationEngine = (await import('../NotificationEngine.js')).default;
-                            let senderLabel = isGroup ? `${groupDisplay} - ${memberName}` : (resolvedCrmName || targetPhone || 'Customer');
-                            const recipientUserIds = new Set();
-                            if (userOwner) recipientUserIds.add(String(userOwner));
-                            if (matchedEntity?.assignee) recipientUserIds.add(String(matchedEntity.assignee));
-
-                            // Include integration's allowed users if defined
-                            if (Array.isArray(currentInt?.allowedUsers)) {
-                                currentInt.allowedUsers.forEach(u => u && recipientUserIds.add(String(u)));
-                            }
-
-                            // Ensure primary admins also receive inbound notifications for shared visibility
-                            if (recipientUserIds.size === 0 || isGroup) {
-                                try {
-                                    const User = (await import('../../models/User.js')).default;
-                                    const admins = await User.find({
-                                        $or: [
-                                            { email: { $in: ['bharatproperties570@gmail.com', 'shreykeshwar@gmail.com'] } }
-                                        ]
-                                    }).select('_id').lean();
-                                    admins.forEach(a => recipientUserIds.add(String(a._id)));
-                                } catch (e) {}
-                            }
-
-                            const link = `/communication?channel=WhatsApp_Web&selected=${encodeURIComponent(targetPhone)}`;
-                            await Promise.allSettled(
-                                Array.from(recipientUserIds).map(targetUid =>
-                                    NotificationEngine.notifyWhatsApp(
-                                        targetUid,
-                                        senderLabel,
-                                        messageText,
-                                        link,
-                                        integrationId
-                                    )
-                                )
-                            );
-                        } catch (notifErr) {
-                            console.error('[BaileysConnectionManager] Notification trigger error:', notifErr.message);
-                        }
-                    }
-
-                    // Phase D: ⚡ Enterprise Real-Time Push to CRM Active Windows (Isolated try/catch)
-                    try {
-                        const RealtimeHub = (await import('../RealtimeHub.js')).default;
-                        const msgIsoTime = msgDate.toISOString();
-                        const prefix = isFromMe ? 'You: ' : (isGroup ? `${memberName}: ` : 'Customer: ');
-                        RealtimeHub.emitMessage({
-                            phone: targetPhone,
-                            channel: 'WhatsApp',
-                            message: {
-                                id: messageId,
-                                sender: isFromMe ? 'agent' : 'customer',
-                                fromMe: isFromMe,
-                                text: messageText,
-                                time: msgIsoTime,
-                                timestamp: msgIsoTime,
-                                status: isFromMe ? 'delivered' : 'received',
-                                senderName: resolvedSenderName,
-                                metadata: {
-                                    messageId: messageId,
-                                    whatsappIntegrationId: integrationId,
-                                    isGroup: isGroup,
-                                    groupJid: isGroup ? remoteJid : null,
-                                    groupName: groupDisplay,
-                                    participant: isGroup ? participantId : null
-                                }
-                            },
-                            streamItem: {
-                                _id: messageId || Date.now().toString(),
-                                type: 'WhatsApp',
-                                via: 'WhatsApp',
-                                subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
-                                description: prefix + messageText,
-                                snippet: prefix + messageText,
-                                participant: isGroup ? groupDisplay : (customerDisplayName || targetPhone),
-                                phone: targetPhone,
-                                phoneNumber: targetPhone,
-                                groupJid: isGroup ? remoteJid : null,
-                                groupName: groupDisplay,
-                                outcome: isFromMe ? 'Delivered' : 'Received',
-                                timestamp: msgIsoTime,
-                                date: msgIsoTime,
-                                platform: 'WhatsApp Web',
-                                isGroup: isGroup,
-                                whatsappIntegrationId: integrationId
-                            }
-                        });
-                    } catch (rtErr) {
-                        console.error('[BaileysConnectionManager] RealtimeHub emit error:', rtErr.message);
-                    }
-                })().catch((err) => {
-                    console.error('[BaileysConnectionManager] Unhandled message processing error:', err.message);
-                });
+                try {
+                    const { enqueueBaileysInboundMessage } = await import('./baileysWorker.js');
+                    await enqueueBaileysInboundMessage(inboundJobData);
+                } catch (qErr) {
+                    console.error('[BaileysConnectionManager] Queue enqueue error, running fallback:', qErr.message);
+                    const { processInboundMessageCore } = await import('./baileysWorker.js');
+                    processInboundMessageCore(inboundJobData).catch(err => {
+                        console.error('[BaileysConnectionManager] Fallback processing error:', err.message);
+                    });
+                }
             }
         });
 
@@ -743,6 +482,10 @@ export const BaileysConnectionManager = {
 
     getAllGroupSubjects() {
         return new Map(groupSubjectCache);
+    },
+
+    async resolveJidToPhone(jid, integrationId) {
+        return resolveJidToPhone(jid, integrationId);
     },
 
     async logout(integrationId) {

@@ -1,12 +1,17 @@
-import { Worker } from 'bullmq';
+import { Worker, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import config from '../../config/env.js';
 import { BaileysConnectionManager } from './BaileysConnectionManager.js';
+import { normalizePhone } from '../../utils/normalization.js';
 
-const connection = new IORedis(config.redisUri || 'redis://127.0.0.1:6379', {
+const redisConnectionOptions = {
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: Number(process.env.REDIS_PORT) || 6379,
+    password: process.env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null,
-});
+};
 
+// Outbound Message Queue Worker
 export const baileysWorker = new Worker('whatsapp_baileys_outbound', async (job) => {
     const { integrationId, to, text, mediaUrl } = job.data;
 
@@ -16,7 +21,6 @@ export const baileysWorker = new Worker('whatsapp_baileys_outbound', async (job)
     }
 
     try {
-        // Simple JID parsing for phone numbers and groups
         const jid = to.includes('@s.whatsapp.net') || to.includes('@g.us') ? to : `${to}@s.whatsapp.net`;
         
         // Anti-ban pacing: 3 to 5 seconds jitter
@@ -34,11 +38,372 @@ export const baileysWorker = new Worker('whatsapp_baileys_outbound', async (job)
 
         return { success: true, jid };
     } catch (error) {
-        console.error(`[BaileysWorker] Error sending message:`, error);
+        console.error(`[BaileysWorker] Error sending outbound message:`, error);
         throw error;
     }
-}, { connection, concurrency: 1 });
+}, { connection: redisConnectionOptions, concurrency: 1 });
 
 baileysWorker.on('failed', (job, err) => {
-    console.error(`[BaileysWorker] Job ${job.id} failed:`, err);
+    console.error(`[BaileysWorker] Outbound job ${job?.id} failed:`, err.message);
+});
+
+baileysWorker.on('error', (err) => {
+    if (!err.message?.includes('ECONNREFUSED')) {
+        console.warn('[BaileysWorker] Outbound worker error:', err.message);
+    }
+});
+
+// ── Phase 2: Inbound Decoupled Queue & Worker ─────────────────────────────────
+
+export const baileysInboundQueue = new Queue('whatsapp_baileys_inbound', {
+    connection: redisConnectionOptions,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: { count: 200 },
+        removeOnFail: { count: 500 }
+    }
+});
+
+baileysInboundQueue.on('error', (err) => {
+    if (!err.message?.includes('ECONNREFUSED')) {
+        console.warn('[BaileysInboundQueue] Queue error:', err.message);
+    }
+});
+
+export async function enqueueBaileysInboundMessage(jobData) {
+    if (!jobData) return null;
+    try {
+        const jobId = jobData.messageId ? `inbound_${jobData.messageId}` : undefined;
+        return await baileysInboundQueue.add('inbound_msg', jobData, { jobId });
+    } catch (err) {
+        console.warn('[BaileysWorker] Queue add failed, falling back to direct async execution:', err.message);
+        return await processInboundMessageCore(jobData);
+    }
+}
+
+/**
+ * Enterprise Inbound Message Core Processor
+ * Decoupled from the Baileys socket loop to protect HTTP API responsiveness.
+ */
+export async function processInboundMessageCore(jobData) {
+    const {
+        integrationId,
+        messageId,
+        remoteJid,
+        participant,
+        isFromMe,
+        isGroup,
+        cleanPhone,
+        targetPhone,
+        rawPhone,
+        isLid,
+        messageText,
+        pushName,
+        msgTsSeconds
+    } = jobData;
+
+    try {
+        const Activity = (await import('../../models/Activity.js')).default;
+        const Conversation = (await import('../../models/Conversation.js')).default;
+
+        // 1. Idempotent Deduplication Check
+        if (messageId) {
+            try {
+                const exists = await Activity.findOne({ 'details.messageId': messageId }).select('_id').lean();
+                if (exists) return { skipped: true, reason: 'duplicate' };
+            } catch (e) {}
+        }
+
+        // Clean participant identifier
+        let participantRaw = '';
+        if (participant) {
+            participantRaw = participant.split('@')[0].split(':')[0];
+        }
+        let participantId = cleanPhone;
+        if (participant) {
+            if (participant.includes('@lid')) {
+                const resolvedPart = await BaileysConnectionManager.resolveJidToPhone(participant, integrationId);
+                participantId = resolvedPart.cleanPhone || participantRaw;
+            } else {
+                participantId = participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone;
+            }
+        }
+
+        // Resolve group subject / title
+        let groupSubject = isGroup ? BaileysConnectionManager.getGroupSubject(remoteJid) : null;
+        if (isGroup && !groupSubject) {
+            try {
+                const sock = BaileysConnectionManager.getSocket(integrationId);
+                if (sock) {
+                    const metadata = await sock.groupMetadata(remoteJid).catch(() => null);
+                    if (metadata?.subject) {
+                        groupSubject = metadata.subject;
+                        BaileysConnectionManager.setGroupSubject(remoteJid, metadata.subject);
+                    }
+                }
+            } catch (e) {}
+        }
+        const groupDisplay = groupSubject || (isGroup ? `Group (${remoteJid.split('@')[0]})` : null);
+
+        const WhatsAppIntegrationModel = (await import('../../models/WhatsAppIntegration.js')).default;
+        const currentInt = await WhatsAppIntegrationModel.findById(integrationId).select('connectedBy allowedUsers').lean();
+        const userOwner = currentInt?.connectedBy || null;
+
+        // Enterprise Identity Resolution: Match Lead or Contact
+        let matchedEntity = null;
+        let resolvedCrmName = null;
+        const lookupPhone = isGroup ? participantId : targetPhone;
+        const clean10 = String(lookupPhone || '').replace(/\D/g, '').slice(-10);
+
+        if (clean10) {
+            try {
+                const Lead = (await import('../../models/Lead.js')).default;
+                const Contact = (await import('../../models/Contact.js')).default;
+                const reg = new RegExp(clean10 + '$');
+                const [l, c] = await Promise.all([
+                    Lead.findOne({ mobile: reg, isDeleted: { $ne: true } }).select('firstName lastName fullName assignedTo owner').lean(),
+                    Contact.findOne({ 'phones.number': reg, isDeleted: { $ne: true } }).select('name assignedTo owner').lean()
+                ]);
+                if (l) {
+                    resolvedCrmName = (l.fullName || `${l.firstName || ''} ${l.lastName || ''}`).trim();
+                    matchedEntity = { id: l._id, type: 'Lead', assignee: l.assignedTo || l.owner };
+                } else if (c?.name) {
+                    resolvedCrmName = c.name;
+                    matchedEntity = { id: c._id, type: 'Contact', assignee: c.assignedTo || c.owner };
+                }
+            } catch (e) {}
+        }
+
+        const memberName = isGroup 
+            ? (resolvedCrmName || pushName || (participantId ? (participantId.length === 10 ? `+91 ${participantId}` : `+${participantId}`) : 'Group Member'))
+            : null;
+
+        const customerDisplayName = resolvedCrmName || pushName || (cleanPhone.length === 10 ? `+91 ${cleanPhone}` : cleanPhone);
+        const resolvedSenderName = isFromMe ? 'Agent' : (isGroup ? memberName : customerDisplayName);
+        const msgDate = new Date(msgTsSeconds ? msgTsSeconds * 1000 : Date.now());
+
+        // Phase A: Create Activity record
+        try {
+            await Activity.create({
+                type: 'WhatsApp',
+                subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
+                entityType: isGroup ? 'WhatsAppGroup' : (matchedEntity?.type || 'General'),
+                entityId: isGroup ? remoteJid : (matchedEntity?.id || null),
+                description: messageText,
+                dueDate: new Date(),
+                status: 'Completed',
+                visibleTo: 'Everyone',
+                ...(userOwner ? { assignedTo: userOwner, createdBy: userOwner } : {}),
+                details: {
+                    direction: isFromMe ? 'Outgoing' : 'Incoming',
+                    platform: 'WhatsApp Web',
+                    message: messageText,
+                    text: messageText,
+                    renderedBody: messageText,
+                    from: isFromMe ? null : (isGroup ? participantId : cleanPhone),
+                    to: isFromMe ? (isGroup ? remoteJid : cleanPhone) : null,
+                    messageId: messageId,
+                    phoneNumber: targetPhone,
+                    isGroup: isGroup,
+                    groupJid: isGroup ? remoteJid : null,
+                    groupName: groupDisplay,
+                    participant: isGroup ? participantId : null,
+                    senderName: resolvedSenderName,
+                    whatsappIntegrationId: integrationId,
+                    ...(isLid ? { lid: remoteJid } : {})
+                },
+                participants: [
+                    { 
+                        mobile: isGroup ? (isFromMe ? targetPhone : participantId) : targetPhone, 
+                        name: isGroup ? (isFromMe ? 'Agent' : memberName) : customerDisplayName
+                    }
+                ],
+                performedBy: resolvedSenderName,
+                performedAt: msgDate
+            });
+        } catch (actErr) {
+            console.error('[BaileysWorker] Error creating Activity:', actErr.message);
+        }
+
+        // Phase B: Update Conversation
+        try {
+            const updateOps = {
+                $push: {
+                    messages: {
+                        role: isFromMe ? 'assistant' : 'user',
+                        content: messageText,
+                        timestamp: msgDate,
+                        metadata: { 
+                            messageId: messageId,
+                            whatsappIntegrationId: integrationId,
+                            isGroup: isGroup,
+                            groupJid: isGroup ? remoteJid : null,
+                            groupName: groupDisplay,
+                            senderName: resolvedSenderName,
+                            participant: isGroup ? participantId : null,
+                            ...(isLid ? { lid: remoteJid } : {})
+                        }
+                    }
+                },
+                $set: {
+                    updatedAt: new Date(),
+                    whatsappIntegrationId: integrationId,
+                    isGroup: isGroup,
+                    groupName: groupDisplay,
+                    groupJid: isGroup ? remoteJid : null,
+                    title: groupDisplay || (isGroup ? remoteJid : (resolvedCrmName || targetPhone)),
+                    'metadata.isGroup': isGroup,
+                    'metadata.groupName': groupDisplay,
+                    'metadata.groupJid': isGroup ? remoteJid : null,
+                    ...(isLid ? { 'metadata.lid': remoteJid } : {}),
+                    ...(matchedEntity?.type === 'Lead' ? { lead: matchedEntity.id } : {}),
+                    ...(matchedEntity?.type === 'Contact' ? { contact: matchedEntity.id } : {}),
+                    channel: 'whatsapp',
+                    status: 'active'
+                },
+                $setOnInsert: {
+                    phoneNumber: targetPhone
+                }
+            };
+
+            if (!isFromMe) {
+                updateOps.$inc = { 'metadata.unreadCount': 1 };
+            }
+
+            const queryFilters = [
+                { phoneNumber: targetPhone }
+            ];
+            if (isGroup) {
+                queryFilters.push({ 'metadata.groupJid': remoteJid });
+            } else {
+                if (rawPhone && rawPhone !== targetPhone) {
+                    queryFilters.push({ phoneNumber: rawPhone });
+                }
+                if (isLid) {
+                    queryFilters.push({ 'metadata.lid': remoteJid });
+                }
+            }
+
+            await Conversation.findOneAndUpdate(
+                { $or: queryFilters },
+                updateOps,
+                { upsert: true }
+            );
+        } catch (convErr) {
+            console.error('[BaileysWorker] Error updating Conversation:', convErr.message);
+        }
+
+        // Phase C: Trigger NotificationEngine
+        if (!isFromMe) {
+            try {
+                const NotificationEngine = (await import('../NotificationEngine.js')).default;
+                let senderLabel = isGroup ? `${groupDisplay} - ${memberName}` : (resolvedCrmName || targetPhone || 'Customer');
+                const recipientUserIds = new Set();
+                if (userOwner) recipientUserIds.add(String(userOwner));
+                if (matchedEntity?.assignee) recipientUserIds.add(String(matchedEntity.assignee));
+
+                if (Array.isArray(currentInt?.allowedUsers)) {
+                    currentInt.allowedUsers.forEach(u => u && recipientUserIds.add(String(u)));
+                }
+
+                if (recipientUserIds.size === 0 || isGroup) {
+                    try {
+                        const User = (await import('../../models/User.js')).default;
+                        const admins = await User.find({
+                            $or: [
+                                { email: { $in: ['bharatproperties570@gmail.com', 'shreykeshwar@gmail.com'] } }
+                            ]
+                        }).select('_id').lean();
+                        admins.forEach(a => recipientUserIds.add(String(a._id)));
+                    } catch (e) {}
+                }
+
+                const link = `/communication?channel=WhatsApp_Web&selected=${encodeURIComponent(targetPhone)}`;
+                await Promise.allSettled(
+                    Array.from(recipientUserIds).map(targetUid =>
+                        NotificationEngine.notifyWhatsApp(
+                            targetUid,
+                            senderLabel,
+                            messageText,
+                            link,
+                            integrationId
+                        )
+                    )
+                );
+            } catch (notifErr) {
+                console.error('[BaileysWorker] Notification trigger error:', notifErr.message);
+            }
+        }
+
+        // Phase D: Real-Time Push to CRM Active Windows via RealtimeHub
+        try {
+            const RealtimeHub = (await import('../RealtimeHub.js')).default;
+            const msgIsoTime = msgDate.toISOString();
+            const prefix = isFromMe ? 'You: ' : (isGroup ? `${memberName}: ` : 'Customer: ');
+            RealtimeHub.emitMessage({
+                phone: targetPhone,
+                channel: 'WhatsApp',
+                message: {
+                    id: messageId,
+                    sender: isFromMe ? 'agent' : 'customer',
+                    fromMe: isFromMe,
+                    text: messageText,
+                    time: msgIsoTime,
+                    timestamp: msgIsoTime,
+                    status: isFromMe ? 'delivered' : 'received',
+                    senderName: resolvedSenderName,
+                    metadata: {
+                        messageId: messageId,
+                        whatsappIntegrationId: integrationId,
+                        isGroup: isGroup,
+                        groupJid: isGroup ? remoteJid : null,
+                        groupName: groupDisplay,
+                        participant: isGroup ? participantId : null
+                    }
+                },
+                streamItem: {
+                    _id: messageId || Date.now().toString(),
+                    type: 'WhatsApp',
+                    via: 'WhatsApp',
+                    subject: isGroup ? `Group WhatsApp: ${groupDisplay}` : (isFromMe ? `Outgoing WhatsApp (Scanner)` : `Incoming WhatsApp (Scanner)`),
+                    description: prefix + messageText,
+                    snippet: prefix + messageText,
+                    participant: isGroup ? groupDisplay : (customerDisplayName || targetPhone),
+                    phone: targetPhone,
+                    phoneNumber: targetPhone,
+                    groupJid: isGroup ? remoteJid : null,
+                    groupName: groupDisplay,
+                    outcome: isFromMe ? 'Delivered' : 'Received',
+                    timestamp: msgIsoTime,
+                    date: msgIsoTime,
+                    platform: 'WhatsApp Web',
+                    isGroup: isGroup,
+                    whatsappIntegrationId: integrationId
+                }
+            });
+        } catch (rtErr) {
+            console.error('[BaileysWorker] RealtimeHub emit error:', rtErr.message);
+        }
+
+        return { success: true, messageId };
+    } catch (err) {
+        console.error('[BaileysWorker] Unhandled job processing error:', err.message);
+        throw err;
+    }
+}
+
+// Inbound BullMQ Worker with concurrency = 5
+export const baileysInboundWorker = new Worker('whatsapp_baileys_inbound', async (job) => {
+    return await processInboundMessageCore(job.data);
+}, { connection: redisConnectionOptions, concurrency: 5 });
+
+baileysInboundWorker.on('failed', (job, err) => {
+    console.error(`[BaileysInboundWorker] Job ${job?.id} failed:`, err.message);
+});
+
+baileysInboundWorker.on('error', (err) => {
+    if (!err.message?.includes('ECONNREFUSED')) {
+        console.warn('[BaileysInboundWorker] Inbound worker error:', err.message);
+    }
 });
