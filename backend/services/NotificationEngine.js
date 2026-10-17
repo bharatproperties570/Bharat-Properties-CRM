@@ -51,6 +51,13 @@ class NotificationEngine {
 
             if (notification) {
                 console.log(`[NotificationEngine] ✅ SUCCESS: Notification ID ${notification._id} created.`);
+                // ⚡ Enterprise Push: Immediate SSE Broadcast to Connected Clients (<20ms)
+                try {
+                    const RealtimeHub = (await import('./RealtimeHub.js')).default;
+                    RealtimeHub.emitNotification(targetUserId, notification);
+                } catch (pushErr) {
+                    // Suppress error if SSE hub unavailable
+                }
             } else {
                 console.warn('[NotificationEngine] ⚠️ FAILED: Notification.create returned null.');
             }

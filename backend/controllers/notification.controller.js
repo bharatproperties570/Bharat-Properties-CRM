@@ -7,6 +7,10 @@ import mongoose from "mongoose";
 const reminderGenerationCache = new Map();
 const REMINDER_THROTTLE_MS = 10 * 60 * 1000;
 
+// 🚀 Enterprise Optimization: In-memory cache for NotificationSetting per user (5-min TTL)
+const userSettingsCache = new Map();
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 // @desc    Get user's notifications
 // @route   GET /api/notifications
 export const getNotifications = async (req, res) => {
@@ -29,9 +33,15 @@ export const getNotifications = async (req, res) => {
             );
         }
 
-        // 🌟 Filter notifications based on user preferences
-        const settings = await NotificationSetting.findOne({ user: userId }).lean();
-        console.log(`[NotificationController] Settings found: ${!!settings}`);
+        // 🌟 Filter notifications based on user preferences (5-min memory cached)
+        let settings;
+        const cachedSettings = userSettingsCache.get(userId.toString());
+        if (cachedSettings && (Date.now() - cachedSettings.ts < SETTINGS_CACHE_TTL_MS)) {
+            settings = cachedSettings.data;
+        } else {
+            settings = await NotificationSetting.findOne({ user: userId }).lean();
+            userSettingsCache.set(userId.toString(), { data: settings, ts: Date.now() });
+        }
         const presets = settings?.presets || new Map();
 
         const notifications = await Notification.find({ 
@@ -44,8 +54,6 @@ export const getNotifications = async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(100)
             .lean();
-
-        console.log(`[NotificationController] Raw count from DB: ${notifications.length}`);
 
         // 🌟 TYPE NORMALIZATION: Map DB types to Settings Categories
         const typeMap = {
@@ -260,10 +268,15 @@ export const triggerTestNotification = async (req, res) => {
     }
 };
 
+export const invalidateUserSettingsCache = (userId) => {
+    if (userId) userSettingsCache.delete(userId.toString());
+};
+
 export default {
     getNotifications,
     markAsRead,
     markAllAsRead,
     createNotification,
-    triggerTestNotification
+    triggerTestNotification,
+    invalidateUserSettingsCache
 };

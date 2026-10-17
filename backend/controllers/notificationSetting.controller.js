@@ -1,4 +1,5 @@
 import NotificationSetting from '../models/NotificationSetting.js';
+import { invalidateUserSettingsCache } from './notification.controller.js';
 
 // @desc    Get notification settings for current user
 // @route   GET /api/notification-settings
@@ -37,6 +38,7 @@ export const updateNotificationSettings = async (req, res) => {
             req.body,
             { new: true, upsert: true }
         );
+        invalidateUserSettingsCache(userId);
         res.json({ success: true, data: settings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -54,6 +56,7 @@ export const addPersonalizedRule = async (req, res) => {
             { $push: { personalizedRules: rule } },
             { new: true, upsert: true }
         );
+        invalidateUserSettingsCache(userId);
         res.json({ success: true, data: settings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

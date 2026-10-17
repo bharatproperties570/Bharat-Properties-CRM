@@ -12,4 +12,9 @@ const NotificationSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+// 🚀 Enterprise Compound Indexes for O(1) B-tree Index Seeks
+NotificationSchema.index({ user: 1, createdAt: -1 });
+NotificationSchema.index({ type: 1, createdAt: -1 });
+NotificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
+
 export default mongoose.model("Notification", NotificationSchema);

@@ -75,6 +75,17 @@ class RealtimeHubService extends EventEmitter {
             timestamp: new Date().toISOString()
         });
     }
+
+    /**
+     * Specialized: Broadcast instant notification to a specific user or org
+     */
+    emitNotification(userId, notification) {
+        this.broadcast('NEW_NOTIFICATION', {
+            userId: String(userId),
+            notification,
+            timestamp: new Date().toISOString()
+        });
+    }
 }
 
 const RealtimeHub = new RealtimeHubService();
