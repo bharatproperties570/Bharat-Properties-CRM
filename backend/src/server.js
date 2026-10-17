@@ -94,8 +94,10 @@ async function startServer() {
         // Initialize background tasks after DB is ready
         const googleDiscoveryService = (await import("../services/discovery/GoogleDiscoveryService.js")).default;
         const automatedIntakeService = (await import("../services/intakeQueue/AutomatedIntakeService.js")).default;
+        const groupMessageScanner = (await import("../services/intakeQueue/GroupMessageScanner.js")).default;
         googleDiscoveryService.initialize();
         automatedIntakeService.initialize();
+        groupMessageScanner.initialize();
 
         // Capture all Worker instances for graceful shutdown
         const { enrichmentWorker } = await import("./workers/enrichmentWorker.js");

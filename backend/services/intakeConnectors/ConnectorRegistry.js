@@ -4,6 +4,7 @@ import PublicUrlConnector from './PublicUrlConnector.js';
 import ZipConnector from './ZipConnector.js';
 import GoogleIndexConnector from './GoogleIndexConnector.js';
 import PropertyListingConnector from './PropertyListingConnector.js';
+import WhatsAppGroupConnector from './WhatsAppGroupConnector.js';
 
 class ConnectorRegistry {
     constructor() {
@@ -16,6 +17,7 @@ class ConnectorRegistry {
         this.register(ZipConnector);
         this.register(GoogleIndexConnector);
         this.register(PropertyListingConnector);
+        this.register(WhatsAppGroupConnector);
     }
 
     register(connectorInstance) {

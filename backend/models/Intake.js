@@ -8,7 +8,7 @@ const intakeSchema = new mongoose.Schema({
     },
     source_type: {
         type: String,
-        enum: ['manual', 'pdf', 'zip', 'public_url', 'google_index', 'property_listing', 'whatsapp', 'email', 'api', 'other'],
+        enum: ['manual', 'pdf', 'zip', 'public_url', 'google_index', 'property_listing', 'whatsapp', 'whatsapp_group', 'email', 'api', 'other'],
         default: 'other'
     },
     source_confidence: {
