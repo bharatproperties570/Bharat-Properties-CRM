@@ -122,12 +122,10 @@ export async function processInboundMessageCore(jobData) {
         }
         let participantId = cleanPhone;
         if (participant) {
-            if (participant.includes('@lid')) {
-                const resolvedPart = await BaileysConnectionManager.resolveJidToPhone(participant, integrationId);
-                participantId = resolvedPart.cleanPhone || participantRaw;
-            } else {
-                participantId = participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone;
-            }
+            const resolvedPart = await BaileysConnectionManager.resolveJidToPhone(participant, integrationId);
+            participantId = (resolvedPart && resolvedPart.cleanPhone && !resolvedPart.cleanPhone.includes('@')) 
+                ? resolvedPart.cleanPhone 
+                : (participantRaw ? (normalizePhone(participantRaw) || participantRaw) : cleanPhone);
         }
 
         // Resolve group subject / title

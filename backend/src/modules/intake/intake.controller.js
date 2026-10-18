@@ -610,7 +610,7 @@ export const previewWAVerification = async (req, res) => {
             return res.status(404).json({ success: false, message: "Intake record not found" });
         }
 
-        const targetPhones = dealVerificationAgent.resolveTargetPhones(intake);
+        const targetPhones = await dealVerificationAgent.resolveTargetPhones(intake);
         const draftMessage = await dealVerificationAgent.generateInquiryDraft(intake);
 
         res.status(200).json({

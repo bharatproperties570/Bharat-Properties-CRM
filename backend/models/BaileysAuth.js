@@ -23,6 +23,7 @@ const BaileysAuthSchema = new mongoose.Schema(
 );
 
 BaileysAuthSchema.index({ sessionId: 1, fileId: 1 }, { unique: true });
+BaileysAuthSchema.index({ fileId: 1 });
 
 const BaileysAuth = mongoose.models.BaileysAuth || mongoose.model('BaileysAuth', BaileysAuthSchema);
 

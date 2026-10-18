@@ -12,9 +12,9 @@ class DealVerificationAgent {
     /**
      * Resolves target verification phone numbers from an Intake record.
      * Prioritizes phone number explicitly written in the message text,
-     * with fallback to the WhatsApp group sender participant.
+     * with fallback to the WhatsApp group sender participant (automatically resolving LIDs).
      */
-    resolveTargetPhones(intakeRecord) {
+    async resolveTargetPhones(intakeRecord) {
         if (!intakeRecord) return { textContacts: [], senderPhone: null, recommendedTarget: null, targetType: 'text_contact' };
 
         // 1. Text-extracted contacts
@@ -25,10 +25,25 @@ class DealVerificationAgent {
             textContacts = intakeRecord.extracted_entities.contact_numbers.map(p => this._cleanPhone(p)).filter(Boolean);
         }
 
-        // 2. Sender participant number from group metadata
+        // 2. Sender participant number from group metadata (with enterprise LID resolution)
         const rawParticipant = intakeRecord.extracted_entities?._whatsappGroup?.participant || 
                                intakeRecord.raw_source_data?.participant || '';
-        const senderPhone = this._cleanPhone(rawParticipant);
+        
+        let senderPhone = null;
+        if (rawParticipant) {
+            try {
+                const { BaileysConnectionManager } = await import('../baileysQueue/BaileysConnectionManager.js');
+                const resolved = await BaileysConnectionManager.resolveJidToPhone(rawParticipant);
+                if (resolved && resolved.cleanPhone && !resolved.cleanPhone.includes('@')) {
+                    senderPhone = this._cleanPhone(resolved.cleanPhone);
+                }
+            } catch (e) {
+                console.warn('[DealVerificationAgent] Error resolving sender LID:', e.message);
+            }
+            if (!senderPhone) {
+                senderPhone = this._cleanPhone(rawParticipant);
+            }
+        }
 
         // 3. Recommended target
         let recommendedTarget = null;
@@ -126,7 +141,17 @@ Examples:
         const intake = await Intake.findById(intakeId);
         if (!intake) throw new Error("Intake record not found");
 
-        const formattedPhone = this._cleanPhone(targetPhone);
+        // Enterprise Fail-safe: Resolve targetPhone through BaileysConnectionManager in case an LID or sliced LID was submitted
+        let cleanTarget = targetPhone;
+        try {
+            const { BaileysConnectionManager } = await import('../baileysQueue/BaileysConnectionManager.js');
+            const resolved = await BaileysConnectionManager.resolveJidToPhone(targetPhone);
+            if (resolved && resolved.cleanPhone && !resolved.cleanPhone.includes('@')) {
+                cleanTarget = resolved.cleanPhone;
+            }
+        } catch (e) {}
+
+        const formattedPhone = this._cleanPhone(cleanTarget);
         if (!formattedPhone) throw new Error("Invalid target phone number format");
 
         const isMeta = String(provider).toUpperCase() === 'META';

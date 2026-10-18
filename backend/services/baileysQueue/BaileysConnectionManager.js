@@ -34,29 +34,70 @@ function safeSetBoundedCache(map, key, value) {
 async function resolveJidToPhone(jid, integrationId) {
     if (!jid) return { cleanPhone: '', targetPhone: '', rawPhone: '', isLid: false };
 
-    const isGroup = jid.endsWith('@g.us');
+    const jidStr = String(jid).trim();
+    const isGroup = jidStr.endsWith('@g.us');
     if (isGroup) {
-        const raw = jid.replace('@g.us', '');
-        return { cleanPhone: jid, targetPhone: jid, rawPhone: raw, isLid: false };
+        const raw = jidStr.replace('@g.us', '');
+        return { cleanPhone: jidStr, targetPhone: jidStr, rawPhone: raw, isLid: false };
     }
 
-    const isLid = jid.endsWith('@lid') || jid.includes('@lid');
-    if (isLid) {
-        const lidNum = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
-        
-        // 1. Check in-memory cache
-        if (lidPhoneCache.has(lidNum)) {
-            const cachedPhone = lidPhoneCache.get(lidNum);
-            return { cleanPhone: cachedPhone, targetPhone: cachedPhone, rawPhone: cachedPhone, isLid: true };
-        }
+    // Extract core numeric identifier
+    const rawDigits = jidStr.split('@')[0].split(':')[0].replace(/\D/g, '');
+    const isExplicitLid = jidStr.endsWith('@lid') || jidStr.includes('@lid');
+    const isLidLength = rawDigits.length >= 13;
+    
+    // Normalized 10-digit number if Indian format with country code
+    const tenDigitCandidate = (rawDigits.length === 12 && rawDigits.startsWith('91')) 
+        ? rawDigits.substring(2) 
+        : (rawDigits.length === 10 ? rawDigits : null);
 
+    // 1. Check in-memory cache
+    if (rawDigits && lidPhoneCache.has(rawDigits)) {
+        const cachedPhone = lidPhoneCache.get(rawDigits);
+        const target = cachedPhone.startsWith('+') ? cachedPhone : (cachedPhone.length === 10 ? `+91${cachedPhone}` : `+${cachedPhone}`);
+        return { cleanPhone: cachedPhone, targetPhone: target, rawPhone: cachedPhone, isLid: true };
+    }
+    if (tenDigitCandidate && lidPhoneCache.has(tenDigitCandidate)) {
+        const cachedPhone = lidPhoneCache.get(tenDigitCandidate);
+        const target = cachedPhone.startsWith('+') ? cachedPhone : (cachedPhone.length === 10 ? `+91${cachedPhone}` : `+${cachedPhone}`);
+        return { cleanPhone: cachedPhone, targetPhone: target, rawPhone: cachedPhone, isLid: true };
+    }
+
+    // 2. Database resolution: Check if this is an explicit LID, long LID (13+ digits), or previously sliced LID
+    if (isExplicitLid || isLidLength || tenDigitCandidate) {
         try {
             const BaileysAuth = (await import('../../models/BaileysAuth.js')).default;
-            // 2. Query MongoDB reverse LID mapping (Baileys stores fileId: lid-mapping-<lid>_reverse)
-            const reverseDoc = await BaileysAuth.findOne({
-                sessionId: String(integrationId),
-                fileId: `lid-mapping-${lidNum}_reverse`
-            }).lean();
+            const sessionFilter = integrationId ? { sessionId: String(integrationId) } : {};
+
+            let reverseDoc = null;
+
+            // Direct reverse lookup if rawDigits is an LID
+            if (isExplicitLid || isLidLength) {
+                reverseDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: `lid-mapping-${rawDigits}_reverse`
+                }).lean();
+
+                if (!reverseDoc && integrationId) {
+                    reverseDoc = await BaileysAuth.findOne({
+                        fileId: `lid-mapping-${rawDigits}_reverse`
+                    }).lean();
+                }
+            }
+
+            // If not found and we have a 10-digit number, check if it's the tail of a sliced LID
+            if (!reverseDoc && tenDigitCandidate) {
+                reverseDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: { $regex: `${tenDigitCandidate}_reverse$` }
+                }).lean();
+
+                if (!reverseDoc && integrationId) {
+                    reverseDoc = await BaileysAuth.findOne({
+                        fileId: { $regex: `${tenDigitCandidate}_reverse$` }
+                    }).lean();
+                }
+            }
 
             if (reverseDoc?.data) {
                 let parsed = reverseDoc.data;
@@ -66,39 +107,47 @@ async function resolveJidToPhone(jid, integrationId) {
                 const phoneDigits = String(parsed).replace(/\D/g, '');
                 if (phoneDigits) {
                     const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
-                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                    const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+                    safeSetBoundedCache(lidPhoneCache, rawDigits, cleanPhone);
+                    if (tenDigitCandidate) safeSetBoundedCache(lidPhoneCache, tenDigitCandidate, cleanPhone);
+                    safeSetBoundedCache(lidPhoneCache, phoneDigits, cleanPhone);
+                    return { cleanPhone, targetPhone, rawPhone: phoneDigits, isLid: true };
                 }
             }
 
-            // 3. Fallback: Search forward LID mapping
-            const forwardDoc = await BaileysAuth.findOne({
-                sessionId: String(integrationId),
-                fileId: { $regex: '^lid-mapping-\\d+$' },
-                data: new RegExp(lidNum)
-            }).lean();
+            // Forward lookup fallback
+            if (isExplicitLid || isLidLength) {
+                const forwardDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: { $regex: '^lid-mapping-\\d+$' },
+                    data: new RegExp(rawDigits)
+                }).lean();
 
-            if (forwardDoc?.fileId) {
-                const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
-                if (phoneDigits) {
-                    const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
-                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                if (forwardDoc?.fileId) {
+                    const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
+                    if (phoneDigits) {
+                        const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
+                        const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+                        safeSetBoundedCache(lidPhoneCache, rawDigits, cleanPhone);
+                        return { cleanPhone, targetPhone, rawPhone: phoneDigits, isLid: true };
+                    }
                 }
             }
         } catch (err) {
             console.error('[BaileysConnectionManager] Error resolving LID:', err.message);
         }
 
-        // If resolution completely failed, keep as lid identifier rather than corrupting into fake phone
-        console.warn(`[BaileysConnectionManager] Could not resolve LID mapping for ${jid}`);
-        return { cleanPhone: jid, targetPhone: jid, rawPhone: jid, isLid: true };
+        if (isExplicitLid || isLidLength) {
+            console.warn(`[BaileysConnectionManager] Could not resolve LID mapping for ${jid}`);
+            return { cleanPhone: jidStr, targetPhone: jidStr, rawPhone: jidStr, isLid: true };
+        }
     }
 
     // Standard phone JID (@s.whatsapp.net or raw)
-    const rawPhone = jid.replace(/@s\.whatsapp\.net/, '').split(':')[0];
+    const rawPhone = jidStr.replace(/@s\.whatsapp\.net/, '').split(':')[0];
     const cleanPhone = normalizePhone(rawPhone) || rawPhone;
-    return { cleanPhone, targetPhone: cleanPhone, rawPhone, isLid: false };
+    const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+    return { cleanPhone, targetPhone, rawPhone, isLid: false };
 }
 
 /**

@@ -278,7 +278,16 @@ class WhatsAppService {
                 }
             }
 
-            let jid = String(mobile || '').trim();
+            // Enterprise LID resolution before formatting outbound JID
+            let resolvedTarget = mobile;
+            try {
+                const res = await BaileysConnectionManager.resolveJidToPhone(mobile, config.integrationId);
+                if (res && res.cleanPhone && !res.cleanPhone.includes('@')) {
+                    resolvedTarget = res.cleanPhone;
+                }
+            } catch (e) {}
+
+            let jid = String(resolvedTarget || '').trim();
             if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us') && !jid.includes('@lid')) {
                 const normalized = this._normalizeTarget(jid);
                 if (!normalized) {
