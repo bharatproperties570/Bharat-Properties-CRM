@@ -66,7 +66,7 @@ const DealIntakePage = () => {
     const [waCustomMessage, setWaCustomMessage] = useState('');
     const [waPreviewData, setWaPreviewData] = useState(null);
     const [waDeskExpanded, setWaDeskExpanded] = useState(true);
-    const [waHistoryOpen, setWaHistoryOpen] = useState(false);
+    const [waHistoryOpen, setWaHistoryOpen] = useState(true);
     const [waProvider, setWaProvider] = useState('BAILEYS');
 
     const [leadData, setLeadData] = useState([]);
@@ -2073,11 +2073,11 @@ const DealIntakePage = () => {
                                                             background: isDark ? 'rgba(99, 102, 241, 0.25)' : '#e0e7ff',
                                                             color: isDark ? '#a5b4fc' : '#4338ca', border: '1px solid rgba(99, 102, 241, 0.3)'
                                                         }}>
-                                                            Gemini 2.5 Flash
+                                                            Gemini 3.8 Flash
                                                         </span>
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: isDark ? '#94a3b8' : '#64748b' }}>
-                                                        Verify Location, Plot/Unit #, and Bottom Asking Price with Broker via WhatsApp Web
+                                                        Human-Touch Broker Verification (1-Line Hinglish via Gemini 3.8 Flash)
                                                     </div>
                                                 </div>
                                             </div>
@@ -2495,15 +2495,15 @@ const DealIntakePage = () => {
                                                                 }}
                                                             >
                                                                 <i className={`fas fa-magic ${waLoadingPreview ? 'fa-spin' : ''}`}></i>
-                                                                {waCustomMessage ? 'Regenerate Draft with Gemini' : 'Draft with Gemini Flash'}
+                                                                {waCustomMessage ? 'Regenerate Human Draft' : 'Draft 1-Line Broker Inquiry'}
                                                             </button>
                                                         </div>
 
                                                         <textarea
-                                                            rows={3}
+                                                            rows={2}
                                                             value={waCustomMessage}
                                                             onChange={(e) => setWaCustomMessage(e.target.value)}
-                                                            placeholder="Click 'Draft with Gemini Flash' to generate natural Hinglish inquiry asking for Plot/Unit #, location confirmation, and last closing price..."
+                                                            placeholder="Natural 1-line broker inquiry (e.g. Ram Ram bhaiji, Sec 8 kothi ka house no aur bottom rate batao, genuine party ready hai.)"
                                                             style={{
                                                                 width: '100%', boxSizing: 'border-box', padding: '8px 10px',
                                                                 fontSize: '0.8rem', lineHeight: 1.4, borderRadius: '6px',
@@ -2571,15 +2571,24 @@ const DealIntakePage = () => {
                                                                         key={i}
                                                                         style={{
                                                                             alignSelf: msg.sender === 'system' ? 'flex-end' : 'flex-start',
-                                                                            maxWidth: '85%', padding: '6px 10px', borderRadius: '8px',
-                                                                            fontSize: '0.75rem', lineHeight: 1.35,
-                                                                            background: msg.sender === 'system' ? (isDark ? '#166534' : '#dcfce7') : (isDark ? '#334155' : '#ffffff'),
-                                                                            color: msg.sender === 'system' ? (isDark ? '#f0fdf4' : '#14532d') : (isDark ? '#f8fafc' : '#1e293b'),
-                                                                            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #cbd5e1'
+                                                                            maxWidth: '85%', padding: '8px 12px', borderRadius: '10px',
+                                                                            fontSize: '0.78rem', lineHeight: 1.4,
+                                                                            background: msg.sender === 'system' 
+                                                                                ? (isDark ? '#14532d' : '#dcfce7') 
+                                                                                : (isDark ? '#1e293b' : '#ffffff'),
+                                                                            color: msg.sender === 'system' 
+                                                                                ? (isDark ? '#f0fdf4' : '#14532d') 
+                                                                                : (isDark ? '#f8fafc' : '#1e293b'),
+                                                                            border: msg.sender === 'system'
+                                                                                ? (isDark ? '1px solid #16a34a' : '1px solid #86efac')
+                                                                                : (isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1'),
+                                                                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
                                                                         }}
                                                                     >
-                                                                        <div style={{ fontSize: '0.62rem', fontWeight: 800, opacity: 0.8, marginBottom: '2px' }}>
-                                                                            {msg.sender === 'system' ? 'Bharat Properties Desk' : 'Broker'} • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN') : ''}
+                                                                        <div style={{ fontSize: '0.64rem', fontWeight: 800, opacity: 0.85, marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                            <i className={msg.sender === 'system' ? "fab fa-whatsapp" : "fas fa-user-tie"} style={{ color: msg.sender === 'system' ? '#22c55e' : '#3b82f6' }}></i>
+                                                                            <span>{msg.sender === 'system' ? 'Bharat Properties (Outbound)' : 'Broker (Inbound Reply)'}</span>
+                                                                            <span style={{ marginLeft: 'auto', fontWeight: 600 }}>{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN') : ''}</span>
                                                                         </div>
                                                                         {msg.message}
                                                                     </div>

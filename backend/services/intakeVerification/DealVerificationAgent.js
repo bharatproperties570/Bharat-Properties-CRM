@@ -63,51 +63,44 @@ class DealVerificationAgent {
     }
 
     /**
-     * Generates a warm, human-like broker verification inquiry in natural Hinglish.
-     * Powered by Gemini Flash.
+     * Generates an ultra-short, human broker verification inquiry in natural Hinglish.
+     * Powered by Gemini 3.8 Flash.
      */
     async generateInquiryDraft(intakeRecord) {
-        const location = intakeRecord.location || intakeRecord.sector || 'your area';
+        const location = intakeRecord.location || intakeRecord.sector || 'is location';
         const propType = intakeRecord.property_type || 'property';
         const price = intakeRecord.price || '';
         const size = intakeRecord.size || '';
 
-        const systemPrompt = `You are a senior real estate acquisition manager at Bharat Properties, a premier property firm in North India.
-Your objective is to write a warm, friendly, and respectful WhatsApp inquiry in natural Hinglish to a fellow broker regarding a property broadcast they posted in a real estate group.
+        const systemPrompt = `You are an experienced real estate dealer at Bharat Properties chatting 1-on-1 on WhatsApp with a fellow broker in Haryana/Delhi-NCR.
+Your goal is to send a very short, natural WhatsApp message to find out the exact plot/house/unit number and bottom price for a posted deal.
 
-Goals of the inquiry:
-1. Mention the specific property post you noticed (Location: "${location}", Type: "${propType}", Size: "${size}", Listed Price: "${price}").
-2. State that you have a verified, genuine buyer ready for this location.
-3. Politely request the exact Plot / House / Flat / Shop Number (or Unit No.) so you can match and verify the deal with your buyer.
-4. Ask what would be the party's last/final bottom closing price on the table.
+Strict Tone & Style Rules:
+- Ultra-short: strictly 1 to 2 lines (under 18 words).
+- Real broker colloquial tone: Start with "Ram Ram bhaiji" or "Bhaiji".
+- Ask directly for unit/plot/house number and bottom closing price.
+- Mention genuine client/party is ready.
+- ZERO AI / Corporate feel: NO "Kindly", NO "Please", NO "cross-check", NO "hope this finds you well", NO quotes.
+- Output ONLY the raw message text.`;
 
-Style rules:
-- Natural, respectful broker-to-broker Hinglish (use words like "Namaste sir / bhaiji", "deal confirm", "genuine client ready hai", "plot/unit number", "last price").
-- Short and direct: 2 to 3 sentences maximum.
-- Do NOT use robotic templates, marketing fluff, links, or asterisks overload.
-- Output ONLY the message text.`;
-
-        const userPrompt = `Draft the broker WhatsApp inquiry for this post:\n"${intakeRecord.description || intakeRecord.content || (propType + ' in ' + location)}"`;
+        const userPrompt = `Deal broadcast:\n"${intakeRecord.description || intakeRecord.content || (propType + ' in ' + location)}"`;
 
         try {
             const draft = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
                 model: 'gemini-3.8-flash',
-                temperature: 0.6,
-                maxTokens: 1024
+                temperature: 0.4,
+                maxTokens: 100
             });
-            if (draft && draft.trim().length > 20) {
+            if (draft && draft.trim().length > 10) {
                 return draft.trim().replace(/^["']|["']$/g, '');
             }
         } catch (err) {
             console.warn('[DealVerificationAgent] Gemini draft generation failed, using fallback template:', err.message);
         }
 
-        // Fallback natural template
-        let details = propType;
-        if (size) details += ` (${size})`;
-        if (location) details += ` in ${location}`;
-
-        return `Namaste sir, Bharat Properties se baat kar raha hoon. Aapka ${details} ka group post dekha tha. Hamare paas genuine client ready hai is segment me. Deal confirm karne ke liye plot/unit number aur party ka last closing price kya rahega?`;
+        // Fallback natural 1-liner
+        let spec = `${location} me ${size ? size + ' ' : ''}${propType}`;
+        return `Ram Ram bhaiji, ${spec} ka plot/house no kya hai? Party ready hai, table pe final bottom rate kya chhod denge?`;
     }
 
     /**
@@ -249,12 +242,93 @@ Style rules:
             pendingIntake.verification_notes.push(`[WA Incomplete] Broker replied: "${messageText}". Unit number was kept confidential.`);
         }
 
+        // 🚀 ENTERPRISE HUMAN CONVERSATIONAL AGENT:
+        // Automatically respond back to broker in natural 1-line human broker tone
+        const followUpMessage = await this.generateConversationalReply(pendingIntake, messageText, extracted);
+
+        if (followUpMessage) {
+            const provider = pendingIntake.wa_verification?.provider === 'meta' ? 'META' : 'BAILEYS';
+            const dispatchOptions = provider === 'META'
+                ? { provider: 'META', channel: 'whatsapp_api' }
+                : { provider: 'BAILEYS', channel: 'whatsapp_web' };
+
+            try {
+                const sendRes = await whatsAppService.sendMessage(senderPhone, followUpMessage, dispatchOptions);
+                if (sendRes && sendRes.success) {
+                    const replyTime = new Date();
+                    pendingIntake.wa_verification.conversation_history.push({
+                        sender: 'system',
+                        message: followUpMessage,
+                        timestamp: replyTime
+                    });
+                    console.log(`[DealVerificationAgent] ✅ Dispatched human follow-up to ${senderPhone}: "${followUpMessage}"`);
+                }
+            } catch (replySendErr) {
+                console.error(`[DealVerificationAgent] Failed to dispatch conversational follow-up:`, replySendErr.message);
+            }
+        }
+
         await pendingIntake.save();
         return {
             intakeId: pendingIntake._id,
             verified: hasUnitNumber,
-            extracted
+            extracted,
+            followUpMessage
         };
+    }
+
+    /**
+     * Generates an ultra-short, human follow-up message when the broker replies.
+     * Powered by Gemini 3.8 Flash.
+     */
+    async generateConversationalReply(intakeRecord, brokerMessage, extractedData) {
+        const hasUnit = extractedData.unit_number && extractedData.unit_number !== 'UNDISCLOSED' && extractedData.unit_number !== 'UNKNOWN';
+        const hasPrice = !!extractedData.final_price;
+
+        const systemPrompt = `You are an experienced North Indian property broker at Bharat Properties chatting 1-on-1 on WhatsApp with another broker.
+Your tone must be 100% human, casual, respectful, and ultra-short (strictly 1 line, under 15 words).
+Speak in natural North Indian broker Hinglish (use words like "Bhaiji", "Ji theek hai", "plot no / house no", "party ready hai", "table pe final bottom rate", "visit karani hai").
+
+STRICT RULES:
+1. If broker gave house/plot number, but NOT price:
+   Acknowledge and ask bottom price on table (e.g. "Ji theek hai bhaiji, table pe final bottom rate kya chhod denge?").
+2. If broker gave price, but NOT house/plot number:
+   Ask exact unit/house number for client visit (e.g. "Theek hai ji, exact house no bata do, buyer ko visit karani hai.").
+3. If broker gave BOTH unit number and price:
+   Briefly acknowledge (e.g. "Ji theek hai bhaiji, buyer se match karke batata hu.").
+4. If broker says "office aao" / "call karo":
+   Politely ask unit/plot no first so party can be confirmed (e.g. "Bhaiji pehle house no share kardo, party confirm karke seedha office hi baithte hain.").
+5. NEVER sound like an AI. NO corporate English. NO quotes. Maximum 15 words.
+Output ONLY the raw message text.`;
+
+        const userPrompt = `Property Details: "${intakeRecord.description || intakeRecord.content || ''}"
+Broker just said: "${brokerMessage}"
+Has Unit No: ${hasUnit ? extractedData.unit_number : 'NO'}
+Has Final Price: ${hasPrice ? extractedData.final_price : 'NO'}
+Write the 1-line WhatsApp reply:`;
+
+        try {
+            const reply = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
+                model: 'gemini-3.8-flash',
+                temperature: 0.4,
+                maxTokens: 100
+            });
+            if (reply && reply.trim().length > 3) {
+                return reply.trim().replace(/^["']|["']$/g, '');
+            }
+        } catch (err) {
+            console.warn('[DealVerificationAgent] Failed to generate conversational reply:', err.message);
+        }
+
+        // Natural fallbacks
+        if (hasUnit && !hasPrice) {
+            return "Ji theek hai bhaiji, table pe final bottom rate kya chhod denge?";
+        } else if (!hasUnit && hasPrice) {
+            return "Theek hai ji, exact plot/house number kya hai? Buyer ko visit karani hai.";
+        } else if (hasUnit && hasPrice) {
+            return "Ji theek hai bhaiji, buyer se match karke batata hu.";
+        }
+        return "Bhaiji plot/house no bata do taaki genuine client se baat aage badha sakein.";
     }
 
     /**
