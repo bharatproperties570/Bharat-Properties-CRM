@@ -1599,7 +1599,7 @@ export const getBaileysGroups = async (req, res) => {
 
         // If live socket timed out or is pairing, serve from in-memory cache & DB conversations
         if (!fetchedFromSocket || formatted.length === 0) {
-            const cachedMap = BaileysConnectionManager.getAllGroupSubjects();
+            const cachedMap = BaileysConnectionManager.getAllGroupSubjects(integrationId);
             const groupList = [];
             const seenJids = new Set();
 
@@ -1622,7 +1622,7 @@ export const getBaileysGroups = async (req, res) => {
             // Also check existing group conversations from DB for comprehensive fallback
             try {
                 const Conversation = (await import('../models/Conversation.js')).default;
-                const dbGroups = await Conversation.find({ channel: 'whatsapp', isGroup: true }).select('phoneNumber title groupName updatedAt').lean();
+                const dbGroups = await Conversation.find({ channel: 'whatsapp', isGroup: true, whatsappIntegrationId: integration._id }).select('phoneNumber title groupName updatedAt').lean();
                 dbGroups.forEach(cg => {
                     const jid = cg.phoneNumber || cg.metadata?.groupJid;
                     if (jid && !seenJids.has(jid)) {

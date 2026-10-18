@@ -77,6 +77,35 @@ const intakeSchema = new mongoose.Schema({
         verification_actions: [{ type: String }]
     },
 
+    // WhatsApp Live Broker Verification Desk
+    wa_verification: {
+        status: { 
+            type: String, 
+            enum: ['idle', 'inquiry_sent', 'replied_verified', 'replied_incomplete', 'no_response', 'failed'], 
+            default: 'idle' 
+        },
+        initiated_at: { type: Date },
+        target_phone: { type: String },
+        target_type: { type: String, enum: ['sender', 'text_contact', 'custom'], default: 'text_contact' },
+        outbound_message: { type: String },
+        inbound_reply: { type: String },
+        replied_at: { type: Date },
+        extracted_data: {
+            unit_number: String,
+            unit_type: String,
+            location_confirmed: String,
+            final_price: String,
+            price_type: String,
+            broker_notes: String,
+            confidence: Number
+        },
+        conversation_history: [{
+            sender: { type: String, enum: ['system', 'broker'] },
+            message: String,
+            timestamp: { type: Date, default: Date.now }
+        }]
+    },
+
     // Legacy fields
     content: { type: String },
     receivedAt: { type: Date, default: Date.now },
@@ -88,6 +117,7 @@ const intakeSchema = new mongoose.Schema({
         attachments: [String],
         parsedData: mongoose.Schema.Types.Mixed
     },
+    whatsappIntegrationId: { type: mongoose.Schema.Types.ObjectId, ref: 'WhatsAppIntegration', index: true },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'

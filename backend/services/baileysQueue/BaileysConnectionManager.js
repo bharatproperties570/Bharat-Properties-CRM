@@ -10,7 +10,7 @@ const logger = pino({ level: 'silent' });
 const connections = new Map();
 const inFlightPromises = new Map();
 const reconnectTimers = new Map();
-const groupSubjectCache = new Map();
+const integrationGroupSubjectCache = new Map();
 const instanceId = `${process.pid}_${Math.random().toString(36).substring(2, 9)}`;
 const activeHeartbeats = new Map();
 const lidPhoneCache = new Map();
@@ -34,29 +34,70 @@ function safeSetBoundedCache(map, key, value) {
 async function resolveJidToPhone(jid, integrationId) {
     if (!jid) return { cleanPhone: '', targetPhone: '', rawPhone: '', isLid: false };
 
-    const isGroup = jid.endsWith('@g.us');
+    const jidStr = String(jid).trim();
+    const isGroup = jidStr.endsWith('@g.us');
     if (isGroup) {
-        const raw = jid.replace('@g.us', '');
-        return { cleanPhone: jid, targetPhone: jid, rawPhone: raw, isLid: false };
+        const raw = jidStr.replace('@g.us', '');
+        return { cleanPhone: jidStr, targetPhone: jidStr, rawPhone: raw, isLid: false };
     }
 
-    const isLid = jid.endsWith('@lid') || jid.includes('@lid');
-    if (isLid) {
-        const lidNum = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
-        
-        // 1. Check in-memory cache
-        if (lidPhoneCache.has(lidNum)) {
-            const cachedPhone = lidPhoneCache.get(lidNum);
-            return { cleanPhone: cachedPhone, targetPhone: cachedPhone, rawPhone: cachedPhone, isLid: true };
-        }
+    // Extract core numeric identifier
+    const rawDigits = jidStr.split('@')[0].split(':')[0].replace(/\D/g, '');
+    const isExplicitLid = jidStr.endsWith('@lid') || jidStr.includes('@lid');
+    const isLidLength = rawDigits.length >= 13;
+    
+    // Normalized 10-digit number if Indian format with country code
+    const tenDigitCandidate = (rawDigits.length === 12 && rawDigits.startsWith('91')) 
+        ? rawDigits.substring(2) 
+        : (rawDigits.length === 10 ? rawDigits : null);
 
+    // 1. Check in-memory cache
+    if (rawDigits && lidPhoneCache.has(rawDigits)) {
+        const cachedPhone = lidPhoneCache.get(rawDigits);
+        const target = cachedPhone.startsWith('+') ? cachedPhone : (cachedPhone.length === 10 ? `+91${cachedPhone}` : `+${cachedPhone}`);
+        return { cleanPhone: cachedPhone, targetPhone: target, rawPhone: cachedPhone, isLid: true };
+    }
+    if (tenDigitCandidate && lidPhoneCache.has(tenDigitCandidate)) {
+        const cachedPhone = lidPhoneCache.get(tenDigitCandidate);
+        const target = cachedPhone.startsWith('+') ? cachedPhone : (cachedPhone.length === 10 ? `+91${cachedPhone}` : `+${cachedPhone}`);
+        return { cleanPhone: cachedPhone, targetPhone: target, rawPhone: cachedPhone, isLid: true };
+    }
+
+    // 2. Database resolution: Check if this is an explicit LID, long LID (13+ digits), or previously sliced LID
+    if (isExplicitLid || isLidLength || tenDigitCandidate) {
         try {
             const BaileysAuth = (await import('../../models/BaileysAuth.js')).default;
-            // 2. Query MongoDB reverse LID mapping (Baileys stores fileId: lid-mapping-<lid>_reverse)
-            const reverseDoc = await BaileysAuth.findOne({
-                sessionId: String(integrationId),
-                fileId: `lid-mapping-${lidNum}_reverse`
-            }).lean();
+            const sessionFilter = integrationId ? { sessionId: String(integrationId) } : {};
+
+            let reverseDoc = null;
+
+            // Direct reverse lookup if rawDigits is an LID
+            if (isExplicitLid || isLidLength) {
+                reverseDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: `lid-mapping-${rawDigits}_reverse`
+                }).lean();
+
+                if (!reverseDoc && integrationId) {
+                    reverseDoc = await BaileysAuth.findOne({
+                        fileId: `lid-mapping-${rawDigits}_reverse`
+                    }).lean();
+                }
+            }
+
+            // If not found and we have a 10-digit number, check if it's the tail of a sliced LID
+            if (!reverseDoc && tenDigitCandidate) {
+                reverseDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: { $regex: `${tenDigitCandidate}_reverse$` }
+                }).lean();
+
+                if (!reverseDoc && integrationId) {
+                    reverseDoc = await BaileysAuth.findOne({
+                        fileId: { $regex: `${tenDigitCandidate}_reverse$` }
+                    }).lean();
+                }
+            }
 
             if (reverseDoc?.data) {
                 let parsed = reverseDoc.data;
@@ -66,39 +107,47 @@ async function resolveJidToPhone(jid, integrationId) {
                 const phoneDigits = String(parsed).replace(/\D/g, '');
                 if (phoneDigits) {
                     const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
-                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                    const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+                    safeSetBoundedCache(lidPhoneCache, rawDigits, cleanPhone);
+                    if (tenDigitCandidate) safeSetBoundedCache(lidPhoneCache, tenDigitCandidate, cleanPhone);
+                    safeSetBoundedCache(lidPhoneCache, phoneDigits, cleanPhone);
+                    return { cleanPhone, targetPhone, rawPhone: phoneDigits, isLid: true };
                 }
             }
 
-            // 3. Fallback: Search forward LID mapping
-            const forwardDoc = await BaileysAuth.findOne({
-                sessionId: String(integrationId),
-                fileId: { $regex: '^lid-mapping-\\d+$' },
-                data: new RegExp(lidNum)
-            }).lean();
+            // Forward lookup fallback
+            if (isExplicitLid || isLidLength) {
+                const forwardDoc = await BaileysAuth.findOne({
+                    ...sessionFilter,
+                    fileId: { $regex: '^lid-mapping-\\d+$' },
+                    data: new RegExp(rawDigits)
+                }).lean();
 
-            if (forwardDoc?.fileId) {
-                const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
-                if (phoneDigits) {
-                    const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
-                    safeSetBoundedCache(lidPhoneCache, lidNum, cleanPhone);
-                    return { cleanPhone, targetPhone: cleanPhone, rawPhone: phoneDigits, isLid: true };
+                if (forwardDoc?.fileId) {
+                    const phoneDigits = forwardDoc.fileId.replace('lid-mapping-', '').replace(/\D/g, '');
+                    if (phoneDigits) {
+                        const cleanPhone = normalizePhone(phoneDigits) || phoneDigits;
+                        const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+                        safeSetBoundedCache(lidPhoneCache, rawDigits, cleanPhone);
+                        return { cleanPhone, targetPhone, rawPhone: phoneDigits, isLid: true };
+                    }
                 }
             }
         } catch (err) {
             console.error('[BaileysConnectionManager] Error resolving LID:', err.message);
         }
 
-        // If resolution completely failed, keep as lid identifier rather than corrupting into fake phone
-        console.warn(`[BaileysConnectionManager] Could not resolve LID mapping for ${jid}`);
-        return { cleanPhone: jid, targetPhone: jid, rawPhone: jid, isLid: true };
+        if (isExplicitLid || isLidLength) {
+            console.warn(`[BaileysConnectionManager] Could not resolve LID mapping for ${jid}`);
+            return { cleanPhone: jidStr, targetPhone: jidStr, rawPhone: jidStr, isLid: true };
+        }
     }
 
     // Standard phone JID (@s.whatsapp.net or raw)
-    const rawPhone = jid.replace(/@s\.whatsapp\.net/, '').split(':')[0];
+    const rawPhone = jidStr.replace(/@s\.whatsapp\.net/, '').split(':')[0];
     const cleanPhone = normalizePhone(rawPhone) || rawPhone;
-    return { cleanPhone, targetPhone: cleanPhone, rawPhone, isLid: false };
+    const targetPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : (cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`);
+    return { cleanPhone, targetPhone, rawPhone, isLid: false };
 }
 
 /**
@@ -139,7 +188,7 @@ export const BaileysConnectionManager = {
         try {
             const integrations = await WhatsAppIntegration.find({ 
                 provider: 'BAILEYS', 
-                status: { $in: ['ACTIVE', 'PENDING_ONBOARDING'] }
+                status: 'ACTIVE'
             });
             for (const integration of integrations) {
                 await this.connect(integration._id.toString());
@@ -395,10 +444,10 @@ export const BaileysConnectionManager = {
                             sock.groupFetchAllParticipating().then(groups => {
                                 Object.values(groups || {}).forEach(g => {
                                     if (g.id && g.subject) {
-                                        safeSetBoundedCache(groupSubjectCache, g.id, g.subject);
+                                        BaileysConnectionManager.setGroupSubject(integrationId, g.id, g.subject);
                                     }
                                 });
-                                console.log(`[BaileysConnectionManager] Cached ${groupSubjectCache.size} group subjects`);
+                                console.log(`[BaileysConnectionManager] Cached group subjects for integration ${integrationId}`);
                             }).catch(err => {
                                 console.warn('[BaileysConnectionManager] Group subject sync notice:', err.message);
                             });
@@ -485,17 +534,60 @@ export const BaileysConnectionManager = {
         return connections.get(integrationId);
     },
 
-    getGroupSubject(jid) {
+    getGroupSubject(arg1, arg2) {
+        let integrationId = null;
+        let jid = null;
+        if (arg2) {
+            integrationId = String(arg1);
+            jid = arg2;
+        } else {
+            jid = arg1;
+        }
         if (!jid) return null;
-        return groupSubjectCache.get(jid) || groupSubjectCache.get(jid.replace('@g.us', '')) || null;
+        const cleanJid = String(jid).trim();
+        const rawJid = cleanJid.replace('@g.us', '');
+
+        if (integrationId && integrationGroupSubjectCache.has(integrationId)) {
+            const cache = integrationGroupSubjectCache.get(integrationId);
+            const found = cache.get(cleanJid) || cache.get(rawJid);
+            if (found) return found;
+        }
+        for (const cache of integrationGroupSubjectCache.values()) {
+            const found = cache.get(cleanJid) || cache.get(rawJid);
+            if (found) return found;
+        }
+        return null;
     },
 
-    setGroupSubject(jid, subject) {
-        if (jid && subject) safeSetBoundedCache(groupSubjectCache, jid, subject);
+    setGroupSubject(arg1, arg2, arg3) {
+        let integrationId = 'default';
+        let jid = null;
+        let subject = null;
+        if (arg3 !== undefined) {
+            integrationId = String(arg1);
+            jid = arg2;
+            subject = arg3;
+        } else {
+            jid = arg1;
+            subject = arg2;
+        }
+        if (!jid || !subject) return;
+        if (!integrationGroupSubjectCache.has(integrationId)) {
+            integrationGroupSubjectCache.set(integrationId, new Map());
+        }
+        const cache = integrationGroupSubjectCache.get(integrationId);
+        if (cache.size >= MAX_CACHE_ENTRIES) {
+            const firstKey = cache.keys().next().value;
+            if (firstKey) cache.delete(firstKey);
+        }
+        cache.set(jid, subject);
     },
 
-    getAllGroupSubjects() {
-        return new Map(groupSubjectCache);
+    getAllGroupSubjects(integrationId) {
+        if (integrationId && integrationGroupSubjectCache.has(String(integrationId))) {
+            return new Map(integrationGroupSubjectCache.get(String(integrationId)));
+        }
+        return new Map();
     },
 
     async resolveJidToPhone(jid, integrationId) {
@@ -507,6 +599,7 @@ export const BaileysConnectionManager = {
             clearInterval(activeHeartbeats.get(integrationId));
             activeHeartbeats.delete(integrationId);
         }
+        integrationGroupSubjectCache.delete(String(integrationId));
         try {
             const { default: redisProxy } = await import('../../src/config/redis.js');
             if (redisProxy && !redisProxy.isMock) {

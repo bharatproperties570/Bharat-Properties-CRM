@@ -34,17 +34,36 @@ const getSecureConversations = async (baseQuery, req, populateConfigs, sortConfi
         allowedContactIds = allowedContacts.map(c => c._id);
     }
     
-    // 3. Final secure query:
+    // 3. Final secure query with WhatsApp Multi-User Isolation
     // - Enforces strict RBAC on conversations linked to Leads or Contacts
-    // - Unassigned chats and WhatsApp groups belong to shared company channels and are visible to team members
+    // - WhatsApp groups and unassigned WhatsApp chats are strictly isolated to the user's active WhatsApp integration
+    let allowedIntegIds = [];
+    try {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+        const userIntegrations = await WhatsAppIntegration.find({
+            status: 'ACTIVE',
+            $or: [
+                { connectedBy: req.user._id },
+                { allowedUsers: req.user._id }
+            ]
+        }).select('_id').lean();
+        allowedIntegIds = userIntegrations.map(i => i._id);
+    } catch (e) {}
+
     const visibilityOrConditions = [
-        ...(allowedLeadIds.length > 0 ? [{ lead: { $in: allowedLeadIds } }] : []),
-        ...(allowedContactIds.length > 0 ? [{ contact: { $in: allowedContactIds } }] : []),
-        { isGroup: true },
-        { lead: null, contact: null },
-        { lead: { $exists: false }, contact: { $exists: false } },
-        { lead: null, contact: { $exists: false } },
-        { lead: { $exists: false }, contact: null }
+        ...(allowedIntegIds.length > 0 ? [{
+            channel: 'whatsapp',
+            whatsappIntegrationId: { $in: allowedIntegIds }
+        }] : []),
+        {
+            channel: { $ne: 'whatsapp' },
+            $or: [
+                ...(allowedLeadIds.length > 0 ? [{ lead: { $in: allowedLeadIds } }] : []),
+                ...(allowedContactIds.length > 0 ? [{ contact: { $in: allowedContactIds } }] : []),
+                { lead: null, contact: null },
+                { lead: { $exists: false }, contact: { $exists: false } }
+            ]
+        }
     ];
 
     const secureQuery = {
@@ -274,6 +293,47 @@ export const markConversationAsRead = async (req, res) => {
         });
     } catch (error) {
         console.error("Failed to mark conversation as read:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+/**
+ * @desc Get paginated time-series chat messages from ChatMessage model (Pillar 2)
+ * @route GET /api/conversations/:id/messages
+ */
+export const getConversationMessages = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { limit = 50, before } = req.query;
+        const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+
+        const ChatMessage = (await import('../models/ChatMessage.js')).default;
+        const isObjId = mongoose.Types.ObjectId.isValid(id);
+        
+        const query = {
+            $or: [
+                ...(isObjId ? [{ conversationId: id }] : []),
+                { remoteJid: id },
+                { groupJid: id },
+                { senderPhone: id }
+            ]
+        };
+        if (before) {
+            query.timestamp = { $lt: new Date(before) };
+        }
+
+        const messages = await ChatMessage.find(query)
+            .sort({ timestamp: -1 })
+            .limit(limitNum)
+            .lean();
+
+        res.status(200).json({ 
+            success: true, 
+            count: messages.length, 
+            data: messages.reverse() 
+        });
+    } catch (error) {
+        console.error("Failed to fetch conversation messages:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
     }
 };

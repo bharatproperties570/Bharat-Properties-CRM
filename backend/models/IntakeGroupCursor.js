@@ -26,6 +26,7 @@ const intakeGroupCursorSchema = new mongoose.Schema({
         default: null,
         description: 'Human-readable group name for admin dashboards'
     },
+    whatsappIntegrationId: { type: mongoose.Schema.Types.ObjectId, ref: 'WhatsAppIntegration', index: true },
     conversationId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Conversation',

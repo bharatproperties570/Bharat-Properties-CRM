@@ -1708,17 +1708,48 @@ export const getMessagingActivities = async (req, res) => {
         } = req.query;
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+        const isSuperAdmin = WhatsAppAccountAuthorizationService.isAdmin(req.user) || req.user?.dataScope === 'all';
+        
+        let allowedIntegIds = [];
+        if (!isSuperAdmin && req.user) {
+            try {
+                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+                const userIntegrations = await WhatsAppIntegration.find({
+                    status: 'ACTIVE',
+                    $or: [
+                        { connectedBy: req.user._id },
+                        { allowedUsers: req.user._id }
+                    ]
+                }).select('_id').lean();
+                allowedIntegIds = userIntegrations.map(i => i._id);
+            } catch (e) {}
+        }
 
-        // 1. Optimized Combined Query
-        // 🚀 Senior Profession: Filter at DB level to reduce memory footprint
+        // 1. Optimized Combined Query with WhatsApp Multi-User Isolation
         const messagingTypes = ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice', 'Messaging', 'Marketing', 'marketing'];
+        const unassignedConditions = isSuperAdmin
+            ? [{ assignedTo: { $exists: false } }]
+            : [
+                ...(allowedIntegIds.length > 0 ? [{
+                    assignedTo: { $exists: false },
+                    'details.whatsappIntegrationId': { $in: allowedIntegIds }
+                }] : []),
+                {
+                    assignedTo: { $exists: false },
+                    type: { $nin: ['WhatsApp', 'whatsapp'] },
+                    'details.platform': { $ne: 'WhatsApp Web' },
+                    'details.isGroup': { $ne: true }
+                }
+            ];
+
         const query = {
             $and: [
                 { type: { $in: messagingTypes } },
                 {
                     $or: [
                         { ...visibilityFilter },
-                        { assignedTo: { $exists: false } }
+                        ...unassignedConditions
                     ]
                 }
             ]
@@ -1789,7 +1820,12 @@ export const getMessagingActivities = async (req, res) => {
 
         // Fetch larger batch for grouping but limited to manageable size
         const convFilter = (channel === 'all')
-            ? {}
+            ? (isSuperAdmin ? {} : {
+                $or: [
+                    { channel: { $ne: 'whatsapp' } },
+                    ...(allowedIntegIds.length > 0 ? [{ whatsappIntegrationId: { $in: allowedIntegIds } }] : [{ whatsappIntegrationId: null }])
+                ]
+              })
             : (channel === 'WhatsApp_API'
                 ? { 
                     channel: { $in: ['whatsapp', 'WhatsApp'] }, 
@@ -1800,16 +1836,21 @@ export const getMessagingActivities = async (req, res) => {
                 : (channel === 'WhatsApp_Web'
                     ? { 
                         channel: { $in: ['whatsapp', 'WhatsApp'] }, 
-                        $or: [
-                            { isGroup: true }, 
-                            { whatsappIntegrationId: { $exists: true, $ne: null } },
-                            { phoneNumber: /@g\.us$/ }
-                        ] 
+                        ...(isSuperAdmin ? {
+                            $or: [
+                                { isGroup: true }, 
+                                { whatsappIntegrationId: { $exists: true, $ne: null } },
+                                { phoneNumber: /@g\.us$/ }
+                            ]
+                        } : {
+                            whatsappIntegrationId: { $in: allowedIntegIds }
+                        })
                       }
                     : (channel === 'WAGroups'
                         ? { 
                             channel: { $in: ['whatsapp', 'WhatsApp'] }, 
-                            $or: [{ isGroup: true }, { phoneNumber: /@g\.us$/ }] 
+                            $or: [{ isGroup: true }, { phoneNumber: /@g\.us$/ }],
+                            ...(isSuperAdmin ? {} : { whatsappIntegrationId: { $in: allowedIntegIds } })
                           }
                         : (['Web_Chat', 'website_chat'].includes(channel)
                             ? { channel: 'website_chat' }
