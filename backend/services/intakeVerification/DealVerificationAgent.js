@@ -111,9 +111,9 @@ Style rules:
     }
 
     /**
-     * Sends the verification inquiry via Baileys WhatsApp Web
+     * Sends the verification inquiry via Baileys WhatsApp Web or Meta Cloud API
      */
-    async sendVerificationInquiry(intakeId, { targetPhone, targetType, message, userId = null }) {
+    async sendVerificationInquiry(intakeId, { targetPhone, targetType, message, provider = 'BAILEYS', userId = null }) {
         if (!intakeId) throw new Error("Intake ID is required");
         if (!targetPhone) throw new Error("Target phone number is required");
         if (!message) throw new Error("Message content is required");
@@ -124,29 +124,51 @@ Style rules:
         const formattedPhone = this._cleanPhone(targetPhone);
         if (!formattedPhone) throw new Error("Invalid target phone number format");
 
-        // Send via WhatsApp Web (Baileys) for natural peer conversational vibe
-        const sendResult = await whatsAppService.sendMessage(formattedPhone, message, {
-            provider: 'BAILEYS',
-            channel: 'whatsapp_web'
-        });
+        const isMeta = String(provider).toUpperCase() === 'META';
+        const dispatchOptions = isMeta 
+            ? { provider: 'META', channel: 'whatsapp_api' }
+            : { provider: 'BAILEYS', channel: 'whatsapp_web' };
+
+        console.log(`[DealVerificationAgent] Sending inquiry to ${formattedPhone} via ${isMeta ? 'Meta API' : 'Baileys WhatsApp Web'}`);
+        const sendResult = await whatsAppService.sendMessage(formattedPhone, message, dispatchOptions);
+
+        if (!sendResult || !sendResult.success) {
+            const errorMsg = sendResult?.error || `Failed to dispatch WhatsApp inquiry via ${isMeta ? 'Meta Official API' : 'WhatsApp Web'}`;
+            console.error(`[DealVerificationAgent] ❌ Dispatch FAILED to ${formattedPhone}:`, errorMsg);
+
+            intake.wa_verification = intake.wa_verification || {};
+            intake.wa_verification.status = 'failed';
+            intake.wa_verification.last_error = errorMsg;
+            intake.wa_verification.error_at = new Date();
+            intake.wa_verification.target_phone = formattedPhone;
+            intake.wa_verification.target_type = targetType || 'text_contact';
+            intake.wa_verification.provider = isMeta ? 'meta' : 'baileys';
+            await intake.save();
+
+            throw new Error(errorMsg);
+        }
 
         const now = new Date();
         intake.wa_verification = intake.wa_verification || {};
         intake.wa_verification.status = 'inquiry_sent';
+        intake.wa_verification.last_error = null;
         intake.wa_verification.initiated_at = now;
         intake.wa_verification.target_phone = formattedPhone;
         intake.wa_verification.target_type = targetType || 'text_contact';
         intake.wa_verification.outbound_message = message;
+        intake.wa_verification.provider = sendResult.provider || (isMeta ? 'meta' : 'baileys');
+        intake.wa_verification.message_id = sendResult.messageId || sendResult.messages?.[0]?.id || null;
         intake.wa_verification.conversation_history = intake.wa_verification.conversation_history || [];
         intake.wa_verification.conversation_history.push({
             sender: 'system',
             message: message,
+            provider: intake.wa_verification.provider,
             timestamp: now
         });
 
         intake.verification_status = 'pending';
         intake.verification_notes = intake.verification_notes || [];
-        intake.verification_notes.push(`WhatsApp verification inquiry dispatched to ${formattedPhone} at ${now.toLocaleTimeString('en-IN')}`);
+        intake.verification_notes.push(`WhatsApp inquiry successfully dispatched to ${formattedPhone} via ${intake.wa_verification.provider} at ${now.toLocaleTimeString('en-IN')}`);
 
         await intake.save();
 
@@ -155,6 +177,8 @@ Style rules:
             status: 'inquiry_sent',
             targetPhone: formattedPhone,
             message: message,
+            provider: intake.wa_verification.provider,
+            messageId: intake.wa_verification.message_id,
             initiated_at: now,
             sendResult
         };

@@ -632,7 +632,7 @@ export const previewWAVerification = async (req, res) => {
 export const sendWAVerification = async (req, res) => {
     try {
         const { id } = req.params;
-        const { targetPhone, targetType, message } = req.body;
+        const { targetPhone, targetType, message, provider } = req.body;
 
         if (!targetPhone) {
             return res.status(400).json({ success: false, message: "targetPhone is required" });
@@ -646,17 +646,18 @@ export const sendWAVerification = async (req, res) => {
             targetPhone,
             targetType,
             message,
+            provider: provider || 'BAILEYS',
             userId: req.user?._id || req.user?.id
         });
 
         res.status(200).json({
             success: true,
-            message: "WhatsApp verification inquiry sent successfully",
+            message: `WhatsApp verification inquiry sent successfully via ${result.provider || 'WhatsApp'}`,
             data: result
         });
     } catch (error) {
-        console.error('[sendWAVerification Error]:', error);
-        res.status(500).json({ success: false, message: error.message });
+        console.error('[sendWAVerification Error]:', error.message);
+        res.status(400).json({ success: false, message: error.message });
     }
 };
 

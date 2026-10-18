@@ -67,6 +67,7 @@ const DealIntakePage = () => {
     const [waPreviewData, setWaPreviewData] = useState(null);
     const [waDeskExpanded, setWaDeskExpanded] = useState(true);
     const [waHistoryOpen, setWaHistoryOpen] = useState(false);
+    const [waProvider, setWaProvider] = useState('BAILEYS');
 
     const [leadData, setLeadData] = useState([]);
     const [inventoryData, setInventoryData] = useState([]);
@@ -580,10 +581,12 @@ const DealIntakePage = () => {
             const res = await intakeAPI.sendWAVerification(id, {
                 targetPhone: waTargetPhone,
                 targetType: waTargetType,
-                message: waCustomMessage
+                message: waCustomMessage,
+                provider: waProvider
             });
             if (res.success) {
-                toast.success('🚀 Verification inquiry sent via WhatsApp Web!');
+                const lineLabel = waProvider === 'META' ? 'Meta Official API (+91 99960 00570)' : 'WhatsApp Web (919991333570)';
+                toast.success(`🚀 Inquiry sent via ${lineLabel}!`);
                 // Update local currentItem state
                 setCurrentItem(prev => ({
                     ...prev,
@@ -591,18 +594,38 @@ const DealIntakePage = () => {
                     wa_verification: {
                         ...(prev?.wa_verification || {}),
                         status: 'inquiry_sent',
+                        last_error: null,
                         target_phone: waTargetPhone,
                         target_type: waTargetType,
                         outbound_message: waCustomMessage,
+                        provider: (res.data?.provider || waProvider).toLowerCase(),
+                        message_id: res.data?.messageId,
                         initiated_at: new Date()
                     }
                 }));
             } else {
                 toast.error(res.message || 'Failed to send inquiry');
+                setCurrentItem(prev => ({
+                    ...prev,
+                    wa_verification: {
+                        ...(prev?.wa_verification || {}),
+                        status: 'failed',
+                        last_error: res.message
+                    }
+                }));
             }
         } catch (err) {
             console.error('handleSendWAVerification Error:', err);
-            toast.error(err.message || 'Error sending inquiry via WhatsApp');
+            const errMsg = err.response?.data?.message || err.message || 'Error sending inquiry via WhatsApp';
+            toast.error(errMsg);
+            setCurrentItem(prev => ({
+                ...prev,
+                wa_verification: {
+                    ...(prev?.wa_verification || {}),
+                    status: 'failed',
+                    last_error: errMsg
+                }
+            }));
         } finally {
             setWaSendingInquiry(false);
         }
@@ -2225,7 +2248,7 @@ const DealIntakePage = () => {
                                                         background: isDark ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb',
                                                         border: '1px solid #fcd34d', borderRadius: '8px',
                                                         padding: '12px 14px', marginBottom: '14px', display: 'flex',
-                                                        alignItems: 'center', justifyContent: 'space-between'
+                                                        alignItems: 'center', justifyContent: 'space-between', gap: '10px'
                                                     }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                             <div style={{
@@ -2233,11 +2256,18 @@ const DealIntakePage = () => {
                                                                 background: '#f59e0b', boxShadow: '0 0 8px #f59e0b'
                                                             }}></div>
                                                             <div>
-                                                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#fbbf24' : '#92400e' }}>
-                                                                    Inquiry Sent to Broker: {currentItem.wa_verification.target_phone}
+                                                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#fbbf24' : '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <span>Inquiry Dispatched to Broker: {currentItem.wa_verification.target_phone}</span>
+                                                                    <span style={{
+                                                                        fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px',
+                                                                        background: currentItem.wa_verification.provider === 'meta' ? '#2563eb' : '#16a34a',
+                                                                        color: '#ffffff', fontWeight: 800
+                                                                    }}>
+                                                                        {currentItem.wa_verification.provider === 'meta' ? 'Meta Official API' : 'WhatsApp Web'}
+                                                                    </span>
                                                                 </div>
                                                                 <div style={{ fontSize: '0.72rem', color: isDark ? '#cbd5e1' : '#78350f', marginTop: '2px' }}>
-                                                                    Outbound inquiry dispatched at {currentItem.wa_verification.initiated_at ? new Date(currentItem.wa_verification.initiated_at).toLocaleTimeString('en-IN') : 'recently'}. Baileys worker is listening for reply.
+                                                                    Dispatched at {currentItem.wa_verification.initiated_at ? new Date(currentItem.wa_verification.initiated_at).toLocaleTimeString('en-IN') : 'recently'}. Listening for broker reply via webhook & socket.
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -2254,6 +2284,47 @@ const DealIntakePage = () => {
                                                         >
                                                             <i className={`fas fa-sync-alt ${waCheckingStatus ? 'fa-spin' : ''}`}></i>
                                                             Refresh Reply
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* Case 2b: Dispatch Failure Card */}
+                                                {currentItem.wa_verification?.status === 'failed' && (
+                                                    <div style={{
+                                                        background: isDark ? 'rgba(239, 68, 68, 0.12)' : '#fef2f2',
+                                                        border: '1px solid #fca5a5', borderRadius: '8px',
+                                                        padding: '12px 14px', marginBottom: '14px', display: 'flex',
+                                                        alignItems: 'center', justifyContent: 'space-between', gap: '10px'
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div style={{
+                                                                width: '10px', height: '10px', borderRadius: '50%',
+                                                                background: '#dc2626', boxShadow: '0 0 8px #dc2626'
+                                                            }}></div>
+                                                            <div>
+                                                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#dc2626' }}>
+                                                                    WhatsApp Delivery Failed ({currentItem.wa_verification.provider === 'meta' ? 'Meta API' : 'WhatsApp Web'})
+                                                                </div>
+                                                                <div style={{ fontSize: '0.72rem', color: isDark ? '#f87171' : '#991b1b', marginTop: '2px' }}>
+                                                                    {currentItem.wa_verification.last_error || 'WhatsApp Web socket timed out or was disconnected. Please retry.'}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const altProv = waProvider === 'BAILEYS' ? 'META' : 'BAILEYS';
+                                                                setWaProvider(altProv);
+                                                                toast.info(`Switched to ${altProv === 'META' ? 'Meta Official API' : 'WhatsApp Web'}. Click Send to retry.`);
+                                                            }}
+                                                            style={{
+                                                                padding: '6px 12px', background: '#dc2626', color: '#ffffff',
+                                                                border: 'none', borderRadius: '6px', fontSize: '0.72rem',
+                                                                fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap'
+                                                            }}
+                                                        >
+                                                            Switch to {waProvider === 'BAILEYS' ? 'Meta Cloud API' : 'WhatsApp Web'}
                                                         </button>
                                                     </div>
                                                 )}
@@ -2367,11 +2438,48 @@ const DealIntakePage = () => {
                                                         </div>
                                                     </div>
 
+                                                    {/* Outbound Line Selector */}
+                                                    <div style={{ marginBottom: '10px' }}>
+                                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '6px', textTransform: 'uppercase' }}>
+                                                            2. Select Outbound WhatsApp Line:
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setWaProvider('BAILEYS')}
+                                                                style={{
+                                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                                    border: waProvider === 'BAILEYS' ? '2px solid #22c55e' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                                    background: waProvider === 'BAILEYS' ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
+                                                                    color: waProvider === 'BAILEYS' ? '#15803d' : (isDark ? '#cbd5e1' : '#334155'),
+                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                                                }}
+                                                            >
+                                                                <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i>
+                                                                <span>WhatsApp Web (919991333570) - <b>Peer Line (Recommended)</b></span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setWaProvider('META')}
+                                                                style={{
+                                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                                    border: waProvider === 'META' ? '2px solid #3b82f6' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                                    background: waProvider === 'META' ? (isDark ? 'rgba(59, 130, 246, 0.2)' : '#dbeafe') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
+                                                                    color: waProvider === 'META' ? '#1d4ed8' : (isDark ? '#cbd5e1' : '#334155'),
+                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                                                }}
+                                                            >
+                                                                <i className="fas fa-shield-alt" style={{ color: '#3b82f6' }}></i>
+                                                                <span>Meta Official API (+91 99960 00570)</span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
                                                     {/* Inquiry Message Generator & Editor */}
                                                     <div style={{ marginBottom: '10px' }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                                             <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase' }}>
-                                                                2. Hinglish Inquiry Draft:
+                                                                3. Hinglish Inquiry Draft:
                                                             </span>
                                                             <button
                                                                 type="button"
@@ -2387,7 +2495,7 @@ const DealIntakePage = () => {
                                                                 }}
                                                             >
                                                                 <i className={`fas fa-magic ${waLoadingPreview ? 'fa-spin' : ''}`}></i>
-                                                                {waCustomMessage ? 'Regenerate Draft with Gemini' : 'Draft with Gemini 2.5 Flash'}
+                                                                {waCustomMessage ? 'Regenerate Draft with Gemini' : 'Draft with Gemini Flash'}
                                                             </button>
                                                         </div>
 
@@ -2395,7 +2503,7 @@ const DealIntakePage = () => {
                                                             rows={3}
                                                             value={waCustomMessage}
                                                             onChange={(e) => setWaCustomMessage(e.target.value)}
-                                                            placeholder="Click 'Draft with Gemini 2.5 Flash' to generate natural Hinglish inquiry asking for Plot/Unit #, location confirmation, and last closing price..."
+                                                            placeholder="Click 'Draft with Gemini Flash' to generate natural Hinglish inquiry asking for Plot/Unit #, location confirmation, and last closing price..."
                                                             style={{
                                                                 width: '100%', boxSizing: 'border-box', padding: '8px 10px',
                                                                 fontSize: '0.8rem', lineHeight: 1.4, borderRadius: '6px',
@@ -2415,15 +2523,21 @@ const DealIntakePage = () => {
                                                             disabled={waSendingInquiry || !waTargetPhone || !waCustomMessage.trim()}
                                                             style={{
                                                                 padding: '8px 16px', borderRadius: '6px',
-                                                                background: (!waTargetPhone || !waCustomMessage.trim()) ? '#94a3b8' : 'linear-gradient(135deg, #16a34a, #15803d)',
+                                                                background: (!waTargetPhone || !waCustomMessage.trim()) 
+                                                                    ? '#94a3b8' 
+                                                                    : waProvider === 'META' 
+                                                                        ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' 
+                                                                        : 'linear-gradient(135deg, #16a34a, #15803d)',
                                                                 color: '#ffffff', border: 'none', fontSize: '0.82rem',
                                                                 fontWeight: 800, cursor: (!waTargetPhone || !waCustomMessage.trim()) ? 'not-allowed' : 'pointer',
                                                                 display: 'flex', alignItems: 'center', gap: '6px',
-                                                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                                                                boxShadow: waProvider === 'META' ? '0 2px 6px rgba(37, 99, 235, 0.3)' : '0 2px 6px rgba(22, 163, 74, 0.3)'
                                                             }}
                                                         >
                                                             <i className={`fab fa-whatsapp ${waSendingInquiry ? 'fa-spin' : ''}`}></i>
-                                                            {waSendingInquiry ? 'Dispatching via Baileys...' : 'Send WhatsApp Inquiry via Baileys'}
+                                                            {waSendingInquiry 
+                                                                ? `Dispatching via ${waProvider === 'META' ? 'Meta Cloud API' : 'Baileys'}...` 
+                                                                : `Send WhatsApp Inquiry via ${waProvider === 'META' ? 'Meta Official API' : 'WhatsApp Web (Baileys)'}`}
                                                         </button>
                                                     </div>
                                                 </div>

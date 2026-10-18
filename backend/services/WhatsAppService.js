@@ -313,11 +313,26 @@ class WhatsAppService {
                 }
             }
 
-            const sendPromise = sock.sendMessage(jid, content);
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('WhatsApp Web send timed out after 15 seconds. Please check device connectivity.')), 15000)
-            );
-            const sentMsg = await Promise.race([sendPromise, timeoutPromise]);
+            let sentMsg;
+            try {
+                const sendPromise = sock.sendMessage(jid, content);
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('WhatsApp Web send timed out after 25 seconds. Please check device connectivity or QR pairing.')), 25000)
+                );
+                sentMsg = await Promise.race([sendPromise, timeoutPromise]);
+            } catch (firstAttemptErr) {
+                // If socket is open and first attempt timed out, give it one quick retry (handles initial key handshake delay)
+                if (sock.ws && sock.ws.isOpen) {
+                    console.warn('[WhatsAppService/Baileys] First send attempt timed out, retrying once...', firstAttemptErr.message);
+                    const retryPromise = sock.sendMessage(jid, content);
+                    const retryTimeout = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('WhatsApp Web send timed out on retry after 15 seconds.')), 15000)
+                    );
+                    sentMsg = await Promise.race([retryPromise, retryTimeout]);
+                } else {
+                    throw firstAttemptErr;
+                }
+            }
 
             return { 
                 success: true, 
