@@ -1509,53 +1509,67 @@ const DealIntakePage = () => {
                     </div>
                 ) : (
                     <>
-                        {/* Header: Progress */}
-                        <div style={{ padding: '20px 40px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderBottom: '1px solid #e2e8f0' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Intake #{currentItem?._id ? currentItem._id.slice(-6).toUpperCase() : renderValue(currentItem?.id)}</h2>
-                                        <div style={{
-                                            padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800,
-                                            background: intakeType === 'BUYER' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff',
-                                            color: intakeType === 'BUYER' ? '#16a34a' : '#3b82f6',
-                                            border: '1px solid currentColor'
-                                        }}>
-                                            {intakeType} INTENT DETECTED
-                                        </div>
-                                    </div>
+                        {/* Pinned Top Bar: Intake ID, Intent Badge & Stage Dots */}
+                        <div style={{
+                            padding: '14px 36px',
+                            background: isDark ? 'var(--surface-color, #1e293b)' : '#ffffff',
+                            borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                            flexShrink: 0,
+                            zIndex: 10,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: isDark ? 'var(--text-main, #f8fafc)' : '#0f172a', margin: 0 }}>
+                                    Intake #{currentItem?._id ? currentItem._id.slice(-6).toUpperCase() : renderValue(currentItem?.id)}
+                                </h2>
+                                <div style={{
+                                    padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800,
+                                    background: intakeType === 'BUYER' ? (isDark ? 'rgba(22, 163, 74, 0.2)' : '#f0fdf4') : (isDark ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff'),
+                                    color: intakeType === 'BUYER' ? '#16a34a' : '#3b82f6',
+                                    border: '1px solid currentColor'
+                                }}>
+                                    {intakeType} INTENT DETECTED
                                 </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ display: 'flex', gap: '4px' }}>
                                     {[1, 2, 3, 4].map(s => (
                                         <div key={s}
                                             style={{
-                                                width: '40px', height: '4px',
-                                                background: stage >= s ? (intakeType === 'BUYER' ? '#16a34a' : '#3b82f6') : '#e2e8f0',
+                                                width: '36px', height: '4px',
+                                                background: stage >= s ? (intakeType === 'BUYER' ? '#16a34a' : '#3b82f6') : (isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'),
                                                 borderRadius: '2px',
                                                 transition: 'background 0.3s'
                                             }}
                                             title={`Stage ${s}`}
                                         ></div>
                                     ))}
-                                    {extractedReq.tags && extractedReq.tags.length > 0 && (
-                                        <div style={{ marginTop: '12px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                            {extractedReq.tags.map((tag, i) => (
-                                                <span key={i} style={{
-                                                    fontSize: '0.7rem',
-                                                    fontWeight: 700,
-                                                    padding: '2px 8px',
-                                                    borderRadius: '4px',
-                                                    color: tag === 'URGENT' ? '#b91c1c' : tag === 'DIRECT' ? '#15803d' : '#0369a1',
-                                                    background: tag === 'URGENT' ? '#fecaca' : tag === 'DIRECT' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0f2fe',
-                                                    border: '1px solid currentColor'
-                                                }}>
-                                                    {tag}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
+                                {extractedReq.tags && extractedReq.tags.length > 0 && (
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {extractedReq.tags.map((tag, i) => (
+                                            <span key={i} style={{
+                                                fontSize: '0.7rem',
+                                                fontWeight: 700,
+                                                padding: '2px 8px',
+                                                borderRadius: '4px',
+                                                color: tag === 'URGENT' ? '#b91c1c' : tag === 'DIRECT' ? '#15803d' : '#0369a1',
+                                                background: tag === 'URGENT' ? (isDark ? 'rgba(220, 38, 38, 0.2)' : '#fecaca') : tag === 'DIRECT' ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe'),
+                                                border: '1px solid currentColor'
+                                            }}>
+                                                {tag}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
+                        </div>
+
+                        {/* Scrollable Right Panel Viewport */}
+                        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ padding: '24px 36px', background: isDark ? 'rgba(255, 255, 255, 0.01)' : '#ffffff', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0' }}>
 
                             {/* Multi-Deal Switcher */}
                             {parsedDeals.length > 1 && (
@@ -1948,7 +1962,7 @@ const DealIntakePage = () => {
                         </div>
 
                         {/* WORKFLOW CONTENT */}
-                        <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+                        <div style={{ padding: '32px 36px', background: isDark ? 'transparent' : '#f8fafc' }}>
 
                             {/* ================= SELLER FLOW ================= */}
                             {intakeType === 'SELLER' && (
@@ -2433,9 +2447,10 @@ const DealIntakePage = () => {
                             )}
 
                         </div>
-                    </>
-                )}
-            </div>
+                    </div>
+                </>
+            )}
+        </div>
 
             {/* Add Intake Modal */}
             {
