@@ -3,7 +3,6 @@ import SequenceEnrollment from '../../models/SequenceEnrollment.js';
 import { evaluateCondition } from './ruleEngine.js';
 import { WorkflowEngine } from './WorkflowEngine.js';
 import { marketingQueue } from '../queues/marketingQueue.js';
-import moment from 'moment-timezone';
 
 export class SequenceEngine {
     static evaluateRuleGroup(entity, conditionGroup) {
@@ -84,57 +83,99 @@ export class SequenceEngine {
     }
 
     static calculateNextExecutionTime(baseDate, amount, unit, businessHours) {
-        let nextTime = moment(baseDate);
-        let momentUnit = 'days';
+        const nextTime = new Date(baseDate);
+        const amt = Number(amount) || 0;
         switch (unit) {
-            case 'minutes': momentUnit = 'minutes'; break;
+            case 'minutes':
+                nextTime.setMinutes(nextTime.getMinutes() + amt);
+                break;
             case 'hourly':
-            case 'hours': momentUnit = 'hours'; break;
+            case 'hours':
+                nextTime.setHours(nextTime.getHours() + amt);
+                break;
             case 'daily':
-            case 'days': momentUnit = 'days'; break;
+            case 'days':
+                nextTime.setDate(nextTime.getDate() + amt);
+                break;
             case 'weekly':
-            case 'weeks': momentUnit = 'weeks'; break;
+            case 'weeks':
+                nextTime.setDate(nextTime.getDate() + (amt * 7));
+                break;
             case 'monthly':
-            case 'months': momentUnit = 'months'; break;
-            default: momentUnit = 'days'; break;
+            case 'months':
+                nextTime.setMonth(nextTime.getMonth() + amt);
+                break;
+            default:
+                nextTime.setDate(nextTime.getDate() + amt);
+                break;
         }
-        nextTime.add(amount, momentUnit);
         if (businessHours && businessHours.enabled) {
-            return this.applyBusinessHours(nextTime.toDate(), businessHours);
+            return this.applyBusinessHours(nextTime, businessHours);
         }
-        return nextTime.toDate();
+        return nextTime;
     }
 
     static applyBusinessHours(date, businessHours) {
-        // If not enabled, return date
-        let m = moment(date).tz(businessHours.timezone || 'Asia/Kolkata');
-        
-        const days = businessHours.days || [1,2,3,4,5,6]; // Mon-Sat
+        if (!businessHours || !businessHours.enabled) return date;
+
+        const tz = businessHours.timezone || 'Asia/Kolkata';
+        const days = businessHours.days || [1, 2, 3, 4, 5, 6]; // 0=Sun, 1=Mon... 6=Sat
         const [startH, startM] = (businessHours.startTime || '09:00').split(':').map(Number);
         const [endH, endM] = (businessHours.endTime || '18:00').split(':').map(Number);
 
-        // Advance to next valid day if current day is not in days array
-        while (!days.includes(m.day())) {
-            m.add(1, 'day');
-            m.set({ hour: startH, minute: startM, second: 0, millisecond: 0 });
-        }
+        let cur = new Date(date);
 
-        // Check time bounds
-        const currentMins = m.hour() * 60 + m.minute();
-        const startMins = startH * 60 + startM;
-        const endMins = endH * 60 + endM;
+        const getParts = (d) => {
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: tz,
+                hour12: false,
+                weekday: 'short',
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                second: 'numeric'
+            });
+            const parts = {};
+            formatter.formatToParts(d).forEach(p => { parts[p.type] = p.value; });
+            const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+            return {
+                weekday: weekdayMap[parts.weekday],
+                hour: parseInt(parts.hour, 10) === 24 ? 0 : parseInt(parts.hour, 10),
+                minute: parseInt(parts.minute, 10)
+            };
+        };
 
-        if (currentMins < startMins) {
-            // Too early, set to start time today
-            m.set({ hour: startH, minute: startM, second: 0, millisecond: 0 });
-        } else if (currentMins > endMins) {
-            // Too late, move to next valid day start time
-            do {
-                m.add(1, 'day');
-            } while (!days.includes(m.day()));
-            m.set({ hour: startH, minute: startM, second: 0, millisecond: 0 });
+        for (let i = 0; i < 14; i++) {
+            const p = getParts(cur);
+            const dayValid = days.includes(p.weekday);
+            const currentMins = p.hour * 60 + p.minute;
+            const startMins = startH * 60 + startM;
+            const endMins = endH * 60 + endM;
+
+            if (!dayValid) {
+                cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+                const pNext = getParts(cur);
+                const diffMins = startMins - (pNext.hour * 60 + pNext.minute);
+                cur = new Date(cur.getTime() + diffMins * 60 * 1000);
+                continue;
+            }
+
+            if (currentMins < startMins) {
+                cur = new Date(cur.getTime() + (startMins - currentMins) * 60 * 1000);
+                return cur;
+            } else if (currentMins > endMins) {
+                cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+                const pNext = getParts(cur);
+                const diffMins = startMins - (pNext.hour * 60 + pNext.minute);
+                cur = new Date(cur.getTime() + diffMins * 60 * 1000);
+                continue;
+            } else {
+                return cur;
+            }
         }
-        return m.toDate();
+        return cur;
     }
 
     static async evaluateExitCriteria(entity, moduleName) {
@@ -303,7 +344,7 @@ export class SequenceEngine {
                     referenceModule: enrollment.module,
                     referenceId: enrollment.entityId,
                     status: 'pending',
-                    dueDate: moment().add(1, 'day').toDate(),
+                    dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
                     assignedTo: entityData.assignedTo || entityData.assignment?.assignedTo
                 });
             }

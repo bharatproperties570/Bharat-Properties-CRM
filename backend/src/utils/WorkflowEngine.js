@@ -432,7 +432,11 @@ export class WorkflowEngine {
 
                         // 4. Build Omnichannel channels & templates
                         const notifConfig = autoAction.notificationConfig || {};
-                        const channels = notifConfig.channels || { whatsapp: true };
+                        const rawChannels = notifConfig.channels || { whatsapp: true };
+                        const channels = Array.isArray(rawChannels) 
+                            ? rawChannels 
+                            : Object.keys(rawChannels).filter(k => rawChannels[k]);
+                        if (channels.length === 0) channels.push('whatsapp');
                         const templates = notifConfig.templates || {};
 
                         const isBaileys = audConfig.whatsappMode !== 'cloud_api';
@@ -448,15 +452,15 @@ export class WorkflowEngine {
                             meta: meta,
                             templateId: templates.whatsapp || 'deal_broadcast',
                             isBaileys: Boolean(isBaileys),
-                            smsTemplate: channels.sms ? {
+                            smsTemplate: (channels.includes('sms') || notifConfig.channels?.sms) ? {
                                 templateId: templates.sms || 'default_sms_bna',
                                 name: templates.sms || 'Default DLT Deal Alert'
                             } : null,
-                            emailTemplate: channels.email ? {
+                            emailTemplate: (channels.includes('email') || notifConfig.channels?.email) ? {
                                 templateId: templates.email || 'default_email_bna',
                                 name: templates.email || 'Default Deal Bulletin HTML'
                             } : null,
-                            rcsTemplate: channels.rcs ? {
+                            rcsTemplate: (channels.includes('rcs') || notifConfig.channels?.rcs) ? {
                                 templateId: templates.rcs || 'default_rcs_bna',
                                 name: templates.rcs || 'Default Verified RCS Rich Card'
                             } : null,

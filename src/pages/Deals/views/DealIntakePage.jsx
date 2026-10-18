@@ -91,7 +91,7 @@ const DealIntakePage = () => {
 
     // ===== DUPLICATE DETECTION & DATA PERSISTENCE UTILITIES =====
 
-    const loadIntakeHistory = async () => {
+    const loadIntakeHistory = useCallback(async () => {
         try {
             const response = await intakeAPI.getIntakes({ limit: 300 });
             if (response.success) {
@@ -105,7 +105,7 @@ const DealIntakePage = () => {
             console.error(error);
             setIntakeLoadError(error.message || "Failed to connect to backend");
         }
-    };
+    }, []);
 
     const loadMonitoredSources = async () => {
         try {
@@ -144,7 +144,7 @@ const DealIntakePage = () => {
     };
 
     // ===== WHATSAPP GROUPS LIVE INGESTION HANDLERS =====
-    const loadIntakeGroups = async () => {
+    const loadIntakeGroups = useCallback(async () => {
         try {
             const response = await intakeAPI.getGroups();
             if (response.success) {
@@ -153,7 +153,7 @@ const DealIntakePage = () => {
         } catch (err) {
             console.error("Failed to load intake groups:", err);
         }
-    };
+    }, []);
 
     const handleToggleGroup = async (id) => {
         try {
@@ -269,14 +269,18 @@ const DealIntakePage = () => {
     };
     */
 
-    // Load history on component mount
+    // Load history and groups on component mount and sync periodically
     useEffect(() => {
         loadIntakeHistory();
+        loadIntakeGroups();
 
-        // Run re-fetch periodically instead of cleanup (live sync)
-        const fetchInterval = setInterval(loadIntakeHistory, 30000); // 30s
+        // Run re-fetch periodically (live sync)
+        const fetchInterval = setInterval(() => {
+            loadIntakeHistory();
+            loadIntakeGroups();
+        }, 30000); // 30s
         return () => clearInterval(fetchInterval);
-    }, [loadIntakeHistory]);
+    }, [loadIntakeHistory, loadIntakeGroups]);
 
     // ===== END DUPLICATE DETECTION UTILITIES =====
 
@@ -981,7 +985,10 @@ const DealIntakePage = () => {
             if (selectedGroupFilter === 'whatsapp_group_all') {
                 items = items.filter(item => item.source_type === 'whatsapp_group' || (item.source && item.source.startsWith('WhatsApp Group')));
             } else {
-                items = items.filter(item => item.raw_source_data?.groupJid === selectedGroupFilter);
+                items = items.filter(item => 
+                    item.raw_source_data?.groupJid === selectedGroupFilter ||
+                    item.extracted_entities?._whatsappGroup?.groupJid === selectedGroupFilter
+                );
             }
         }
         return items;
@@ -1042,32 +1049,37 @@ const DealIntakePage = () => {
                                 loadIntakeGroups();
                                 setIsGroupModalOpen(true);
                             }}
-                            title="WhatsApp Groups Hub (Live Ingestion)"
+                            className="btn-whatsapp-hub"
+                            title="Open WhatsApp Groups Live Ingestion Hub"
                             style={{
-                                background: isDark ? 'rgba(34, 197, 94, 0.1)' : '#f0fdf4',
-                                border: '1px solid #bbf7d0',
-                                borderRadius: '50%',
-                                width: '32px',
-                                height: '32px',
-                                cursor: 'pointer',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                position: 'relative'
+                                gap: '6px',
+                                padding: '5px 12px',
+                                background: '#22c55e',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 6px rgba(34, 197, 94, 0.3)',
+                                whiteSpace: 'nowrap'
                             }}
                         >
-                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.05rem' }}></i>
-                            {intakeGroups.some(g => g.totalProcessed > 0) && (
+                            <i className="fab fa-whatsapp" style={{ fontSize: '1rem' }}></i>
+                            <span>WhatsApp Hub ({intakeGroups.length})</span>
+                            {intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0) > 0 && (
                                 <span style={{
-                                    position: 'absolute',
-                                    top: '-2px',
-                                    right: '-2px',
-                                    width: '8px',
-                                    height: '8px',
-                                    background: '#22c55e',
-                                    borderRadius: '50%',
-                                    border: '2px solid #fff'
-                                }} />
+                                    background: '#ffffff',
+                                    color: '#15803d',
+                                    fontSize: '0.65rem',
+                                    padding: '1px 5px',
+                                    borderRadius: '10px',
+                                    fontWeight: 800
+                                }}>
+                                    {intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0)}
+                                </span>
                             )}
                         </button>
                         <button
@@ -1163,11 +1175,17 @@ const DealIntakePage = () => {
                             <option value="whatsapp_group_all">
                                 🟢 All WhatsApp Groups ({intakeItems.filter(i => i.source_type === 'whatsapp_group' || (i.source && i.source.startsWith('WhatsApp Group'))).length})
                             </option>
-                            {intakeGroups.filter(g => g.totalProcessed > 0).map(g => (
-                                <option key={g.groupJid} value={g.groupJid}>
-                                    💬 {g.groupName || g.groupJid} ({intakeItems.filter(i => i.raw_source_data?.groupJid === g.groupJid).length})
-                                </option>
-                            ))}
+                            {intakeGroups.map(g => {
+                                const groupLiveCount = intakeItems.filter(i => 
+                                    i.raw_source_data?.groupJid === g.groupJid ||
+                                    i.extracted_entities?._whatsappGroup?.groupJid === g.groupJid
+                                ).length;
+                                return (
+                                    <option key={g.groupJid} value={g.groupJid}>
+                                        💬 {g.groupName || g.groupJid} ({groupLiveCount > 0 ? `${groupLiveCount} live` : `${g.totalProcessed || 0} processed`})
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                 </div>
@@ -1234,21 +1252,24 @@ const DealIntakePage = () => {
                                             <span style={{
                                                 fontSize: '0.68rem',
                                                 fontWeight: 800,
-                                                color: '#166534',
-                                                background: isDark ? 'rgba(34, 197, 94, 0.15)' : '#dcfce7',
-                                                border: '1px solid #bbf7d0',
+                                                color: '#15803d',
+                                                background: isDark ? 'rgba(34, 197, 94, 0.18)' : '#dcfce7',
+                                                border: '1px solid #86efac',
                                                 padding: '2px 8px',
-                                                borderRadius: '4px',
+                                                borderRadius: '6px',
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
-                                                gap: '4px',
-                                                maxWidth: '180px',
+                                                gap: '5px',
+                                                maxWidth: '200px',
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap'
-                                            }} title={item.source}>
-                                                <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i>
-                                                {item.raw_source_data?.groupName || item.extracted_entities?._whatsappGroup?.groupName || item.source}
+                                                whiteSpace: 'nowrap',
+                                                boxShadow: '0 1px 2px rgba(34, 197, 94, 0.15)'
+                                            }} title={item.raw_source_data?.groupName || item.extracted_entities?._whatsappGroup?.groupName || item.source}>
+                                                <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '0.85rem' }}></i>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {item.raw_source_data?.groupName || item.extracted_entities?._whatsappGroup?.groupName || (item.source && item.source.replace(/^WhatsApp Group:\s*/, '')) || 'WhatsApp Group'}
+                                                </span>
                                             </span>
                                         ) : (
                                             <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
@@ -1447,45 +1468,45 @@ const DealIntakePage = () => {
 
                             {/* WhatsApp Group Ingestion Provenance */}
                             {(currentItem?.source_type === 'whatsapp_group' || currentItem?.extracted_entities?._whatsappGroup || (currentItem?.source && currentItem?.source.startsWith('WhatsApp Group'))) && (
-                                <div style={{ padding: '12px 40px', background: isDark ? 'rgba(34, 197, 94, 0.08)' : '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.1rem' }}></i>
+                                <div style={{ padding: '16px 40px', background: isDark ? 'rgba(34, 197, 94, 0.08)' : '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.25rem' }}></i>
                                             Live WhatsApp Group Provenance
                                         </div>
-                                        <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #86efac' }}>
-                                            LIVE ENGINE
+                                        <span style={{ fontSize: '0.72rem', padding: '3px 10px', borderRadius: '12px', background: '#dcfce7', color: '#15803d', fontWeight: 800, border: '1px solid #86efac' }}>
+                                            🟢 LIVE INGESTION ENGINE
                                         </span>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '0.78rem' }}>
-                                        <div>
-                                            <span style={{ color: '#15803d', fontWeight: 600 }}>Group: </span>
-                                            <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
-                                                {currentItem?.extracted_entities?._whatsappGroup?.groupName || currentItem?.raw_source_data?.groupName || currentItem?.source}
-                                            </strong>
-                                        </div>
-                                        <div>
-                                            <span style={{ color: '#15803d', fontWeight: 600 }}>Sender: </span>
-                                            <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
-                                                {currentItem?.extracted_entities?._whatsappGroup?.senderName || currentItem?.raw_source_data?.senderName || 'Group Member'}
-                                            </strong>
-                                        </div>
-                                        {(currentItem?.extracted_entities?._whatsappGroup?.participant || currentItem?.raw_source_data?.participant) && (
-                                            <div>
-                                                <span style={{ color: '#15803d', fontWeight: 600 }}>Participant ID: </span>
-                                                <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
-                                                    {currentItem?.extracted_entities?._whatsappGroup?.participant || currentItem?.raw_source_data?.participant}
-                                                </strong>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', fontSize: '0.8rem' }}>
+                                        <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                            <div style={{ color: '#15803d', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '3px' }}>Original Group Name</div>
+                                            <div style={{ color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 700, wordBreak: 'break-word' }}>
+                                                {currentItem?.extracted_entities?._whatsappGroup?.groupName || currentItem?.raw_source_data?.groupName || (currentItem?.source && currentItem.source.replace(/^WhatsApp Group:\s*/, '')) || 'WhatsApp Group'}
                                             </div>
-                                        )}
-                                        {currentItem?.receivedAt && (
-                                            <div>
-                                                <span style={{ color: '#15803d', fontWeight: 600 }}>Received At: </span>
-                                                <strong style={{ color: isDark ? 'var(--text-main)' : '#0f172a' }}>
-                                                    {new Date(currentItem.receivedAt).toLocaleString()}
-                                                </strong>
+                                        </div>
+                                        <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                            <div style={{ color: '#15803d', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '3px' }}>Broker / Sender Name</div>
+                                            <div style={{ color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 700 }}>
+                                                {currentItem?.extracted_entities?._whatsappGroup?.senderName || currentItem?.raw_source_data?.senderName || currentItem?.extracted_entities?.brokerName || 'Group Member'}
                                             </div>
-                                        )}
+                                        </div>
+                                        <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                            <div style={{ color: '#15803d', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '3px' }}>Participant Mobile Number</div>
+                                            <div style={{ color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 700, fontFamily: 'monospace' }}>
+                                                {(() => {
+                                                    const raw = currentItem?.extracted_entities?._whatsappGroup?.participant || currentItem?.raw_source_data?.participant || currentItem?.extracted_entities?.phone || '';
+                                                    const clean = raw.replace(/@s\.whatsapp\.net/g, '').replace(/[^0-9+]/g, '');
+                                                    return clean ? (clean.startsWith('+') ? clean : `+${clean}`) : 'N/A';
+                                                })()}
+                                            </div>
+                                        </div>
+                                        <div style={{ background: isDark ? 'rgba(0,0,0,0.2)' : '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                            <div style={{ color: '#15803d', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '3px' }}>Message Timestamp</div>
+                                            <div style={{ color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 700 }}>
+                                                {currentItem?.receivedAt ? new Date(currentItem.receivedAt).toLocaleString() : 'N/A'}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             )}

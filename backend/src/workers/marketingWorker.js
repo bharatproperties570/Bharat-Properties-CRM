@@ -643,7 +643,11 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
 // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
 if (name === 'bna-broadcast') {
-        const { dealId, recipients, channels, meta, templateId, language, integrationId, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+        const { dealId, recipients, channels: rawChannels, meta, templateId, language, integrationId, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+        const normalizedChannels = Array.isArray(rawChannels)
+            ? rawChannels
+            : (rawChannels && typeof rawChannels === 'object' ? Object.keys(rawChannels).filter(k => rawChannels[k]) : ['whatsapp']);
+        const channels = normalizedChannels.length > 0 ? normalizedChannels : ['whatsapp'];
         let sent = 0, failed = 0;
         await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
 

@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { isWeb } from '../utils/platform';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 // Lazy load pages for massive bundle reduction
 const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage')); // Force cache bust
@@ -191,9 +192,11 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
     };
 
     return (
-        <Suspense fallback={<RouteLoading />}>
-            {renderContent()}
-        </Suspense>
+        <ErrorBoundary>
+            <Suspense fallback={<RouteLoading />}>
+                {renderContent()}
+            </Suspense>
+        </ErrorBoundary>
     );
 };
 

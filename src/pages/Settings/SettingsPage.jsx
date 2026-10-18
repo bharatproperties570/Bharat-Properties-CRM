@@ -7,6 +7,7 @@ import CreateRoleModal from '../../components/CreateRoleModal';
 import AssignReportingModal from '../../components/AssignReportingModal';
 import CreateTeamModal from '../../components/CreateTeamModal';
 import InactivateUserModal from '../../components/InactivateUserModal';
+import ErrorBoundary from '../../components/ErrorBoundary';
 
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
@@ -128,10 +129,13 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
 );
 
 const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser, currentUser, roles }) => {
+    const safeUsers = Array.isArray(users) ? users.filter(Boolean) : [];
+    const safeRoles = Array.isArray(roles) ? roles.filter(Boolean) : [];
+
     // Determine if current user is admin
     let roleName = currentUser?.role?.name;
-    if (!roleName && typeof currentUser?.role === 'string' && roles) {
-        const roleObj = roles.find(r => r._id === currentUser.role);
+    if (!roleName && typeof currentUser?.role === 'string' && safeRoles.length > 0) {
+        const roleObj = safeRoles.find(r => r && r._id === currentUser.role);
         if (roleObj) roleName = roleObj.name;
     }
 
@@ -148,15 +152,15 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 
     // Build hierarchy tree from users
     const buildHierarchy = () => {
-        if (!users || users.length === 0) return { roots: [], childrenMap: new Map() };
+        if (!safeUsers || safeUsers.length === 0) return { roots: [], childrenMap: new Map() };
 
         // Find root users (those without reportingTo or whose reportingTo is not in the list)
-        const userMap = new Map(users.map(u => [u._id, u]));
-        const roots = users.filter(u => !u.reportingTo || !userMap.has(u.reportingTo._id || u.reportingTo));
+        const userMap = new Map(safeUsers.map(u => [u._id, u]));
+        const roots = safeUsers.filter(u => !u.reportingTo || !userMap.has(u.reportingTo?._id || u.reportingTo));
 
         // Build children map
         const childrenMap = new Map();
-        users.forEach(user => {
+        safeUsers.forEach(user => {
             const managerId = user.reportingTo?._id || user.reportingTo;
             if (managerId && userMap.has(managerId)) {
                 if (!childrenMap.has(managerId)) {
@@ -173,7 +177,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 
     // Filter users by search term
     const filteredRoots = (searchTerm && roots)
-        ? roots.filter(u => (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
+        ? roots.filter(u => ((u?.fullName || u?.name || '')).toLowerCase().includes(searchTerm.toLowerCase()))
         : (roots || []);
 
     // Recursive component to render user node and its children
@@ -305,7 +309,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                 </div>
                 <button
                     className="btn-outline"
-                    onClick={() => setExpandedUsers(new Set((users || []).map(u => u._id)))}
+                    onClick={() => setExpandedUsers(new Set(safeUsers.map(u => u._id)))}
                     style={{ background: 'var(--bg-card)', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid var(--border-color)' }}
                 >
                     Expand All
@@ -342,10 +346,13 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 };
 
 const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus, currentUser, roles }) => {
+    const safeUsers = Array.isArray(users) ? users.filter(Boolean) : [];
+    const safeRoles = Array.isArray(roles) ? roles.filter(Boolean) : [];
+
     // Determine if current user is admin
     let roleName = currentUser?.role?.name;
-    if (!roleName && typeof currentUser?.role === 'string' && roles) {
-        const roleObj = roles.find(r => r._id === currentUser.role);
+    if (!roleName && typeof currentUser?.role === 'string' && safeRoles.length > 0) {
+        const roleObj = safeRoles.find(r => r && r._id === currentUser.role);
         if (roleObj) roleName = roleObj.name;
     }
 
@@ -356,10 +363,11 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
     const [openActionId, setOpenActionId] = useState(null);
     const [filterStatus, setFilterStatus] = useState('Active');
 
-    const filteredUsers = users.filter(u => {
-        const matchesSearch = (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const filteredUsers = safeUsers.filter(u => {
+        if (!u) return false;
+        const matchesSearch = ((u.fullName || u.name || '')).toLowerCase().includes((searchTerm || '').toLowerCase());
         const userStatus = (u.status || (u.isActive ? 'Active' : 'Inactive')).toLowerCase();
-        const matchesStatus = userStatus === filterStatus.toLowerCase();
+        const matchesStatus = userStatus === (filterStatus || 'Active').toLowerCase();
         return matchesSearch && matchesStatus;
     });
 
@@ -514,10 +522,12 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
 };
 
 const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) => {
+    const safeRoles = Array.isArray(roles) ? roles.filter(Boolean) : [];
+
     // Determine if current user is admin
     let roleName = currentUser?.role?.name;
-    if (!roleName && typeof currentUser?.role === 'string' && roles) {
-        const roleObj = roles.find(r => r._id === currentUser.role);
+    if (!roleName && typeof currentUser?.role === 'string' && safeRoles.length > 0) {
+        const roleObj = safeRoles.find(r => r && r._id === currentUser.role);
         if (roleObj) roleName = roleObj.name;
     }
 
@@ -546,7 +556,7 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                         </tr>
                     </thead>
                     <tbody>
-                        {roles.map(role => (
+                        {safeRoles.map(role => (
                             <tr key={role._id || role.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{role.name}</td>
                                 <td style={{ padding: '16px', color: 'var(--text-muted)' }}>{role.description}</td>
@@ -611,10 +621,13 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
 };
 
 const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, roles }) => {
+    const safeTeams = Array.isArray(teams) ? teams.filter(Boolean) : [];
+    const safeRoles = Array.isArray(roles) ? roles.filter(Boolean) : [];
+
     // Determine if current user is admin
     let roleName = currentUser?.role?.name;
-    if (!roleName && typeof currentUser?.role === 'string' && roles) {
-        const roleObj = roles.find(r => r._id === currentUser.role);
+    if (!roleName && typeof currentUser?.role === 'string' && safeRoles.length > 0) {
+        const roleObj = safeRoles.find(r => r && r._id === currentUser.role);
         if (roleObj) roleName = roleObj.name;
     }
 
@@ -645,7 +658,7 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, ro
                         </tr>
                     </thead>
                     <tbody>
-                        {teams.map(team => (
+                        {safeTeams.map(team => (
                             <tr key={team._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{team.name}</td>
                                 <td style={{ padding: '16px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{renderValue(team.department)}</td>
@@ -709,11 +722,14 @@ const EmptyState = ({ title }) => (
 // --- Main Settings Hub Component ---
 
 const SettingsPage = () => {
-    const { data: users = [] } = useUsers();
-    const { roles, loading, error, deleteRole, deleteTeam, refreshData, currentUser } = useUserContext();
+    const { data: rawUsers = [] } = useUsers();
+    const users = Array.isArray(rawUsers) ? rawUsers.filter(Boolean) : (Array.isArray(rawUsers?.data) ? rawUsers.data.filter(Boolean) : []);
+    const { roles: rawRoles = [], loading, error, deleteRole, deleteTeam, refreshData, currentUser } = useUserContext();
+    const roles = Array.isArray(rawRoles) ? rawRoles.filter(Boolean) : (Array.isArray(rawRoles?.data) ? rawRoles.data.filter(Boolean) : []);
     const { mutateAsync: deleteUser } = useDeleteUserMutation();
     const { mutateAsync: toggleUserStatus } = useToggleUserStatusMutation();
-    const { data: teams = [] } = useTeams();
+    const { data: rawTeams = [] } = useTeams();
+    const teams = Array.isArray(rawTeams) ? rawTeams.filter(Boolean) : (Array.isArray(rawTeams?.data) ? rawTeams.data.filter(Boolean) : []);
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
     const [searchTerm, setSearchTerm] = useState('');
@@ -777,7 +793,7 @@ const SettingsPage = () => {
     };
 
     const handleDeleteUser = async (id) => {
-        const userToDelete = users.find(u => (u._id || u.id) === id);
+        const userToDelete = (users || []).find(u => u && (u._id || u.id) === id);
         
         // Safeguard 1: Prevent self-deletion
         if (id === currentUser?._id || id === currentUser?.id) {
@@ -832,8 +848,8 @@ const SettingsPage = () => {
     };
 
     const handleDeleteRole = async (id) => {
-        const usersWithRole = users.filter(u => (u.role?._id || u.role) === id);
-        const role = roles.find(r => (r._id || r.id) === id);
+        const usersWithRole = (users || []).filter(u => u && (u.role?._id || u.role) === id);
+        const role = (roles || []).find(r => r && (r._id || r.id) === id);
         const roleName = role?.name || 'this role';
 
         if (usersWithRole.length > 0) {
@@ -1079,9 +1095,10 @@ const SettingsPage = () => {
 
                 {/* Body Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    {activeTab === 'users' ? (
-                        <>
-                            {subTab === 'user-list' && <UserList
+                    <ErrorBoundary>
+                        {activeTab === 'users' ? (
+                            <>
+                                {subTab === 'user-list' && <UserList
                                 searchTerm={searchTerm}
                                 setSearchTerm={setSearchTerm}
                                 users={users}
@@ -1194,6 +1211,7 @@ const SettingsPage = () => {
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}
+                    </ErrorBoundary>
                 </div>
 
                 {/* Fixed Footer */}

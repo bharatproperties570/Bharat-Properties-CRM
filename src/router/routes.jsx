@@ -79,9 +79,11 @@ const PublicLayout = ({ children }) => (
 const ProtectedLayout = () => {
     const context = useOutletContext();
     return (
-        <Suspense fallback={<RouteLoading />}>
-            <Outlet context={context} />
-        </Suspense>
+        <ErrorBoundary>
+            <Suspense fallback={<RouteLoading />}>
+                <Outlet context={context} />
+            </Suspense>
+        </ErrorBoundary>
     );
 };
 
