@@ -4,7 +4,8 @@ import {
     processOCR, processZIP, processPDF, processURL, 
     getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake,
     createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource,
-    getIntakeGroups, toggleIntakeGroup, triggerGroupScan, backfillIntakeGroup
+    getIntakeGroups, toggleIntakeGroup, triggerGroupScan, backfillIntakeGroup,
+    previewWAVerification, sendWAVerification, getWAVerificationStatus
 } from './intake.controller.js';
 import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
@@ -42,6 +43,13 @@ router.post('/url', processURL);
  */
 router.get('/', getIntakes);
 router.post('/', createIntake);
+
+/**
+ * WhatsApp Verification Desk Routes
+ */
+router.get('/:id/wa-verification-status', getWAVerificationStatus);
+router.post('/:id/wa-verification-preview', previewWAVerification);
+router.post('/:id/wa-verification-send', sendWAVerification);
 
 /**
  * Single Intake Record Wildcard Routes (MUST be last)

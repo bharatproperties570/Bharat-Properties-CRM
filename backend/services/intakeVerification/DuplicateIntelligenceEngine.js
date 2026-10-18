@@ -81,6 +81,9 @@ class DuplicateIntelligenceEngine {
         if (newRecord.raw_source_data?.text && typeof newRecord.raw_source_data.text === 'string' && newRecord.raw_source_data.text.trim().length > 20) {
             queryConditions.push({ 'raw_source_data.text': newRecord.raw_source_data.text.trim() });
         }
+        if (newRecord.description && typeof newRecord.description === 'string' && newRecord.description.trim().length > 20) {
+            queryConditions.push({ description: newRecord.description.trim() });
+        }
 
         // If no criteria to match on, return 0 probability
         if (queryConditions.length === 0) {
@@ -164,13 +167,13 @@ class DuplicateIntelligenceEngine {
                 }
             }
 
-            // Raw Text Exact / High Similarity Check
-            if (newRecord.raw_source_data?.text && candidate.raw_source_data?.text) {
-                const t1 = String(newRecord.raw_source_data.text).trim();
-                const t2 = String(candidate.raw_source_data.text).trim();
+            // Raw Text / Description Exact / High Similarity Check
+            const t1 = String(newRecord.raw_source_data?.text || newRecord.description || '').trim();
+            const t2 = String(candidate.raw_source_data?.text || candidate.description || '').trim();
+            if (t1 && t2) {
                 if (t1.length > 20 && t1 === t2) {
                     score += 85;
-                    currentSuggestions.push('Exact raw message match: Reposted in group within 30 days');
+                    currentSuggestions.push('Exact message match: Reposted in group within 30 days');
                 } else if (t1.length > 20 && t2.length > 20) {
                     const sim = calculateStringSimilarity(t1, t2);
                     if (sim >= 0.85) {

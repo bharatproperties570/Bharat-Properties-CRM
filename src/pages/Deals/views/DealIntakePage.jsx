@@ -57,6 +57,17 @@ const DealIntakePage = () => {
     const [categoryFilter, setCategoryFilter] = useState('all'); 
     const [useQuickDeal] = useState(true);
 
+    // WhatsApp Verification Desk State
+    const [waLoadingPreview, setWaLoadingPreview] = useState(false);
+    const [waSendingInquiry, setWaSendingInquiry] = useState(false);
+    const [waCheckingStatus, setWaCheckingStatus] = useState(false);
+    const [waTargetPhone, setWaTargetPhone] = useState('');
+    const [waTargetType, setWaTargetType] = useState('text_contact');
+    const [waCustomMessage, setWaCustomMessage] = useState('');
+    const [waPreviewData, setWaPreviewData] = useState(null);
+    const [waDeskExpanded, setWaDeskExpanded] = useState(true);
+    const [waHistoryOpen, setWaHistoryOpen] = useState(false);
+
     const [leadData, setLeadData] = useState([]);
     const [inventoryData, setInventoryData] = useState([]);
     const { data: dealsPayload } = useDeals({ limit: 1000 });
@@ -401,6 +412,15 @@ const DealIntakePage = () => {
             }
 
             setCurrentItem(fullItem);
+            setWaPreviewData(null);
+            setWaCustomMessage('');
+            if (fullItem.wa_verification?.target_phone) {
+                setWaTargetPhone(fullItem.wa_verification.target_phone);
+                setWaTargetType(fullItem.wa_verification.target_type || 'text_contact');
+            } else {
+                setWaTargetPhone('');
+                setWaTargetType('text_contact');
+            }
 
             // Use Backend Parsed Data if available, else fallback to frontend splitter
             let deals = [];
@@ -515,6 +535,169 @@ const DealIntakePage = () => {
     const handleSwitchDeal = (index) => {
         setActiveDealIndex(index);
         loadDealIntoWorkflow(parsedDeals[index]);
+    };
+
+    // --- LIVE WHATSAPP BROKER VERIFICATION DESK HANDLERS ---
+    const handleFetchWAPreview = async (itemId) => {
+        const id = itemId || currentItem?._id || currentItem?.id;
+        if (!id) return;
+        setWaLoadingPreview(true);
+        try {
+            const res = await intakeAPI.previewWAVerification(id);
+            if (res.success) {
+                setWaPreviewData(res);
+                setWaCustomMessage(res.draftMessage || '');
+                if (res.targetPhones?.recommendedTarget) {
+                    setWaTargetPhone(res.targetPhones.recommendedTarget);
+                    setWaTargetType(res.targetPhones.targetType || 'text_contact');
+                } else if (res.targetPhones?.textContacts?.length > 0) {
+                    setWaTargetPhone(res.targetPhones.textContacts[0]);
+                    setWaTargetType('text_contact');
+                } else if (res.targetPhones?.senderPhone) {
+                    setWaTargetPhone(res.targetPhones.senderPhone);
+                    setWaTargetType('sender');
+                }
+                toast.success('✨ Gemini Flash drafted broker inquiry!');
+            } else {
+                toast.error(res.message || 'Failed to preview verification inquiry');
+            }
+        } catch (err) {
+            console.error('handleFetchWAPreview Error:', err);
+            toast.error(err.message || 'Error generating inquiry preview');
+        } finally {
+            setWaLoadingPreview(false);
+        }
+    };
+
+    const handleSendWAVerification = async () => {
+        const id = currentItem?._id || currentItem?.id;
+        if (!id) return toast.error('No intake item selected');
+        if (!waTargetPhone) return toast.error('Please select or enter a target phone number');
+        if (!waCustomMessage || !waCustomMessage.trim()) return toast.error('Message content cannot be empty');
+
+        setWaSendingInquiry(true);
+        try {
+            const res = await intakeAPI.sendWAVerification(id, {
+                targetPhone: waTargetPhone,
+                targetType: waTargetType,
+                message: waCustomMessage
+            });
+            if (res.success) {
+                toast.success('🚀 Verification inquiry sent via WhatsApp Web!');
+                // Update local currentItem state
+                setCurrentItem(prev => ({
+                    ...prev,
+                    verification_status: 'pending',
+                    wa_verification: {
+                        ...(prev?.wa_verification || {}),
+                        status: 'inquiry_sent',
+                        target_phone: waTargetPhone,
+                        target_type: waTargetType,
+                        outbound_message: waCustomMessage,
+                        initiated_at: new Date()
+                    }
+                }));
+            } else {
+                toast.error(res.message || 'Failed to send inquiry');
+            }
+        } catch (err) {
+            console.error('handleSendWAVerification Error:', err);
+            toast.error(err.message || 'Error sending inquiry via WhatsApp');
+        } finally {
+            setWaSendingInquiry(false);
+        }
+    };
+
+    const handleRefreshWAStatus = async () => {
+        const id = currentItem?._id || currentItem?.id;
+        if (!id) return;
+        setWaCheckingStatus(true);
+        try {
+            const res = await intakeAPI.getWAVerificationStatus(id);
+            if (res.success) {
+                setCurrentItem(prev => ({
+                    ...prev,
+                    wa_verification: res.wa_verification || prev?.wa_verification,
+                    verification_status: res.verification_status || prev?.verification_status,
+                    confidence_score: res.confidence_score ?? prev?.confidence_score,
+                    extracted_entities: res.extracted_entities || prev?.extracted_entities
+                }));
+                if (res.wa_verification?.status === 'replied_verified') {
+                    toast.success('🎉 Broker replied! Deal verified successfully.');
+                } else if (res.wa_verification?.status === 'replied_incomplete') {
+                    toast('Broker replied, but unit number was undisclosed', { icon: 'ℹ️' });
+                } else {
+                    toast('Still awaiting broker response...', { icon: '⏳' });
+                }
+            }
+        } catch (err) {
+            console.error('handleRefreshWAStatus Error:', err);
+            toast.error('Error fetching verification status');
+        } finally {
+            setWaCheckingStatus(false);
+        }
+    };
+
+    const handleApplyVerifiedValues = () => {
+        const extracted = currentItem?.wa_verification?.extracted_data;
+        if (!extracted) {
+            toast.error('No verified data found');
+            return;
+        }
+
+        const unitNumber = extracted.unit_number && extracted.unit_number !== 'UNDISCLOSED' && extracted.unit_number !== 'UNKNOWN' ? extracted.unit_number : '';
+        const loc = extracted.location_confirmed || currentItem?.location || '';
+        const finalPrice = extracted.final_price || currentItem?.price || '';
+
+        // Update currentItem
+        setCurrentItem(prev => ({
+            ...prev,
+            location: loc || prev?.location,
+            price: finalPrice || prev?.price,
+            verification_status: 'verified',
+            confidence_score: Math.max(prev?.confidence_score || 0, 95),
+            extracted_entities: {
+                ...(prev?.extracted_entities || {}),
+                unitNumber: unitNumber || prev?.extracted_entities?.unitNumber,
+                location: loc || prev?.extracted_entities?.location,
+                specs: {
+                    ...(prev?.extracted_entities?.specs || {}),
+                    price: finalPrice || prev?.extracted_entities?.specs?.price
+                }
+            }
+        }));
+
+        // Update extractedReq
+        setExtractedReq(prev => ({
+            ...prev,
+            location: loc || prev?.location,
+            budget: finalPrice || prev?.budget,
+            unitNo: unitNumber || prev?.unitNo,
+            rawParsed: prev?.rawParsed ? {
+                ...prev.rawParsed,
+                location: loc || prev.rawParsed.location,
+                address: {
+                    ...(prev.rawParsed.address || {}),
+                    unitNumber: unitNumber || prev.rawParsed.address?.unitNumber,
+                    unitNo: unitNumber || prev.rawParsed.address?.unitNo,
+                    sector: loc || prev.rawParsed.address?.sector
+                },
+                specs: {
+                    ...(prev.rawParsed.specs || {}),
+                    price: finalPrice || prev.rawParsed.specs?.price
+                }
+            } : prev?.rawParsed
+        }));
+
+        // Update QuickAdd form
+        setQuickAddForm(prev => ({
+            ...prev,
+            unitNo: unitNumber || prev?.unitNo,
+            projectName: loc || prev?.projectName,
+            price: finalPrice || prev?.price
+        }));
+
+        toast.success(`✅ Applied verified Unit #${unitNumber || 'Confirmed'} & Price ${finalPrice} to deal workflow!`);
     };
 
     const handleAddIntake = async () => {
@@ -1685,7 +1868,7 @@ const DealIntakePage = () => {
                             )}
 
                             {/* AI Verification Layer Panel */}
-                            {(currentItem?.verification_status || currentItem?.confidence_score) && (
+                            {currentItem && (
                                 <div style={{ 
                                     marginBottom: '16px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: '1px solid #cbd5e1', 
                                     borderRadius: '8px', overflow: 'hidden' 
@@ -1840,6 +2023,460 @@ const DealIntakePage = () => {
                                             )}
                                         </div>
                                     )}
+
+                                    {/* ─── LIVE WHATSAPP BROKER VERIFICATION DESK ─── */}
+                                    <div style={{
+                                        borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                                        background: isDark ? 'rgba(34, 197, 94, 0.04)' : '#f0fdf4',
+                                        padding: '16px'
+                                    }}>
+                                        {/* Desk Header */}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{
+                                                    width: '28px', height: '28px', borderRadius: '50%',
+                                                    background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    color: '#fff', fontSize: '0.95rem'
+                                                }}>
+                                                    <i className="fab fa-whatsapp"></i>
+                                                </div>
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <span style={{ fontWeight: 800, fontSize: '0.88rem', color: isDark ? '#4ade80' : '#15803d' }}>
+                                                            Live WhatsApp Broker Verification Desk
+                                                        </span>
+                                                        <span style={{
+                                                            fontSize: '0.62rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
+                                                            background: isDark ? 'rgba(99, 102, 241, 0.25)' : '#e0e7ff',
+                                                            color: isDark ? '#a5b4fc' : '#4338ca', border: '1px solid rgba(99, 102, 241, 0.3)'
+                                                        }}>
+                                                            Gemini 2.5 Flash
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.7rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                        Verify Location, Plot/Unit #, and Bottom Asking Price with Broker via WhatsApp Web
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Status Badge & Actions */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                {(() => {
+                                                    const waStatus = currentItem.wa_verification?.status || 'idle';
+                                                    if (waStatus === 'replied_verified') {
+                                                        return (
+                                                            <span style={{
+                                                                fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: '12px',
+                                                                background: '#dcfce7', color: '#15803d', border: '1px solid #86efac',
+                                                                display: 'flex', alignItems: 'center', gap: '5px'
+                                                            }}>
+                                                                <i className="fas fa-check-circle"></i> VERIFIED BY BROKER
+                                                            </span>
+                                                        );
+                                                    }
+                                                    if (waStatus === 'inquiry_sent') {
+                                                        return (
+                                                            <span style={{
+                                                                fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: '12px',
+                                                                background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a',
+                                                                display: 'flex', alignItems: 'center', gap: '5px'
+                                                            }}>
+                                                                <i className="fas fa-circle-notch fa-spin"></i> AWAITING REPLY
+                                                            </span>
+                                                        );
+                                                    }
+                                                    if (waStatus === 'replied_incomplete') {
+                                                        return (
+                                                            <span style={{
+                                                                fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: '12px',
+                                                                background: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa',
+                                                                display: 'flex', alignItems: 'center', gap: '5px'
+                                                            }}>
+                                                                <i className="fas fa-user-secret"></i> CONFIDENTIAL / PARTIAL
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <span style={{
+                                                            fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '12px',
+                                                            background: isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9',
+                                                            color: isDark ? '#cbd5e1' : '#64748b'
+                                                        }}>
+                                                            IDLE / READY
+                                                        </span>
+                                                    );
+                                                })()}
+
+                                                {currentItem.wa_verification?.status === 'inquiry_sent' && (
+                                                    <button
+                                                        onClick={handleRefreshWAStatus}
+                                                        disabled={waCheckingStatus}
+                                                        style={{
+                                                            padding: '4px 8px', fontSize: '0.72rem', fontWeight: 700,
+                                                            background: isDark ? 'rgba(255, 255, 255, 0.1)' : '#ffffff',
+                                                            border: '1px solid #cbd5e1', borderRadius: '6px',
+                                                            color: isDark ? '#f8fafc' : '#334155', cursor: 'pointer',
+                                                            display: 'flex', alignItems: 'center', gap: '4px'
+                                                        }}
+                                                        title="Check if broker has replied on WhatsApp Web"
+                                                    >
+                                                        <i className={`fas fa-sync-alt ${waCheckingStatus ? 'fa-spin' : ''}`}></i>
+                                                        Check Live
+                                                    </button>
+                                                )}
+
+                                                <button
+                                                    onClick={() => setWaDeskExpanded(!waDeskExpanded)}
+                                                    style={{
+                                                        background: 'transparent', border: 'none',
+                                                        color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer',
+                                                        padding: '4px', fontSize: '0.8rem'
+                                                    }}
+                                                >
+                                                    <i className={`fas fa-chevron-${waDeskExpanded ? 'up' : 'down'}`}></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {waDeskExpanded && (
+                                            <div>
+                                                {/* Case 1: Verified Outcome Card */}
+                                                {currentItem.wa_verification?.status === 'replied_verified' && (
+                                                    <div style={{
+                                                        background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                                                        border: '2px solid #10b981', borderRadius: '8px',
+                                                        padding: '14px', marginBottom: '14px'
+                                                    }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '0.85rem', color: '#047857' }}>
+                                                                <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
+                                                                BROKER-VERIFIED DEAL PARAMETERS
+                                                            </div>
+                                                            <button
+                                                                onClick={handleApplyVerifiedValues}
+                                                                style={{
+                                                                    padding: '6px 14px', background: '#059669', color: '#ffffff',
+                                                                    border: 'none', borderRadius: '6px', fontSize: '0.78rem',
+                                                                    fontWeight: 800, cursor: 'pointer', display: 'flex',
+                                                                    alignItems: 'center', gap: '6px', boxShadow: '0 2px 4px rgba(5, 150, 105, 0.3)'
+                                                                }}
+                                                            >
+                                                                <i className="fas fa-bolt"></i> Apply Verified Values to Deal
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Parameters Grid */}
+                                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
+                                                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                                                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#065f46', textTransform: 'uppercase' }}>
+                                                                    <i className="fas fa-map-pin" style={{ marginRight: '4px' }}></i> Location / Project
+                                                                </div>
+                                                                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: isDark ? '#a7f3d0' : '#064e3b', marginTop: '2px' }}>
+                                                                    {currentItem.wa_verification?.extracted_data?.location_confirmed || currentItem.location || 'Confirmed'}
+                                                                </div>
+                                                            </div>
+
+                                                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                                                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#065f46', textTransform: 'uppercase' }}>
+                                                                    <i className="fas fa-door-open" style={{ marginRight: '4px' }}></i> Verified Unit / Plot #
+                                                                </div>
+                                                                <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                                                                    #{currentItem.wa_verification?.extracted_data?.unit_number || 'N/A'}
+                                                                </div>
+                                                            </div>
+
+                                                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', padding: '10px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                                                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#065f46', textTransform: 'uppercase' }}>
+                                                                    <i className="fas fa-tag" style={{ marginRight: '4px' }}></i> Last / Bottom Price
+                                                                </div>
+                                                                <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                                                                    {currentItem.wa_verification?.extracted_data?.final_price || currentItem.price || 'Confirmed'}
+                                                                    {currentItem.wa_verification?.extracted_data?.price_type && (
+                                                                        <span style={{ fontSize: '0.65rem', fontWeight: 600, marginLeft: '4px', opacity: 0.8 }}>
+                                                                            ({currentItem.wa_verification.extracted_data.price_type})
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Inbound Broker Reply Quote */}
+                                                        {currentItem.wa_verification?.inbound_reply && (
+                                                            <div style={{
+                                                                fontSize: '0.78rem', color: isDark ? '#e2e8f0' : '#1e293b',
+                                                                background: isDark ? 'rgba(0, 0, 0, 0.2)' : '#ffffff',
+                                                                padding: '8px 12px', borderRadius: '6px', borderLeft: '3px solid #10b981'
+                                                            }}>
+                                                                <span style={{ fontWeight: 700, color: '#059669', marginRight: '6px' }}>Broker Reply:</span>
+                                                                "{currentItem.wa_verification.inbound_reply}"
+                                                                {currentItem.wa_verification.replied_at && (
+                                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', marginLeft: '8px' }}>
+                                                                        ({new Date(currentItem.wa_verification.replied_at).toLocaleTimeString('en-IN')})
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Case 2: Awaiting Reply Card */}
+                                                {currentItem.wa_verification?.status === 'inquiry_sent' && (
+                                                    <div style={{
+                                                        background: isDark ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb',
+                                                        border: '1px solid #fcd34d', borderRadius: '8px',
+                                                        padding: '12px 14px', marginBottom: '14px', display: 'flex',
+                                                        alignItems: 'center', justifyContent: 'space-between'
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div style={{
+                                                                width: '10px', height: '10px', borderRadius: '50%',
+                                                                background: '#f59e0b', boxShadow: '0 0 8px #f59e0b'
+                                                            }}></div>
+                                                            <div>
+                                                                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#fbbf24' : '#92400e' }}>
+                                                                    Inquiry Sent to Broker: {currentItem.wa_verification.target_phone}
+                                                                </div>
+                                                                <div style={{ fontSize: '0.72rem', color: isDark ? '#cbd5e1' : '#78350f', marginTop: '2px' }}>
+                                                                    Outbound inquiry dispatched at {currentItem.wa_verification.initiated_at ? new Date(currentItem.wa_verification.initiated_at).toLocaleTimeString('en-IN') : 'recently'}. Baileys worker is listening for reply.
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={handleRefreshWAStatus}
+                                                            disabled={waCheckingStatus}
+                                                            style={{
+                                                                padding: '6px 12px', background: '#d97706', color: '#ffffff',
+                                                                border: 'none', borderRadius: '6px', fontSize: '0.75rem',
+                                                                fontWeight: 700, cursor: 'pointer', display: 'flex',
+                                                                alignItems: 'center', gap: '5px'
+                                                            }}
+                                                        >
+                                                            <i className={`fas fa-sync-alt ${waCheckingStatus ? 'fa-spin' : ''}`}></i>
+                                                            Refresh Reply
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* Case 3: Incomplete / Confidential Reply Card */}
+                                                {currentItem.wa_verification?.status === 'replied_incomplete' && (
+                                                    <div style={{
+                                                        background: isDark ? 'rgba(249, 115, 22, 0.12)' : '#fff7ed',
+                                                        border: '1px solid #fdba74', borderRadius: '8px',
+                                                        padding: '12px 14px', marginBottom: '14px'
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '0.82rem', color: '#c2410c', marginBottom: '6px' }}>
+                                                            <i className="fas fa-exclamation-triangle"></i> Broker Kept Unit Number Confidential
+                                                        </div>
+                                                        <div style={{ fontSize: '0.78rem', color: isDark ? '#fed7aa' : '#7c2d12', fontStyle: 'italic', marginBottom: '8px' }}>
+                                                            "{currentItem.wa_verification.inbound_reply}"
+                                                        </div>
+                                                        <div style={{ fontSize: '0.72rem', color: isDark ? '#cbd5e1' : '#9a3412' }}>
+                                                            Suggested Action: Direct phone call required to confirm unit number before locking client presentation.
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Inquiry Drafting & Dispatch Control */}
+                                                <div style={{
+                                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+                                                    borderRadius: '8px', padding: '14px'
+                                                }}>
+                                                    {/* Target Phone Selector */}
+                                                    <div style={{ marginBottom: '10px' }}>
+                                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '6px', textTransform: 'uppercase' }}>
+                                                            1. Target Broker WhatsApp Number:
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                                                            {/* Options from detection */}
+                                                            {(() => {
+                                                                // Text contacts
+                                                                const textContacts = (currentItem.contact_numbers && currentItem.contact_numbers.length > 0)
+                                                                    ? currentItem.contact_numbers
+                                                                    : (currentItem.extracted_entities?.contact_numbers || []);
+                                                                // Group sender
+                                                                const senderParticipant = currentItem.extracted_entities?._whatsappGroup?.participant ||
+                                                                    currentItem.raw_source_data?.participant;
+
+                                                                return (
+                                                                    <>
+                                                                        {textContacts.map((phone, idx) => (
+                                                                            <button
+                                                                                key={`tc-${idx}`}
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setWaTargetPhone(phone);
+                                                                                    setWaTargetType('text_contact');
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                                                    border: waTargetPhone === phone ? '2px solid #22c55e' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                                                    background: waTargetPhone === phone ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
+                                                                                    color: waTargetPhone === phone ? '#15803d' : (isDark ? '#cbd5e1' : '#334155'),
+                                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'
+                                                                                }}
+                                                                            >
+                                                                                <i className="fas fa-file-alt" style={{ fontSize: '0.65rem' }}></i>
+                                                                                <span>Text Contact (P1): {phone}</span>
+                                                                            </button>
+                                                                        ))}
+
+                                                                        {senderParticipant && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setWaTargetPhone(senderParticipant);
+                                                                                    setWaTargetType('sender');
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                                                    border: waTargetPhone === senderParticipant ? '2px solid #22c55e' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                                                    background: waTargetPhone === senderParticipant ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
+                                                                                    color: waTargetPhone === senderParticipant ? '#15803d' : (isDark ? '#cbd5e1' : '#334155'),
+                                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'
+                                                                                }}
+                                                                            >
+                                                                                <i className="fas fa-users" style={{ fontSize: '0.65rem' }}></i>
+                                                                                <span>Group Sender (P2): {senderParticipant.replace(/@s\.whatsapp\.net/g, '')}</span>
+                                                                            </button>
+                                                                        )}
+
+                                                                        {/* Custom phone input */}
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: '170px', flex: 1 }}>
+                                                                            <input
+                                                                                type="text"
+                                                                                placeholder="Or enter +91..."
+                                                                                value={waTargetPhone}
+                                                                                onChange={(e) => {
+                                                                                    setWaTargetPhone(e.target.value);
+                                                                                    setWaTargetType('custom');
+                                                                                }}
+                                                                                style={{
+                                                                                    width: '100%', padding: '5px 8px', fontSize: '0.75rem',
+                                                                                    borderRadius: '6px',
+                                                                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1',
+                                                                                    background: isDark ? '#1e293b' : '#ffffff',
+                                                                                    color: isDark ? '#f8fafc' : '#0f172a'
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Inquiry Message Generator & Editor */}
+                                                    <div style={{ marginBottom: '10px' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase' }}>
+                                                                2. Hinglish Inquiry Draft:
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleFetchWAPreview(currentItem._id)}
+                                                                disabled={waLoadingPreview}
+                                                                style={{
+                                                                    background: isDark ? 'rgba(99, 102, 241, 0.2)' : '#e0e7ff',
+                                                                    color: isDark ? '#a5b4fc' : '#4338ca',
+                                                                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                                                                    borderRadius: '4px', padding: '3px 8px', fontSize: '0.7rem',
+                                                                    fontWeight: 700, cursor: 'pointer', display: 'flex',
+                                                                    alignItems: 'center', gap: '4px'
+                                                                }}
+                                                            >
+                                                                <i className={`fas fa-magic ${waLoadingPreview ? 'fa-spin' : ''}`}></i>
+                                                                {waCustomMessage ? 'Regenerate Draft with Gemini' : 'Draft with Gemini 2.5 Flash'}
+                                                            </button>
+                                                        </div>
+
+                                                        <textarea
+                                                            rows={3}
+                                                            value={waCustomMessage}
+                                                            onChange={(e) => setWaCustomMessage(e.target.value)}
+                                                            placeholder="Click 'Draft with Gemini 2.5 Flash' to generate natural Hinglish inquiry asking for Plot/Unit #, location confirmation, and last closing price..."
+                                                            style={{
+                                                                width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                                                                fontSize: '0.8rem', lineHeight: 1.4, borderRadius: '6px',
+                                                                border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1',
+                                                                background: isDark ? '#1e293b' : '#ffffff',
+                                                                color: isDark ? '#f8fafc' : '#0f172a',
+                                                                resize: 'vertical'
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    {/* Send Action */}
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSendWAVerification}
+                                                            disabled={waSendingInquiry || !waTargetPhone || !waCustomMessage.trim()}
+                                                            style={{
+                                                                padding: '8px 16px', borderRadius: '6px',
+                                                                background: (!waTargetPhone || !waCustomMessage.trim()) ? '#94a3b8' : 'linear-gradient(135deg, #16a34a, #15803d)',
+                                                                color: '#ffffff', border: 'none', fontSize: '0.82rem',
+                                                                fontWeight: 800, cursor: (!waTargetPhone || !waCustomMessage.trim()) ? 'not-allowed' : 'pointer',
+                                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                                                            }}
+                                                        >
+                                                            <i className={`fab fa-whatsapp ${waSendingInquiry ? 'fa-spin' : ''}`}></i>
+                                                            {waSendingInquiry ? 'Dispatching via Baileys...' : 'Send WhatsApp Inquiry via Baileys'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Conversation History Accordion */}
+                                                {currentItem.wa_verification?.conversation_history && currentItem.wa_verification.conversation_history.length > 0 && (
+                                                    <div style={{ marginTop: '12px' }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setWaHistoryOpen(!waHistoryOpen)}
+                                                            style={{
+                                                                background: 'transparent', border: 'none',
+                                                                color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.72rem',
+                                                                fontWeight: 700, cursor: 'pointer', padding: 0,
+                                                                display: 'flex', alignItems: 'center', gap: '6px'
+                                                            }}
+                                                        >
+                                                            <i className={`fas fa-chevron-${waHistoryOpen ? 'down' : 'right'}`}></i>
+                                                            Verification Conversation History ({currentItem.wa_verification.conversation_history.length} messages)
+                                                        </button>
+
+                                                        {waHistoryOpen && (
+                                                            <div style={{
+                                                                marginTop: '8px', padding: '10px', borderRadius: '6px',
+                                                                background: isDark ? 'rgba(0,0,0,0.2)' : '#f8fafc',
+                                                                border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #e2e8f0',
+                                                                maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px'
+                                                            }}>
+                                                                {currentItem.wa_verification.conversation_history.map((msg, i) => (
+                                                                    <div
+                                                                        key={i}
+                                                                        style={{
+                                                                            alignSelf: msg.sender === 'system' ? 'flex-end' : 'flex-start',
+                                                                            maxWidth: '85%', padding: '6px 10px', borderRadius: '8px',
+                                                                            fontSize: '0.75rem', lineHeight: 1.35,
+                                                                            background: msg.sender === 'system' ? (isDark ? '#166534' : '#dcfce7') : (isDark ? '#334155' : '#ffffff'),
+                                                                            color: msg.sender === 'system' ? (isDark ? '#f0fdf4' : '#14532d') : (isDark ? '#f8fafc' : '#1e293b'),
+                                                                            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #cbd5e1'
+                                                                        }}
+                                                                    >
+                                                                        <div style={{ fontSize: '0.62rem', fontWeight: 800, opacity: 0.8, marginBottom: '2px' }}>
+                                                                            {msg.sender === 'system' ? 'Bharat Properties Desk' : 'Broker'} • {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN') : ''}
+                                                                        </div>
+                                                                        {msg.message}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
 
                                 </div>
                             )}

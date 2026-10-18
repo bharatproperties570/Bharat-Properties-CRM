@@ -226,6 +226,20 @@ export async function processInboundMessageCore(jobData) {
             console.error('[BaileysWorker] Error creating Activity:', actErr.message);
         }
 
+        // Phase A.2: Check if this message is a broker reply to a Deal Intake WhatsApp Verification
+        if (!isGroup && !isFromMe && (cleanPhone || targetPhone)) {
+            const checkPhone = cleanPhone || targetPhone;
+            import('../intakeVerification/DealVerificationAgent.js')
+                .then(({ default: dealVerificationAgent }) => {
+                    dealVerificationAgent.processBrokerReply(checkPhone, messageText).catch(err => {
+                        console.error('[BaileysWorker:DealVerification Error]:', err.message);
+                    });
+                })
+                .catch(vErr => {
+                    console.error('[BaileysWorker:DealVerification Import Error]:', vErr.message);
+                });
+        }
+
         // Phase B: Update Conversation
         try {
             const updateOps = {

@@ -23,7 +23,7 @@ class GeminiService {
             console.log(`[GeminiService] Using API Key from Environment Variables.`);
             return {
                 apiKey:     envKey,
-                model:      'gemini-2.5-pro', 
+                model:      'gemini-3.8-flash', 
                 apiVersion: 'v1beta', 
             };
         }
@@ -77,7 +77,7 @@ class GeminiService {
         if (!apiKey || apiKey.includes('YOUR_')) {
             throw new Error('Gemini API Key not configured. Add GOOGLE_AI_API_KEY to .env or Settings > Integrations.');
         }
-        const model      = opts.model || config.model || 'gemini-2.5-pro';
+        const model      = opts.model || (config.model && !config.model.includes('2.5-pro') ? config.model : 'gemini-3.8-flash');
         const apiVersion = config.apiVersion || 'v1beta';
 
         return this._callGemini(apiKey, apiVersion, model, null, prompt, opts);
@@ -97,7 +97,7 @@ class GeminiService {
         if (!apiKey || apiKey.includes('YOUR_')) {
             throw new Error('Gemini API Key not configured. Add GOOGLE_AI_API_KEY to .env or Settings > Integrations.');
         }
-        const model      = opts.model || config.model || 'gemini-2.5-flash';
+        const model      = opts.model || (config.model && !config.model.includes('2.5-pro') ? config.model : 'gemini-3.8-flash');
         const apiVersion = 'v1beta'; // systemInstruction only available in v1beta
 
         return this._callGemini(apiKey, apiVersion, model, systemPrompt, userPrompt, opts);

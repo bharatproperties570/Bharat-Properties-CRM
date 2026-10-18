@@ -865,6 +865,9 @@ export const intakeAPI = {
     toggleGroup: (id, reason) => apiRequest(`/intake/groups/${id}/toggle`, { method: 'PATCH', body: JSON.stringify({ reason }) }),
     scanGroupsNow: () => apiRequest('/intake/groups/scan-now', { method: 'POST' }),
     backfillGroup: (id = 'all') => apiRequest(`/intake/groups/${id}/backfill`, { method: 'POST' }),
+    previewWAVerification: (id) => apiRequest(`/intake/${id}/wa-verification-preview`, { method: 'POST' }),
+    sendWAVerification: (id, data) => apiRequest(`/intake/${id}/wa-verification-send`, { method: 'POST', body: JSON.stringify(data) }),
+    getWAVerificationStatus: (id) => apiRequest(`/intake/${id}/wa-verification-status`),
 };
 
 // Auth API
