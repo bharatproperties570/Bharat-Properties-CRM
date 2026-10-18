@@ -128,7 +128,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         // Assignment
         team: '',
         assignedTo: '',
-        visibleTo: 'Public',
+        visibleTo: 'Team',
 
         remarks: '',
         description: '',
@@ -304,8 +304,13 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : renderValue(b)).filter(b => b && b !== '-') : [];
         const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
 
-        let assignedTo = formData.assignedTo;
-        let team = formData.team;
+        const projectTeam = project ? (project.team?.[0] || project.teams?.[0] || project.team) : '';
+        const projectAssignee = project ? (project.assign?.[0] || project.assignedTo || project.owner) : '';
+        const projectVisibility = project ? (project.visibleTo === 'Public' ? 'Everyone' : (project.visibleTo || 'Team')) : 'Team';
+
+        let assignedTo = projectAssignee || formData.assignedTo;
+        let team = projectTeam || formData.team;
+        let visibleTo = projectVisibility || formData.visibleTo || 'Team';
 
         const result = executeDistribution('deals', { ...formData, projectName, block: defaultBlock });
         if (result && result.success) {
@@ -324,7 +329,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             owner: { name: '', phone: '', email: '' },
             associatedContact: { name: '', phone: '', email: '' },
             assignedTo,
-            team
+            team,
+            visibleTo: visibleTo === 'Public' ? 'Everyone' : visibleTo
         }));
     }, [projects, formData, executeDistribution]);
 
@@ -390,7 +396,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         email: cleanStr(unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail, '')
                     },
                     isOwnerSelected: (unit.owners?.[0]?._id || unit.ownerName) ? true : false,
-                    isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false
+                    isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false,
+                    team: (unit.team?.[0] || unit.teams?.[0] || unit.team || prev.team),
+                    assignedTo: (unit.assignedTo || unit.assign?.[0] || prev.assignedTo),
+                    visibleTo: (unit.visibleTo ? (unit.visibleTo === 'Public' ? 'Everyone' : unit.visibleTo) : prev.visibleTo)
                 };
 
                 // Trigger Recalculation logic if size changed

@@ -1160,6 +1160,50 @@ export const addInventory = async (req, res) => {
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
 
+        // 🏛️ Enterprise RBAC: Project -> Inventory Inheritance
+        if (data.projectId || data.projectName) {
+            const ProjectModel = mongoose.models.Project || mongoose.model("Project");
+            let projectDoc = null;
+            if (data.projectId && mongoose.Types.ObjectId.isValid(data.projectId.toString())) {
+                projectDoc = await ProjectModel.findById(data.projectId).lean();
+            } else if (data.projectName) {
+                projectDoc = await ProjectModel.findOne({ name: { $regex: new RegExp("^" + escapeRegExp(data.projectName) + "$", "i") } }).lean();
+            }
+
+            if (projectDoc) {
+                if (!data.team && (!data.teams || data.teams.length === 0)) {
+                    if (projectDoc.team && projectDoc.team.length) {
+                        data.team = projectDoc.team[0];
+                        data.teams = projectDoc.team;
+                    } else if (projectDoc.teams && projectDoc.teams.length) {
+                        data.team = projectDoc.teams[0];
+                        data.teams = projectDoc.teams;
+                    }
+                }
+                if (!data.assignedTo && projectDoc.assign && projectDoc.assign.length) {
+                    data.assignedTo = projectDoc.assign[0];
+                }
+                if (!data.visibleTo) {
+                    data.visibleTo = projectDoc.visibleTo || "Team";
+                }
+                if (!data.department && projectDoc.department) {
+                    data.department = projectDoc.department;
+                }
+            }
+        }
+
+        // Normalize visibleTo (Private, Team, Everyone) and sync assignment.visibleTo
+        let finalInvVisibleTo = data.visibleTo || data.assignment?.visibleTo || "Team";
+        if (finalInvVisibleTo === "Public" || finalInvVisibleTo === "All Users") {
+            finalInvVisibleTo = "Everyone";
+        }
+        data.visibleTo = finalInvVisibleTo;
+        if (!data.assignment) data.assignment = {};
+        data.assignment.visibleTo = finalInvVisibleTo;
+        if (data.team && (!data.assignment.team || !data.assignment.team.length)) {
+            data.assignment.team = Array.isArray(data.team) ? data.team : [data.team];
+        }
+
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) {
             data.associates = data.associates.map(assoc => {

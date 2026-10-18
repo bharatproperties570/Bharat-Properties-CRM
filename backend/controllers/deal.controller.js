@@ -2443,6 +2443,26 @@ export const updateDeal = async (req, res) => {
                 sanitizedData.isPublished = false;
             }
 
+            if (sanitizedData.visibleTo) {
+                let vis = sanitizedData.visibleTo;
+                if (vis === "Public" || vis === "All Users") vis = "Everyone";
+                sanitizedData.visibleTo = vis;
+                sanitizedData[assignment.visibleTo] = vis;
+                if (!sanitizedData.assignment) sanitizedData.assignment = {};
+                sanitizedData.assignment.visibleTo = vis;
+            }
+            if (sanitizedData[assignment.visibleTo]) {
+                let vis = sanitizedData[assignment.visibleTo];
+                if (vis === "Public" || vis === "All Users") vis = "Everyone";
+                sanitizedData.visibleTo = vis;
+                sanitizedData[assignment.visibleTo] = vis;
+            }
+            if (sanitizedData.team) {
+                sanitizedData.teams = [sanitizedData.team];
+                sanitizedData[assignment.team] = [sanitizedData.team];
+                if (!sanitizedData.assignment) sanitizedData.assignment = {};
+                sanitizedData.assignment.team = [sanitizedData.team];
+            }
             deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, session });
             if (!deal) {
                 throw new Error('Deal not found');

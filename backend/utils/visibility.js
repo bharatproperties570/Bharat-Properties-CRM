@@ -6,20 +6,21 @@ const escapeRegExp = (string) => {
 };
 
 /**
- * Enterprise Visibility Engine v3 — Hardened Regional & Team Isolation
- * Generates robust MongoDB $or filters based on User Data Scope, Department, and Team assignments.
- * Scopes: assigned | team | department | all
- *
- * ENTERPRISE REGIONAL ISOLATION RULES:
- * 1. Global Bypass (dataScope === 'all' or root system owner emails): Returns {} (full visibility).
- * 2. Department Scope: User sees base records assigned to them + records belonging to their department/teams
- *    within the department where visibility is not restricted to private.
- * 3. Team Scope: User sees base records assigned to them + records belonging to their assigned team(s).
- *    Cross-team leakage (e.g. Kurukshetra deals showing to Mohali team) is strictly prevented even if
- *    records have visibleTo: 'Everyone', because team boundaries take absolute precedence.
- * 4. Truly Global Records: Records with visibleTo in ['Everyone', 'Public'] that have NO team and NO department
- *    assigned are visible to all authenticated scopes.
- * 5. Assigned Scope: User only sees records directly assigned to them or unassigned truly global records.
+ * Enterprise Visibility Engine — 3-Tier RBAC Architecture
+ * 
+ * CRM UNIVERSAL VISIBILITY RULES:
+ * 1. Private:
+ *    - Only the assigned user (assignedTo / owner / assign / assignment.assignedTo) + Admin can see it.
+ *    - Records marked 'Private' are strictly excluded from other team members.
+ * 2. Team:
+ *    - Members of the record's team (userTeams) + Admin can see it.
+ *    - Records marked 'Private' are strictly excluded from team members.
+ *    - Other teams cannot see it.
+ * 3. Everyone:
+ *    - If a record is explicitly saved with visibleTo: 'Everyone' (or 'Public' / 'All Users'),
+ *      it is visible to ALL teams, all users, and all admins across the entire CRM.
+ * 4. Admin (Super Admin / dataScope: 'all'):
+ *    - Full visibility across all entities, users, and teams.
  */
 export const getVisibilityFilter = async (user) => {
     if (!user) {
@@ -37,6 +38,7 @@ export const getVisibilityFilter = async (user) => {
         userEmail === 'bharatproperties570@gmail.com' || 
         userEmail === 'shreykeshwar@gmail.com';
 
+    // Rule 4: Super Admin / System Owners have full unrestricted visibility
     if (isSystemOwner || dataScope === 'all') {
         console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${userEmail}`);
         return {};
@@ -55,7 +57,10 @@ export const getVisibilityFilter = async (user) => {
         .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
         .map(t => new mongoose.Types.ObjectId(t.toString()));
 
-    const baseFilter = {
+    // ─── 1. PRIVATE RULE ───
+    // Record is directly assigned to the user (creator / owner / assignedTo / RM).
+    // The assigned user can always see their own records (whether Private, Team, or Everyone).
+    const privateAssignedFilter = {
         $or: [
             { assignedTo: userObjectId },
             { owner: userObjectId },
@@ -64,96 +69,70 @@ export const getVisibilityFilter = async (user) => {
         ]
     };
 
-    // Truly global records have visibleTo: Everyone/Public AND no team and no department attached
-    const trulyGlobalFilter = {
-        $and: [
-            {
-                $or: [
-                    { visibleTo: { $in: ['Everyone', 'Public'] } },
-                    { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } }
-                ]
-            },
-            {
-                $and: [
-                    { $or: [{ team: null }, { team: { $exists: false } }] },
-                    { $or: [{ teams: { $size: 0 } }, { teams: { $exists: false } }, { teams: null }] },
-                    { $or: [{ 'assignment.team': { $size: 0 } }, { 'assignment.team': { $exists: false } }, { 'assignment.team': null }] }
-                ]
-            }
+    // ─── 3. EVERYONE RULE ───
+    // If a record is explicitly saved as 'Everyone' (or 'Public' / 'All Users'),
+    // it is visible to ALL teams, all users, and all admins across the entire CRM.
+    const everyoneFilter = {
+        $or: [
+            { visibleTo: { $in: ['Everyone', 'Public', 'All Users'] } },
+            { 'assignment.visibleTo': { $in: ['Everyone', 'Public', 'All Users'] } }
         ]
     };
 
-    let finalFilter;
+    // ─── 2. TEAM RULE ───
+    // If 'Team' is selected (or default), everyone in that team + admin sees the record.
+    // Records marked 'Private' are strictly excluded from other team members.
+    let teamFilter;
     if (effectiveScope === 'department' && user.department) {
         const TeamModel = mongoose.models.Team || mongoose.model('Team');
         const deptTeams = await TeamModel.find({ department: user.department, isActive: true }).select('_id');
         const deptTeamIds = deptTeams.map(t => t._id);
 
-        finalFilter = {
-            $or: [
-                ...baseFilter.$or,
+        teamFilter = {
+            $and: [
                 {
-                    $and: [
-                        { 
-                            $or: [
-                                { visibleTo: { $in: ['Department', 'Team', 'Everyone', 'Public'] } },
-                                { 'assignment.visibleTo': { $in: ['Department', 'Team', 'Everyone', 'Public'] } },
-                                { visibleTo: { $exists: false } },
-                                { visibleTo: null },
-                                { 'assignment.visibleTo': { $exists: false } },
-                                { 'assignment.visibleTo': null }
-                            ]
-                        },
-                        {
-                            $or: [
-                                { department: user.department },
-                                { teams: { $in: deptTeamIds } },
-                                { team: { $in: deptTeamIds } },
-                                { 'assignment.team': { $in: deptTeamIds } }
-                            ]
-                        }
-                    ]
+                    visibleTo: { $nin: ['Private'] },
+                    'assignment.visibleTo': { $nin: ['Private'] }
                 },
-                trulyGlobalFilter
-            ]
-        };
-    } else if (effectiveScope === 'team') {
-        finalFilter = {
-            $or: [
-                ...baseFilter.$or,
                 {
-                    $and: [
-                        { 
-                            $or: [
-                                { visibleTo: { $in: ['Team', 'Everyone', 'Public'] } },
-                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone', 'Public'] } },
-                                { visibleTo: { $exists: false } },
-                                { visibleTo: null },
-                                { 'assignment.visibleTo': { $exists: false } },
-                                { 'assignment.visibleTo': null }
-                            ]
-                        },
-                        {
-                            $or: [
-                                { teams: { $in: userTeams } },
-                                { team: { $in: userTeams } },
-                                { 'assignment.team': { $in: userTeams } }
-                            ]
-                        }
+                    $or: [
+                        { department: user.department },
+                        { teams: { $in: deptTeamIds } },
+                        { team: { $in: deptTeamIds } },
+                        { 'assignment.team': { $in: deptTeamIds } },
+                        { teams: { $in: userTeams } },
+                        { team: { $in: userTeams } },
+                        { 'assignment.team': { $in: userTeams } }
                     ]
-                },
-                trulyGlobalFilter
+                }
             ]
         };
     } else {
-        // Assigned Scope (Individual Agent): records assigned to user or truly global unassigned
-        finalFilter = {
-            $or: [
-                ...baseFilter.$or,
-                trulyGlobalFilter
+        teamFilter = {
+            $and: [
+                {
+                    visibleTo: { $nin: ['Private'] },
+                    'assignment.visibleTo': { $nin: ['Private'] }
+                },
+                {
+                    $or: [
+                        { teams: { $in: userTeams } },
+                        { team: { $in: userTeams } },
+                        { 'assignment.team': { $in: userTeams } }
+                    ]
+                }
             ]
         };
     }
+
+    // Combine the 3 universal visibility pillars:
+    const finalFilter = {
+        $or: [
+            ...privateAssignedFilter.$or,
+            teamFilter,
+            everyoneFilter
+        ]
+    };
 
     console.log(`[VISIBLE_AUDIT] Final Filter generated for effective scope: ${effectiveScope}`);
     return finalFilter;

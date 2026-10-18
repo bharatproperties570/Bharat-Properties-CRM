@@ -81,7 +81,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         team: '',
         status: 'Active',
         intent: 'Sell',
-        visibleTo: 'Public',
+        visibleTo: 'Team',
 
         // Uploads
         inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
@@ -488,7 +488,20 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         const project = allProjects.find(p => p.name === name);
         const projectId = project?._id || project?.id || '';
 
-        setFormData(prev => ({ ...prev, projectName: name, projectId, block: "", size: "" }));
+        const projectTeam = project ? (project.team?.[0] || project.teams?.[0] || project.team) : '';
+        const projectAssignee = project ? (project.assign?.[0] || project.owner) : '';
+        const projectVisibility = project ? (project.visibleTo === 'Public' ? 'Everyone' : (project.visibleTo || 'Team')) : 'Team';
+
+        setFormData(prev => ({
+            ...prev,
+            projectName: name,
+            projectId,
+            block: "",
+            size: "",
+            team: projectTeam || prev.team,
+            assignedTo: projectAssignee || prev.assignedTo,
+            visibleTo: projectVisibility || prev.visibleTo || 'Team'
+        }));
 
         const result = executeDistribution('inventory', { ...formData, projectName: name, projectId });
         if (result && result.success) {

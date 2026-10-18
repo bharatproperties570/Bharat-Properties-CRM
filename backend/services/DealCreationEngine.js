@@ -197,6 +197,47 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 }
             }
 
+            // 🏛️ Enterprise RBAC: Project/Inventory -> Deal Inheritance
+            if (inventory) {
+                if (!normalizedDealPayload.team && (!normalizedDealPayload.teams || normalizedDealPayload.teams.length === 0)) {
+                    normalizedDealPayload.team = inventory.team;
+                    normalizedDealPayload.teams = Array.isArray(inventory.teams) && inventory.teams.length ? inventory.teams : (inventory.team ? [inventory.team] : []);
+                }
+                if (!normalizedDealPayload.assignedTo && !normalizedDealPayload.assignment?.assignedTo) {
+                    normalizedDealPayload.assignedTo = inventory.assignedTo || (inventory.assignment && inventory.assignment.assignedTo);
+                }
+                if (!normalizedDealPayload.visibleTo && (!normalizedDealPayload.assignment || !normalizedDealPayload.assignment.visibleTo)) {
+                    normalizedDealPayload.visibleTo = inventory.visibleTo || (inventory.assignment && inventory.assignment.visibleTo) || "Team";
+                }
+            } else if (linkage?.projectId) {
+                const ProjectModel = mongoose.model("Project");
+                const projectDoc = await ProjectModel.findById(linkage.projectId).session(session).lean();
+                if (projectDoc) {
+                    if (!normalizedDealPayload.team && (!normalizedDealPayload.teams || normalizedDealPayload.teams.length === 0)) {
+                        normalizedDealPayload.team = projectDoc.team?.[0] || projectDoc.teams?.[0];
+                        normalizedDealPayload.teams = projectDoc.teams?.length ? projectDoc.teams : (projectDoc.team || []);
+                    }
+                    if (!normalizedDealPayload.assignedTo && !normalizedDealPayload.assignment?.assignedTo) {
+                        normalizedDealPayload.assignedTo = projectDoc.assign?.[0] || projectDoc.owner;
+                    }
+                    if (!normalizedDealPayload.visibleTo && (!normalizedDealPayload.assignment || !normalizedDealPayload.assignment.visibleTo)) {
+                        normalizedDealPayload.visibleTo = projectDoc.visibleTo || "Team";
+                    }
+                }
+            }
+
+            // Normalize visibleTo (Private, Team, Everyone) and sync assignment.visibleTo
+            let finalDealVisibleTo = normalizedDealPayload.visibleTo || normalizedDealPayload.assignment?.visibleTo || "Team";
+            if (finalDealVisibleTo === "Public" || finalDealVisibleTo === "All Users") {
+                finalDealVisibleTo = "Everyone";
+            }
+            normalizedDealPayload.visibleTo = finalDealVisibleTo;
+            if (!normalizedDealPayload.assignment) normalizedDealPayload.assignment = {};
+            normalizedDealPayload.assignment.visibleTo = finalDealVisibleTo;
+            if (normalizedDealPayload.team && (!normalizedDealPayload.assignment.team || !normalizedDealPayload.assignment.team.length)) {
+                normalizedDealPayload.assignment.team = Array.isArray(normalizedDealPayload.team) ? normalizedDealPayload.team : [normalizedDealPayload.team];
+            }
+
             // 5. Create Deal
             const createdDeals = await Deal.create([normalizedDealPayload], { session });
             deal = createdDeals[0];
