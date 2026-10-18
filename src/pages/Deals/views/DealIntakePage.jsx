@@ -91,9 +91,27 @@ const DealIntakePage = () => {
 
     // ===== DUPLICATE DETECTION & DATA PERSISTENCE UTILITIES =====
 
-    const loadIntakeHistory = useCallback(async () => {
+    const getItemCategory = useCallback((item) => {
+        if (!item) return 'new';
+        if (item.category && item.category !== 'new') return item.category;
+        const dupCount = (item.duplicate_intelligence?.possible_duplicate_ids || []).length;
+        if (dupCount === 1) return 'repeat1x';
+        if (dupCount === 2) return 'repeat2x';
+        if (dupCount === 3) return 'repeat3x';
+        if (dupCount > 3) return 'repeat3plus';
+        return item.category || 'new';
+    }, []);
+
+    const loadIntakeHistory = useCallback(async (filterJid) => {
         try {
-            const response = await intakeAPI.getIntakes({ limit: 300 });
+            const params = { limit: 500 };
+            const effectiveJid = filterJid !== undefined ? filterJid : selectedGroupFilter;
+            if (effectiveJid && effectiveJid !== 'all' && effectiveJid !== 'whatsapp_group_all') {
+                params.groupJid = effectiveJid;
+            } else if (effectiveJid === 'whatsapp_group_all') {
+                params.source_type = 'whatsapp_group';
+            }
+            const response = await intakeAPI.getIntakes(params);
             if (response.success) {
                 setIntakeItems(response.data.map(item => ({
                     ...item,
@@ -105,7 +123,7 @@ const DealIntakePage = () => {
             console.error(error);
             setIntakeLoadError(error.message || "Failed to connect to backend");
         }
-    }, []);
+    }, [selectedGroupFilter]);
 
     const loadMonitoredSources = async () => {
         try {
@@ -975,24 +993,27 @@ const DealIntakePage = () => {
         toast.success("Contact Added & Linked");
     };
 
-    // Filter intake items by category and WhatsApp Group source
+    // Scope items by selected WhatsApp group source filter
+    const scopedIntakeItems = useMemo(() => {
+        if (!intakeItems) return [];
+        if (selectedGroupFilter === 'all') return intakeItems;
+        if (selectedGroupFilter === 'whatsapp_group_all') {
+            return intakeItems.filter(item => 
+                item.source_type === 'whatsapp_group' || 
+                (item.source && item.source.startsWith('WhatsApp Group'))
+            );
+        }
+        return intakeItems.filter(item => 
+            item.raw_source_data?.groupJid === selectedGroupFilter ||
+            item.extracted_entities?._whatsappGroup?.groupJid === selectedGroupFilter
+        );
+    }, [intakeItems, selectedGroupFilter]);
+
+    // Filter scoped intake items by category (All, New, 1x, 2x, 3x, 3+)
     const filteredIntakeItems = useMemo(() => {
-        let items = intakeItems;
-        if (categoryFilter !== 'all') {
-            items = items.filter(item => (item.category || 'new') === categoryFilter);
-        }
-        if (selectedGroupFilter !== 'all') {
-            if (selectedGroupFilter === 'whatsapp_group_all') {
-                items = items.filter(item => item.source_type === 'whatsapp_group' || (item.source && item.source.startsWith('WhatsApp Group')));
-            } else {
-                items = items.filter(item => 
-                    item.raw_source_data?.groupJid === selectedGroupFilter ||
-                    item.extracted_entities?._whatsappGroup?.groupJid === selectedGroupFilter
-                );
-            }
-        }
-        return items;
-    }, [intakeItems, categoryFilter, selectedGroupFilter]);
+        if (categoryFilter === 'all') return scopedIntakeItems;
+        return scopedIntakeItems.filter(item => getItemCategory(item) === categoryFilter);
+    }, [scopedIntakeItems, categoryFilter, getItemCategory]);
 
     return (
         <div style={{ display: 'flex', height: '100vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
@@ -1004,7 +1025,7 @@ const DealIntakePage = () => {
                             <i className="fas fa-magic" style={{ color: '#6366f1' }}></i>
                             <h2 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', margin: 0 }}>Unified Intake Engine</h2>
                         </div>
-                        <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Processing Queue: {intakeItems.length} items</p>
+                        <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Processing Queue: {scopedIntakeItems.length} items</p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
@@ -1114,8 +1135,8 @@ const DealIntakePage = () => {
                             { key: 'repeat3plus', label: '3+', color: '#991b1b' }
                         ].map(filter => {
                             const count = filter.key === 'all'
-                                ? intakeItems.length
-                                : intakeItems.filter(item => (item.category || 'new') === filter.key).length;
+                                ? scopedIntakeItems.length
+                                : scopedIntakeItems.filter(item => getItemCategory(item) === filter.key).length;
 
                             return (
                                 <button
@@ -1158,7 +1179,11 @@ const DealIntakePage = () => {
                         </span>
                         <select
                             value={selectedGroupFilter}
-                            onChange={(e) => setSelectedGroupFilter(e.target.value)}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setSelectedGroupFilter(val);
+                                loadIntakeHistory(val);
+                            }}
                             style={{
                                 flex: 1,
                                 fontSize: '0.75rem',
@@ -1252,15 +1277,15 @@ const DealIntakePage = () => {
                                             <span style={{
                                                 fontSize: '0.68rem',
                                                 fontWeight: 800,
-                                                color: '#15803d',
-                                                background: isDark ? 'rgba(34, 197, 94, 0.18)' : '#dcfce7',
-                                                border: '1px solid #86efac',
+                                                color: isDark ? '#4ade80' : '#15803d',
+                                                background: isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7',
+                                                border: isDark ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid #86efac',
                                                 padding: '2px 8px',
                                                 borderRadius: '6px',
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 gap: '5px',
-                                                maxWidth: '200px',
+                                                maxWidth: '190px',
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
                                                 whiteSpace: 'nowrap',
@@ -1285,18 +1310,40 @@ const DealIntakePage = () => {
                                                 {item.verification_status === 'suspicious' ? 'SUSPICIOUS' : 'NEEDS REVIEW'}
                                             </span>
                                         )}
-                                        {(item.category || 'new') && (item.category || 'new') !== 'new' && (
-                                            <span style={{
-                                                fontSize: '0.65rem',
-                                                fontWeight: 700,
-                                                color: '#fff',
-                                                background: getCategoryColor(item.category || 'new'),
-                                                padding: '2px 6px',
-                                                borderRadius: '4px'
-                                            }}>
-                                                {(item.category || 'new').toUpperCase()}
-                                            </span>
-                                        )}
+                                        {(() => {
+                                            const itemCat = getItemCategory(item);
+                                            if (itemCat === 'new') return null;
+                                            const categoryLabels = {
+                                                repeat1x: '1x Duplicate',
+                                                repeat2x: '2x Duplicate',
+                                                repeat3x: '3x Duplicate',
+                                                repeat3plus: '3+ Duplicate'
+                                            };
+                                            const categoryColors = {
+                                                repeat1x: { bg: isDark ? 'rgba(245, 158, 11, 0.25)' : '#fef3c7', text: isDark ? '#fbbf24' : '#b45309', border: '#fde68a' },
+                                                repeat2x: { bg: isDark ? 'rgba(249, 115, 22, 0.25)' : '#ffedd5', text: isDark ? '#fb923c' : '#c2410c', border: '#fed7aa' },
+                                                repeat3x: { bg: isDark ? 'rgba(239, 68, 68, 0.25)' : '#fee2e2', text: isDark ? '#f87171' : '#b91c1c', border: '#fca5a5' },
+                                                repeat3plus: { bg: isDark ? 'rgba(153, 27, 27, 0.35)' : '#fdf2f8', text: isDark ? '#fda4af' : '#991b1b', border: '#fbcfe8' }
+                                            };
+                                            const styling = categoryColors[itemCat] || { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+                                            return (
+                                                <span style={{
+                                                    fontSize: '0.65rem',
+                                                    fontWeight: 800,
+                                                    color: styling.text,
+                                                    background: styling.bg,
+                                                    border: `1px solid ${styling.border}`,
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '3px'
+                                                }}>
+                                                    <i className="fas fa-copy" style={{ fontSize: '0.6rem' }}></i>
+                                                    {categoryLabels[itemCat] || itemCat}
+                                                </span>
+                                            );
+                                        })()}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <div style={{ textAlign: 'right' }}>
@@ -2821,6 +2868,31 @@ const DealIntakePage = () => {
                                         </div>
 
                                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedGroupFilter(group.groupJid);
+                                                    loadIntakeHistory(group.groupJid);
+                                                    setIsGroupModalOpen(false);
+                                                    toast.success(`Showing deals for: ${group.groupName || group.groupJid}`);
+                                                }}
+                                                style={{
+                                                    padding: '5px 12px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid #22c55e',
+                                                    background: selectedGroupFilter === group.groupJid ? '#22c55e' : (isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0fdf4'),
+                                                    color: selectedGroupFilter === group.groupJid ? '#fff' : '#15803d',
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px'
+                                                }}
+                                                title="Filter Deal Intake queue to this group only"
+                                            >
+                                                <i className="fas fa-filter"></i>
+                                                {selectedGroupFilter === group.groupJid ? 'Filtering' : 'View Deals'}
+                                            </button>
                                             <button
                                                 onClick={() => handleBackfillGroup(group._id)}
                                                 title="Re-scan all messages from this group"

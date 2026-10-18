@@ -74,6 +74,14 @@ class DuplicateIntelligenceEngine {
             queryConditions.push({ location: newRecord.location });
         }
 
+        // 4. Duplicate hash or Raw Text match (handles identical group reposts)
+        if (newRecord.duplicate_hash) {
+            queryConditions.push({ duplicate_hash: newRecord.duplicate_hash });
+        }
+        if (newRecord.raw_source_data?.text && typeof newRecord.raw_source_data.text === 'string' && newRecord.raw_source_data.text.trim().length > 20) {
+            queryConditions.push({ 'raw_source_data.text': newRecord.raw_source_data.text.trim() });
+        }
+
         // If no criteria to match on, return 0 probability
         if (queryConditions.length === 0) {
              return {
@@ -153,6 +161,22 @@ class DuplicateIntelligenceEngine {
                 const titleSim = calculateStringSimilarity(newRecord.title, candidate.title);
                 if (titleSim > 0.7) {
                     score += 10;
+                }
+            }
+
+            // Raw Text Exact / High Similarity Check
+            if (newRecord.raw_source_data?.text && candidate.raw_source_data?.text) {
+                const t1 = String(newRecord.raw_source_data.text).trim();
+                const t2 = String(candidate.raw_source_data.text).trim();
+                if (t1.length > 20 && t1 === t2) {
+                    score += 85;
+                    currentSuggestions.push('Exact raw message match: Reposted in group within 30 days');
+                } else if (t1.length > 20 && t2.length > 20) {
+                    const sim = calculateStringSimilarity(t1, t2);
+                    if (sim >= 0.85) {
+                        score += 50;
+                        currentSuggestions.push('High text similarity with previous message');
+                    }
                 }
             }
 

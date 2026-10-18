@@ -32,7 +32,10 @@ export const getIntakes = async (req, res) => {
             matchStage.source_type = req.query.source_type;
         }
         if (req.query.groupJid) {
-            matchStage['raw_source_data.groupJid'] = req.query.groupJid;
+            matchStage.$or = [
+                { 'raw_source_data.groupJid': req.query.groupJid },
+                { 'extracted_entities._whatsappGroup.groupJid': req.query.groupJid }
+            ];
         }
 
         const limit = Math.min(parseInt(req.query.limit) || 100, 500);
@@ -61,9 +64,17 @@ export const getIntakes = async (req, res) => {
 
         const intakes = await Intake.aggregate(pipeline);
         
-        // Ensure id property is present for frontend compatibility
+        // Ensure id property is present for frontend compatibility & compute duplicate category
         intakes.forEach(item => {
             item.id = item._id.toString();
+            if (!item.category || item.category === 'new') {
+                const dupCount = (item.duplicate_intelligence?.possible_duplicate_ids || []).length;
+                if (dupCount === 1) item.category = 'repeat1x';
+                else if (dupCount === 2) item.category = 'repeat2x';
+                else if (dupCount === 3) item.category = 'repeat3x';
+                else if (dupCount > 3) item.category = 'repeat3plus';
+                else item.category = 'new';
+            }
         });
         
         res.status(200).json({ success: true, data: intakes });

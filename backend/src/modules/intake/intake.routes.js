@@ -14,56 +14,15 @@ const router = express.Router();
 router.use(authenticate);
 
 /**
- * @route   GET /api/intake
- * @desc    Get all intake records
+ * WhatsApp Group Intake Routes (MUST be defined before /:id)
  */
-router.get('/', getIntakes);
-router.get('/:id', getIntakeById);
+router.get('/groups', getIntakeGroups);
+router.patch('/groups/:id/toggle', toggleIntakeGroup);
+router.post('/groups/scan-now', triggerGroupScan);
+router.post('/groups/:id/backfill', backfillIntakeGroup);
 
 /**
- * @route   POST /api/intake
- * @desc    Create a manual intake record
- */
-router.post('/', createIntake);
-
-/**
- * @route   PATCH /api/intake/:id
- * @desc    Update intake status
- */
-router.patch('/:id', updateIntakeStatus);
-
-/**
- * @route   DELETE /api/intake/:id
- * @desc    Delete an intake record
- */
-router.delete('/:id', deleteIntake);
-
-/**
- * @route   POST /api/intake/ocr
- * @desc    Process OCR on an uploaded image
- */
-router.post('/ocr', uploadImageOnly.single('image'), processOCR);
-
-/**
- * @route   POST /api/intake/zip
- * @desc    Process and extract content from a ZIP file
- */
-router.post('/zip', uploadZipOnly.single('file'), processZIP);
-
-/**
- * @route   POST /api/intake/pdf
- * @desc    Process a PDF file
- */
-router.post('/pdf', uploadPdfOnly.single('file'), processPDF);
-
-/**
- * @route   POST /api/intake/url
- * @desc    Process a Public URL
- */
-router.post('/url', processURL);
-
-/**
- * Automated Monitor Routes
+ * Automated Monitor Routes (MUST be defined before /:id)
  */
 router.post('/monitors', createAutomatedSource);
 router.get('/monitors', getAutomatedSources);
@@ -71,11 +30,24 @@ router.patch('/monitors/:id/toggle', toggleAutomatedSource);
 router.delete('/monitors/:id', deleteAutomatedSource);
 
 /**
- * WhatsApp Group Intake Routes
+ * File & Content Processing Routes
  */
-router.get('/groups', getIntakeGroups);
-router.patch('/groups/:id/toggle', toggleIntakeGroup);
-router.post('/groups/scan-now', triggerGroupScan);
-router.post('/groups/:id/backfill', backfillIntakeGroup);
+router.post('/ocr', uploadImageOnly.single('image'), processOCR);
+router.post('/zip', uploadZipOnly.single('file'), processZIP);
+router.post('/pdf', uploadPdfOnly.single('file'), processPDF);
+router.post('/url', processURL);
+
+/**
+ * Core Intake Collection Routes
+ */
+router.get('/', getIntakes);
+router.post('/', createIntake);
+
+/**
+ * Single Intake Record Wildcard Routes (MUST be last)
+ */
+router.get('/:id', getIntakeById);
+router.patch('/:id', updateIntakeStatus);
+router.delete('/:id', deleteIntake);
 
 export default router;
