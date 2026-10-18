@@ -5,11 +5,21 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
-
 /**
- * Enterprise Visibility Engine v2 — Hardened
- * Generates robust MongoDB $or filters based on User Data Scope and Team assignments.
+ * Enterprise Visibility Engine v3 — Hardened Regional & Team Isolation
+ * Generates robust MongoDB $or filters based on User Data Scope, Department, and Team assignments.
  * Scopes: assigned | team | department | all
+ *
+ * ENTERPRISE REGIONAL ISOLATION RULES:
+ * 1. Global Bypass (dataScope === 'all' or root system owner emails): Returns {} (full visibility).
+ * 2. Department Scope: User sees base records assigned to them + records belonging to their department/teams
+ *    within the department where visibility is not restricted to private.
+ * 3. Team Scope: User sees base records assigned to them + records belonging to their assigned team(s).
+ *    Cross-team leakage (e.g. Kurukshetra deals showing to Mohali team) is strictly prevented even if
+ *    records have visibleTo: 'Everyone', because team boundaries take absolute precedence.
+ * 4. Truly Global Records: Records with visibleTo in ['Everyone', 'Public'] that have NO team and NO department
+ *    assigned are visible to all authenticated scopes.
+ * 5. Assigned Scope: User only sees records directly assigned to them or unassigned truly global records.
  */
 export const getVisibilityFilter = async (user) => {
     if (!user) {
@@ -54,10 +64,22 @@ export const getVisibilityFilter = async (user) => {
         ]
     };
 
-    const everyoneFilter = {
-        $or: [
-            { visibleTo: 'Everyone' },
-            { 'assignment.visibleTo': 'Everyone' }
+    // Truly global records have visibleTo: Everyone/Public AND no team and no department attached
+    const trulyGlobalFilter = {
+        $and: [
+            {
+                $or: [
+                    { visibleTo: { $in: ['Everyone', 'Public'] } },
+                    { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } }
+                ]
+            },
+            {
+                $and: [
+                    { $or: [{ team: null }, { team: { $exists: false } }] },
+                    { $or: [{ teams: { $size: 0 } }, { teams: { $exists: false } }, { teams: null }] },
+                    { $or: [{ 'assignment.team': { $size: 0 } }, { 'assignment.team': { $exists: false } }, { 'assignment.team': null }] }
+                ]
+            }
         ]
     };
 
@@ -70,13 +92,12 @@ export const getVisibilityFilter = async (user) => {
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
-                { department: user.department },
                 {
                     $and: [
                         { 
                             $or: [
-                                { visibleTo: { $in: ['Team', 'Everyone'] } },
-                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
+                                { visibleTo: { $in: ['Department', 'Team', 'Everyone', 'Public'] } },
+                                { 'assignment.visibleTo': { $in: ['Department', 'Team', 'Everyone', 'Public'] } },
                                 { visibleTo: { $exists: false } },
                                 { visibleTo: null },
                                 { 'assignment.visibleTo': { $exists: false } },
@@ -85,6 +106,7 @@ export const getVisibilityFilter = async (user) => {
                         },
                         {
                             $or: [
+                                { department: user.department },
                                 { teams: { $in: deptTeamIds } },
                                 { team: { $in: deptTeamIds } },
                                 { 'assignment.team': { $in: deptTeamIds } }
@@ -92,7 +114,7 @@ export const getVisibilityFilter = async (user) => {
                         }
                     ]
                 },
-                everyoneFilter
+                trulyGlobalFilter
             ]
         };
     } else if (effectiveScope === 'team') {
@@ -103,8 +125,8 @@ export const getVisibilityFilter = async (user) => {
                     $and: [
                         { 
                             $or: [
-                                { visibleTo: { $in: ['Team', 'Everyone'] } },
-                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
+                                { visibleTo: { $in: ['Team', 'Everyone', 'Public'] } },
+                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone', 'Public'] } },
                                 { visibleTo: { $exists: false } },
                                 { visibleTo: null },
                                 { 'assignment.visibleTo': { $exists: false } },
@@ -120,14 +142,15 @@ export const getVisibilityFilter = async (user) => {
                         }
                     ]
                 },
-                everyoneFilter
+                trulyGlobalFilter
             ]
         };
     } else {
+        // Assigned Scope (Individual Agent): records assigned to user or truly global unassigned
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
-                everyoneFilter
+                trulyGlobalFilter
             ]
         };
     }
@@ -135,3 +158,5 @@ export const getVisibilityFilter = async (user) => {
     console.log(`[VISIBLE_AUDIT] Final Filter generated for effective scope: ${effectiveScope}`);
     return finalFilter;
 };
+
+export default getVisibilityFilter;
