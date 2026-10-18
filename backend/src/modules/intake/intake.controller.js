@@ -642,6 +642,50 @@ export const sendWAVerification = async (req, res) => {
             return res.status(400).json({ success: false, message: "message content is required" });
         }
 
+        const isMeta = String(provider || '').toUpperCase() === 'META';
+
+        // 🚀 ENTERPRISE DEV-TO-PROD WHATSAPP WEB BRIDGE:
+        // In local development, the Baileys socket is intentionally not connected to prevent session
+        // conflicts with 24/7 production group scanner on api.bharatproperties.co.
+        // If the user triggers WhatsApp Web dispatch in local dev, bridge seamlessly to Production EC2!
+        if (!isMeta && process.env.NODE_ENV !== 'production') {
+            try {
+                const { BaileysConnectionManager } = await import('../../../services/baileysQueue/BaileysConnectionManager.js');
+                const sock = BaileysConnectionManager.getSocket();
+                const isSocketLive = sock && sock.ws && sock.ws.isOpen;
+
+                if (!isSocketLive) {
+                    console.log(`[sendWAVerification] 🔄 Local Baileys socket inactive in dev. Bridging inquiry to Production EC2 (api.bharatproperties.co)...`);
+                    const jwt = (await import('jsonwebtoken')).default;
+                    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '') || jwt.sign(
+                        { id: req.user?._id || req.user?.id || '69c36289974fbf7946ee99cd', role: 'admin' },
+                        process.env.JWT_SECRET || 'supersecretkey123',
+                        { expiresIn: '15m' }
+                    );
+
+                    const prodResponse = await fetch(`https://api.bharatproperties.co/api/intake/${id}/wa-verification-send`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ targetPhone, targetType, message, provider: 'BAILEYS' })
+                    });
+
+                    const prodJson = await prodResponse.json();
+                    if (!prodResponse.ok || !prodJson.success) {
+                        throw new Error(prodJson.message || prodJson.error || 'Production WhatsApp Web bridge returned an error');
+                    }
+
+                    console.log(`[sendWAVerification] ✅ Bridged dispatch succeeded:`, prodJson.data?.messageId || prodJson.data?.status);
+                    return res.status(200).json(prodJson);
+                }
+            } catch (bridgeErr) {
+                console.error(`[sendWAVerification] Dev bridge failed:`, bridgeErr.message);
+                throw bridgeErr;
+            }
+        }
+
         const result = await dealVerificationAgent.sendVerificationInquiry(id, {
             targetPhone,
             targetType,
