@@ -113,7 +113,10 @@ class GeminiService {
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
             generationConfig: {
                 temperature:     opts.temperature ?? 0.7,
-                maxOutputTokens: opts.maxTokens   ?? 2048,
+                maxOutputTokens: opts.maxTokens   ?? 1024,
+                thinkingConfig: {
+                    thinkingBudget: opts.thinkingBudget ?? 0
+                }
             },
         };
 
@@ -123,6 +126,10 @@ class GeminiService {
         }
 
         try {
+            if (opts.responseMimeType) {
+                body.generationConfig.responseMimeType = opts.responseMimeType;
+            }
+
             const response = await axios.post(url, body, {
                 headers:  { 'Content-Type': 'application/json' },
                 timeout:  30000,
@@ -140,8 +147,27 @@ class GeminiService {
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
             const code = err.response?.data?.error?.status || 'UNKNOWN';
-            console.error(`[GeminiService] _callGemini error (${model}) [${code}]:`, detail);
+            const status = err.response?.status;
+            console.error(`[GeminiService] _callGemini error (${model}) [${code} / ${status}]:`, detail);
             
+            // Automatic graceful failover if primary model hits demand spike (503), rate limit (429), or UNAVAILABLE
+            const isFailoverTrigger = code === 'UNAVAILABLE' || 
+                                      status === 503 || 
+                                      status === 429 || 
+                                      code === 'RESOURCE_EXHAUSTED' || 
+                                      detail.toLowerCase().includes('high demand') ||
+                                      detail.toLowerCase().includes('quota') ||
+                                      detail.toLowerCase().includes('rate');
+
+            if (isFailoverTrigger && !opts._isFallbackAttempt) {
+                const fallbackModel = 'gemini-flash-latest';
+                console.warn(`[GeminiService] High demand / rate limit on ${model}. Gracefully failing over to ${fallbackModel}...`);
+                return this._callGemini(apiKey, apiVersion, fallbackModel, systemPrompt, userPrompt, {
+                    ...opts,
+                    _isFallbackAttempt: true
+                });
+            }
+
             // If it's a 404, maybe the model is wrong
             if (err.response?.status === 404) {
                 throw new Error(`Gemini model "${model}" not found. Please check your API configuration.`);

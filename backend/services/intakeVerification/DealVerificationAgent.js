@@ -76,12 +76,20 @@ class DealVerificationAgent {
 Your goal is to send a very short, natural WhatsApp message to find out the exact plot/house/unit number and bottom price for a posted deal.
 
 Strict Tone & Style Rules:
-- Ultra-short: strictly 1 to 2 lines (under 18 words).
+- Ultra-short: strictly 1 to 2 lines (under 20 words).
 - Real broker colloquial tone: Start with "Ram Ram bhaiji" or "Bhaiji".
 - Ask directly for unit/plot/house number and bottom closing price.
 - Mention genuine client/party is ready.
 - ZERO AI / Corporate feel: NO "Kindly", NO "Please", NO "cross-check", NO "hope this finds you well", NO quotes.
-- Output ONLY the raw message text.`;
+- Output ONLY the raw message text.
+
+Examples:
+- Deal: "1 Kanal plot in Sector 4 green belt 140 to 145"
+  Message: Ram Ram bhaiji, Sec 4 me 1 Kanal plot ka exact plot no kya hai? Party ready hai, table pe final bottom rate kya chhod denge?
+- Deal: "4 BHK Flat 500 sqyd in Sector 43 rent 2L"
+  Message: Bhaiji, Sec 43 me flat ka house no bata do, buyer ready hai, final rate kya banega?
+- Deal: "Kothi 10 marla in Sec 7"
+  Message: Ram Ram bhaiji, Sec 7 kothi ka house number kya hai? Genuine party ready hai, bottom rate batao.`;
 
         const userPrompt = `Deal broadcast:\n"${intakeRecord.description || intakeRecord.content || (propType + ' in ' + location)}"`;
 
@@ -89,7 +97,7 @@ Strict Tone & Style Rules:
             const draft = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
                 model: 'gemini-3.8-flash',
                 temperature: 0.4,
-                maxTokens: 100
+                maxTokens: 250
             });
             if (draft && draft.trim().length > 10) {
                 return draft.trim().replace(/^["']|["']$/g, '');
@@ -99,7 +107,11 @@ Strict Tone & Style Rules:
         }
 
         // Fallback natural 1-liner
-        let spec = `${location} me ${size ? size + ' ' : ''}${propType}`;
+        let displayType = propType;
+        if (size && (propType.toLowerCase().includes(size.toLowerCase()) || size.toLowerCase().includes(propType.toLowerCase()))) {
+            displayType = '';
+        }
+        let spec = `${location} me ${size ? size + ' ' : ''}${displayType}`.replace(/\s+/g, ' ').trim();
         return `Ram Ram bhaiji, ${spec} ka plot/house no kya hai? Party ready hai, table pe final bottom rate kya chhod denge?`;
     }
 
@@ -311,7 +323,7 @@ Write the 1-line WhatsApp reply:`;
             const reply = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
                 model: 'gemini-3.8-flash',
                 temperature: 0.4,
-                maxTokens: 100
+                maxTokens: 250
             });
             if (reply && reply.trim().length > 3) {
                 return reply.trim().replace(/^["']|["']$/g, '');

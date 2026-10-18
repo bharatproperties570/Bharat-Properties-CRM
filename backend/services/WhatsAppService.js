@@ -321,9 +321,27 @@ class WhatsAppService {
                 );
                 sentMsg = await Promise.race([sendPromise, timeoutPromise]);
             } catch (firstAttemptErr) {
-                // If socket is open and first attempt timed out, give it one quick retry (handles initial key handshake delay)
-                if (sock.ws && sock.ws.isOpen) {
-                    console.warn('[WhatsAppService/Baileys] First send attempt timed out, retrying once...', firstAttemptErr.message);
+                const errMsg = String(firstAttemptErr?.message || firstAttemptErr);
+                const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed');
+                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket dead:', isSocketDead);
+
+                if (isSocketDead) {
+                    try {
+                        console.log('[WhatsAppService/Baileys] Socket disconnected, attempting instant re-acquisition...');
+                        sock = await BaileysConnectionManager.connect(config.integrationId.toString());
+                        if (sock && sock.waitForSocketOpen) {
+                            await Promise.race([
+                                sock.waitForSocketOpen(),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Reconnect wait timeout')), 6000))
+                            ]);
+                        }
+                    } catch (recErr) {
+                        console.warn('[WhatsAppService/Baileys] Reconnect during retry failed:', recErr.message);
+                    }
+                }
+
+                if (sock && sock.ws && sock.ws.isOpen) {
+                    console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
                     const retryPromise = sock.sendMessage(jid, content);
                     const retryTimeout = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('WhatsApp Web send timed out on retry after 15 seconds.')), 15000)
@@ -341,7 +359,10 @@ class WhatsAppService {
                 messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }] 
             };
         } catch (error) {
-            const errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            let errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            if (errText === '1006' || errText.includes('1006')) {
+                errText = 'WhatsApp Web socket temporarily disconnected (1006). Connection was auto-reestablished; please click Send again.';
+            }
             console.error(`[WhatsAppService/Baileys] Send error:`, errText);
             return { success: false, error: errText, provider: 'baileys' };
         }

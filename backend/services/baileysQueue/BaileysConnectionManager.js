@@ -139,7 +139,7 @@ export const BaileysConnectionManager = {
         try {
             const integrations = await WhatsAppIntegration.find({ 
                 provider: 'BAILEYS', 
-                status: { $in: ['ACTIVE', 'PENDING_ONBOARDING'] }
+                status: 'ACTIVE'
             });
             for (const integration of integrations) {
                 await this.connect(integration._id.toString());
