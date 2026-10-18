@@ -33,7 +33,7 @@ import { addToIntakeQueue } from './IntakeQueue.js';
 import Intake from '../../models/Intake.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SCAN_INTERVAL_CRON = '*/5 * * * *';  // Every 5 minutes
+const SCAN_INTERVAL_CRON = '*/15 * * * *'; // 15-minute background reconciliation net (real-time stream is in baileysWorker)
 const MAX_MESSAGES_PER_SCAN = 50;          // Rate limit per group per scan cycle
 const MAX_ERROR_LOG_SIZE = 30;             // Cap error log per cursor document
 const MAX_CONSECUTIVE_FAILURES = 5;        // Auto-deactivate after N failures
@@ -251,26 +251,49 @@ class GroupMessageScanner {
         }
 
         const messages = conversation.messages || [];
-        const startIndex = cursor.lastProcessedIndex + 1;
-
-        if (startIndex >= messages.length) {
-            // No new messages
+        if (messages.length === 0) {
             return { processed: 0, skipped: 0 };
         }
 
-        // Process new messages (rate limited per scan)
-        const endIndex = Math.min(startIndex + MAX_MESSAGES_PER_SCAN, messages.length);
-        let lastSuccessIndex = cursor.lastProcessedIndex;
-        let lastSuccessMessageId = cursor.lastProcessedMessageId;
+        // Bounded slice resilient message extraction (Pillar 2 & 3 compatible)
+        let candidateMessages = [];
+        if (cursor.lastProcessedMessageId) {
+            const lastIdx = messages.findIndex(m => m.metadata?.messageId === cursor.lastProcessedMessageId);
+            if (lastIdx !== -1) {
+                candidateMessages = messages.slice(lastIdx + 1);
+            } else if (cursor.lastProcessedAt) {
+                const cutoff = new Date(cursor.lastProcessedAt).getTime();
+                candidateMessages = messages.filter(m => new Date(m.timestamp).getTime() > cutoff);
+            } else {
+                candidateMessages = messages.slice(-MAX_MESSAGES_PER_SCAN);
+            }
+        } else if (cursor.lastProcessedAt) {
+            const cutoff = new Date(cursor.lastProcessedAt).getTime();
+            candidateMessages = messages.filter(m => new Date(m.timestamp).getTime() > cutoff);
+        } else {
+            candidateMessages = messages.slice(-MAX_MESSAGES_PER_SCAN);
+        }
 
-        for (let i = startIndex; i < endIndex; i++) {
+        if (candidateMessages.length === 0) {
+            return { processed: 0, skipped: 0 };
+        }
+
+        // Rate limit candidate messages per scan cycle
+        const messagesToProcess = candidateMessages.slice(0, MAX_MESSAGES_PER_SCAN);
+        let latestProcessedMessageId = cursor.lastProcessedMessageId;
+        let latestProcessedTimestamp = cursor.lastProcessedAt;
+
+        for (let i = 0; i < messagesToProcess.length; i++) {
             if (this._shuttingDown) break;
 
-            const msg = messages[i];
+            const msg = messagesToProcess[i];
+            const msgId = msg.metadata?.messageId;
+            const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date();
 
             // Skip assistant/system messages (only process user = incoming)
             if (msg.role !== 'user') {
-                lastSuccessIndex = i;
+                latestProcessedMessageId = msgId || latestProcessedMessageId;
+                latestProcessedTimestamp = msgTime;
                 skipped++;
                 continue;
             }
@@ -279,20 +302,21 @@ class GroupMessageScanner {
 
             // Stage 1: Fast filter — skip short/non-property messages
             if (!this._isLikelyPropertyMessage(content)) {
-                lastSuccessIndex = i;
+                latestProcessedMessageId = msgId || latestProcessedMessageId;
+                latestProcessedTimestamp = msgTime;
                 skipped++;
                 continue;
             }
 
             // Stage 2: Dedup check — use messageId if available
-            const msgId = msg.metadata?.messageId;
             if (msgId) {
                 const existingIntake = await Intake.findOne({ 
                     'raw_source_data.messageId': msgId 
                 }).select('_id').lean();
 
                 if (existingIntake) {
-                    lastSuccessIndex = i;
+                    latestProcessedMessageId = msgId;
+                    latestProcessedTimestamp = msgTime;
                     skipped++;
                     continue;
                 }
@@ -307,8 +331,8 @@ class GroupMessageScanner {
                     groupJid: cursor.groupJid,
                     senderName: msg.metadata?.senderName || 'Unknown',
                     participant: msg.metadata?.participant || null,
-                    messageId: msgId || `idx_${cursor.conversationId}_${i}`,
-                    timestamp: msg.timestamp,
+                    messageId: msgId || `idx_${cursor.conversationId}_${Date.now()}_${i}`,
+                    timestamp: msgTime,
                     conversationId: cursor.conversationId
                 };
 
@@ -316,11 +340,12 @@ class GroupMessageScanner {
 
                 if (result.success) {
                     processed++;
-                    lastSuccessIndex = i;
-                    lastSuccessMessageId = msgId || null;
+                    latestProcessedMessageId = msgId || latestProcessedMessageId;
+                    latestProcessedTimestamp = msgTime;
                 } else {
                     // Duplicate detected by IntakeQueue — still advance cursor
-                    lastSuccessIndex = i;
+                    latestProcessedMessageId = msgId || latestProcessedMessageId;
+                    latestProcessedTimestamp = msgTime;
                     skipped++;
                 }
             } catch (enqueueErr) {
@@ -330,18 +355,16 @@ class GroupMessageScanner {
                     messageIndex: i,
                     error: enqueueErr.message
                 });
-                // Don't advance cursor past failed messages — retry next cycle
                 break;
             }
         }
 
-        // Update cursor position
-        if (lastSuccessIndex > cursor.lastProcessedIndex) {
+        // Update cursor position with resilient timestamp and message ID
+        if (latestProcessedMessageId !== cursor.lastProcessedMessageId || latestProcessedTimestamp !== cursor.lastProcessedAt) {
             await IntakeGroupCursor.findByIdAndUpdate(cursor._id, {
                 $set: {
-                    lastProcessedIndex: lastSuccessIndex,
-                    lastProcessedMessageId: lastSuccessMessageId,
-                    lastProcessedAt: new Date()
+                    lastProcessedMessageId: latestProcessedMessageId,
+                    lastProcessedAt: latestProcessedTimestamp || new Date()
                 },
                 $inc: {
                     totalProcessed: processed,
@@ -357,7 +380,7 @@ class GroupMessageScanner {
                 groupName: cursor.groupName,
                 processed,
                 skipped,
-                newCursorIndex: lastSuccessIndex
+                latestProcessedMessageId
             });
         }
 

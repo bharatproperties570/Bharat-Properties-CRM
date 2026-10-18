@@ -278,3 +278,44 @@ export const markConversationAsRead = async (req, res) => {
     }
 };
 
+/**
+ * @desc Get paginated time-series chat messages from ChatMessage model (Pillar 2)
+ * @route GET /api/conversations/:id/messages
+ */
+export const getConversationMessages = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { limit = 50, before } = req.query;
+        const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+
+        const ChatMessage = (await import('../models/ChatMessage.js')).default;
+        const isObjId = mongoose.Types.ObjectId.isValid(id);
+        
+        const query = {
+            $or: [
+                ...(isObjId ? [{ conversationId: id }] : []),
+                { remoteJid: id },
+                { groupJid: id },
+                { senderPhone: id }
+            ]
+        };
+        if (before) {
+            query.timestamp = { $lt: new Date(before) };
+        }
+
+        const messages = await ChatMessage.find(query)
+            .sort({ timestamp: -1 })
+            .limit(limitNum)
+            .lean();
+
+        res.status(200).json({ 
+            success: true, 
+            count: messages.length, 
+            data: messages.reverse() 
+        });
+    } catch (error) {
+        console.error("Failed to fetch conversation messages:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
