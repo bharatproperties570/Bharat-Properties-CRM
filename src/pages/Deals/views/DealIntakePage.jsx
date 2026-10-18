@@ -1018,116 +1018,150 @@ const DealIntakePage = () => {
     return (
         <div style={{ display: 'flex', height: '100vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
             {/* Left Panel: Workflow Steps / Inbox */}
-            <div style={{ width: '350px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <i className="fas fa-magic" style={{ color: '#6366f1' }}></i>
-                            <h2 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', margin: 0 }}>Unified Intake Engine</h2>
+            <div style={{ width: '360px', minWidth: '360px', maxWidth: '360px', flexShrink: 0, background: isDark ? 'var(--surface-color, #0f172a)' : '#ffffff', borderRight: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '16px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {/* Header Top Row: Title + Utility Action Icons */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                <i className="fas fa-magic" style={{ color: '#6366f1', fontSize: '0.95rem' }}></i>
+                                <h2 style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-main, #f8fafc)' : '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Unified Intake Engine</h2>
+                            </div>
+                            <p style={{ fontSize: '0.72rem', color: isDark ? 'var(--text-muted, #94a3b8)' : '#64748b', margin: 0 }}>Processing Queue: <strong style={{ color: isDark ? '#38bdf8' : '#0284c7' }}>{scopedIntakeItems.length}</strong> items</p>
                         </div>
-                        <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Processing Queue: {scopedIntakeItems.length} items</p>
+                        <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                            <button
+                                onClick={loadIntakeHistory}
+                                title="Refresh Queue"
+                                style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#f1f5f9',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #e2e8f0',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <i className="fas fa-sync-alt" style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted, #cbd5e1)' : '#64748b' }}></i>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    loadMonitoredSources();
+                                    setIsMonitorModalOpen(true);
+                                }}
+                                title="Monitored URLs"
+                                style={{
+                                    background: isDark ? 'rgba(139, 92, 246, 0.15)' : '#f5f3ff',
+                                    border: isDark ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid #ddd6fe',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <i className="fas fa-redo-alt" style={{ fontSize: '0.75rem', color: '#8b5cf6' }}></i>
+                            </button>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                title="Add Intake"
+                                style={{
+                                    background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff',
+                                    border: isDark ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid #bfdbfe',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <i className="fas fa-plus" style={{ fontSize: '0.75rem', color: '#3b82f6' }}></i>
+                            </button>
+                        </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            onClick={loadIntakeHistory}
-                            title="Refresh Queue"
-                            style={{
-                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
-                                border: '1px solid #e2e8f0',
+
+                    {/* Dedicated WhatsApp Hub Button */}
+                    <button
+                        onClick={() => {
+                            loadIntakeGroups();
+                            setIsGroupModalOpen(true);
+                        }}
+                        className="btn-whatsapp-hub"
+                        title="Open WhatsApp Groups Live Ingestion Hub"
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            background: isDark 
+                                ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(21, 128, 61, 0.35))' 
+                                : 'linear-gradient(135deg, #16a34a, #15803d)',
+                            border: isDark ? '1px solid rgba(74, 222, 128, 0.4)' : '1px solid #16a34a',
+                            borderRadius: '8px',
+                            color: '#ffffff',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
+                            boxSizing: 'border-box',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <div style={{
+                                width: '26px',
+                                height: '26px',
                                 borderRadius: '50%',
-                                width: '32px',
-                                height: '32px',
-                                cursor: 'pointer',
+                                background: 'rgba(255, 255, 255, 0.2)',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            <i className="fas fa-sync-alt" style={{ color: isDark ? 'var(--text-muted)' : '#64748b' }}></i>
-                        </button>
-                        <button
-                            onClick={() => {
-                                loadMonitoredSources();
-                                setIsMonitorModalOpen(true);
-                            }}
-                            title="Monitored URLs"
-                            style={{
-                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff',
-                                border: '1px solid #ddd6fe',
-                                borderRadius: '50%',
-                                width: '32px',
-                                height: '32px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            <i className="fas fa-redo-alt" style={{ color: '#8b5cf6' }}></i>
-                        </button>
-                        <button
-                            onClick={() => {
-                                loadIntakeGroups();
-                                setIsGroupModalOpen(true);
-                            }}
-                            className="btn-whatsapp-hub"
-                            title="Open WhatsApp Groups Live Ingestion Hub"
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '5px 12px',
-                                background: '#22c55e',
-                                color: '#ffffff',
-                                border: 'none',
-                                borderRadius: '6px',
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 6px rgba(34, 197, 94, 0.3)',
-                                whiteSpace: 'nowrap'
-                            }}
-                        >
-                            <i className="fab fa-whatsapp" style={{ fontSize: '1rem' }}></i>
-                            <span>WhatsApp Hub ({intakeGroups.length})</span>
+                                justifyContent: 'center',
+                                flexShrink: 0
+                            }}>
+                                <i className="fab fa-whatsapp" style={{ fontSize: '0.9rem', color: '#fff' }}></i>
+                            </div>
+                            <div style={{ textAlign: 'left', lineHeight: 1.2, minWidth: 0 }}>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    WhatsApp Hub
+                                </div>
+                                <div style={{ fontSize: '0.68rem', opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {intakeGroups.length} Groups Connected
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                             {intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0) > 0 && (
                                 <span style={{
                                     background: '#ffffff',
                                     color: '#15803d',
-                                    fontSize: '0.65rem',
-                                    padding: '1px 5px',
+                                    fontSize: '0.68rem',
+                                    padding: '1px 6px',
                                     borderRadius: '10px',
-                                    fontWeight: 800
+                                    fontWeight: 800,
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
                                 }}>
-                                    {intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0)}
+                                    {intakeGroups.reduce((acc, g) => acc + (g.totalProcessed || 0), 0)} msgs
                                 </span>
                             )}
-                        </button>
-                        <button
-                            onClick={() => setIsAddModalOpen(true)}
-                            title="Add Intake"
-                            style={{
-                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '50%',
-                                width: '32px',
-                                height: '32px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            <i className="fas fa-plus" style={{ color: isDark ? 'var(--text-muted)' : '#64748b' }}></i>
-                        </button>
-                    </div>
+                            <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem', opacity: 0.85 }}></i>
+                        </div>
+                    </button>
                 </div>
 
                 {/* Category Filters */}
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <div style={{ padding: '12px 14px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0', background: isDark ? 'rgba(255, 255, 255, 0.02)' : '#f8fafc' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                         {[
-                            { key: 'all', label: 'All', color: isDark ? 'var(--text-muted)' : '#64748b' },
+                            { key: 'all', label: 'All', color: isDark ? '#94a3b8' : '#64748b' },
                             { key: 'new', label: 'New', color: '#10b981' },
                             { key: 'repeat1x', label: '1x', color: '#f59e0b' },
                             { key: 'repeat2x', label: '2x', color: '#f97316' },
@@ -1138,32 +1172,43 @@ const DealIntakePage = () => {
                                 ? scopedIntakeItems.length
                                 : scopedIntakeItems.filter(item => getItemCategory(item) === filter.key).length;
 
+                            const isSelected = categoryFilter === filter.key;
                             return (
                                 <button
                                     key={filter.key}
                                     onClick={() => setCategoryFilter(filter.key)}
                                     style={{
-                                        padding: '6px 12px',
+                                        padding: '5px 8px',
                                         borderRadius: '6px',
-                                        border: categoryFilter === filter.key ? `2px solid ${filter.color}` : '1px solid #e2e8f0',
-                                        background: categoryFilter === filter.key ? `${filter.color}15` : '#fff',
-                                        color: categoryFilter === filter.key ? filter.color : isDark ? 'var(--text-muted)' : '#64748b',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
+                                        border: isSelected ? `2px solid ${filter.color}` : (isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid #e2e8f0'),
+                                        background: isSelected 
+                                            ? (isDark ? `${filter.color}25` : `${filter.color}15`) 
+                                            : (isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff'),
+                                        color: isSelected ? filter.color : (isDark ? '#cbd5e1' : '#64748b'),
+                                        fontSize: '0.72rem',
+                                        fontWeight: 700,
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '4px'
+                                        justifyContent: 'space-between',
+                                        boxSizing: 'border-box',
+                                        minWidth: 0,
+                                        transition: 'all 0.15s ease'
                                     }}
                                 >
-                                    {filter.label}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {filter.label}
+                                    </span>
                                     <span style={{
                                         background: filter.color,
-                                        color: '#fff',
+                                        color: '#ffffff',
                                         borderRadius: '10px',
-                                        padding: '2px 6px',
-                                        fontSize: '0.7rem',
-                                        fontWeight: 700
+                                        padding: '1px 5px',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 800,
+                                        flexShrink: 0,
+                                        minWidth: '16px',
+                                        textAlign: 'center'
                                     }}>
                                         {count}
                                     </span>
@@ -1173,45 +1218,74 @@ const DealIntakePage = () => {
                     </div>
 
                     {/* WhatsApp Groups / Source Filter Dropdown */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i> Source:
-                        </span>
-                        <select
-                            value={selectedGroupFilter}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setSelectedGroupFilter(val);
-                                loadIntakeHistory(val);
-                            }}
-                            style={{
-                                flex: 1,
-                                fontSize: '0.75rem',
-                                padding: '4px 8px',
-                                borderRadius: '6px',
-                                border: '1px solid #cbd5e1',
-                                background: isDark ? 'var(--surface-color, #1e293b)' : '#fff',
-                                color: isDark ? 'var(--text-main, #f8fafc)' : '#1e293b',
-                                cursor: 'pointer',
-                                fontWeight: 600
-                            }}
-                        >
-                            <option value="all">All Sources ({intakeItems.length})</option>
-                            <option value="whatsapp_group_all">
-                                🟢 All WhatsApp Groups ({intakeItems.filter(i => i.source_type === 'whatsapp_group' || (i.source && i.source.startsWith('WhatsApp Group'))).length})
-                            </option>
-                            {intakeGroups.map(g => {
-                                const groupLiveCount = intakeItems.filter(i => 
-                                    i.raw_source_data?.groupJid === g.groupJid ||
-                                    i.extracted_entities?._whatsappGroup?.groupJid === g.groupJid
-                                ).length;
-                                return (
-                                    <option key={g.groupJid} value={g.groupJid}>
-                                        💬 {g.groupName || g.groupJid} ({groupLiveCount > 0 ? `${groupLiveCount} live` : `${g.totalProcessed || 0} processed`})
-                                    </option>
-                                );
-                            })}
-                        </select>
+                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', gap: '5px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                                <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '0.85rem' }}></i> Source Filter
+                            </span>
+                            {selectedGroupFilter !== 'all' && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedGroupFilter('all');
+                                        loadIntakeHistory('all');
+                                    }}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#3b82f6',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        padding: 0
+                                    }}
+                                >
+                                    Reset Filter
+                                </button>
+                            )}
+                        </div>
+                        <div style={{ width: '100%', minWidth: 0 }}>
+                            <select
+                                value={selectedGroupFilter}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSelectedGroupFilter(val);
+                                    loadIntakeHistory(val);
+                                }}
+                                style={{
+                                    width: '100%',
+                                    minWidth: 0,
+                                    maxWidth: '100%',
+                                    boxSizing: 'border-box',
+                                    fontSize: '0.74rem',
+                                    padding: '5px 8px',
+                                    borderRadius: '6px',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1',
+                                    background: isDark ? '#1e293b' : '#ffffff',
+                                    color: isDark ? '#f8fafc' : '#1e293b',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                <option value="all">All Sources ({intakeItems.length})</option>
+                                <option value="whatsapp_group_all">
+                                    🟢 All WhatsApp Groups ({intakeItems.filter(i => i.source_type === 'whatsapp_group' || (i.source && i.source.startsWith('WhatsApp Group'))).length})
+                                </option>
+                                {intakeGroups.map(g => {
+                                    const groupLiveCount = intakeItems.filter(i => 
+                                        i.raw_source_data?.groupJid === g.groupJid ||
+                                        i.extracted_entities?._whatsappGroup?.groupJid === g.groupJid
+                                    ).length;
+                                    return (
+                                        <option key={g.groupJid} value={g.groupJid}>
+                                            💬 {g.groupName || g.groupJid} ({groupLiveCount > 0 ? `${groupLiveCount} live` : `${g.totalProcessed || 0} processed`})
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -1413,7 +1487,7 @@ const DealIntakePage = () => {
             </div>
 
             {/* Right Panel: Workflow Stage View */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
                 {isProcessing && (
                     <div style={{
                         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
