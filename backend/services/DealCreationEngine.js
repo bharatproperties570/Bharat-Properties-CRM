@@ -226,6 +226,13 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 }
             }
 
+            // Synchronize team and teams
+            if (normalizedDealPayload.team && (!normalizedDealPayload.teams || normalizedDealPayload.teams.length === 0)) {
+                normalizedDealPayload.teams = Array.isArray(normalizedDealPayload.team) ? normalizedDealPayload.team : [normalizedDealPayload.team];
+            } else if (normalizedDealPayload.teams && (!normalizedDealPayload.team || normalizedDealPayload.team.length === 0)) {
+                normalizedDealPayload.team = Array.isArray(normalizedDealPayload.teams) ? normalizedDealPayload.teams[0] : normalizedDealPayload.teams;
+            }
+
             // Normalize visibleTo (Private, Team, Everyone) and sync assignment.visibleTo
             let finalDealVisibleTo = normalizedDealPayload.visibleTo || normalizedDealPayload.assignment?.visibleTo || "Team";
             if (finalDealVisibleTo === "Public" || finalDealVisibleTo === "All Users") {

@@ -163,7 +163,7 @@ const DEFAULT_FORM_DATA = {
     approvedBank: 'Punjab & Sind Bank',
 
     // System Details
-    visibleTo: 'All Users',
+    visibleTo: 'Team',
     owner: '',
 
     // Location
@@ -636,8 +636,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         })),
                         assign: (Array.isArray(projectToEdit.assign) ? projectToEdit.assign : [])
                             .map(u => (u && typeof u === 'object') ? (u._id || u.id) : u).filter(Boolean),
-                        team: (Array.isArray(projectToEdit.team) ? projectToEdit.team : [])
+                        team: (Array.isArray(projectToEdit.team) && projectToEdit.team.length ? projectToEdit.team : (Array.isArray(projectToEdit.teams) ? projectToEdit.teams : []))
                             .map(t => (t && typeof t === 'object') ? (t._id || t.id) : t).filter(Boolean),
+                        visibleTo: (projectToEdit.visibleTo === 'All Users' || projectToEdit.visibleTo === 'Public') ? 'Everyone' : (projectToEdit.visibleTo || 'Team'),
                         owner: (projectToEdit.owner && typeof projectToEdit.owner === 'object') ? (projectToEdit.owner._id || projectToEdit.owner.id) : (projectToEdit.owner || '')
                     }));
                 } catch (err) {
@@ -780,9 +781,13 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const handleSave = async () => {
         const toastId = toast.loading(projectToEdit ? 'Updating project...' : 'Creating project...');
         try {
-            // Transform names to IDs for Lookup fields
+            // Transform names to IDs for Lookup fields and synchronize RBAC fields
+            const safeTeamArray = Array.isArray(formData.team) ? formData.team : (formData.team ? [formData.team] : []);
             const transformedData = {
                 ...formData,
+                team: safeTeamArray,
+                teams: safeTeamArray,
+                visibleTo: (formData.visibleTo === 'All Users' || formData.visibleTo === 'Public') ? 'Everyone' : (formData.visibleTo || 'Team'),
                 category: formData.category.map(c => getLookupId('Category', c)).filter(Boolean),
                 subCategory: formData.subCategory.map(s => getLookupId('SubCategory', s)).filter(Boolean),
                 status: getLookupId('ProjectStatus', formData.status) || formData.status,

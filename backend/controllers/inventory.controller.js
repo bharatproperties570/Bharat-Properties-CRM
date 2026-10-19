@@ -1138,14 +1138,6 @@ export const addInventory = async (req, res) => {
 
         const data = sanitizePayload({ ...req.body });
         
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
-        if (req.user) {
-            if (req.user.department && !data.department) data.department = req.user.department;
-            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
-                data.teams = req.user.teams.map(t => t._id || t);
-            }
-        }
-
         // Resolve Reference Fields to prevent CastErrors
         if (data.category !== undefined) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory !== undefined) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
@@ -1160,7 +1152,7 @@ export const addInventory = async (req, res) => {
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
 
-        // 🏛️ Enterprise RBAC: Project -> Inventory Inheritance
+        // 🏛️ Enterprise RBAC: Project -> Inventory Inheritance (Takes Precedence)
         if (data.projectId || data.projectName) {
             const ProjectModel = mongoose.models.Project || mongoose.model("Project");
             let projectDoc = null;
@@ -1190,6 +1182,25 @@ export const addInventory = async (req, res) => {
                     data.department = projectDoc.department;
                 }
             }
+        }
+
+        // 🔒 Enterprise Isolation: Fallback to creator's department and teams ONLY if not inherited from project
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if ((!data.teams || data.teams.length === 0) && (!data.team || data.team.length === 0)) {
+                if (req.user.teams && req.user.teams.length > 0) {
+                    const userTeams = req.user.teams.map(t => t._id || t);
+                    data.teams = userTeams;
+                    data.team = userTeams[0];
+                }
+            }
+        }
+
+        // Ensure team and teams are strictly synchronized
+        if (data.team && (!data.teams || data.teams.length === 0)) {
+            data.teams = Array.isArray(data.team) ? data.team : [data.team];
+        } else if (data.teams && (!data.team || data.team.length === 0)) {
+            data.team = Array.isArray(data.teams) ? data.teams[0] : data.teams;
         }
 
         // Normalize visibleTo (Private, Team, Everyone) and sync assignment.visibleTo
@@ -1255,6 +1266,20 @@ export const updateInventory = async (req, res) => {
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
+
+        // 🔒 Enterprise RBAC & Visibility Synchronization on Update
+        if (data.team && (!data.teams || data.teams.length === 0)) {
+            data.teams = Array.isArray(data.team) ? data.team : [data.team];
+        } else if (data.teams && (!data.team || data.team.length === 0)) {
+            data.team = Array.isArray(data.teams) ? data.teams[0] : data.teams;
+        }
+        if (data.visibleTo === 'Public' || data.visibleTo === 'All Users') {
+            data.visibleTo = 'Everyone';
+        }
+        if (data.visibleTo && !data['assignment.visibleTo']) {
+            if (!data.assignment) data.assignment = {};
+            data.assignment.visibleTo = data.visibleTo;
+        }
 
         if (data.owners) {
             data.owners = sanitizeIds(data.owners);

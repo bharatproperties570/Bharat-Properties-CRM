@@ -123,13 +123,32 @@ export const getProjectById = async (req, res) => {
 export const addProject = async (req, res) => {
     try {
         const data = { ...req.body };
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 🔒 Enterprise RBAC & Visibility Synchronization
+        if (data.team && (!data.teams || data.teams.length === 0)) {
+            data.teams = Array.isArray(data.team) ? data.team : [data.team];
+        } else if (data.teams && (!data.team || data.team.length === 0)) {
+            data.team = Array.isArray(data.teams) ? data.teams : [data.teams];
+        }
+
+        // Auto-tag with creator's department and teams ONLY if not explicitly provided
         if (req.user) {
             if (req.user.department && !data.department) data.department = req.user.department;
-            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
-                data.teams = req.user.teams.map(t => t._id || t);
+            if ((!data.teams || data.teams.length === 0) && (!data.team || data.team.length === 0)) {
+                if (req.user.teams && req.user.teams.length > 0) {
+                    const creatorTeams = req.user.teams.map(t => t._id || t);
+                    data.teams = creatorTeams;
+                    data.team = creatorTeams;
+                }
             }
         }
+
+        // Standardize visibleTo to canonical 3 pillars ('Private', 'Team', 'Everyone')
+        if (!data.visibleTo) {
+            data.visibleTo = 'Team';
+        } else if (data.visibleTo === 'All Users' || data.visibleTo === 'Public') {
+            data.visibleTo = 'Everyone';
+        }
+
         let project = await Project.create(data);
         project = await Project.findById(project._id).populate(projectPopulateFields);
         res.json({ success: true, data: project });
@@ -158,7 +177,8 @@ export const updateProject = async (req, res) => {
 
         // 2. Identify block name changes
         const oldBlocks = oldProject.blocks || [];
-        const newBlocks = req.body.blocks || [];
+        const updateData = { ...req.body };
+        const newBlocks = updateData.blocks || [];
         const blockNameChanges = [];
 
         newBlocks.forEach(newBlock => {
@@ -170,8 +190,18 @@ export const updateProject = async (req, res) => {
             }
         });
 
+        // 🔒 Enterprise RBAC & Visibility Synchronization on Update
+        if (updateData.team && (!updateData.teams || updateData.teams.length === 0)) {
+            updateData.teams = Array.isArray(updateData.team) ? updateData.team : [updateData.team];
+        } else if (updateData.teams && (!updateData.team || updateData.team.length === 0)) {
+            updateData.team = Array.isArray(updateData.teams) ? updateData.teams : [updateData.teams];
+        }
+        if (updateData.visibleTo === 'All Users' || updateData.visibleTo === 'Public') {
+            updateData.visibleTo = 'Everyone';
+        }
+
         // 3. Update the project
-        const project = await Project.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true }).populate(projectPopulateFields);
+        const project = await Project.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, updateData, { new: true }).populate(projectPopulateFields);
 
         // 4. Cascade block name changes
         if (blockNameChanges.length > 0) {
