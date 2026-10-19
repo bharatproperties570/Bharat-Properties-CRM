@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTeams, useUsers, useDeals, useUpdateDealMutation, useDeleteDealMutation, useBulkDeleteDealsMutation } from '../../utils/crmHooks';
 import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
@@ -67,11 +68,43 @@ const DealStageChip = ({ stage }) => {
 
 function DealsPage({ onNavigate, onAddActivity }) {
     const { isDark } = useTheme();
+    const queryClient = useQueryClient();
     const { data: users = [] } = useUsers();
     
     const { data: teams = [] } = useTeams();
     const { startCall } = useCall();
     const { getLookupValue, sizes } = usePropertyConfig();
+
+    // 🚀 Enterprise Deal Verification Desk State
+    const [verifyingDeal, setVerifyingDeal] = useState(null);
+    const [isVerifyingSubmitting, setIsVerifyingSubmitting] = useState(false);
+
+    const handleConfirmVerification = async (notes) => {
+        if (!verifyingDeal) return;
+        setIsVerifyingSubmitting(true);
+        const toastId = toast.loading('Verifying deal and updating CRM ledger...');
+        try {
+            const dealId = verifyingDeal._id || verifyingDeal.id;
+            const res = await api.post(`deals/${dealId}/verify`, {
+                notes: notes || 'Verified via Phone Call with Broker',
+                verificationMethod: 'phone_call'
+            });
+
+            if (res.data?.success) {
+                toast.success('Deal successfully verified! ✓', { id: toastId });
+                queryClient.invalidateQueries({ queryKey: ['deals'] });
+                setVerifyingDeal(null);
+            } else {
+                throw new Error(res.data?.error || 'Verification failed');
+            }
+        } catch (err) {
+            console.error('Deal verification error:', err);
+            toast.error(err.response?.data?.error || err.message || 'Failed to verify deal', { id: toastId });
+        } finally {
+            setIsVerifyingSubmitting(false);
+        }
+    };
+
     const [searchTerm, setSearchTerm] = useState('');
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
     const [currentPage, setCurrentPage] = useState(1);
@@ -600,23 +633,54 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         </button>
                                         <button
                                             className="action-btn"
-                                            title="Call Owner"
+                                            title="Call Owner / Broker"
                                             onClick={() => {
                                                 const selectedDeal = deals.find(d => d.id === selectedIds[0] || d._id === selectedIds[0]);
-                                                if (selectedDeal && selectedDeal.owner) {
-                                                    startCall({
-                                                        name: selectedDeal.owner.name,
-                                                        mobile: selectedDeal.owner.phone
-                                                    }, {
-                                                        purpose: 'Deal Update',
-                                                        entityId: selectedDeal.id || selectedDeal._id,
-                                                        entityType: 'deal'
-                                                    });
+                                                if (selectedDeal) {
+                                                    const targetOwner = selectedDeal.owner || selectedDeal.partyStructure?.channelPartner;
+                                                    const phone = targetOwner?.phones?.[0]?.number || targetOwner?.mobile || targetOwner?.phone || selectedDeal.ownerPhone;
+                                                    const name = targetOwner?.name || selectedDeal.ownerName || 'Broker';
+                                                    if (phone) {
+                                                        startCall({
+                                                            name: name,
+                                                            mobile: phone
+                                                        }, {
+                                                            purpose: 'Deal Verification & Follow-up',
+                                                            entityId: selectedDeal.id || selectedDeal._id,
+                                                            entityType: 'deal'
+                                                        });
+                                                    } else {
+                                                        toast.error("No phone number found for this broker contact.");
+                                                    }
                                                 }
                                             }}
                                         >
                                             <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
                                         </button>
+
+                                        {(() => {
+                                            const selectedDeal = deals.find(d => d.id === selectedIds[0] || d._id === selectedIds[0]);
+                                            if (selectedDeal && (selectedDeal.verificationStatus === 'unverified' || (Array.isArray(selectedDeal.tags) && selectedDeal.tags.includes('Unverified')))) {
+                                                return (
+                                                    <button
+                                                        className="action-btn"
+                                                        title="Verify Deal after Broker Call"
+                                                        style={{
+                                                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                                            color: '#fff',
+                                                            borderColor: '#059669',
+                                                            fontWeight: 700,
+                                                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.25)'
+                                                        }}
+                                                        onClick={() => setVerifyingDeal(selectedDeal)}
+                                                    >
+                                                        <i className="fas fa-check-double"></i> Verify Deal
+                                                    </button>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
                                         <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View/Edit Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
 
@@ -967,7 +1031,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             dealScores,
                                             handleAction,
                                             sizes,
-                                            setActiveMatchPopover
+                                            setActiveMatchPopover,
+                                            setVerifyingDeal,
+                                            startCall
                                         }}
                                         rowComponent={VirtualizedDealRow}
                                         overscanCount={5}
@@ -1045,6 +1111,21 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem' }}>
                                                     {renderValue(deal.unitType) || 'Unit'}
                                                 </div>
+                                                {deal.verificationStatus === 'unverified' ? (
+                                                    <span 
+                                                        onClick={(e) => { e.stopPropagation(); setVerifyingDeal(deal); }}
+                                                        style={{ fontSize: '0.62rem', padding: '1px 6px', background: isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7', color: isDark ? '#fbbf24' : '#b45309', borderRadius: '4px', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                                        title="Click to Verify this AI-Captured Deal"
+                                                    >
+                                                        ⚠️ Unverified
+                                                    </span>
+                                                ) : deal.verificationStatus === 'confirmed' ? (
+                                                    <span 
+                                                        style={{ fontSize: '0.62rem', padding: '1px 6px', background: isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7', color: isDark ? '#34d399' : '#15803d', borderRadius: '4px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                                    >
+                                                        ✓ Verified
+                                                    </span>
+                                                ) : null}
                                             </div>
 
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1266,6 +1347,16 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     }}
                 />
 
+                <DealVerificationModal
+                    isOpen={!!verifyingDeal}
+                    onClose={() => setVerifyingDeal(null)}
+                    deal={verifyingDeal}
+                    onConfirm={handleConfirmVerification}
+                    isSubmitting={isVerifyingSubmitting}
+                    isDark={isDark}
+                    startCall={startCall}
+                />
+
                 {
                     isAddBookingOpen && (
                         <AddBookingModal
@@ -1423,7 +1514,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style, setActiveMatchPopover }) => {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style, setActiveMatchPopover, setVerifyingDeal, startCall }) => {
     const { isDark } = useTheme();
     
     const s = dealScores[deal._id];
@@ -1534,6 +1625,53 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.9rem' }}>
                         {renderValue(deal.unitType) || 'Unit'}
                     </div>
+                    {deal.verificationStatus === 'unverified' ? (
+                        <span
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (setVerifyingDeal) setVerifyingDeal(deal);
+                            }}
+                            title="Click to Verify this AI-Captured Deal"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: isDark ? 'rgba(245, 158, 11, 0.2)' : '#fef3c7',
+                                color: isDark ? '#fbbf24' : '#b45309',
+                                border: '1px solid rgba(245, 158, 11, 0.4)',
+                                borderRadius: '4px',
+                                padding: '2px 7px',
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                width: 'fit-content'
+                            }}
+                        >
+                            <i className="fas fa-robot" style={{ fontSize: '0.6rem' }} />
+                            ⚠️ Unverified (AI)
+                        </span>
+                    ) : deal.verificationStatus === 'confirmed' ? (
+                        <span
+                            title="Verified Deal"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: isDark ? 'rgba(16, 185, 129, 0.2)' : '#dcfce7',
+                                color: isDark ? '#34d399' : '#15803d',
+                                border: '1px solid rgba(16, 185, 129, 0.4)',
+                                borderRadius: '4px',
+                                padding: '2px 7px',
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                width: 'fit-content'
+                            }}
+                        >
+                            <i className="fas fa-check-circle" style={{ fontSize: '0.6rem' }} />
+                            ✓ Verified
+                        </span>
+                    ) : null}
                 </div>
                 <div style={{ paddingLeft: '2px' }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>
@@ -1617,8 +1755,17 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 <div className="text-ellipsis" style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.8rem', marginBottom: '4px' }}>
                     {renderValue(deal.owner?.name || deal.ownerName, 'Unknown')}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: isDark ? '#c084fc' : '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                    <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                <div 
+                    onClick={() => {
+                        const phone = deal.owner?.phones?.[0]?.number || deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone;
+                        if (phone && startCall) {
+                            startCall({ name: deal.owner?.name || 'Broker', mobile: phone }, { purpose: 'Deal Verification & Follow-up', entityId: deal._id, entityType: 'deal' });
+                        }
+                    }}
+                    style={{ fontSize: '0.75rem', color: isDark ? '#c084fc' : '#8e44ad', fontWeight: 600, marginBottom: '2px', cursor: 'pointer' }}
+                    title="Click to Call Broker"
+                >
+                    <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1)' }}></i>
                     {renderValue(deal.owner?.phones?.[0]?.number || deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone, 'N/A')}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
@@ -1734,7 +1881,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
 });
 // --- VIRTUALIZED WRAPPER ---
 const VirtualizedDealRow = React.memo((props) => {
-    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction, sizes, setActiveMatchPopover } = props;
+    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction, sizes, setActiveMatchPopover, setVerifyingDeal, startCall } = props;
     const deal = deals[index];
     if (!deal) return null;
     return (
@@ -1748,16 +1895,201 @@ const VirtualizedDealRow = React.memo((props) => {
             getLookupValue={getLookupValue}
             resolveDealLookup={resolveDealLookup}
             activeRowMenu={activeRowMenu}
-                                        setActiveMatchPopover={setActiveMatchPopover}
+            setActiveMatchPopover={setActiveMatchPopover}
             setActiveRowMenu={setActiveRowMenu}
             getUserName={getUserName}
             getTeamName={getTeamName}
             dealScores={dealScores}
             sizes={sizes}
             onAction={handleAction}
+            setVerifyingDeal={setVerifyingDeal}
+            startCall={startCall}
         />
     );
 });
+
+// 🚀 Enterprise Deal Verification Modal
+const DealVerificationModal = ({ isOpen, onClose, deal, onConfirm, isSubmitting, isDark, startCall }) => {
+    const [notes, setNotes] = useState('');
+    if (!isOpen || !deal) return null;
+
+    const broker = deal.owner || deal.partyStructure?.channelPartner;
+    const brokerPhone = broker?.phones?.[0]?.number || broker?.mobile || broker?.phone || deal.ownerPhone || 'N/A';
+    const brokerName = broker?.name || deal.ownerName || 'External Broker';
+    const projectName = deal.projectName?.name || deal.projectName || 'Property';
+
+    return (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, padding: '16px'
+        }}>
+            <div style={{
+                background: isDark ? '#1e293b' : '#ffffff',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                borderRadius: '16px', width: '100%', maxWidth: '520px',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
+                overflow: 'hidden', animation: 'fadeIn 0.2s ease-out'
+            }}>
+                {/* Header */}
+                <div style={{
+                    padding: '16px 20px',
+                    borderBottom: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: isDark ? '#0f172a' : '#f8fafc'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '36px', height: '36px', borderRadius: '10px',
+                            background: 'rgba(245, 158, 11, 0.15)', color: '#d97706',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '1rem', fontWeight: 800
+                        }}>
+                            <i className="fas fa-check-double"></i>
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 800, fontSize: '1rem', color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                Verify Real Estate Deal
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                Confirm deal details after telephonic verification with broker
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: 'none', border: 'none', color: 'var(--text-muted)',
+                            fontSize: '1.2rem', cursor: 'pointer', padding: '4px'
+                        }}
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Property Card */}
+                    <div style={{
+                        background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
+                        border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                        borderRadius: '10px', padding: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px'
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Project / Location</div>
+                            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: isDark ? '#f8fafc' : '#0f172a', marginTop: '2px' }}>{projectName}</div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Unit & Block</div>
+                            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#3b82f6', marginTop: '2px' }}>
+                                {deal.block ? `${deal.block} - ` : ''}#{deal.unitNo || 'N/A'}
+                            </div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Verified Bottom Price</div>
+                            <div style={{ fontWeight: 800, fontSize: '1rem', color: '#10b981', marginTop: '2px' }}>
+                                {deal.price ? `₹${Number(deal.price).toLocaleString('en-IN')}` : 'Price on Request'}
+                            </div>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Current Status</div>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fef3c7', color: '#b45309', borderRadius: '4px', padding: '2px 6px', fontSize: '0.68rem', fontWeight: 800, marginTop: '2px' }}>
+                                ⚠️ Unverified (AI Auto-Captured)
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Broker Contact & Call Action */}
+                    <div style={{
+                        background: isDark ? 'rgba(59, 130, 246, 0.1)' : '#eff6ff',
+                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        borderRadius: '10px', padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '0.68rem', color: isDark ? '#93c5fd' : '#1d4ed8', textTransform: 'uppercase', fontWeight: 800 }}>External Broker (Source)</div>
+                            <div style={{ fontWeight: 800, fontSize: '0.9rem', color: isDark ? '#f8fafc' : '#1e3a8a' }}>{brokerName}</div>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{brokerPhone}</div>
+                        </div>
+                        {brokerPhone && brokerPhone !== 'N/A' && startCall && (
+                            <button
+                                onClick={() => startCall({ name: brokerName, mobile: brokerPhone }, { purpose: 'Deal Verification', entityId: deal._id, entityType: 'deal' })}
+                                style={{
+                                    background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px',
+                                    padding: '8px 14px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1)' }}></i> Call Broker
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Verification Notes */}
+                    <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px', display: 'block' }}>
+                            Verification Notes (Optional):
+                        </label>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="e.g. Spoke with broker on phone. Papers and location confirmed. Rate is final on table."
+                            style={{
+                                width: '100%', minHeight: '65px', padding: '10px',
+                                background: isDark ? '#0f172a' : '#ffffff',
+                                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                                borderRadius: '8px', color: 'var(--text-main)', fontSize: '0.82rem',
+                                resize: 'vertical'
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Footer Actions */}
+                <div style={{
+                    padding: '14px 20px',
+                    borderTop: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px',
+                    background: isDark ? '#0f172a' : '#f8fafc'
+                }}>
+                    <button
+                        onClick={onClose}
+                        disabled={isSubmitting}
+                        style={{
+                            background: 'transparent', border: isDark ? '1px solid #475569' : '1px solid #cbd5e1',
+                            color: 'var(--text-main)', borderRadius: '8px', padding: '8px 16px',
+                            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onConfirm(notes)}
+                        disabled={isSubmitting}
+                        style={{
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#ffffff', border: 'none', borderRadius: '8px',
+                            padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700,
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)'
+                        }}
+                    >
+                        {isSubmitting ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin"></i> Verifying...
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-check-circle"></i> Confirm & Mark Verified
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default DealsPage;
 // Cache bust: Wed Jul 22 12:31:38 IST 2026

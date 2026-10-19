@@ -337,6 +337,20 @@ Price mentioned: ${price || 'Not mentioned'}`;
 
         const hasUnitNumber = extracted.unit_number && extracted.unit_number !== 'UNDISCLOSED' && extracted.unit_number !== 'UNKNOWN';
 
+        // Multi-turn entity synthesis (preserves unit number or price from earlier conversation turns)
+        const finalUnitNumber = hasUnitNumber 
+            ? extracted.unit_number 
+            : (pendingIntake.extracted_entities?.unitNumber || null);
+
+        const finalPriceStr = extracted.final_price || 
+                              pendingIntake.price || 
+                              pendingIntake.extracted_entities?.specs?.price || null;
+
+        const numericPrice = this._parsePriceToNumber(finalPriceStr);
+
+        const isUnitValid = finalUnitNumber && 
+            !['UNDISCLOSED', 'UNKNOWN', 'NO', 'NA', 'N/A', 'NONE'].includes(String(finalUnitNumber).toUpperCase().trim());
+
         if (hasUnitNumber) {
             pendingIntake.wa_verification.status = 'replied_verified';
             pendingIntake.verification_status = 'verified';
@@ -345,6 +359,8 @@ Price mentioned: ${price || 'Not mentioned'}`;
             // Synchronize extracted entities
             pendingIntake.extracted_entities = pendingIntake.extracted_entities || {};
             pendingIntake.extracted_entities.unitNumber = extracted.unit_number;
+            if (extracted.block) pendingIntake.extracted_entities.block = extracted.block;
+            if (extracted.project) pendingIntake.extracted_entities.project = extracted.project;
             if (extracted.location_confirmed) {
                 pendingIntake.extracted_entities.location = extracted.location_confirmed;
                 pendingIntake.location = extracted.location_confirmed;
@@ -357,10 +373,42 @@ Price mentioned: ${price || 'Not mentioned'}`;
 
             pendingIntake.verification_notes = pendingIntake.verification_notes || [];
             pendingIntake.verification_notes.push(`[WA Verified] Unit/Plot: #${extracted.unit_number} | Final Price: ${extracted.final_price || 'Confirmed'} (Source: Direct Broker Reply)`);
+        } else if (extracted.final_price && isUnitValid) {
+            // Broker gave unit in earlier turn, now confirmed price
+            pendingIntake.wa_verification.status = 'replied_verified';
+            pendingIntake.verification_status = 'verified';
+            pendingIntake.confidence_score = Math.max(pendingIntake.confidence_score || 0, 95);
+            pendingIntake.price = extracted.final_price;
+            pendingIntake.extracted_entities = pendingIntake.extracted_entities || {};
+            pendingIntake.extracted_entities.specs = pendingIntake.extracted_entities.specs || {};
+            pendingIntake.extracted_entities.specs.price = extracted.final_price;
+            pendingIntake.verification_notes = pendingIntake.verification_notes || [];
+            pendingIntake.verification_notes.push(`[WA Price Confirmed] Final Price: ${extracted.final_price} for Unit #${finalUnitNumber}`);
         } else {
             pendingIntake.wa_verification.status = 'replied_incomplete';
             pendingIntake.verification_notes = pendingIntake.verification_notes || [];
             pendingIntake.verification_notes.push(`[WA Incomplete] Broker replied: "${messageText}". Unit number was kept confidential.`);
+        }
+
+        // 🚀 ENTERPRISE AUTONOMOUS DEAL MATERIALIZATION:
+        // When Unit Number and Final Price are confirmed, atomically materialize Deal in CRM
+        let spawnedDeal = null;
+        if (isUnitValid && numericPrice > 0) {
+            try {
+                const dealEntities = {
+                    ...extracted,
+                    unit_number: finalUnitNumber,
+                    final_price: finalPriceStr
+                };
+                spawnedDeal = await this.autoCreateUnverifiedDeal(pendingIntake, dealEntities, cleanSender);
+                if (spawnedDeal) {
+                    console.log(`[DealVerificationAgent] Autonomous Deal materialized: Deal #${spawnedDeal._id || spawnedDeal.dealId}`);
+                }
+            } catch (dealErr) {
+                console.error(`[DealVerificationAgent] Autonomous Deal creation error:`, dealErr.message);
+                pendingIntake.verification_notes = pendingIntake.verification_notes || [];
+                pendingIntake.verification_notes.push(`[Auto-Deal Error] ${dealErr.message}`);
+            }
         }
 
         // 🚀 ENTERPRISE HUMAN CONVERSATIONAL AGENT:
@@ -480,6 +528,8 @@ You MUST output ONLY a valid JSON object with EXACTLY this structure:
   "unit_number": "string (e.g. '342', '114-A', 'Flat 402', 'Shop 12', or 'UNDISCLOSED' if the broker refuses to share or says meeting me baat karenge)",
   "unit_type": "string (e.g. 'plot', 'house', 'kothi', 'flat', 'shop', 'commercial')",
   "location_confirmed": "string (e.g. 'Sector 4, Urban Estate' or empty if not mentioned)",
+  "project": "string (e.g. 'Flower City', 'Urban Estate', 'Signature Global', or empty if not mentioned)",
+  "block": "string (e.g. 'Block B', 'Pocket 2', 'Phase 1', or empty if not mentioned)",
   "final_price": "string (e.g. '1.40 Cr', '85 Lac', '2.10 Cr' or empty if not mentioned)",
   "price_type": "string ('Bottom / Non-negotiable' | 'Negotiable' | 'Fixed' | 'Unknown')",
   "broker_cooperation": "string ('cooperative' | 'in_person_only' | 'uncooperative')",
@@ -511,17 +561,256 @@ Output pure JSON with no markdown tags.`;
     _heuristicFallbackExtractor(text) {
         const unitMatch = text.match(/(?:plot|house|flat|shop|kothi|unit|no\.?)\s*(?:#|no\.?|number)?\s*([0-9]+[a-zA-Z]?)/i);
         const priceMatch = text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:cr|crore|lac|lakh|l\b)/i);
-        
+        const blockMatch = text.match(/(?:block|pocket|phase)\s*([a-zA-Z0-9]+)/i);
+
         return {
             unit_number: unitMatch ? unitMatch[1] : (text.toLowerCase().includes('mil') || text.toLowerCase().includes('office') ? 'UNDISCLOSED' : 'UNKNOWN'),
             unit_type: 'property',
             location_confirmed: '',
+            project: '',
+            block: blockMatch ? blockMatch[0] : '',
             final_price: priceMatch ? priceMatch[0] : '',
             price_type: 'Bottom',
             broker_cooperation: 'cooperative',
             broker_notes: text.substring(0, 100),
             confidence_score: 70
         };
+    }
+
+    /**
+     * Enterprise Autonomous Deal Materialization Engine:
+     * Atomically creates Inventory under Project, and creates Deal with
+     * verificationStatus = 'unverified' and assignedTo = Internal CRM User (Manager).
+     * External Broker is saved as Contact and linked as Owner / Channel Partner.
+     */
+    async autoCreateUnverifiedDeal(pendingIntake, extracted, senderPhone) {
+        if (!pendingIntake) return null;
+
+        // Idempotency: If a Deal is already linked to this Intake, do not duplicate
+        if (pendingIntake.createdDealId) {
+            console.log(`[DealVerificationAgent] Deal already exists for Intake #${pendingIntake._id}: ${pendingIntake.createdDealId}`);
+            return { _id: pendingIntake.createdDealId, status: 'already_linked' };
+        }
+
+        const unitNumber = extracted.unit_number;
+        const priceStr = extracted.final_price || pendingIntake.price;
+        const numericPrice = this._parsePriceToNumber(priceStr);
+
+        const isValidUnit = unitNumber && !['UNDISCLOSED', 'UNKNOWN', 'NO', 'NA', 'N/A', 'NONE'].includes(String(unitNumber).toUpperCase().trim());
+        if (!isValidUnit || numericPrice <= 0) {
+            console.log(`[DealVerificationAgent] Gatekeeper rejected deal creation: unit='${unitNumber}', price=${numericPrice}`);
+            return null;
+        }
+
+        // 1. Resolve Project (Strict RBAC Boundary)
+        const project = await this._resolveProject(pendingIntake, extracted);
+        const projectName = project ? project.name : (extracted.project || extracted.location_confirmed || pendingIntake.location || pendingIntake.sector || 'Direct Intake Property');
+
+        // 2. Resolve Block
+        const block = extracted.block || pendingIntake.block || pendingIntake.extracted_entities?.block || '';
+
+        // 3. Resolve Internal CRM User (Manager / Telecaller) for assignedTo
+        // Strict Enterprise Rule: assignedTo is ALWAYS an internal staff/manager
+        const assignedUserId = pendingIntake.wa_verification?.sent_by_user || 
+                               pendingIntake.createdBy || 
+                               project?.owner || 
+                               (Array.isArray(project?.assign) && project.assign[0]) || 
+                               null;
+
+        // 4. Resolve External Broker Contact (Channel Partner / Owner)
+        const brokerContact = await this._resolveBrokerContact(senderPhone, pendingIntake, assignedUserId, project);
+
+        // 5. Resolve or create Inventory under Project
+        const inventory = await this._resolveOrCreateInventory(project, projectName, block, unitNumber, numericPrice, extracted.unit_type, brokerContact, assignedUserId);
+
+        // 6. Invoke Enterprise DealCreationEngine
+        const { createStandardizedDeal } = await import('../DealCreationEngine.js');
+
+        const idempotencyKey = `INTAKE_AUTO_DEAL_${pendingIntake._id}`;
+        const input = {
+            source: 'WhatsApp AI Verification Desk',
+            idempotencyKey,
+            correlationId: `VERIFIED_${pendingIntake._id}_${Date.now()}`,
+            dealData: {
+                name: `Resale: ${projectName} - ${block ? block + ' ' : ''}#${unitNumber}`,
+                price: numericPrice,
+                projectName: projectName,
+                projectId: project?._id || null,
+                block: block,
+                unitNo: unitNumber,
+                unitType: extracted.unit_type || 'Plot',
+                stage: 'Open',
+                status: 'Open',
+                verificationStatus: 'unverified',
+                isQualified: false,
+                tags: ['AI Auto-Captured', 'Unverified', 'WhatsApp Inbound'],
+                remarks: `Auto-captured via WhatsApp Broker Reply.\nPlot/Unit: #${unitNumber}\nBlock: ${block || 'N/A'}\nProject: ${projectName}\nVerified Bottom Rate: ₹${numericPrice.toLocaleString('en-IN')}\nSource Broker: ${brokerContact?.name || senderPhone} (${senderPhone})\nPending User Call Verification.`,
+                assignedTo: assignedUserId,
+                team: project?.team?.[0] || project?.teams?.[0] || null,
+                teams: project?.teams?.length ? project?.teams : (project?.team ? [project.team[0]] : []),
+                department: project?.department || null,
+                visibleTo: project?.visibleTo || 'Team'
+            },
+            linkage: {
+                inventoryId: inventory._id,
+                projectId: project?._id || null
+            },
+            ownerInfo: {
+                owner: brokerContact?._id || null,
+                channelPartner: brokerContact?._id || null
+            }
+        };
+
+        const options = {
+            triggerDistribution: false,
+            triggerMarketing: false,
+            triggerDiscovery: false
+        };
+
+        const resObj = await createStandardizedDeal(input, options);
+        const dealDoc = resObj.deal;
+
+        if (dealDoc) {
+            pendingIntake.createdDealId = dealDoc._id;
+            pendingIntake.status = 'Deal Linked';
+            pendingIntake.verification_notes = pendingIntake.verification_notes || [];
+            pendingIntake.verification_notes.push(`[Auto-Deal Created] Deal #${dealDoc.dealId || dealDoc._id} created in 'unverified' stage. Assigned to internal manager.`);
+            await pendingIntake.save();
+        }
+
+        return dealDoc;
+    }
+
+    /**
+     * Parses numeric price from Indian currency strings:
+     * "1.40 Cr" -> 14000000
+     * "85 Lac" -> 8500000
+     * "50k" -> 50000
+     */
+    _parsePriceToNumber(rawPrice) {
+        if (!rawPrice) return 0;
+        if (typeof rawPrice === 'number') return rawPrice;
+        const str = String(rawPrice).replace(/,/g, '').trim();
+
+        const crMatch = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:cr|crore|crores)\b/i);
+        if (crMatch) return Math.round(parseFloat(crMatch[1]) * 10000000);
+
+        const lacMatch = str.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:lakh|lakhs|lac|lacs|l)\b/i);
+        if (lacMatch) return Math.round(parseFloat(lacMatch[1]) * 100000);
+
+        const kMatch = str.match(/([0-9]+(?:\.[0-9]+)?)\s*k\b/i);
+        if (kMatch) return Math.round(parseFloat(kMatch[1]) * 1000);
+
+        const numericOnly = parseFloat(str.replace(/[^0-9.]/g, ''));
+        return isNaN(numericOnly) ? 0 : Math.round(numericOnly);
+    }
+
+    /**
+     * Resolves matching Project document from MongoDB
+     */
+    async _resolveProject(pendingIntake, extracted) {
+        const Project = mongoose.models.Project || (await import('../../models/Project.js')).default;
+        const candidateNames = [
+            extracted.project,
+            extracted.location_confirmed,
+            pendingIntake.location,
+            pendingIntake.sector,
+            pendingIntake.title
+        ].filter(Boolean);
+
+        for (const candidate of candidateNames) {
+            const cleanCand = String(candidate).trim();
+            if (cleanCand.length < 3) continue;
+
+            const escaped = cleanCand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            let proj = await Project.findOne({ name: { $regex: new RegExp(escaped, 'i') } }).lean();
+            if (proj) return proj;
+
+            const words = cleanCand.split(/\s+/).filter(w => w.length > 3 && !['sector', 'road', 'near', 'opp', 'opposite'].includes(w.toLowerCase()));
+            for (const w of words) {
+                const wEscaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                proj = await Project.findOne({ name: { $regex: new RegExp(wEscaped, 'i') } }).lean();
+                if (proj) return proj;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves or creates the External Broker Contact record
+     */
+    async _resolveBrokerContact(senderPhone, pendingIntake, assignedUserId, project) {
+        const Contact = mongoose.models.Contact || (await import('../../models/Contact.js')).default;
+        const cleanPhone = this._cleanPhone(senderPhone);
+        const last10 = cleanPhone ? cleanPhone.slice(-10) : '';
+
+        let contact = null;
+        if (last10) {
+            contact = await Contact.findOne({
+                $or: [
+                    { 'phones.number': { $regex: last10 } },
+                    { mobile: { $regex: last10 } },
+                    { phone: { $regex: last10 } }
+                ]
+            });
+        }
+
+        if (!contact) {
+            const brokerName = pendingIntake.extracted_entities?._whatsappGroup?.senderName || 
+                               pendingIntake.raw_source_data?.senderName || 
+                               `Broker ${last10 ? last10.slice(-4) : 'Direct'}`;
+
+            contact = await Contact.create({
+                name: brokerName,
+                phones: [{ number: cleanPhone || senderPhone, type: 'Mobile' }],
+                tags: ['Broker', 'WhatsApp Inbound', 'Channel Partner'],
+                source: 'WhatsApp AI Verification Desk',
+                assignedTo: assignedUserId,
+                team: project?.team?.[0] || project?.teams?.[0] || null,
+                teams: project?.teams?.length ? project?.teams : (project?.team ? [project.team[0]] : []),
+                department: project?.department || null,
+                visibleTo: project?.visibleTo || 'Team',
+                description: `External Broker contacted via WhatsApp Deal Verification Desk for Intake #${pendingIntake._id}`
+            });
+        }
+        return contact;
+    }
+
+    /**
+     * Resolves or creates the Inventory record under Project
+     */
+    async _resolveOrCreateInventory(project, projectName, block, unitNumber, numericPrice, unitType, brokerContact, assignedUserId) {
+        const Inventory = mongoose.models.Inventory || (await import('../../models/Inventory.js')).default;
+        const query = {
+            unitNo: unitNumber
+        };
+        if (project?._id) query.projectId = project._id;
+        if (block) query.block = block;
+
+        let inventory = await Inventory.findOne(query);
+
+        if (!inventory) {
+            inventory = await Inventory.create({
+                projectId: project?._id || null,
+                projectName: projectName,
+                block: block || '',
+                unitNo: unitNumber,
+                unitNumber: unitNumber,
+                unitType: unitType || 'Plot',
+                status: 'Available',
+                price: { value: numericPrice, currency: 'INR' },
+                owners: brokerContact ? [brokerContact._id] : [],
+                team: project?.team?.[0] || project?.teams?.[0] || null,
+                teams: project?.teams?.length ? project?.teams : (project?.team ? [project.team[0]] : []),
+                department: project?.department || null,
+                assignedTo: assignedUserId || null,
+                visibleTo: project?.visibleTo || 'Team'
+            });
+        } else if (numericPrice > 0 && (!inventory.price || !inventory.price.value)) {
+            inventory.price = { value: numericPrice, currency: 'INR' };
+            await inventory.save();
+        }
+        return inventory;
     }
 }
 

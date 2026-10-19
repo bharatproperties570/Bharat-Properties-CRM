@@ -3138,3 +3138,71 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
         return {};
     }
 };
+
+/**
+ * 🚀 ENTERPRISE DEAL VERIFICATION ENDPOINT
+ * Allows an authorized CRM User (Manager/Caller) to verify an AI-captured or unverified Deal,
+ * updating verificationStatus to 'confirmed', logging audit trail, and emitting real-time event.
+ */
+export const verifyDeal = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { notes, verificationMethod = 'phone_call' } = req.body || {};
+
+        if (!isValidObjectId(id)) {
+            return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
+        }
+
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const deal = await Deal.findOne({ _id: id, ...visibilityFilter });
+        if (!deal) {
+            return res.status(404).json({ success: false, error: "Deal not found or access denied" });
+        }
+
+        deal.verificationStatus = 'confirmed';
+        deal.isQualified = true;
+        deal.verifiedBy = req.user._id || req.user.id;
+        deal.verifiedAt = new Date();
+        deal.verificationMethod = verificationMethod;
+        if (notes) deal.verificationNotes = notes;
+
+        // Clean up tags: replace 'Unverified' with 'Verified'
+        deal.tags = (deal.tags || []).filter(t => t.toLowerCase() !== 'unverified');
+        if (!deal.tags.includes('Verified')) {
+            deal.tags.push('Verified');
+        }
+
+        const userName = req.user.name || 'User';
+        const verifyNote = `[Deal Verified] Manually verified by ${userName} via ${verificationMethod} on ${new Date().toLocaleDateString('en-IN')}`;
+        deal.remarks = deal.remarks ? `${deal.remarks}\n${verifyNote}` : verifyNote;
+
+        await deal.save();
+
+        // Log Activity timeline
+        try {
+            const Activity = mongoose.model('Activity');
+            await Activity.create({
+                entityType: 'deal',
+                entityId: deal._id,
+                type: 'Deal Verified',
+                action: 'Deal Verified',
+                description: `Deal #${deal.dealId || deal._id} verified via ${verificationMethod} by ${userName}`,
+                performedBy: req.user._id,
+                performedAt: new Date()
+            });
+        } catch (actErr) {
+            console.error('[DealController] Error creating verification Activity:', actErr.message);
+        }
+
+        return res.json({
+            success: true,
+            status: 'success',
+            message: 'Deal verified successfully',
+            deal
+        });
+    } catch (err) {
+        console.error('[DealController] verifyDeal error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+

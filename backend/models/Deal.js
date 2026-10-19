@@ -86,6 +86,16 @@ const DealSchema = new mongoose.Schema({
     status: { type: mongoose.Schema.Types.Mixed }, // Sub-stage, e.g. Won, Lost, On Hold, Cancelled
     isQualified: { type: Boolean, default: null }, // Tag for Intake Engine
     tags: [{ type: String }],
+    verificationStatus: {
+        type: String,
+        enum: ['unverified', 'confirmed', 'rejected', 'in_progress'],
+        default: 'unverified',
+        index: true
+    },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    verifiedAt: { type: Date },
+    verificationMethod: { type: String, enum: ['phone_call', 'in_person', 'whatsapp', 'manual'], default: 'manual' },
+    verificationNotes: { type: String },
     dealProbability: { type: Number, default: 50 },
     dealScore: { type: Number, default: 0, min: 0, max: 100 },
 

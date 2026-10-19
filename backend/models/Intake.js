@@ -96,15 +96,19 @@ const intakeSchema = new mongoose.Schema({
             location_confirmed: String,
             final_price: String,
             price_type: String,
+            block: String,
+            project: String,
             broker_notes: String,
             confidence: Number
         },
+        created_deal_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Deal' },
         conversation_history: [{
             sender: { type: String, enum: ['system', 'broker'] },
             message: String,
             timestamp: { type: Date, default: Date.now }
         }]
     },
+    createdDealId: { type: mongoose.Schema.Types.ObjectId, ref: 'Deal', index: true },
 
     // Legacy fields
     content: { type: String },

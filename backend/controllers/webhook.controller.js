@@ -477,6 +477,14 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     continue;
                 }
 
+                // WhatsApp Deal Verification Desk Intercept (Live Broker Reply & Auto-Deal Materialization)
+                try {
+                    const { default: dealVerificationAgent } = await import('../services/intakeVerification/DealVerificationAgent.js');
+                    await dealVerificationAgent.processBrokerReply(mobile, text);
+                } catch (dvaErr) {
+                    console.error('[MetaWebhook] DealVerificationAgent error:', dvaErr.message);
+                }
+
                 // C3 Durable Transaction
                 const result = await InboundMessageService.processInboundMessageTx(message, value);
                 if (result && !result.success && (result.reason === 'missing_mobile' || result.reason === 'empty_payload')) {
