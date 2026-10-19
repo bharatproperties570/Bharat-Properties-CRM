@@ -30,8 +30,8 @@ const SizeItem = ({ size, onEdit, onDelete, onManageAvailability, isSelected, on
             </td>
             <td style={{ padding: '14px 16px' }}>
                 {(() => {
-                    if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
                     if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
+                    if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
                     return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
                 })()}
             </td>
@@ -196,6 +196,12 @@ const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMappin
 };
 
 
+// ✅ ENTERPRISE: Helper to determine if a subcategory is land/dimension-based (Plot, House, Villa, Kothi, etc.)
+export const isDimensionType = (subCat) => {
+    const s = String(subCat || '').trim().toLowerCase();
+    return ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land', 'house', 'kothi', 'villa', 'bungalow', 'farm house', 'independent house'].some(k => s.includes(k));
+};
+
 // ✅ ENTERPRISE: AddSizeModal — Project/Block removed from size definition
 // Project/Block assignment is handled via SizeAvailabilityModal after save
 const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects, existingSizes }) => {
@@ -244,7 +250,8 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
             const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
                 ? propertyConfig[initialCat].subCategories[0].name
                 : '';
-            setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub });
+            const isDim = isDimensionType(initialSub);
+            setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' });
         }
         setQuickProject('');
         setQuickBlock('');
@@ -275,13 +282,14 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
             const initialSub = Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
                 ? propertyConfig[initialCat].subCategories[0].name
                 : '';
-            setSizeData(prev => ({ ...prev, category: initialCat, subCategory: initialSub }));
+            const isDim = isDimensionType(initialSub);
+            setSizeData(prev => ({ ...prev, category: initialCat, subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' }));
         }
     }, [propertyConfig, isOpen, initialData, sizeData.category]);
 
     // Auto-generate name from unitType + area
     useEffect(() => {
-        const isPlot = ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land'].some(k => sizeData.subCategory?.toLowerCase().includes(k));
+        const isPlot = isDimensionType(sizeData.subCategory);
         let areaPart = '';
         if (isPlot) {
             areaPart = sizeData.totalArea ? `(${sizeData.totalArea} ${sizeData.resultMetric})` : '';
@@ -343,15 +351,29 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
     if (!isOpen) return null;
 
-    const isPlotType = ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land'].some(k => sizeData.subCategory?.toLowerCase().includes(k));
+    const isPlotType = isDimensionType(sizeData.subCategory);
     const isResidentialType = !isPlotType;
 
     const handleSubmit = () => {
         if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
         if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
         if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
+        
+        const payload = { ...sizeData };
+        if (isPlotType) {
+            payload.totalArea = sizeData.totalArea || '';
+            payload.resultMetric = sizeData.resultMetric || 'Sq Yd';
+            payload.saleableArea = '';
+            payload.coveredArea = '';
+            payload.carpetArea = '';
+        } else {
+            payload.width = '';
+            payload.length = '';
+            payload.totalArea = '';
+        }
+
         // Pass projectMappings along — context will handle them
-        onAdd({ ...sizeData });
+        onAdd(payload);
         onClose();
     };
 
@@ -384,7 +406,15 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             <select value={sizeData.category} onChange={e => {
                                 const cat = e.target.value;
                                 const subs = propertyConfig?.[cat]?.subCategories || [];
-                                setSizeData({ ...sizeData, category: cat, subCategory: subs.length > 0 ? subs[0].name : '', unitType: '' });
+                                const firstSub = subs.length > 0 ? subs[0].name : '';
+                                const willBeDimension = isDimensionType(firstSub);
+                                setSizeData(prev => ({
+                                    ...prev,
+                                    category: cat,
+                                    subCategory: firstSub,
+                                    unitType: '',
+                                    resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
+                                }));
                             }} style={customSelectStyle}>
                                 <option value="">Select Category</option>
                                 {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -392,7 +422,16 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         </div>
                         <div>
                             <label style={labelStyle}>Sub Category</label>
-                            <select value={sizeData.subCategory} onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, unitType: '' })} style={customSelectStyle}>
+                            <select value={sizeData.subCategory} onChange={e => {
+                                const sub = e.target.value;
+                                const willBeDimension = isDimensionType(sub);
+                                setSizeData(prev => ({
+                                    ...prev,
+                                    subCategory: sub,
+                                    unitType: '',
+                                    resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
+                                }));
+                            }} style={customSelectStyle}>
                                 <option value="">Select Sub Category</option>
                                 {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
                                     <option key={sub.name} value={sub.name}>{sub.name}</option>
@@ -417,7 +456,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                     {/* Area Details */}
                     {isResidentialType && (
                         <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 700 }}>Residential Area Details (Sq Ft)</h4>
+                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 700 }}>Built-up / Flat Area Details (Sq Ft)</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                                 <div><label style={labelStyle}>Total/Saleable Area</label><input type="number" placeholder="e.g. 1120" value={sizeData.saleableArea} onChange={e => setSizeData({ ...sizeData, saleableArea: e.target.value })} style={inputStyle} /></div>
                                 <div><label style={labelStyle}>Covered Area</label><input type="number" placeholder="Optional" value={sizeData.coveredArea} onChange={e => setSizeData({ ...sizeData, coveredArea: e.target.value })} style={inputStyle} /></div>
