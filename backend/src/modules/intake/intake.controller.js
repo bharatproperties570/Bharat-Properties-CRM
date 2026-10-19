@@ -39,34 +39,6 @@ export const getIntakes = async (req, res) => {
             ];
         }
 
-        // 🛡️ Enterprise RBAC: WhatsApp Group / Deal Intake Isolation per User
-        const WhatsAppAccountAuthorizationService = (await import('../../../services/WhatsAppAccountAuthorizationService.js')).default;
-        const isSuperAdmin = WhatsAppAccountAuthorizationService.isAdmin(req.user) || req.user?.dataScope === 'all';
-
-        if (!isSuperAdmin && req.user) {
-            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../../../models/WhatsAppIntegration.js')).default;
-            const userIntegrations = await WhatsAppIntegration.find({
-                status: 'ACTIVE',
-                $or: [
-                    { connectedBy: req.user._id },
-                    { allowedUsers: req.user._id }
-                ]
-            }).select('_id').lean();
-            const allowedIntegIds = userIntegrations.map(i => i._id);
-
-            matchStage.$and = matchStage.$and || [];
-            matchStage.$and.push({
-                $or: [
-                    ...(allowedIntegIds.length > 0 ? [
-                        { whatsappIntegrationId: { $in: allowedIntegIds } },
-                        { 'raw_source_data.whatsappIntegrationId': { $in: allowedIntegIds.map(String) } }
-                    ] : []),
-                    { createdBy: req.user._id },
-                    { source_type: { $nin: ['whatsapp', 'whatsapp_group'] } }
-                ]
-            });
-        }
-
         const limit = Math.min(parseInt(req.query.limit) || 100, 500);
 
         const pipeline = [];
@@ -648,6 +620,7 @@ export const backfillIntakeGroup = async (req, res) => {
 /**
  * Preview WhatsApp Verification Inquiry
  * Generates Hinglish inquiry draft using Gemini Flash & resolves target phone numbers.
+ * Also resolves the authorized outbound WhatsApp lines (WhatsApp Web & Meta API) for the requesting user.
  */
 export const previewWAVerification = async (req, res) => {
     try {
@@ -661,11 +634,50 @@ export const previewWAVerification = async (req, res) => {
         const targetPhones = await dealVerificationAgent.resolveTargetPhones(intake);
         const draftMessage = await dealVerificationAgent.generateInquiryDraft(intake);
 
+        // 🛡️ Enterprise Outbound WhatsApp Line Resolution:
+        // Strictly resolve active WhatsApp accounts authorized for the requesting user
+        let baileysAccount = null;
+        let metaAccount = null;
+
+        try {
+            const WhatsAppAccountAuthorizationService = (await import('../../../services/WhatsAppAccountAuthorizationService.js')).default;
+            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../../../models/WhatsAppIntegration.js')).default;
+
+            let userIntegrations = [];
+            if (req.user) {
+                const allActive = await WhatsAppIntegration.find({ status: 'ACTIVE' }).lean();
+                userIntegrations = WhatsAppAccountAuthorizationService.filterAuthorizedAccounts(req.user, allActive);
+            }
+
+            baileysAccount = userIntegrations.find(a => a.provider === 'BAILEYS' || a.connectionType === 'QR_SCANNER') || null;
+            metaAccount = userIntegrations.find(a => a.provider === 'META' || a.connectionType === 'NEW_API' || a.connectionType === 'COEXISTENCE') || null;
+        } catch (authErr) {
+            console.warn('[previewWAVerification] Outbound line resolution warning:', authErr.message);
+        }
+
         res.status(200).json({
             success: true,
             targetPhones,
             draftMessage,
-            wa_verification: intake.wa_verification || { status: 'idle' }
+            wa_verification: intake.wa_verification || { status: 'idle' },
+            outboundLines: {
+                baileys: baileysAccount ? {
+                    id: baileysAccount._id.toString(),
+                    phoneNumberId: baileysAccount.phoneNumberId,
+                    displayPhoneNumber: baileysAccount.displayPhoneNumber,
+                    label: `WhatsApp Web (${baileysAccount.displayPhoneNumber}) - Peer Line (Recommended)`
+                } : null,
+                meta: metaAccount ? {
+                    id: metaAccount._id.toString(),
+                    phoneNumberId: metaAccount.phoneNumberId,
+                    displayPhoneNumber: metaAccount.displayPhoneNumber,
+                    label: `Meta Official API (${metaAccount.displayPhoneNumber})`
+                } : {
+                    id: 'legacy_default',
+                    displayPhoneNumber: '+91 99960 00570',
+                    label: 'Meta Official API (+91 99960 00570)'
+                }
+            }
         });
     } catch (error) {
         console.error('[previewWAVerification Error]:', error);
@@ -675,12 +687,13 @@ export const previewWAVerification = async (req, res) => {
 
 /**
  * Send WhatsApp Verification Inquiry
- * Sends the inquiry message to target broker via WhatsApp Web (Baileys).
+ * Sends the inquiry message to target broker via WhatsApp Web (Baileys) or Meta Cloud API.
+ * Strictly verifies and routes to the logged-in user's personal WhatsApp Web session.
  */
 export const sendWAVerification = async (req, res) => {
     try {
         const { id } = req.params;
-        const { targetPhone, targetType, message, provider } = req.body;
+        const { targetPhone, targetType, message, provider, integrationId } = req.body;
 
         if (!targetPhone) {
             return res.status(400).json({ success: false, message: "targetPhone is required" });
@@ -692,6 +705,35 @@ export const sendWAVerification = async (req, res) => {
 
         const isMeta = String(provider || '').toUpperCase() === 'META';
 
+        // 🛡️ Enterprise Per-User WhatsApp Web Security Gate:
+        let resolvedIntegrationId = integrationId;
+        if (!isMeta) {
+            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../../../models/WhatsAppIntegration.js')).default;
+            const WhatsAppAccountAuthorizationService = (await import('../../../services/WhatsAppAccountAuthorizationService.js')).default;
+
+            const allActive = await WhatsAppIntegration.find({ status: 'ACTIVE', provider: 'BAILEYS' }).lean();
+            const userAllowedBaileys = WhatsAppAccountAuthorizationService.filterAuthorizedAccounts(req.user, allActive);
+
+            if (!userAllowedBaileys || userAllowedBaileys.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    message: "You do not have an active WhatsApp Web connection linked to your account. Please scan your WhatsApp Web QR code in Profile settings first."
+                });
+            }
+
+            if (resolvedIntegrationId) {
+                const match = userAllowedBaileys.find(b => b._id.toString() === resolvedIntegrationId.toString());
+                if (!match) {
+                    return res.status(403).json({
+                        success: false,
+                        message: "Unauthorized WhatsApp Web line. You can only dispatch verification inquiries from your own connected WhatsApp Web session."
+                    });
+                }
+            } else {
+                resolvedIntegrationId = userAllowedBaileys[0]._id.toString();
+            }
+        }
+
         // 🚀 ENTERPRISE DEV-TO-PROD WHATSAPP WEB BRIDGE:
         // In local development, the Baileys socket is intentionally not connected to prevent session
         // conflicts with 24/7 production group scanner on api.bharatproperties.co.
@@ -699,7 +741,7 @@ export const sendWAVerification = async (req, res) => {
         if (!isMeta && process.env.NODE_ENV !== 'production') {
             try {
                 const { BaileysConnectionManager } = await import('../../../services/baileysQueue/BaileysConnectionManager.js');
-                const sock = BaileysConnectionManager.getSocket();
+                const sock = BaileysConnectionManager.getSocket(resolvedIntegrationId);
                 const isSocketLive = sock && sock.ws && sock.ws.isOpen;
 
                 if (!isSocketLive) {
@@ -717,7 +759,7 @@ export const sendWAVerification = async (req, res) => {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${token}`
                         },
-                        body: JSON.stringify({ targetPhone, targetType, message, provider: 'BAILEYS' })
+                        body: JSON.stringify({ targetPhone, targetType, message, provider: 'BAILEYS', integrationId: resolvedIntegrationId })
                     });
 
                     const prodJson = await prodResponse.json();
@@ -739,7 +781,8 @@ export const sendWAVerification = async (req, res) => {
             targetType,
             message,
             provider: provider || 'BAILEYS',
-            userId: req.user?._id || req.user?.id
+            userId: req.user?._id || req.user?.id,
+            integrationId: resolvedIntegrationId
         });
 
         res.status(200).json({

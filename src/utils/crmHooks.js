@@ -180,7 +180,10 @@ export function useUsers() {
         queryKey: queryKeys.users(),
         queryFn: async () => {
             const res = await api.get('users');
-            return res.data?.data || res.data || [];
+            if (Array.isArray(res.data?.data)) return res.data.data;
+            if (Array.isArray(res.data)) return res.data;
+            if (Array.isArray(res.data?.users)) return res.data.users;
+            return [];
         },
         staleTime: STALE_TIMES.SEMI_STATIC,
         gcTime: 5 * 60 * 1000,
@@ -1106,7 +1109,10 @@ export function useTeams() {
         queryKey: queryKeys.teams(), // ['teams']
         queryFn: async () => {
             const res = await api.get('teams');
-            return res.data?.data || res.data || [];
+            if (Array.isArray(res.data?.data)) return res.data.data;
+            if (Array.isArray(res.data)) return res.data;
+            if (Array.isArray(res.data?.teams)) return res.data.teams;
+            return [];
         },
         staleTime: STALE_TIMES.SEMI_STATIC, // 5 minutes
         gcTime: 5 * 60 * 1000,

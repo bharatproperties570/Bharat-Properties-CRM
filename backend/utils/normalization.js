@@ -36,6 +36,12 @@ export const normalizePhone = (phone) => {
         return cleaned;
     }
     
+    // 🔒 WhatsApp LID Protection: Linked IDs are 14+ digit integers
+    // Never slice an LID down to 10 digits, otherwise it creates a fake non-existent Indian phone
+    if (cleaned.length >= 13) {
+        return cleaned;
+    }
+    
     // Final fallback: take last 10 digits
     if (cleaned.length > 10) {
         return cleaned.slice(-10);

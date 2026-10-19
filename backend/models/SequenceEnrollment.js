@@ -13,7 +13,7 @@ const SequenceEnrollmentSchema = new mongoose.Schema({
     sequenceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Sequence', required: true },
     entityId: { type: mongoose.Schema.Types.ObjectId, required: true }, // Lead, Deal, Contact, etc.
     module: { type: String, required: true },
-    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: true },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', required: false },
     status: { 
         type: String, 
         enum: ['active', 'paused', 'completed', 'exited', 'failed'], 

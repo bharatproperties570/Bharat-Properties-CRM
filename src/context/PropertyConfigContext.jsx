@@ -30,7 +30,7 @@ const normalizeCachedSetting = (key, parsed) => {
         return copy;
     }
     if (key === 'dealMasterFields') {
-        const stringKeys = ['dealTypes', 'buyerTypes', 'closureReasons'];
+        const stringKeys = ['dealTypes', 'buyerTypes', 'sources', 'closureReasons'];
         const copy = { ...parsed };
         stringKeys.forEach(k => {
             if (Array.isArray(copy[k])) copy[k] = toStrArray(copy[k]);
@@ -453,7 +453,8 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const [dealMasterFields, setDealMasterFields] = useSystemSetting('dealMasterFields', {
         dealTypes: ['Registry case', 'Transfer case', 'GPA', 'Society case', 'Lease/Rent', 'Other'],
-        buyerTypes: ['Male', 'Female', 'Joint']
+        buyerTypes: ['Male', 'Female', 'Joint'],
+        sources: ['Walk-in', 'Newspaper', '99acres', 'Social Media', 'Cold Calling', 'Own Website', 'Referral']
     });
 
     const [scoringAttributes, setScoringAttributes] = useScoringRuleSetting('scoringAttributes', {
@@ -1882,7 +1883,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'forecastConfig': setForecastConfig(setting.value, true); break;
                             case 'dealHealthConfig': setDealHealthConfig(setting.value, true); break;
                             case 'intentSignals': setIntentSignals(setting.value, true); break;
-                            case 'dealMasterFields': setDealMasterFields(normalizeDictStringArrays(setting.value, ['dealTypes', 'buyerTypes', 'closureReasons']), true); break;
+                            case 'dealMasterFields': setDealMasterFields(normalizeDictStringArrays(setting.value, ['dealTypes', 'buyerTypes', 'sources', 'closureReasons']), true); break;
 
                             case 'dynamic_projects': 
                                 console.log('[PropertyConfigContext] Syncing dynamic_projects:', setting.value);

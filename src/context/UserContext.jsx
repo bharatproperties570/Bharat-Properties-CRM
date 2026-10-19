@@ -72,9 +72,13 @@ export const UserProvider = ({ children }) => {
             // Fetch roles and teams separately to not block users
             try {
                 const rolesRes = await rolesAPI.getAll();
-                if (rolesRes.success) setRoles(rolesRes.data || []);
+                const safeRoles = Array.isArray(rolesRes?.data) 
+                    ? rolesRes.data 
+                    : (Array.isArray(rolesRes) ? rolesRes : (Array.isArray(rolesRes?.roles) ? rolesRes.roles : []));
+                setRoles(safeRoles);
             } catch (e) {
                 console.warn('Failed to fetch roles:', e);
+                setRoles([]);
             }
 
             setError(null);

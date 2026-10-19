@@ -114,10 +114,15 @@ class WhatsAppGroupConnector extends BaseConnector {
 
         const finalData = this.validateAndClean(normalized);
 
-        // Generate dedup hash using messageId (globally unique per WhatsApp message)
-        // Falls back to text content hash if messageId is missing
-        const hashInput = messageId || cleanText;
-        const hash = this.generateDuplicateHash(hashInput);
+        // Generate semantic dedup hash to identify identical deals cross-posted across groups
+        let hash = null;
+        try {
+            const { generateNormalizedDealHash } = await import('../intakeQueue/IntakeQueue.js');
+            hash = generateNormalizedDealHash(cleanText);
+        } catch (e) {}
+        if (!hash) {
+            hash = this.generateDuplicateHash(cleanText);
+        }
 
         return { ...finalData, duplicate_hash: hash, createdBy: user_id };
     }

@@ -56,6 +56,13 @@ class AIVerificationEngine {
         const duplicateAnalysis = await duplicateIntelligenceEngine.analyze(intakeRecord);
         duplicate_intelligence = duplicateAnalysis;
 
+        let category = 'new';
+        const dupCount = (duplicateAnalysis.possible_duplicate_ids || []).length;
+        if (dupCount === 1) category = 'repeat1x';
+        else if (dupCount === 2) category = 'repeat2x';
+        else if (dupCount === 3) category = 'repeat3x';
+        else if (dupCount > 3) category = 'repeat3plus';
+
         if (duplicateAnalysis.duplicate_probability > 80) {
             confidenceScore -= 40;
             flags.push('high_duplicate_probability');
@@ -80,6 +87,7 @@ class AIVerificationEngine {
         }
 
         return {
+            category,
             verification_status: status,
             confidence_score: confidenceScore,
             verification_notes: notes,

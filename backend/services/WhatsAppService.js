@@ -278,7 +278,16 @@ class WhatsAppService {
                 }
             }
 
-            let jid = String(mobile || '').trim();
+            // Enterprise LID resolution before formatting outbound JID
+            let resolvedTarget = mobile;
+            try {
+                const res = await BaileysConnectionManager.resolveJidToPhone(mobile, config.integrationId);
+                if (res && res.cleanPhone && !res.cleanPhone.includes('@')) {
+                    resolvedTarget = res.cleanPhone;
+                }
+            } catch (e) {}
+
+            let jid = String(resolvedTarget || '').trim();
             if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us') && !jid.includes('@lid')) {
                 const normalized = this._normalizeTarget(jid);
                 if (!normalized) {
@@ -313,11 +322,44 @@ class WhatsAppService {
                 }
             }
 
-            const sendPromise = sock.sendMessage(jid, content);
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('WhatsApp Web send timed out after 15 seconds. Please check device connectivity.')), 15000)
-            );
-            const sentMsg = await Promise.race([sendPromise, timeoutPromise]);
+            let sentMsg;
+            try {
+                const sendPromise = sock.sendMessage(jid, content);
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('WhatsApp Web send timed out after 25 seconds. Please check device connectivity or QR pairing.')), 25000)
+                );
+                sentMsg = await Promise.race([sendPromise, timeoutPromise]);
+            } catch (firstAttemptErr) {
+                const errMsg = String(firstAttemptErr?.message || firstAttemptErr);
+                const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed');
+                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket dead:', isSocketDead);
+
+                if (isSocketDead) {
+                    try {
+                        console.log('[WhatsAppService/Baileys] Socket disconnected, attempting instant re-acquisition...');
+                        sock = await BaileysConnectionManager.connect(config.integrationId.toString());
+                        if (sock && sock.waitForSocketOpen) {
+                            await Promise.race([
+                                sock.waitForSocketOpen(),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Reconnect wait timeout')), 6000))
+                            ]);
+                        }
+                    } catch (recErr) {
+                        console.warn('[WhatsAppService/Baileys] Reconnect during retry failed:', recErr.message);
+                    }
+                }
+
+                if (sock && sock.ws && sock.ws.isOpen) {
+                    console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
+                    const retryPromise = sock.sendMessage(jid, content);
+                    const retryTimeout = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('WhatsApp Web send timed out on retry after 15 seconds.')), 15000)
+                    );
+                    sentMsg = await Promise.race([retryPromise, retryTimeout]);
+                } else {
+                    throw firstAttemptErr;
+                }
+            }
 
             return { 
                 success: true, 
@@ -326,7 +368,10 @@ class WhatsAppService {
                 messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }] 
             };
         } catch (error) {
-            const errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            let errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            if (errText === '1006' || errText.includes('1006')) {
+                errText = 'WhatsApp Web socket temporarily disconnected (1006). Connection was auto-reestablished; please click Send again.';
+            }
             console.error(`[WhatsAppService/Baileys] Send error:`, errText);
             return { success: false, error: errText, provider: 'baileys' };
         }
