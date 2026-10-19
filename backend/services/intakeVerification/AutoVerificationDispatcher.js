@@ -133,12 +133,16 @@ class AutoVerificationDispatcher {
             const recentInquiry = await Intake.findOne({
                 _id: { $ne: intake._id },
                 'wa_verification.target_phone': { $regex: last10 },
-                'wa_verification.status': { $in: ['inquiry_sent', 'replied_verified', 'replied_incomplete'] },
-                'wa_verification.initiated_at': { $gte: new Date(Date.now() - cooldownMs) }
-            }).select('_id wa_verification.initiated_at').lean();
+                'wa_verification.status': { $in: ['queued', 'inquiry_sent', 'replied_verified', 'replied_incomplete'] },
+                $or: [
+                    { 'wa_verification.initiated_at': { $gte: new Date(Date.now() - cooldownMs) } },
+                    { 'wa_verification.scheduled_at': { $gte: new Date(Date.now() - cooldownMs) } },
+                    { createdAt: { $gte: new Date(Date.now() - cooldownMs) } }
+                ]
+            }).select('_id wa_verification.initiated_at wa_verification.status').lean();
 
             if (recentInquiry) {
-                console.log(`[AutoDispatcher] Broker ${last10} was messaged within last ${settings.cooldownHoursPerBroker}h (Intake #${recentInquiry._id}). Skipping duplicate annoyance.`);
+                console.log(`[AutoDispatcher] Broker ${last10} has an active/recent inquiry within last ${settings.cooldownHoursPerBroker}h (Intake #${recentInquiry._id}, status: ${recentInquiry.wa_verification?.status}). Skipping duplicate annoyance.`);
                 return { queued: false, reason: 'broker_cooldown_active' };
             }
 
@@ -221,9 +225,31 @@ class AutoVerificationDispatcher {
             return { status: 'already_completed' };
         }
 
+        // Re-verify cooldown right before dispatch to prevent bursts from race conditions
+        const cleanPhone = String(targetPhone).replace(/[^0-9]/g, '');
+        const last10 = cleanPhone.slice(-10);
+        const cooldownMs = settings.cooldownHoursPerBroker * 3600 * 1000;
+        const recentSent = await Intake.findOne({
+            _id: { $ne: intake._id },
+            'wa_verification.target_phone': { $regex: last10 },
+            'wa_verification.status': { $in: ['inquiry_sent', 'replied_verified', 'replied_incomplete'] },
+            'wa_verification.initiated_at': { $gte: new Date(Date.now() - cooldownMs) }
+        }).select('_id').lean();
+
+        if (recentSent) {
+            console.log(`[AutoDispatcher] Broker ${last10} was recently messaged (Intake #${recentSent._id}). Skipping scheduled job.`);
+            intake.wa_verification.status = 'idle';
+            intake.verification_notes = intake.verification_notes || [];
+            intake.verification_notes.push(`[Auto-Verification Skipped] Broker ${last10} reached cooldown limit.`);
+            await intake.save();
+            return { status: 'cancelled_cooldown' };
+        }
+
+        const targetIntegrationId = intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null;
+
         try {
-            // ── Tier 5: Human Telemetry Presence ('composing' simulation) ──
-            await this._simulateHumanPresence(targetPhone, settings.simulateTypingSeconds || 5);
+            // ── Tier 5: Human Telemetry Presence ('composing' simulation on exact line) ──
+            await this._simulateHumanPresence(targetPhone, settings.simulateTypingSeconds || 5, targetIntegrationId);
 
             // ── Tier 6: Dynamic Linguistic Entropy Draft Generation ────────
             let draft = await dealVerificationAgent.generateInquiryDraft(intake);
@@ -243,20 +269,21 @@ class AutoVerificationDispatcher {
                 } catch (e) {}
             }
 
-            // ── Dispatch via DealVerificationAgent ──────────────────────────
+            // ── Dispatch via DealVerificationAgent on EXACT group line ─────
             const result = await dealVerificationAgent.sendVerificationInquiry(intakeId, {
                 targetPhone,
                 targetType: targetType || 'whatsapp_group_sender',
                 message: draft,
                 provider: 'BAILEYS',
-                userId: internalUserId
+                userId: internalUserId,
+                integrationId: targetIntegrationId
             });
 
             // Increment daily quota counter
             settings.dailySentCount = (settings.dailySentCount || 0) + 1;
             await settings.save();
 
-            console.log(`[AutoDispatcher] ✅ Dispatch SUCCESS to ${targetPhone}. Today Count: ${settings.dailySentCount}/${settings.dailyLimit}`);
+            console.log(`[AutoDispatcher] ✅ Dispatch SUCCESS to ${targetPhone} via integration (${targetIntegrationId || 'default'}). Today Count: ${settings.dailySentCount}/${settings.dailyLimit}`);
             return { status: 'success', targetPhone, result };
 
         } catch (dispatchErr) {
@@ -355,16 +382,16 @@ class AutoVerificationDispatcher {
     /**
      * Simulates authentic user presence ('composing' typing indicator) via Baileys socket.
      */
-    async _simulateHumanPresence(targetPhone, typingDurationSecs = 5) {
+    async _simulateHumanPresence(targetPhone, typingDurationSecs = 5, integrationId = null) {
         try {
             const { BaileysConnectionManager } = await import('../baileysQueue/BaileysConnectionManager.js');
             const clean = String(targetPhone).replace(/[^0-9]/g, '');
             const targetJid = clean.includes('@') ? clean : `${clean}@s.whatsapp.net`;
 
-            const sock = BaileysConnectionManager.getSocket();
+            const sock = BaileysConnectionManager.getSocket(integrationId);
             if (sock && typeof sock.sendPresenceUpdate === 'function') {
                 await sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
-                console.log(`[AutoDispatcher] Simulated 'composing' presence to ${targetJid} for ${typingDurationSecs}s`);
+                console.log(`[AutoDispatcher] Simulated 'composing' presence on socket (${integrationId || 'default'}) to ${targetJid} for ${typingDurationSecs}s`);
             }
         } catch (presenceErr) {
             console.warn('[AutoDispatcher] Presence simulation notice:', presenceErr.message);

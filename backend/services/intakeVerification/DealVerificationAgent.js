@@ -218,10 +218,10 @@ Price mentioned: ${price || 'Not mentioned'}`;
         if (!formattedPhone) throw new Error("Invalid target phone number format");
 
         const isMeta = String(provider).toUpperCase() === 'META';
-        let resolvedIntegrationId = integrationId;
+        let resolvedIntegrationId = integrationId || (intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null);
 
         if (!isMeta) {
-            // Strictly enforce per-user WhatsApp Web session isolation
+            // Strictly enforce per-user WhatsApp Web session isolation if not already resolved from intake group
             if (!resolvedIntegrationId && userId) {
                 const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../../models/WhatsAppIntegration.js')).default;
                 const WhatsAppAccountAuthorizationService = (await import('../WhatsAppAccountAuthorizationService.js')).default;
@@ -303,7 +303,7 @@ Price mentioned: ${price || 'Not mentioned'}`;
      * When a broker replies to a verification inquiry, parses response using Gemini Flash
      * and updates the Intake record with verified Unit Number & Final Price.
      */
-    async processBrokerReply(senderPhone, messageText) {
+    async processBrokerReply(senderPhone, messageText, incomingIntegrationId = null) {
         if (!senderPhone || !messageText) return null;
 
         const cleanSender = String(senderPhone).replace(/[^0-9]/g, '');
@@ -312,14 +312,29 @@ Price mentioned: ${price || 'Not mentioned'}`;
         const last10 = cleanSender.slice(-10);
 
         // Find pending intake matching this target phone (supports multi-turn conversation over 7-day window)
-        const pendingIntake = await Intake.findOne({
+        const baseQuery = {
             'wa_verification.target_phone': { $regex: last10 },
             $or: [
                 { 'wa_verification.status': { $in: ['inquiry_sent', 'replied_incomplete'] } },
                 { 'wa_verification.status': 'replied_verified', createdDealId: { $in: [null, undefined] } }
             ],
             'wa_verification.initiated_at': { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-        }).sort({ 'wa_verification.initiated_at': -1 });
+        };
+
+        let pendingIntake = null;
+        if (incomingIntegrationId) {
+            pendingIntake = await Intake.findOne({
+                ...baseQuery,
+                $or: [
+                    { 'wa_verification.integration_id': String(incomingIntegrationId) },
+                    { whatsappIntegrationId: incomingIntegrationId }
+                ]
+            }).sort({ 'wa_verification.initiated_at': -1 });
+        }
+
+        if (!pendingIntake) {
+            pendingIntake = await Intake.findOne(baseQuery).sort({ 'wa_verification.initiated_at': -1 });
+        }
 
         if (!pendingIntake) return null;
 
@@ -421,9 +436,13 @@ Price mentioned: ${price || 'Not mentioned'}`;
 
         if (followUpMessage) {
             const provider = pendingIntake.wa_verification?.provider === 'meta' ? 'META' : 'BAILEYS';
+            const targetIntegrationId = incomingIntegrationId || 
+                                        pendingIntake.wa_verification?.integration_id || 
+                                        (pendingIntake.whatsappIntegrationId ? String(pendingIntake.whatsappIntegrationId) : null);
+
             const dispatchOptions = provider === 'META'
-                ? { provider: 'META', channel: 'whatsapp_api' }
-                : { provider: 'BAILEYS', channel: 'whatsapp_web' };
+                ? { provider: 'META', channel: 'whatsapp_api', integrationId: targetIntegrationId }
+                : { provider: 'BAILEYS', channel: 'whatsapp_web', integrationId: targetIntegrationId };
 
             try {
                 const sendRes = await whatsAppService.sendMessage(senderPhone, followUpMessage, dispatchOptions);
@@ -434,7 +453,7 @@ Price mentioned: ${price || 'Not mentioned'}`;
                         message: followUpMessage,
                         timestamp: replyTime
                     });
-                    console.log(`[DealVerificationAgent] ✅ Dispatched human follow-up to ${senderPhone}: "${followUpMessage}"`);
+                    console.log(`[DealVerificationAgent] ✅ Dispatched human follow-up to ${senderPhone} via line (${targetIntegrationId || 'default'}): "${followUpMessage}"`);
                 }
             } catch (replySendErr) {
                 console.error(`[DealVerificationAgent] Failed to dispatch conversational follow-up:`, replySendErr.message);
@@ -466,27 +485,48 @@ Price mentioned: ${price || 'Not mentioned'}`;
         const provider = agent?.provider || 'gemini';
         const modelName = agent?.modelName || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash');
 
-        const systemPrompt = `You are an experienced North Indian property broker at Bharat Properties chatting 1-on-1 on WhatsApp with another broker.
-Your tone must be 100% human, casual, respectful, and ultra-short (strictly 1 line, under 15 words).
-Speak in natural North Indian broker Hinglish (use words like "Bhaiji", "Ji theek hai", "plot no / house no", "party ready hai", "table pe final bottom rate", "visit karani hai").
+        const baseInstructions = agent?.systemPrompt || `You are an experienced North Indian property broker at Bharat Properties chatting 1-on-1 on WhatsApp with another broker.
+Your tone must be 100% human, casual, respectful, and ultra-short (strictly 1 line, under 18 words).
+Speak in natural North Indian broker Hinglish (use words like "Bhaiji", "Ji theek hai", "plot no / house no", "party ready hai", "table pe final bottom rate", "visit karani hai").`;
 
-STRICT RULES:
-1. If broker gave house/plot number, but NOT price:
+        const systemPrompt = `${baseInstructions}
+
+CONVERSATION & REACTION RULES:
+1. IF BROKER ASKS WHICH PROPERTY / KAUNSI DEAL / KAUNSE PLOT / FOR WHICH PROJECT / WHICH APARTMENT:
+   Do NOT repeat price questions! Directly clarify the property using the Property Details provided (e.g. "Bhaiji, jo aapne group me [Location/Project] wali deal share ki thi, uske regarding puch raha hu.").
+2. IF BROKER GAVE HOUSE/PLOT/UNIT NUMBER (but NOT price):
    Acknowledge and ask bottom price on table (e.g. "Ji theek hai bhaiji, table pe final bottom rate kya chhod denge?").
-2. If broker gave price, but NOT house/plot number:
+3. IF BROKER GAVE PRICE (but NOT unit number):
    Ask exact unit/house number for client visit (e.g. "Theek hai ji, exact house no bata do, buyer ko visit karani hai.").
-3. If broker gave BOTH unit number and price:
-   Briefly acknowledge (e.g. "Ji theek hai bhaiji, buyer se match karke batata hu.").
-4. If broker says "office aao" / "call karo":
-   Politely ask unit/plot no first so party can be confirmed (e.g. "Bhaiji pehle house no share kardo, party confirm karke seedha office hi baithte hain.").
-5. NEVER sound like an AI. NO corporate English. NO quotes. Maximum 15 words.
-Output ONLY the raw message text.`;
+4. IF BROKER GAVE BOTH:
+   Acknowledge: "Ji theek hai bhaiji, buyer se match karke batata hu."
+5. IF BROKER SAYS "OFFICE AAO" / "CALL KARO":
+   Ask unit/plot no first so party can be confirmed (e.g. "Bhaiji pehle house no share kardo, party confirm karke seedha office hi baithte hain.").
+6. NEVER ignore the broker's question! Never repeat the exact same sentence twice in a row.
+7. Ultra-short (1 line, under 18 words), zero AI/corporate tone, no quotes. Output ONLY the raw message text.`;
 
-        const userPrompt = `Property Details: "${intakeRecord.description || intakeRecord.content || ''}"
+        // Include recent conversation turns for situational awareness
+        const historyText = (intakeRecord.wa_verification?.conversation_history || [])
+            .slice(-4)
+            .map(h => `${h.sender === 'system' ? 'You' : 'Broker'}: "${h.message}"`)
+            .join('\n');
+
+        const userPrompt = `Property Details:
+Location: ${intakeRecord.location || intakeRecord.sector || 'Not specified'}
+Project: ${intakeRecord.extracted_entities?.project || 'Not specified'}
+Type: ${intakeRecord.property_type || 'property'}
+Size: ${intakeRecord.size || 'Not specified'}
+Price: ${intakeRecord.price || 'Not specified'}
+Original Broadcast snippet: "${(intakeRecord.description || intakeRecord.content || '').substring(0, 150)}"
+
+Conversation History:
+${historyText || 'No prior turns'}
+
 Broker just said: "${brokerMessage}"
 Has Unit No: ${hasUnit ? extractedData.unit_number : 'NO'}
 Has Final Price: ${hasPrice ? extractedData.final_price : 'NO'}
-Write the 1-line WhatsApp reply:`;
+
+Write the 1-line WhatsApp reply to the broker:`;
 
         try {
             const reply = await unifiedAIService.generate(userPrompt, {
@@ -503,7 +543,14 @@ Write the 1-line WhatsApp reply:`;
             console.warn('[DealVerificationAgent] Failed to generate conversational reply:', err.message);
         }
 
-        // Natural fallbacks
+        // Context-aware natural fallbacks (never repeat inappropriate answers)
+        const isAskingWhichDeal = /kauns|kons|which|kis|kaha|kahan|project|apartment|plot/i.test(brokerMessage);
+        const propRef = intakeRecord.location || intakeRecord.sector || intakeRecord.extracted_entities?.project || 'group wali';
+
+        if (isAskingWhichDeal) {
+            return `Bhaiji, jo aapne group me ${propRef} ki deal dali thi, uske regarding puch raha hu.`;
+        }
+
         if (hasUnit && !hasPrice) {
             return "Ji theek hai bhaiji, table pe final bottom rate kya chhod denge?";
         } else if (!hasUnit && hasPrice) {

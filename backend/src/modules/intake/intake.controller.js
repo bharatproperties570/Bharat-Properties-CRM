@@ -738,6 +738,17 @@ export const sendWAVerification = async (req, res) => {
                 });
             }
 
+            if (!resolvedIntegrationId) {
+                // If intake has a specific whatsappIntegrationId from the originating group, prefer that line if authorized
+                const intakeRecord = await Intake.findById(id).select('whatsappIntegrationId').lean();
+                if (intakeRecord?.whatsappIntegrationId) {
+                    const matchIntakeLine = userAllowedBaileys.find(b => b._id.toString() === intakeRecord.whatsappIntegrationId.toString());
+                    if (matchIntakeLine) {
+                        resolvedIntegrationId = matchIntakeLine._id.toString();
+                    }
+                }
+            }
+
             if (resolvedIntegrationId) {
                 const match = userAllowedBaileys.find(b => b._id.toString() === resolvedIntegrationId.toString());
                 if (!match) {

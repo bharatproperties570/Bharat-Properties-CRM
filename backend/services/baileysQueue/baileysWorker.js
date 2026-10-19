@@ -291,7 +291,7 @@ export async function processInboundMessageCore(jobData) {
             const checkPhone = cleanPhone || targetPhone;
             import('../intakeVerification/DealVerificationAgent.js')
                 .then(({ default: dealVerificationAgent }) => {
-                    dealVerificationAgent.processBrokerReply(checkPhone, messageText).catch(err => {
+                    dealVerificationAgent.processBrokerReply(checkPhone, messageText, integrationId).catch(err => {
                         console.error('[BaileysWorker:DealVerification Error]:', err.message);
                     });
                 })
