@@ -114,14 +114,15 @@ class WhatsAppService {
 
     async _getBaileysConfig(integrationIdOrPhoneId = null) {
         const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
-        let integration = null;
         if (integrationIdOrPhoneId) {
             const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
                 ? { _id: integrationIdOrPhoneId, provider: 'BAILEYS', status: 'ACTIVE' }
                 : { phoneNumberId: String(integrationIdOrPhoneId), provider: 'BAILEYS', status: 'ACTIVE' };
             integration = await WhatsAppIntegration.findOne(query).lean();
-        }
-        if (!integration) {
+            if (!integration) {
+                throw new Error(`Requested WhatsApp Web line (${integrationIdOrPhoneId}) is not active or not found.`);
+            }
+        } else {
             integration = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).lean();
         }
         if (!integration) {
