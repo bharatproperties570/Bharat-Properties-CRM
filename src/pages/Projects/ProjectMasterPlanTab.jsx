@@ -36,6 +36,17 @@ const getRotatableOverlayClass = () => {
             this.img_ = document.createElement('img');
             this.img_.src = this.image_;
             this.img_.onerror = () => {
+                // Enterprise Resilience: If full remote URL fails, attempt relative proxy path
+                if (this.image_ && this.image_.startsWith('https://api.bharatproperties.co/uploads/')) {
+                    const relativeUrl = this.image_.replace('https://api.bharatproperties.co', '');
+                    console.warn(`[RotatableOverlay] Primary URL failed, retrying map image via relative proxy: ${relativeUrl}`);
+                    this.img_.onerror = () => {
+                        console.error("Map Image failed to load after retry:", this.image_);
+                        window.dispatchEvent(new CustomEvent('map-image-error', { detail: { url: this.image_ } }));
+                    };
+                    this.img_.src = relativeUrl;
+                    return;
+                }
                 console.error("Map Image failed to load:", this.image_);
                 window.dispatchEvent(new CustomEvent('map-image-error', { detail: { url: this.image_ } }));
             };
