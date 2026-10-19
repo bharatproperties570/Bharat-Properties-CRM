@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { MAP_CENTER } from '../../utils/mapUtils';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUpdateProjectMutation } from '../../utils/crmHooks';
 import { fixDriveUrl } from '../../utils/helpers';
+import AddSizeModal from '../../components/modals/AddSizeModal';
 
 const labelStyle = { display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' };
 const selectStyle = { width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-gray)', color: 'var(--text-main)', fontSize: '0.8rem' };
@@ -149,7 +150,7 @@ const incrementUnitNumber = (unitNo) => {
 
 const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const updateMutation = useUpdateProjectMutation();
-    const { propertyConfig, sizes, masterFields } = usePropertyConfig();
+    const { propertyConfig, sizes, masterFields, getSizesByProjectBlock } = usePropertyConfig();
     const mapRef = useRef(null);
     const googleMapRef = useRef(null);
     const overlayRef = useRef(null);
@@ -161,6 +162,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [isEditMode, setIsEditMode] = useState(masterPlan ? !masterPlan.isLocked : true);
     const [isPlottingMode, setIsPlottingMode] = useState(false);
+    const [isAddSizeModalOpen, setIsAddSizeModalOpen] = useState(false);
     
     // Bounds & Rotation state for saving
     const [currentBounds, setCurrentBounds] = useState(masterPlan?.bounds || null);
@@ -172,6 +174,40 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const [plotConfig, setPlotConfig] = useState({
         block: '', category: 'Residential', subCategory: '', sizeConfig: '', unitType: '', builtupType: '', direction: '', roadWidth: '', startNumber: '1'
     });
+
+    // Enterprise Normalized Size Lookup (supports multi-projectMappings and legacy root fields)
+    const availableSizes = useMemo(() => {
+        if (!project) return [];
+        if (typeof getSizesByProjectBlock === 'function') {
+            return getSizesByProjectBlock(project, plotConfig.block, plotConfig.category, plotConfig.subCategory);
+        }
+        return (sizes || []).filter(s => {
+            const norm = v => String(v || '').trim().toLowerCase();
+            const pName = norm(project?.name);
+            const pId = norm(project?._id || project?.id);
+            const blk = norm(plotConfig.block);
+            if (Array.isArray(s.projectMappings) && s.projectMappings.length > 0) {
+                return s.projectMappings.some(m => {
+                    const mProj = norm(m.project || m.projectName || m.projectId);
+                    if (mProj !== pName && (!pId || mProj !== pId)) return false;
+                    if (blk) {
+                        const mBlock = norm(m.block);
+                        return !mBlock || mBlock === 'all' || mBlock === 'all blocks' || mBlock === blk;
+                    }
+                    return true;
+                });
+            }
+            const rootProj = norm(s.project || s.projectName || s.projectId);
+            if (rootProj === pName || (pId && rootProj === pId)) {
+                if (blk) {
+                    const rootBlock = norm(s.block);
+                    return !rootBlock || rootBlock === 'all' || rootBlock === 'all blocks' || rootBlock === blk;
+                }
+                return true;
+            }
+            return false;
+        });
+    }, [getSizesByProjectBlock, project, plotConfig.block, plotConfig.category, plotConfig.subCategory, sizes]);
 
     const builtUpTypes = (() => {
         if (!plotConfig.category || !plotConfig.subCategory) return [];
@@ -353,6 +389,14 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             teamId = teamData._id || teamData;
         }
         
+        const selectedSizeObj = availableSizes.find(s => 
+            s.name === plotConfig.sizeConfig || 
+            s.label === plotConfig.sizeConfig || 
+            s.value === plotConfig.sizeConfig || 
+            s._id === plotConfig.sizeConfig || 
+            s.id === plotConfig.sizeConfig
+        );
+        
         const newUnit = {
             projectId: project._id,
             projectName: project.name,
@@ -364,6 +408,9 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             facing: plotConfig.facing,
             roadWidth: plotConfig.roadWidth,
             sizeConfig: plotConfig.sizeConfig,
+            size: selectedSizeObj?.name || selectedSizeObj?.label || plotConfig.sizeConfig,
+            sizeUnit: selectedSizeObj?.unit || selectedSizeObj?.sizeUnit || 'Sq Yd',
+            sizeType: selectedSizeObj?.sizeType || selectedSizeObj?.name || plotConfig.sizeConfig,
             builtupType: plotConfig.builtupType,
             unitNo: unitNumber,
             unitNumber: unitNumber,
@@ -651,15 +698,34 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                             </select>
                         </div>
                         <div>
-                            <label style={labelStyle}>Size / Config</label>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>Size / Config</label>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAddSizeModalOpen(true)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#3b82f6',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        padding: 0
+                                    }}
+                                    title="Add New Size"
+                                >
+                                    <i className="fas fa-plus-circle"></i> + Add Size
+                                </button>
+                            </div>
                             <select style={selectStyle} value={plotConfig.sizeConfig} onChange={e => setPlotConfig({...plotConfig, sizeConfig: e.target.value, builtupType: ''})}>
                                 <option value="">Select Size (Optional)</option>
-                                {sizes?.filter(s => 
-                                    (s.project === project?.name || s.projectId === project?._id) && 
-                                    s.block === plotConfig.block
-                                ).map(s => (
-                                    <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
-                                ))}
+                                {availableSizes.map(s => {
+                                    const val = s.name || s.label || s.value || s._id;
+                                    return <option key={s.id || s._id || val} value={val}>{s.label || s.name || val}</option>;
+                                })}
                             </select>
                         </div>
                     </div>
@@ -768,6 +834,19 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
 
             {/* Google Map Container */}
             <div ref={mapRef} style={{ width: '100%', height: '100%', background: '#e2e8f0' }}></div>
+
+            {/* In-situ Size Creation Modal */}
+            <AddSizeModal 
+                isOpen={isAddSizeModalOpen} 
+                projectName={typeof project === 'object' ? (project?.name || '') : (project || '')} 
+                block={plotConfig.block} 
+                category={plotConfig.category} 
+                subCategory={plotConfig.subCategory} 
+                onClose={() => setIsAddSizeModalOpen(false)} 
+                onSave={(sizeName) => {
+                    setPlotConfig(prev => ({ ...prev, sizeConfig: sizeName, builtupType: '' }));
+                }} 
+            />
         </div>
     );
 };
