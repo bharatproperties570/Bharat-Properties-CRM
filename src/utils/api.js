@@ -868,6 +868,9 @@ export const intakeAPI = {
     previewWAVerification: (id) => apiRequest(`/intake/${id}/wa-verification-preview`, { method: 'POST' }),
     sendWAVerification: (id, data) => apiRequest(`/intake/${id}/wa-verification-send`, { method: 'POST', body: JSON.stringify(data) }),
     getWAVerificationStatus: (id) => apiRequest(`/intake/${id}/wa-verification-status`),
+    getAutoVerificationSettings: () => apiRequest('/intake/auto-verification/settings'),
+    updateAutoVerificationSettings: (data) => apiRequest('/intake/auto-verification/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+    resetAutoVerificationCircuitBreaker: () => apiRequest('/intake/auto-verification/reset-circuit-breaker', { method: 'POST' }),
 };
 
 // Auth API

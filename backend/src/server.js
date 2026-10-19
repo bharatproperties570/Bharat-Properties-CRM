@@ -110,12 +110,14 @@ async function startServer() {
         const { intakeWorker } = await import("../services/intakeQueue/IntakeQueue.js");
         const { default: automationWorker } = await import("../services/automationQueue/automationWorker.js");
         const { baileysWorker, baileysInboundWorker } = await import("../services/baileysQueue/baileysWorker.js");
+        const { default: autoVerificationDispatcher } = await import("../services/intakeVerification/AutoVerificationDispatcher.js");
 
         const activeWorkers = [
             enrichmentWorker, googleSyncWorker, cronWorker, marketingWorker,
             distributionWorker, domainEventWorker, notificationWorker,
-            intakeWorker, automationWorker, baileysWorker, baileysInboundWorker
-        ];
+            intakeWorker, automationWorker, baileysWorker, baileysInboundWorker,
+            autoVerificationDispatcher._worker
+        ].filter(Boolean);
 
         const { outboxPublisher } = await import("../services/OutboxPublisher.js");
         outboxPublisher.start();

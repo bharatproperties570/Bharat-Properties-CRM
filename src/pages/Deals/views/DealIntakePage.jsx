@@ -74,6 +74,12 @@ const DealIntakePage = () => {
     const [userMetaLine, setUserMetaLine] = useState(null);
     const [isFetchingLines, setIsFetchingLines] = useState(false);
 
+    // 🛡️ Auto-Pilot Anti-Ban State
+    const [autoPilotSettings, setAutoPilotSettings] = useState(null);
+    const [autoPilotMetrics, setAutoPilotMetrics] = useState(null);
+    const [isAutoPilotModalOpen, setIsAutoPilotModalOpen] = useState(false);
+    const [isSavingAutoPilot, setIsSavingAutoPilot] = useState(false);
+
     // Auto-load logged-in user's authorized WhatsApp lines
     useEffect(() => {
         let isMounted = true;
@@ -334,18 +340,78 @@ const DealIntakePage = () => {
     };
     */
 
+    // ===== AUTO-PILOT ANTI-BAN HANDLERS =====
+    const loadAutoPilotSettings = useCallback(async () => {
+        try {
+            const res = await intakeAPI.getAutoVerificationSettings();
+            if (res.success) {
+                setAutoPilotSettings(res.settings);
+                setAutoPilotMetrics(res.metrics);
+            }
+        } catch (err) {
+            console.warn('Failed to load auto-pilot settings:', err);
+        }
+    }, []);
+
+    const handleToggleAutoPilot = async () => {
+        if (!autoPilotSettings) return;
+        const newStatus = !autoPilotSettings.isEnabled;
+        try {
+            const res = await intakeAPI.updateAutoVerificationSettings({ isEnabled: newStatus });
+            if (res.success) {
+                setAutoPilotSettings(res.settings);
+                toast.success(newStatus ? '🤖 Auto-Pilot Activated (Anti-Ban Safe Mode)' : '⏸️ Auto-Pilot Paused');
+                loadAutoPilotSettings();
+            }
+        } catch (err) {
+            toast.error('Failed to toggle Auto-Pilot');
+        }
+    };
+
+    const handleSaveAutoPilotSettings = async (formData) => {
+        setIsSavingAutoPilot(true);
+        try {
+            const res = await intakeAPI.updateAutoVerificationSettings(formData);
+            if (res.success) {
+                setAutoPilotSettings(res.settings);
+                toast.success('🛡️ Anti-Ban settings updated successfully!');
+                setIsAutoPilotModalOpen(false);
+                loadAutoPilotSettings();
+            }
+        } catch (err) {
+            toast.error('Failed to save settings: ' + err.message);
+        } finally {
+            setIsSavingAutoPilot(false);
+        }
+    };
+
+    const handleResetCircuitBreaker = async () => {
+        try {
+            const res = await intakeAPI.resetAutoVerificationCircuitBreaker();
+            if (res.success) {
+                setAutoPilotSettings(res.settings);
+                toast.success('✅ Circuit breaker reset! Auto-dispatch resumed.');
+                loadAutoPilotSettings();
+            }
+        } catch (err) {
+            toast.error('Failed to reset circuit breaker');
+        }
+    };
+
     // Load history and groups on component mount and sync periodically
     useEffect(() => {
         loadIntakeHistory();
         loadIntakeGroups();
+        loadAutoPilotSettings();
 
         // Run re-fetch periodically (live sync)
         const fetchInterval = setInterval(() => {
             loadIntakeHistory();
             loadIntakeGroups();
+            loadAutoPilotSettings();
         }, 30000); // 30s
         return () => clearInterval(fetchInterval);
-    }, [loadIntakeHistory, loadIntakeGroups]);
+    }, [loadIntakeHistory, loadIntakeGroups, loadAutoPilotSettings]);
 
     // ===== END DUPLICATE DETECTION UTILITIES =====
 
@@ -1412,6 +1478,72 @@ const DealIntakePage = () => {
                             )}
                             <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem', opacity: 0.85 }}></i>
                         </div>
+                    </button>
+
+                    {/* 🛡️ Auto-Pilot Anti-Ban Desk Button */}
+                    <button
+                        onClick={() => {
+                            loadAutoPilotSettings();
+                            setIsAutoPilotModalOpen(true);
+                        }}
+                        style={{
+                            width: '100%',
+                            marginTop: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            background: autoPilotSettings?.circuitBreakerTripped 
+                                ? '#fef2f2'
+                                : (autoPilotSettings?.isEnabled 
+                                    ? (isDark ? 'rgba(59, 130, 246, 0.2)' : '#eff6ff') 
+                                    : (isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc')),
+                            border: autoPilotSettings?.circuitBreakerTripped
+                                ? '1px solid #ef4444'
+                                : (autoPilotSettings?.isEnabled 
+                                    ? (isDark ? '1px solid rgba(96, 165, 250, 0.4)' : '1px solid #bfdbfe') 
+                                    : (isDark ? '1px solid #334155' : '1px solid #cbd5e1')),
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxSizing: 'border-box'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <div style={{
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '6px',
+                                background: autoPilotSettings?.circuitBreakerTripped ? '#ef4444' : (autoPilotSettings?.isEnabled ? '#3b82f6' : '#94a3b8'),
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.75rem',
+                                flexShrink: 0
+                            }}>
+                                <i className={`fas ${autoPilotSettings?.circuitBreakerTripped ? 'fa-exclamation-triangle' : (autoPilotSettings?.isEnabled ? 'fa-bolt' : 'fa-pause')}`}></i>
+                            </div>
+                            <div style={{ textAlign: 'left', lineHeight: 1.2, minWidth: 0 }}>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: autoPilotSettings?.circuitBreakerTripped ? '#ef4444' : (autoPilotSettings?.isEnabled ? (isDark ? '#93c5fd' : '#1d4ed8') : (isDark ? '#cbd5e1' : '#475569')), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {autoPilotSettings?.circuitBreakerTripped ? '⚠️ Auto-Pilot Paused' : (autoPilotSettings?.isEnabled ? '🤖 Auto-Pilot: Active' : '⏸️ Auto-Pilot: Off')}
+                                </div>
+                                <div style={{ fontSize: '0.66rem', color: isDark ? 'var(--text-muted)' : '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {autoPilotMetrics ? `Today: ${autoPilotMetrics.dailySentCount}/${autoPilotMetrics.dailyLimit} | 🛡️ Anti-Ban` : 'Meta Safe Pacing'}
+                                </div>
+                            </div>
+                        </div>
+                        <span style={{
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            background: autoPilotSettings?.circuitBreakerTripped ? '#fee2e2' : (autoPilotSettings?.isEnabled ? '#dcfce7' : '#e2e8f0'),
+                            color: autoPilotSettings?.circuitBreakerTripped ? '#991b1b' : (autoPilotSettings?.isEnabled ? '#166534' : '#475569'),
+                            flexShrink: 0
+                        }}>
+                            {autoPilotSettings?.circuitBreakerTripped ? 'TRIPPED' : (autoPilotSettings?.isEnabled ? 'AUTO' : 'MANUAL')}
+                        </span>
                     </button>
                 </div>
 
@@ -3864,6 +3996,257 @@ const DealIntakePage = () => {
                         >
                             Done
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 🛡️ Auto-Pilot Anti-Ban Verification Desk Modal */}
+            {isAutoPilotModalOpen && autoPilotSettings && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                    <div style={{ background: isDark ? '#0f172a' : '#fff', width: '640px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)', border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', paddingBottom: '12px' }}>
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+                                        <i className="fas fa-shield-alt"></i>
+                                    </div>
+                                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                                        Auto-Pilot WhatsApp Verification Desk
+                                    </h3>
+                                </div>
+                                <p style={{ margin: '4px 0 0 40px', fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                    Autonomous inquiry dispatch with 7-Tier Meta Policy & Anti-Ban Rate Limiting
+                                </p>
+                            </div>
+                            <button onClick={() => setIsAutoPilotModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', color: isDark ? '#94a3b8' : '#64748b', cursor: 'pointer' }}>
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Circuit Breaker Alert (if tripped) */}
+                        {autoPilotSettings.circuitBreakerTripped && (
+                            <div style={{ background: '#fef2f2', border: '1px solid #f87171', borderRadius: '10px', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div>
+                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-exclamation-triangle"></i> Safety Circuit Breaker Active (Auto-Paused)
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '2px' }}>
+                                        Reason: {autoPilotSettings.circuitBreakerReason || 'Socket anomaly detected'}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={handleResetCircuitBreaker}
+                                    style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                    Reset & Resume
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Master Activation Toggle Card */}
+                        <div style={{
+                            background: autoPilotSettings.isEnabled ? (isDark ? 'rgba(16, 185, 129, 0.1)' : '#f0fdf4') : (isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc'),
+                            border: autoPilotSettings.isEnabled ? '1px solid #86efac' : (isDark ? '1px solid #334155' : '1px solid #cbd5e1'),
+                            borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                        }}>
+                            <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: autoPilotSettings.isEnabled ? (isDark ? '#4ade80' : '#166534') : (isDark ? '#cbd5e1' : '#334155') }}>
+                                    {autoPilotSettings.isEnabled ? '🤖 Autonomous Dispatch Active' : '⏸️ Autonomous Dispatch Paused'}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                    {autoPilotSettings.isEnabled 
+                                        ? 'Incoming group property deals with confidence ≥ 80% are automatically scheduled.' 
+                                        : 'All outgoing verification inquiries require manual 1-click trigger.'}
+                                </div>
+                            </div>
+                            <button
+                                onClick={handleToggleAutoPilot}
+                                style={{
+                                    background: autoPilotSettings.isEnabled ? '#10b981' : '#64748b',
+                                    color: '#fff', border: 'none', borderRadius: '20px', padding: '8px 18px',
+                                    fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <i className={`fas ${autoPilotSettings.isEnabled ? 'fa-check' : 'fa-power-off'}`}></i>
+                                {autoPilotSettings.isEnabled ? 'ACTIVE' : 'PAUSED'}
+                            </button>
+                        </div>
+
+                        {/* Metrics Bar */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                            <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Today Dispatched</div>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#3b82f6', marginTop: '2px' }}>
+                                    {autoPilotMetrics?.dailySentCount || 0} / {autoPilotSettings.dailyLimit}
+                                </div>
+                            </div>
+                            <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>In Queue</div>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
+                                    {autoPilotMetrics?.queuedCount || 0} msgs
+                                </div>
+                            </div>
+                            <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Pacing Window</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? '#f8fafc' : '#0f172a', marginTop: '4px' }}>
+                                    {autoPilotSettings.businessHoursStart} - {autoPilotSettings.businessHoursEnd}
+                                </div>
+                            </div>
+                            <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', border: isDark ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Broker Cooldown</div>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#8b5cf6', marginTop: '2px' }}>
+                                    {autoPilotSettings.cooldownHoursPerBroker}h
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Configuration Form */}
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                const fd = new FormData(e.target);
+                                handleSaveAutoPilotSettings({
+                                    dailyLimit: Number(fd.get('dailyLimit')),
+                                    confidenceThreshold: Number(fd.get('confidenceThreshold')),
+                                    cooldownHoursPerBroker: Number(fd.get('cooldownHoursPerBroker')),
+                                    minDelaySeconds: Number(fd.get('minDelaySeconds')),
+                                    maxDelaySeconds: Number(fd.get('maxDelaySeconds')),
+                                    businessHoursStart: fd.get('businessHoursStart'),
+                                    businessHoursEnd: fd.get('businessHoursEnd'),
+                                    requireSaleIntentOnly: fd.get('requireSaleIntentOnly') === 'on',
+                                    includeOptOutCourtesy: fd.get('includeOptOutCourtesy') === 'on'
+                                });
+                            }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                        >
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Daily Safety Limit (Max Outbound/Day):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="dailyLimit"
+                                        defaultValue={autoPilotSettings.dailyLimit || 35}
+                                        min="5" max="100"
+                                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Quality Gatekeeper (Min Confidence %):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="confidenceThreshold"
+                                        defaultValue={autoPilotSettings.confidenceThreshold || 80}
+                                        min="50" max="100"
+                                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Delay Between Inquiries (Seconds):
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <input
+                                            type="number"
+                                            name="minDelaySeconds"
+                                            defaultValue={autoPilotSettings.minDelaySeconds || 90}
+                                            min="30" max="300"
+                                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                        />
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>to</span>
+                                        <input
+                                            type="number"
+                                            name="maxDelaySeconds"
+                                            defaultValue={autoPilotSettings.maxDelaySeconds || 210}
+                                            min="60" max="600"
+                                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Broker Cooldown (Hours):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        name="cooldownHoursPerBroker"
+                                        defaultValue={autoPilotSettings.cooldownHoursPerBroker || 48}
+                                        min="12" max="168"
+                                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Business Hours Start (IST):
+                                    </label>
+                                    <input
+                                        type="time"
+                                        name="businessHoursStart"
+                                        defaultValue={autoPilotSettings.businessHoursStart || '10:00'}
+                                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                                        Business Hours End (IST):
+                                    </label>
+                                    <input
+                                        type="time"
+                                        name="businessHoursEnd"
+                                        defaultValue={autoPilotSettings.businessHoursEnd || '19:00'}
+                                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', background: isDark ? '#1e293b' : '#fff', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Checkbox options */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="requireSaleIntentOnly"
+                                        defaultChecked={autoPilotSettings.requireSaleIntentOnly !== false}
+                                    />
+                                    <span><strong>Seller Listings Only:</strong> Strictly drop buyer requirements and demand queries</span>
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        name="includeOptOutCourtesy"
+                                        defaultChecked={autoPilotSettings.includeOptOutCourtesy !== false}
+                                    />
+                                    <span><strong>Polite Courtesy Footer:</strong> Append non-intrusive ignore note (drastically drops user spam reports)</span>
+                                </label>
+                            </div>
+
+                            {/* Footer Buttons */}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0', paddingTop: '12px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAutoPilotModalOpen(false)}
+                                    style={{ background: 'transparent', border: isDark ? '1px solid #475569' : '1px solid #cbd5e1', color: 'var(--text-main)', borderRadius: '8px', padding: '8px 16px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSavingAutoPilot}
+                                    style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, cursor: isSavingAutoPilot ? 'not-allowed' : 'pointer' }}
+                                >
+                                    {isSavingAutoPilot ? 'Saving...' : 'Save Anti-Ban Configuration'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

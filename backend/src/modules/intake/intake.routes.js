@@ -5,7 +5,8 @@ import {
     getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake,
     createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource,
     getIntakeGroups, toggleIntakeGroup, triggerGroupScan, backfillIntakeGroup,
-    previewWAVerification, sendWAVerification, getWAVerificationStatus
+    previewWAVerification, sendWAVerification, getWAVerificationStatus,
+    getAutoVerificationSettings, updateAutoVerificationSettings, resetAutoVerificationCircuitBreaker
 } from './intake.controller.js';
 import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
@@ -13,6 +14,13 @@ const router = express.Router();
 
 // Apply authentication to all routes
 router.use(authenticate);
+
+/**
+ * 🛡️ Auto-Verification Anti-Ban Settings Routes (MUST be defined before /:id)
+ */
+router.get('/auto-verification/settings', getAutoVerificationSettings);
+router.patch('/auto-verification/settings', updateAutoVerificationSettings);
+router.post('/auto-verification/reset-circuit-breaker', resetAutoVerificationCircuitBreaker);
 
 /**
  * WhatsApp Group Intake Routes (MUST be defined before /:id)

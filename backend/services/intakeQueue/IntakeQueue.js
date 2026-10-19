@@ -193,6 +193,16 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
             intake.createdBy = userId;
             
             await intake.save();
+
+            // 🛡️ Auto-Verification Dispatch Hook (Option B: Meta-Safe Anti-Ban Autonomous Pacing)
+            if (intake.source_type === 'whatsapp_group') {
+                try {
+                    const { default: autoVerificationDispatcher } = await import('../intakeVerification/AutoVerificationDispatcher.js');
+                    await autoVerificationDispatcher.evaluateAndQueue(intake);
+                } catch (autoErr) {
+                    console.error('[IntakeWorker] Auto-Verification Queue Error:', autoErr.message);
+                }
+            }
             
             log.info(job.id, 'Successfully processed and verified intake', { intakeId });
             span.setStatus({ code: 1 });

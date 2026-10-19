@@ -838,5 +838,91 @@ export const getWAVerificationStatus = async (req, res) => {
     }
 };
 
+/**
+ * 🛡️ Get Auto-Verification Anti-Ban Settings & Metrics
+ */
+export const getAutoVerificationSettings = async (req, res) => {
+    try {
+        const AutoVerificationSettings = (await import('../../../models/AutoVerificationSettings.js')).default;
+        const settings = await AutoVerificationSettings.getSettings();
+
+        // Get count of queued verification jobs
+        let queuedCount = 0;
+        try {
+            const { autoVerificationQueue } = await import('../../../services/intakeVerification/AutoVerificationDispatcher.js');
+            queuedCount = await autoVerificationQueue.getWaitingCount();
+        } catch (e) {}
+
+        res.status(200).json({
+            success: true,
+            settings,
+            metrics: {
+                dailySentCount: settings.dailySentCount || 0,
+                dailyLimit: settings.dailyLimit || 35,
+                queuedCount,
+                circuitBreakerTripped: !!settings.circuitBreakerTripped,
+                circuitBreakerReason: settings.circuitBreakerReason || null
+            }
+        });
+    } catch (error) {
+        console.error('[getAutoVerificationSettings Error]:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * 🛡️ Update Auto-Verification Settings
+ */
+export const updateAutoVerificationSettings = async (req, res) => {
+    try {
+        const AutoVerificationSettings = (await import('../../../models/AutoVerificationSettings.js')).default;
+        const settings = await AutoVerificationSettings.getSettings();
+
+        const allowedFields = [
+            'isEnabled', 'confidenceThreshold', 'requireSaleIntentOnly',
+            'cooldownHoursPerBroker', 'dailyLimit', 'businessHoursStart',
+            'businessHoursEnd', 'minDelaySeconds', 'maxDelaySeconds',
+            'simulateTypingSeconds', 'includeOptOutCourtesy', 'optOutCourtesyText'
+        ];
+
+        allowedFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                settings[field] = req.body[field];
+            }
+        });
+
+        settings.updatedBy = req.user?._id || req.user?.id;
+        await settings.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Auto-verification settings updated successfully",
+            settings
+        });
+    } catch (error) {
+        console.error('[updateAutoVerificationSettings Error]:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * 🛡️ Reset Safety Circuit Breaker
+ */
+export const resetAutoVerificationCircuitBreaker = async (req, res) => {
+    try {
+        const { default: autoVerificationDispatcher } = await import('../../../services/intakeVerification/AutoVerificationDispatcher.js');
+        const updated = await autoVerificationDispatcher.resetCircuitBreaker();
+
+        res.status(200).json({
+            success: true,
+            message: "Circuit breaker successfully reset. Auto-dispatch resumed.",
+            settings: updated
+        });
+    } catch (error) {
+        console.error('[resetAutoVerificationCircuitBreaker Error]:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
 
