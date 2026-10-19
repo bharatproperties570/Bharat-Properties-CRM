@@ -133,7 +133,7 @@ Examples:
     /**
      * Sends the verification inquiry via Baileys WhatsApp Web or Meta Cloud API
      */
-    async sendVerificationInquiry(intakeId, { targetPhone, targetType, message, provider = 'BAILEYS', userId = null }) {
+    async sendVerificationInquiry(intakeId, { targetPhone, targetType, message, provider = 'BAILEYS', userId = null, integrationId = null }) {
         if (!intakeId) throw new Error("Intake ID is required");
         if (!targetPhone) throw new Error("Target phone number is required");
         if (!message) throw new Error("Message content is required");
@@ -155,11 +155,30 @@ Examples:
         if (!formattedPhone) throw new Error("Invalid target phone number format");
 
         const isMeta = String(provider).toUpperCase() === 'META';
-        const dispatchOptions = isMeta 
-            ? { provider: 'META', channel: 'whatsapp_api' }
-            : { provider: 'BAILEYS', channel: 'whatsapp_web' };
+        let resolvedIntegrationId = integrationId;
 
-        console.log(`[DealVerificationAgent] Sending inquiry to ${formattedPhone} via ${isMeta ? 'Meta API' : 'Baileys WhatsApp Web'}`);
+        if (!isMeta) {
+            // Strictly enforce per-user WhatsApp Web session isolation
+            if (!resolvedIntegrationId && userId) {
+                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../../models/WhatsAppIntegration.js')).default;
+                const WhatsAppAccountAuthorizationService = (await import('../WhatsAppAccountAuthorizationService.js')).default;
+                const allActive = await WhatsAppIntegration.find({ status: 'ACTIVE', provider: 'BAILEYS' }).lean();
+
+                const userObj = { _id: userId, id: userId };
+                const userAllowed = WhatsAppAccountAuthorizationService.filterAuthorizedAccounts(userObj, allActive);
+                if (userAllowed && userAllowed.length > 0) {
+                    resolvedIntegrationId = userAllowed[0]._id.toString();
+                } else {
+                    throw new Error("No active WhatsApp Web connection linked to your user account. Please connect via Profile QR code.");
+                }
+            }
+        }
+
+        const dispatchOptions = isMeta 
+            ? { provider: 'META', channel: 'whatsapp_api', integrationId: resolvedIntegrationId }
+            : { provider: 'BAILEYS', channel: 'whatsapp_web', integrationId: resolvedIntegrationId };
+
+        console.log(`[DealVerificationAgent] Sending inquiry to ${formattedPhone} via ${isMeta ? 'Meta API' : 'Baileys WhatsApp Web'} (Integration: ${resolvedIntegrationId || 'default'})`);
         const sendResult = await whatsAppService.sendMessage(formattedPhone, message, dispatchOptions);
 
         if (!sendResult || !sendResult.success) {
@@ -187,6 +206,8 @@ Examples:
         intake.wa_verification.target_type = targetType || 'text_contact';
         intake.wa_verification.outbound_message = message;
         intake.wa_verification.provider = sendResult.provider || (isMeta ? 'meta' : 'baileys');
+        intake.wa_verification.sent_by_user = userId;
+        intake.wa_verification.integration_id = resolvedIntegrationId;
         intake.wa_verification.message_id = sendResult.messageId || sendResult.messages?.[0]?.id || null;
         intake.wa_verification.conversation_history = intake.wa_verification.conversation_history || [];
         intake.wa_verification.conversation_history.push({

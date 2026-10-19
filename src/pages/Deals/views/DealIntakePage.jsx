@@ -13,6 +13,7 @@ import AddContactModal from '../../../components/AddContactModal';
 import UploadSummaryModal from '../../../components/UploadSummaryModal';
 import QuickDealForm from '../../../components/QuickDealForm';
 import { intakeAPI, api } from '../../../utils/api';
+import whatsappService from '../../../services/whatsappService';
 import { renderValue } from '../../../utils/renderUtils';
 import { useDeals, useAddDealMutation } from '../../../utils/crmHooks';
 
@@ -68,6 +69,39 @@ const DealIntakePage = () => {
     const [waDeskExpanded, setWaDeskExpanded] = useState(true);
     const [waHistoryOpen, setWaHistoryOpen] = useState(true);
     const [waProvider, setWaProvider] = useState('BAILEYS');
+    const [userBaileysLine, setUserBaileysLine] = useState(null);
+    const [userMetaLine, setUserMetaLine] = useState(null);
+    const [isFetchingLines, setIsFetchingLines] = useState(false);
+
+    // Auto-load logged-in user's authorized WhatsApp lines
+    useEffect(() => {
+        let isMounted = true;
+        const loadUserAccounts = async () => {
+            setIsFetchingLines(true);
+            try {
+                const res = await whatsappService.getAccounts();
+                if (!isMounted) return;
+                const accounts = res.data || [];
+                const bAcc = accounts.find(a => a.provider === 'BAILEYS' || a.connectionType === 'QR_SCANNER');
+                const mAcc = accounts.find(a => a.provider !== 'BAILEYS' && a.connectionType !== 'QR_SCANNER');
+                if (bAcc) {
+                    setUserBaileysLine(bAcc);
+                } else {
+                    setUserBaileysLine(null);
+                    if (mAcc) setWaProvider('META');
+                }
+                if (mAcc) {
+                    setUserMetaLine(mAcc);
+                }
+            } catch (err) {
+                console.warn('[DealIntakePage] Failed to fetch user WhatsApp accounts:', err);
+            } finally {
+                if (isMounted) setIsFetchingLines(false);
+            }
+        };
+        loadUserAccounts();
+        return () => { isMounted = false; };
+    }, []);
 
     const [leadData, setLeadData] = useState([]);
     const [inventoryData, setInventoryData] = useState([]);
@@ -558,6 +592,12 @@ const DealIntakePage = () => {
                     setWaTargetPhone(res.targetPhones.senderPhone);
                     setWaTargetType('sender');
                 }
+                if (res.outboundLines?.baileys) {
+                    setUserBaileysLine(res.outboundLines.baileys);
+                }
+                if (res.outboundLines?.meta) {
+                    setUserMetaLine(res.outboundLines.meta);
+                }
                 toast.success('✨ Gemini Flash drafted broker inquiry!');
             } else {
                 toast.error(res.message || 'Failed to preview verification inquiry');
@@ -576,16 +616,23 @@ const DealIntakePage = () => {
         if (!waTargetPhone) return toast.error('Please select or enter a target phone number');
         if (!waCustomMessage || !waCustomMessage.trim()) return toast.error('Message content cannot be empty');
 
+        if (waProvider === 'BAILEYS' && !userBaileysLine) {
+            return toast.error('You do not have an active WhatsApp Web connection linked. Please scan the QR code in Profile settings first.');
+        }
+
         setWaSendingInquiry(true);
         try {
             const res = await intakeAPI.sendWAVerification(id, {
                 targetPhone: waTargetPhone,
                 targetType: waTargetType,
                 message: waCustomMessage,
-                provider: waProvider
+                provider: waProvider,
+                integrationId: waProvider === 'BAILEYS' ? (userBaileysLine?.id || userBaileysLine?._id) : undefined
             });
             if (res.success) {
-                const lineLabel = waProvider === 'META' ? 'Meta Official API (+91 99960 00570)' : 'WhatsApp Web (919991333570)';
+                const lineLabel = waProvider === 'META' 
+                    ? `Meta Official API (${userMetaLine?.displayPhoneNumber || '+91 99960 00570'})` 
+                    : `WhatsApp Web (${userBaileysLine?.displayPhoneNumber || userBaileysLine?.phoneNumberId || 'Personal Line'})`;
                 toast.success(`🚀 Inquiry sent via ${lineLabel}!`);
                 // Update local currentItem state
                 setCurrentItem(prev => ({
@@ -2444,20 +2491,36 @@ const DealIntakePage = () => {
                                                             2. Select Outbound WhatsApp Line:
                                                         </div>
                                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setWaProvider('BAILEYS')}
-                                                                style={{
-                                                                    padding: '5px 12px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
-                                                                    border: waProvider === 'BAILEYS' ? '2px solid #22c55e' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
-                                                                    background: waProvider === 'BAILEYS' ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
-                                                                    color: waProvider === 'BAILEYS' ? '#15803d' : (isDark ? '#cbd5e1' : '#334155'),
-                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                                                                }}
-                                                            >
-                                                                <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i>
-                                                                <span>WhatsApp Web (919991333570) - <b>Peer Line (Recommended)</b></span>
-                                                            </button>
+                                                            {userBaileysLine ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setWaProvider('BAILEYS')}
+                                                                    style={{
+                                                                        padding: '5px 12px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                                                        border: waProvider === 'BAILEYS' ? '2px solid #22c55e' : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                                        background: waProvider === 'BAILEYS' ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc'),
+                                                                        color: waProvider === 'BAILEYS' ? '#15803d' : (isDark ? '#cbd5e1' : '#334155'),
+                                                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                                                    }}
+                                                                >
+                                                                    <i className="fab fa-whatsapp" style={{ color: '#22c55e' }}></i>
+                                                                    <span>WhatsApp Web ({userBaileysLine.displayPhoneNumber || userBaileysLine.phoneNumberId || 'Linked Peer'}) - <b>Peer Line (Recommended)</b></span>
+                                                                </button>
+                                                            ) : (
+                                                                <div
+                                                                    style={{
+                                                                        padding: '5px 12px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 600,
+                                                                        border: isDark ? '1px dashed rgba(239, 68, 68, 0.4)' : '1px dashed #fca5a5',
+                                                                        background: isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2',
+                                                                        color: isDark ? '#f87171' : '#dc2626',
+                                                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                                                    }}
+                                                                    title="No active WhatsApp Web scanner linked to your user account. Go to Settings > Profile to scan your personal QR code."
+                                                                >
+                                                                    <i className="fab fa-whatsapp" style={{ color: '#ef4444' }}></i>
+                                                                    <span>{isFetchingLines ? 'Checking User Line...' : 'WhatsApp Web Not Linked (Scan QR in Profile)'}</span>
+                                                                </div>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setWaProvider('META')}
@@ -2470,7 +2533,7 @@ const DealIntakePage = () => {
                                                                 }}
                                                             >
                                                                 <i className="fas fa-shield-alt" style={{ color: '#3b82f6' }}></i>
-                                                                <span>Meta Official API (+91 99960 00570)</span>
+                                                                <span>Meta Official API ({userMetaLine?.displayPhoneNumber || '+91 99960 00570'})</span>
                                                             </button>
                                                         </div>
                                                     </div>
