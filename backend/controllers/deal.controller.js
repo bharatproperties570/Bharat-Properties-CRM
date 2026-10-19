@@ -2447,19 +2447,19 @@ export const updateDeal = async (req, res) => {
                 let vis = sanitizedData.visibleTo;
                 if (vis === "Public" || vis === "All Users") vis = "Everyone";
                 sanitizedData.visibleTo = vis;
-                sanitizedData[assignment.visibleTo] = vis;
+                sanitizedData['assignment.visibleTo'] = vis;
                 if (!sanitizedData.assignment) sanitizedData.assignment = {};
                 sanitizedData.assignment.visibleTo = vis;
             }
-            if (sanitizedData[assignment.visibleTo]) {
-                let vis = sanitizedData[assignment.visibleTo];
+            if (sanitizedData['assignment.visibleTo']) {
+                let vis = sanitizedData['assignment.visibleTo'];
                 if (vis === "Public" || vis === "All Users") vis = "Everyone";
                 sanitizedData.visibleTo = vis;
-                sanitizedData[assignment.visibleTo] = vis;
+                sanitizedData['assignment.visibleTo'] = vis;
             }
             if (sanitizedData.team) {
                 sanitizedData.teams = [sanitizedData.team];
-                sanitizedData[assignment.team] = [sanitizedData.team];
+                sanitizedData['assignment.team'] = [sanitizedData.team];
                 if (!sanitizedData.assignment) sanitizedData.assignment = {};
                 sanitizedData.assignment.team = [sanitizedData.team];
             }
