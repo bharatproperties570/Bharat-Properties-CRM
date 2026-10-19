@@ -2363,7 +2363,7 @@ const DealIntakePage = () => {
                                                             onClick={() => {
                                                                 const altProv = waProvider === 'BAILEYS' ? 'META' : 'BAILEYS';
                                                                 setWaProvider(altProv);
-                                                                toast.info(`Switched to ${altProv === 'META' ? 'Meta Official API' : 'WhatsApp Web'}. Click Send to retry.`);
+                                                                toast.success(`Switched to ${altProv === 'META' ? 'Meta Official API' : 'WhatsApp Web'}. Click Send to retry.`);
                                                             }}
                                                             style={{
                                                                 padding: '6px 12px', background: '#dc2626', color: '#ffffff',

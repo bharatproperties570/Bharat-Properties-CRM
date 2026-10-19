@@ -103,7 +103,7 @@ const QuickDealForm = ({
 
         // Warn if unverified (but allow)
         if (!verificationStatus) {
-            toast.warning('⚠️ Creating unverified deal');
+            toast('⚠️ Creating unverified deal', { icon: '⚠️' });
         }
 
         onCreateDeal({
