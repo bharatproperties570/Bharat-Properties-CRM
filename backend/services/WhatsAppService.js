@@ -114,6 +114,7 @@ class WhatsAppService {
 
     async _getBaileysConfig(integrationIdOrPhoneId = null) {
         const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+        let integration = null;
         if (integrationIdOrPhoneId) {
             const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
                 ? { _id: integrationIdOrPhoneId, provider: 'BAILEYS', status: 'ACTIVE' }
