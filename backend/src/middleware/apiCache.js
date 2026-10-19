@@ -62,7 +62,6 @@ const CACHE_ROUTES = {
     '/api/users':            2 * 60 * 1000,  // 2 min
     '/api/roles':            5 * 60 * 1000,  // 5 min
     '/api/teams':            2 * 60 * 1000,  // 2 min
-    '/api/projects':         2 * 60 * 1000,  // 2 min
     '/api/property-config':  5 * 60 * 1000,  // 5 min
     '/api/pipeline-stats':   30 * 1000,       // 30s — dashboard stats
     '/api/stage-engine':     30 * 1000,       // 30s
@@ -75,7 +74,6 @@ const INVALIDATION_MAP = {
     '/api/lookups':    ['/api/lookups', '/api/stages'],
     '/api/users':      ['/api/users', '/api/teams'],
     '/api/teams':      ['/api/teams', '/api/users'],
-    '/api/projects':   ['/api/projects'],
     '/api/leads':      ['/api/pipeline-stats', '/api/stage-engine'],
     '/api/contacts':   ['/api/pipeline-stats'],
     '/api/deals':      ['/api/pipeline-stats'],

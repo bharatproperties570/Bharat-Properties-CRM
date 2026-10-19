@@ -228,19 +228,18 @@ app.use((req, res, next) => {
 // ─────────────────────────────────────────────────────────────
 // ENTERPRISE CACHE LAYER — Applied before route handlers
 // Read routes: serve from cache. Write routes: invalidate cache.
+// (Projects is strictly excluded from global pre-auth caching to prevent RBAC leaks)
 // ─────────────────────────────────────────────────────────────
 app.use("/api/lookups",  cacheMiddleware(5 * 60 * 1000));   // 5 min
 app.use("/api/lookup",   cacheMiddleware(5 * 60 * 1000));   // 5 min
 app.use("/api/users",    cacheMiddleware(2 * 60 * 1000));   // 2 min
 app.use("/api/teams",    cacheMiddleware(2 * 60 * 1000));   // 2 min
 app.use("/api/roles",    cacheMiddleware(5 * 60 * 1000));   // 5 min
-app.use("/api/projects", cacheMiddleware(2 * 60 * 1000));   // 2 min
 
 // Invalidate cache on writes
 app.use("/api/lookups",  invalidateCache);
 app.use("/api/users",    invalidateCache);
 app.use("/api/teams",    invalidateCache);
-app.use("/api/projects", invalidateCache);
 
 // Route Definitions
 app.use("/api/auth", authRoutes);
