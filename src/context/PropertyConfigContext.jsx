@@ -2639,16 +2639,50 @@ export const PropertyConfigProvider = ({ children }) => {
         return updateSize({ ...size, id: sizeId, projectMappings: newMappings });
     };
 
-    // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block)
-    const getSizesByProjectBlock = useCallback((project, block) => {
-        if (!project) return sizes;
-        return sizes.filter(s => {
+    // ✅ ENTERPRISE: Get sizes available for a specific project (+ optional block, category, subCategory)
+    const getSizesByProjectBlock = useCallback((project, block, category, subCategory) => {
+        if (!project) return sizes || [];
+        const norm = v => String(v || '').trim().toLowerCase();
+        const tProj = norm(typeof project === 'object' ? (project?.name || project?.projectName || project?.title) : project);
+        const tProjId = norm(typeof project === 'object' ? (project?._id || project?.id) : '');
+        const tBlock = norm(block);
+        const tCat = norm(category);
+        const tSub = norm(subCategory);
+
+        return (sizes || []).filter(s => {
+            let projectBlockMatches = false;
             const mappings = Array.isArray(s.projectMappings) ? s.projectMappings : [];
-            if (mappings.length === 0) return false;
-            return mappings.some(m => {
-                if (block) return m.project === project && m.block === block;
-                return m.project === project;
-            });
+            if (mappings.length > 0) {
+                projectBlockMatches = mappings.some(m => {
+                    const mProj = norm(m.project || m.projectName || m.projectId);
+                    if (mProj !== tProj && (!tProjId || mProj !== tProjId)) return false;
+                    if (tBlock) {
+                        const mBlock = norm(m.block);
+                        return !mBlock || mBlock === 'all' || mBlock === 'all blocks' || mBlock === tBlock;
+                    }
+                    return true;
+                });
+            }
+
+            // Fallback for legacy sizes where project/block were stored as root metadata
+            if (!projectBlockMatches) {
+                const rootProj = norm(s.project || s.projectName || s.projectId);
+                if (rootProj === tProj || (tProjId && rootProj === tProjId)) {
+                    if (tBlock) {
+                        const rootBlock = norm(s.block);
+                        projectBlockMatches = !rootBlock || rootBlock === 'all' || rootBlock === 'all blocks' || rootBlock === tBlock;
+                    } else {
+                        projectBlockMatches = true;
+                    }
+                }
+            }
+
+            if (!projectBlockMatches) return false;
+
+            if (tCat && s.category && norm(s.category) !== tCat) return false;
+            if (tSub && s.subCategory && norm(s.subCategory) !== tSub) return false;
+
+            return true;
         });
     }, [sizes]);
 
