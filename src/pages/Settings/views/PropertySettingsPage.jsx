@@ -86,7 +86,17 @@ const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMappin
     const availableBlocks = useMemo(() => {
         if (!selProject || !Array.isArray(allProjects)) return [];
         const proj = allProjects.find(p => p.name === selProject);
-        return proj?.blocks || [];
+        const rawBlocks = proj?.blocks || [];
+        const seen = new Set();
+        const result = [];
+        rawBlocks.forEach(b => {
+            const bName = typeof b === 'object' ? (b.name || '') : String(b || '');
+            if (bName && !seen.has(bName)) {
+                seen.add(bName);
+                result.push(b);
+            }
+        });
+        return result;
     }, [selProject, allProjects]);
 
     const handleAdd = async () => {
@@ -245,7 +255,17 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
     const quickBlocks = useMemo(() => {
         if (!quickProject || !Array.isArray(allProjects)) return [];
         const proj = allProjects.find(p => p.name === quickProject);
-        return proj?.blocks || [];
+        const rawBlocks = proj?.blocks || [];
+        const seen = new Set();
+        const result = [];
+        rawBlocks.forEach(b => {
+            const bName = typeof b === 'object' ? (b.name || '') : String(b || '');
+            if (bName && !seen.has(bName)) {
+                seen.add(bName);
+                result.push(b);
+            }
+        });
+        return result;
     }, [quickProject, allProjects]);
 
     // Handle late propertyConfig load

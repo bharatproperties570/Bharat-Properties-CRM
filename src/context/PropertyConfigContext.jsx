@@ -1886,17 +1886,31 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'dealMasterFields': setDealMasterFields(normalizeDictStringArrays(setting.value, ['dealTypes', 'buyerTypes', 'sources', 'closureReasons']), true); break;
 
                             case 'dynamic_projects': 
-                                console.log('[PropertyConfigContext] Syncing dynamic_projects:', setting.value);
+                                console.log('[PropertyConfigContext] Syncing dynamic_projects (legacy fallback):', setting.value);
                                 setProjects(prev => {
                                     const dynamicProjs = Array.isArray(setting.value) ? setting.value : [];
                                     const projectMap = new Map();
                                     
-                                    // Start with existing projects
-                                    prev.forEach(p => projectMap.set((p.name || '').toLowerCase(), p));
+                                    // 1. Canonical API projects from MongoDB projects collection are the single source of truth
+                                    if (Array.isArray(apiProjects) && apiProjects.length > 0) {
+                                        apiProjects.forEach(p => {
+                                            if (p.name) projectMap.set(p.name.toLowerCase(), p);
+                                        });
+                                    }
                                     
-                                    // Merge dynamic projects (replace if name matches)
+                                    // 2. Keep existing projects in state
+                                    prev.forEach(p => {
+                                        if (p.name && !projectMap.has(p.name.toLowerCase())) {
+                                            projectMap.set(p.name.toLowerCase(), p);
+                                        }
+                                    });
+                                    
+                                    // 3. Only add legacy dynamic projects if NO canonical project exists with that name
                                     dynamicProjs.forEach(p => {
-                                        if (p.name) projectMap.set(p.name.toLowerCase(), p);
+                                        const key = (p.name || '').toLowerCase();
+                                        if (key && !projectMap.has(key)) {
+                                            projectMap.set(key, p);
+                                        }
                                     });
                                     
                                     return Array.from(projectMap.values());
