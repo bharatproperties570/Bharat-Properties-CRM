@@ -634,6 +634,22 @@ export const previewWAVerification = async (req, res) => {
         const targetPhones = await dealVerificationAgent.resolveTargetPhones(intake);
         const draftMessage = await dealVerificationAgent.generateInquiryDraft(intake);
 
+        // 🛡️ Enterprise AI Agent Metadata Resolution
+        let activeAgentInfo = null;
+        try {
+            const AiAgent = mongoose.models.AiAgent || (await import('../../../models/AiAgent.js')).default;
+            const ag = await AiAgent.findOne({ useCases: 'intake_verification', isActive: true }).select('name role provider modelName').lean();
+            if (ag) {
+                activeAgentInfo = {
+                    id: ag._id.toString(),
+                    name: ag.name,
+                    role: ag.role,
+                    provider: ag.provider,
+                    modelName: ag.modelName
+                };
+            }
+        } catch (e) {}
+
         // 🛡️ Enterprise Outbound WhatsApp Line Resolution:
         // Strictly resolve active WhatsApp accounts authorized for the requesting user
         let baileysAccount = null;
@@ -659,6 +675,7 @@ export const previewWAVerification = async (req, res) => {
             success: true,
             targetPhones,
             draftMessage,
+            activeAgent: activeAgentInfo,
             wa_verification: intake.wa_verification || { status: 'idle' },
             outboundLines: {
                 baileys: baileysAccount ? {

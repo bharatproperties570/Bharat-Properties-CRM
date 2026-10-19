@@ -1,11 +1,15 @@
 import Intake from '../../models/Intake.js';
+import AiAgent from '../../models/AiAgent.js';
+import unifiedAIService from '../UnifiedAIService.js';
 import geminiService from '../GeminiService.js';
 import whatsAppService from '../WhatsAppService.js';
+import mongoose from 'mongoose';
 
 /**
  * DealVerificationAgent
  * Enterprise-grade automated & interactive WhatsApp Deal Verification Agent
- * Powered by Google Gemini Flash.
+ * Connected to Settings > AI Agent Hub (useCase: intake_verification)
+ * with Anti-Ban linguistic variation and multi-provider failover.
  */
 class DealVerificationAgent {
 
@@ -78,8 +82,9 @@ class DealVerificationAgent {
     }
 
     /**
-     * Generates an ultra-short, human broker verification inquiry in natural Hinglish.
-     * Powered by Gemini 3.8 Flash.
+     * Generates a human broker verification inquiry in natural Hinglish.
+     * Powered dynamically by Settings > AI Agent Hub (useCase: intake_verification)
+     * with anti-ban entropy, greeting rotation, and multi-provider failover.
      */
     async generateInquiryDraft(intakeRecord) {
         const location = intakeRecord.location || intakeRecord.sector || 'is location';
@@ -87,47 +92,105 @@ class DealVerificationAgent {
         const price = intakeRecord.price || '';
         const size = intakeRecord.size || '';
 
-        const systemPrompt = `You are an experienced real estate dealer at Bharat Properties chatting 1-on-1 on WhatsApp with a fellow broker in Haryana/Delhi-NCR.
+        // 🛡️ Enterprise Pillar 1: Dynamic AI Agent Hub Resolution
+        let agent = null;
+        try {
+            agent = await AiAgent.findOne({ useCases: 'intake_verification', isActive: true }).lean();
+        } catch (dbErr) {
+            console.warn('[DealVerificationAgent] Could not query AiAgent from DB:', dbErr.message);
+        }
+
+        const provider = agent?.provider || 'gemini';
+        const modelName = agent?.modelName || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash');
+        
+        // Base instructions from AI Agent Hub Settings (or enterprise default if not configured)
+        const baseSystemPrompt = agent?.systemPrompt || `You are an experienced real estate dealer at Bharat Properties chatting 1-on-1 on WhatsApp with a fellow broker in Haryana/Delhi-NCR.
 Your goal is to send a very short, natural WhatsApp message to find out the exact plot/house/unit number and bottom price for a posted deal.
 
 Strict Tone & Style Rules:
 - Ultra-short: strictly 1 to 2 lines (under 20 words).
-- Real broker colloquial tone: Start with "Ram Ram bhaiji" or "Bhaiji".
+- Real broker colloquial tone: Start with respectful North Indian broker greetings like "Ram Ram bhaiji", "Bhaiji pranam", "Namaste veerji", or "Haanji bhaisahab".
 - Ask directly for unit/plot/house number and bottom closing price.
 - Mention genuine client/party is ready.
 - ZERO AI / Corporate feel: NO "Kindly", NO "Please", NO "cross-check", NO "hope this finds you well", NO quotes.
-- Output ONLY the raw message text.
+- Output ONLY the raw message text.`;
 
-Examples:
-- Deal: "1 Kanal plot in Sector 4 green belt 140 to 145"
-  Message: Ram Ram bhaiji, Sec 4 me 1 Kanal plot ka exact plot no kya hai? Party ready hai, table pe final bottom rate kya chhod denge?
-- Deal: "4 BHK Flat 500 sqyd in Sector 43 rent 2L"
-  Message: Bhaiji, Sec 43 me flat ka house no bata do, buyer ready hai, final rate kya banega?
-- Deal: "Kothi 10 marla in Sec 7"
-  Message: Ram Ram bhaiji, Sec 7 kothi ka house number kya hai? Genuine party ready hai, bottom rate batao.`;
+        // 🛡️ Enterprise Pillar 2: Anti-Ban Diversity Injector (Dynamic Greeting & Structure Permutation)
+        const greetings = [
+            "Ram Ram bhaiji",
+            "Bhaiji pranam",
+            "Namaste veerji",
+            "Haanji bhaisahab",
+            "Bhaiji",
+            "Radhe Radhe bhaiji"
+        ];
+        const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
 
-        const userPrompt = `Deal broadcast:\n"${intakeRecord.description || intakeRecord.content || (propType + ' in ' + location)}"`;
+        const styleStrategies = [
+            `Start with greeting "${randomGreeting}". Mention a genuine ready buyer/client on table and ask for the exact plot/unit number and bottom closing price.`,
+            `Start with greeting "${randomGreeting}". Ask for the unit/plot number first, then ask what is the final bottom rate on table.`,
+            `Start with greeting "${randomGreeting}". Ask what is the final negotiable closing price, and ask to share plot number for client visit.`,
+            `Start with greeting "${randomGreeting}". Mention you saw their broadcast and have an immediate buyer on table; ask for plot/house number.`
+        ];
+        const selectedStrategy = styleStrategies[Math.floor(Math.random() * styleStrategies.length)];
+
+        const dynamicSystemPrompt = `${baseSystemPrompt}
+
+DYNAMIC ANTI-BAN VARIATION DIRECTIVE:
+${selectedStrategy}
+Keep it ultra-short (under 20 words). Never use repetitive stock templates.`;
+
+        const userPrompt = `Deal broadcast:\n"${intakeRecord.description || intakeRecord.content || (propType + ' in ' + location)}"
+Location: ${location}
+Type: ${propType}
+Size: ${size}
+Price mentioned: ${price || 'Not mentioned'}`;
+
+        // High dynamic temperature (0.75 - 0.85) to maximize entropy and eliminate repetition
+        const dynamicTemperature = 0.75 + (Math.random() * 0.1);
 
         try {
-            const draft = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
-                model: 'gemini-3.8-flash',
-                temperature: 0.4,
-                maxTokens: 250
+            console.log(`[DealVerificationAgent] Generating inquiry via AI Agent Hub '${agent?.name || 'Default'}' (${provider}/${modelName})`);
+            const draft = await unifiedAIService.generate(userPrompt, {
+                provider,
+                model: modelName,
+                systemPrompt: dynamicSystemPrompt,
+                temperature: dynamicTemperature,
+                maxTokens: 200
             });
+
             if (draft && draft.trim().length > 10) {
                 return draft.trim().replace(/^["']|["']$/g, '');
             }
         } catch (err) {
-            console.warn('[DealVerificationAgent] Gemini draft generation failed, using fallback template:', err.message);
+            console.warn('[DealVerificationAgent] AI generation failed, using anti-ban varied fallback:', err.message);
         }
 
-        // Fallback natural 1-liner
-        let displayType = propType;
-        if (size && (propType.toLowerCase().includes(size.toLowerCase()) || size.toLowerCase().includes(propType.toLowerCase()))) {
+        // 🛡️ Enterprise Pillar 3: Anti-Ban Dynamic Fallback Generator (Multi-variant Rotating Pool)
+        return this._getVariedFallbackDraft(location, propType, size, price);
+    }
+
+    /**
+     * Anti-Ban rotating fallback pool (never returns a single repetitive string)
+     */
+    _getVariedFallbackDraft(location, propType, size, price) {
+        let displayType = propType || 'property';
+        if (size && (displayType.toLowerCase().includes(size.toLowerCase()) || size.toLowerCase().includes(displayType.toLowerCase()))) {
             displayType = '';
         }
-        let spec = `${location} me ${size ? size + ' ' : ''}${displayType}`.replace(/\s+/g, ' ').trim();
-        return `Ram Ram bhaiji, ${spec} ka plot/house no kya hai? Party ready hai, table pe final bottom rate kya chhod denge?`;
+        const spec = `${location} me ${size ? size + ' ' : ''}${displayType}`.replace(/\s+/g, ' ').trim();
+        
+        const variants = [
+            `Ram Ram bhaiji, ${spec} ka exact plot/unit no kya hai? Party ready hai, table pe final bottom rate bata do.`,
+            `Bhaiji pranam, ${spec} wale deal ke liye buyer ready hai. Plot no aur closing rate share kar do.`,
+            `Namaste veerji, ${spec} me final rate kya chhodoge? Exact house no bata do, client visit karani hai.`,
+            `Haanji bhaisahab, ${spec} ka plot number kya hai? Genuine party on table hai, bottom price batao.`,
+            `Bhaiji, ${spec} ka exact unit no share kardo, ready client hai table meeting karwayenge.`,
+            `Radhe Radhe bhaiji, ${spec} me bottom closing rate kya banega? Plot number bata dijiye.`,
+            `Ram Ram bhaiji, ${spec} ka number share kar do ji. Party ready payment leke baithi hai.`,
+            `Bhaiji, ${spec} wali deal me final bottom rate aur plot no bata do, buyer confirm karna hai.`
+        ];
+        return variants[Math.floor(Math.random() * variants.length)];
     }
 
     /**
@@ -337,11 +400,19 @@ Examples:
 
     /**
      * Generates an ultra-short, human follow-up message when the broker replies.
-     * Powered by Gemini 3.8 Flash.
+     * Powered dynamically by Settings > AI Agent Hub (useCase: intake_verification)
      */
     async generateConversationalReply(intakeRecord, brokerMessage, extractedData) {
         const hasUnit = extractedData.unit_number && extractedData.unit_number !== 'UNDISCLOSED' && extractedData.unit_number !== 'UNKNOWN';
         const hasPrice = !!extractedData.final_price;
+
+        let agent = null;
+        try {
+            agent = await AiAgent.findOne({ useCases: 'intake_verification', isActive: true }).lean();
+        } catch (e) {}
+
+        const provider = agent?.provider || 'gemini';
+        const modelName = agent?.modelName || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash');
 
         const systemPrompt = `You are an experienced North Indian property broker at Bharat Properties chatting 1-on-1 on WhatsApp with another broker.
 Your tone must be 100% human, casual, respectful, and ultra-short (strictly 1 line, under 15 words).
@@ -366,10 +437,12 @@ Has Final Price: ${hasPrice ? extractedData.final_price : 'NO'}
 Write the 1-line WhatsApp reply:`;
 
         try {
-            const reply = await geminiService.generateWithSystem(systemPrompt, userPrompt, {
-                model: 'gemini-3.8-flash',
-                temperature: 0.4,
-                maxTokens: 250
+            const reply = await unifiedAIService.generate(userPrompt, {
+                provider,
+                model: modelName,
+                systemPrompt,
+                temperature: 0.7,
+                maxTokens: 150
             });
             if (reply && reply.trim().length > 3) {
                 return reply.trim().replace(/^["']|["']$/g, '');

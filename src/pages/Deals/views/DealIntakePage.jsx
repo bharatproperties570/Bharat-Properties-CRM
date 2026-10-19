@@ -65,6 +65,7 @@ const DealIntakePage = () => {
     const [waTargetPhone, setWaTargetPhone] = useState('');
     const [waTargetType, setWaTargetType] = useState('text_contact');
     const [waCustomMessage, setWaCustomMessage] = useState('');
+    const [waActiveAgent, setWaActiveAgent] = useState(null);
     const [waPreviewData, setWaPreviewData] = useState(null);
     const [waDeskExpanded, setWaDeskExpanded] = useState(true);
     const [waHistoryOpen, setWaHistoryOpen] = useState(true);
@@ -592,13 +593,17 @@ const DealIntakePage = () => {
                     setWaTargetPhone(res.targetPhones.senderPhone);
                     setWaTargetType('sender');
                 }
+                if (res.activeAgent) {
+                    setWaActiveAgent(res.activeAgent);
+                }
                 if (res.outboundLines?.baileys) {
                     setUserBaileysLine(res.outboundLines.baileys);
                 }
                 if (res.outboundLines?.meta) {
                     setUserMetaLine(res.outboundLines.meta);
                 }
-                toast.success('✨ Gemini Flash drafted broker inquiry!');
+                const agentLabel = res.activeAgent?.name || 'AI Agent Hub';
+                toast.success(`✨ ${agentLabel} drafted broker inquiry!`);
             } else {
                 toast.error(res.message || 'Failed to preview verification inquiry');
             }
@@ -2120,11 +2125,11 @@ const DealIntakePage = () => {
                                                             background: isDark ? 'rgba(99, 102, 241, 0.25)' : '#e0e7ff',
                                                             color: isDark ? '#a5b4fc' : '#4338ca', border: '1px solid rgba(99, 102, 241, 0.3)'
                                                         }}>
-                                                            Gemini 3.8 Flash
+                                                            {waActiveAgent ? `${waActiveAgent.name} (${waActiveAgent.modelName})` : 'AI Agent Hub (intake_verification)'}
                                                         </span>
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: isDark ? '#94a3b8' : '#64748b' }}>
-                                                        Human-Touch Broker Verification (1-Line Hinglish via Gemini 3.8 Flash)
+                                                        {waActiveAgent ? `Dynamic Broker Verification via Settings > AI Agent Hub (${waActiveAgent.name})` : 'Dynamic Broker Verification via Settings > AI Agent Hub'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -2558,7 +2563,7 @@ const DealIntakePage = () => {
                                                                 }}
                                                             >
                                                                 <i className={`fas fa-magic ${waLoadingPreview ? 'fa-spin' : ''}`}></i>
-                                                                {waCustomMessage ? 'Regenerate Human Draft' : 'Draft 1-Line Broker Inquiry'}
+                                                                {waCustomMessage ? 'Regenerate Dynamic Draft' : 'Draft 1-Line Broker Inquiry'}
                                                             </button>
                                                         </div>
 

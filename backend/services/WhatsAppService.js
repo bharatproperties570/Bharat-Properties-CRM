@@ -324,6 +324,17 @@ class WhatsAppService {
                 }
             }
 
+            // 🛡️ Enterprise Anti-Ban: Human Typing Presence Emulation for 1-on-1 chats
+            if (!jid.includes('@g.us')) {
+                try {
+                    await sock.sendPresenceUpdate('composing', jid);
+                    await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() * 800)));
+                    await sock.sendPresenceUpdate('paused', jid);
+                } catch (presenceErr) {
+                    // Non-fatal
+                }
+            }
+
             let sentMsg;
             try {
                 const sendPromise = sock.sendMessage(jid, content);

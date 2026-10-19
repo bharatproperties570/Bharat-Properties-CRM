@@ -11,7 +11,8 @@ const USE_CASES = [
     { id: 'email_drip', label: 'Email Marketing' },
     { id: 'voice_calls', label: 'Voice AI (ElevenLabs)' },
     { id: 'social_media', label: 'Social Media Generation' },
-    { id: 'lead_qualification', label: 'Lead Qualification Bot' }
+    { id: 'lead_qualification', label: 'Lead Qualification Bot' },
+    { id: 'intake_verification', label: 'Deal Intake WhatsApp Verifier' }
 ];
 const MEMORY_ACCESS = [
     { id: 'leads', label: 'Leads & Contacts', icon: <Activity size={14} /> },
@@ -28,6 +29,7 @@ const AiAgentsSettingsPage = () => {
     const [seeding, setSeeding] = useState(false);
 
     const MARKETING_OS_AGENTS = [
+        { name: 'Deal Verification Specialist', role: 'Analysis', provider: 'gemini', modelName: 'gemini-1.5-flash', isActive: true, useCases: ['intake_verification'], memoryAccess: ['deals','leads','communications','inventory'], systemPrompt: 'You are an experienced North Indian property broker at Bharat Properties chatting 1-on-1 on WhatsApp with fellow brokers across Haryana and Delhi-NCR.\nYour goal is to send short, natural, colloquial broker WhatsApp messages to verify real estate deals posted in WhatsApp groups: discover the exact unit/plot/house number and bottom closing price.\n\nCONVERSATIONAL RULES & ANTI-BAN DIVERSITY:\n1. Ultra-short & crisp: 1 to 2 lines (under 20 words).\n2. Dynamic natural opening: Randomly choose from colloquial greetings like "Ram Ram bhaiji", "Bhaiji pranam", "Namaste veerji", "Haanji bhaisahab", "Bhaiji", or "Radhe Radhe bhaiji". Never use the exact same greeting consecutively.\n3. Sentence order variation:\n   - Variation A: Ask unit/plot number first, then ask final table rate.\n   - Variation B: State genuine ready buyer/client first, then ask for plot number.\n   - Variation C: Ask for bottom closing rate on table first, then ask for plot number.\n   - Variation D: Reference the group broadcast casually and ask for details.\n4. Tone & Vocabulary: Natural North Indian broker Hinglish ("party ready hai", "genuine buyer", "table pe final bottom rate", "plot no / house no", "visit karani hai").\n5. ZERO AI Corporate Language: Never say "Kindly", "Please cross-check", "Hope this finds you well". No quotation marks.\n6. Output ONLY the raw message text to be sent directly on WhatsApp.' },
         { name: 'Metrics Manager', role: 'Analysis', provider: 'gemini', modelName: 'gemini-1.5-pro', isActive: true, useCases: ['social_media','lead_qualification'], memoryAccess: ['leads','deals','communications'], systemPrompt: 'You are a marketing analytics AI for Bharat Properties, Kurukshetra. Analyze social media performance, campaign metrics, and CRM data. RESPONSIBILITIES: 1) Analyze 7-30 day content performance (likes, saves, shares, leads, CTR). 2) Identify top-performing content types. 3) Enforce 70% real estate project content rule. 4) Generate weekly reports with action items. POWERED BY: Google Gemini 1.5 Pro via AI Studio API.' },
         { name: 'Social Media Manager', role: 'Marketing', provider: 'openai', modelName: 'gpt-4o', isActive: true, useCases: ['social_media','email_drip'], memoryAccess: ['leads','inventory','deals'], systemPrompt: 'You are a social media content strategist for Bharat Properties, Kurukshetra. CONTENT RULES: 80% Project Posts, 10% Educational, 7% Trust, 3% Festival. CAPTION FORMULA: Hinglish hook + Location + Price + CTA + Hashtags. Platforms: Instagram, Facebook, WhatsApp, LinkedIn. Always inject property location, price point, and booking urgency. POWERED BY: OpenAI GPT-4o.' },
         { name: 'Designer (Visual AI)', role: 'Marketing', provider: 'gemini', modelName: 'gemini-1.5-flash', isActive: true, useCases: ['social_media'], memoryAccess: ['inventory','deals'], systemPrompt: 'You are a visual design AI for Bharat Properties. Generate DALL-E 3 image prompts, Runway v3 video prompts, and Canva layout instructions. BRAND: Navy Blue + Gold, cinematic, premium Indian real estate, Kurukshetra context. OUTPUT: For each post: 1) DALL-E prompt (no text, golden hour) 2) Runway prompt (smooth 4K drone) 3) Canva layout (colors, typography, CTA). POWERED BY: Google Gemini Flash (Nano).' },
@@ -240,9 +242,19 @@ const AiAgentsSettingsPage = () => {
                                             {agent.isActive ? 'Active' : 'Inactive'}
                                         </span>
                                     </div>
-                                    <span style={{ color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                        {typeof agent.role === 'object' ? agent.role?.name : agent.role} Agent
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                        <span style={{ color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            {typeof agent.role === 'object' ? agent.role?.name : agent.role} Agent
+                                        </span>
+                                        {agent.useCases?.map(uc => {
+                                            const match = USE_CASES.find(u => u.id === uc);
+                                            return (
+                                                <span key={uc} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                                                    {match ? match.label : uc}
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button onClick={() => handleOpenModal(agent)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Edit2 size={16} /></button>
@@ -452,7 +464,7 @@ const AiAgentsSettingsPage = () => {
                                 <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '12px' }}>Target Use Cases</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                        {USE_CASES.filter(uc => availableChannels.length === 0 || availableChannels.includes(uc.id)).map(uc => (
+                                        {USE_CASES.filter(uc => availableChannels.length === 0 || availableChannels.includes(uc.id) || uc.id === 'intake_verification' || uc.id === 'lead_qualification').map(uc => (
                                             <label key={uc.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
                                                 <input
                                                     type="checkbox"
