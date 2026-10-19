@@ -559,16 +559,23 @@ Output pure JSON with no markdown tags.`;
     }
 
     _heuristicFallbackExtractor(text) {
-        const unitMatch = text.match(/(?:plot|house|flat|shop|kothi|unit|no\.?)\s*(?:#|no\.?|number)?\s*([0-9]+[a-zA-Z]?)/i);
+        const unitMatch = text.match(/(?:plot|house|flat|shop|kothi|unit|no\.?)\s*(?:#|no\.?|number)?\s*([0-9]+[a-zA-Z]?)/i) ||
+                          text.match(/^([0-9]+[a-zA-Z]?)(?:,|\s|$)/);
         const priceMatch = text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:cr|crore|lac|lakh|l\b)/i);
-        const blockMatch = text.match(/(?:block|pocket|phase)\s*([a-zA-Z0-9]+)/i);
+        const blockMatch = text.match(/(?:block|pocket|phase)\s*([a-zA-Z0-9]+)/i) ||
+                           text.match(/([a-zA-Z0-9]+)\s*(?:block|pocket|phase)/i);
+
+        let extractedBlock = '';
+        if (blockMatch) {
+            extractedBlock = blockMatch[0].trim();
+        }
 
         return {
             unit_number: unitMatch ? unitMatch[1] : (text.toLowerCase().includes('mil') || text.toLowerCase().includes('office') ? 'UNDISCLOSED' : 'UNKNOWN'),
             unit_type: 'property',
             location_confirmed: '',
             project: '',
-            block: blockMatch ? blockMatch[0] : '',
+            block: extractedBlock,
             final_price: priceMatch ? priceMatch[0] : '',
             price_type: 'Bottom',
             broker_cooperation: 'cooperative',
