@@ -8,7 +8,7 @@ import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { useAddProjectMutation, useUpdateProjectMutation } from '../utils/crmHooks';
+import { useAddProjectMutation, useUpdateProjectMutation, useUsers, useTeams } from '../utils/crmHooks';
 
 // --- Helper: Reusable MultiSelect Dropdown ---
 const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", isDark = false }) => {
@@ -234,7 +234,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         getLookupId,
         getLookupValue: getLookupValueFromContext
     } = usePropertyConfig();
-    const { users: contextUsers } = useUserContext();
+    const { data: usersData = [] } = useUsers();
+    const { data: teamsData = [] } = useTeams();
     const [duplicateWarning, setDuplicateWarning] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
     const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
@@ -500,29 +501,33 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     // const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
     // const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
 
-    // Fetch Teams from Context
-    const { teams: contextTeams } = useUserContext();
-    const teams = (contextTeams || []).map(t => ({ label: t?.name, value: t?._id || t?.id }));
+    // Fetch Teams
+    const teams = useMemo(() => {
+        const safeTeams = Array.isArray(teamsData) ? teamsData : [];
+        return safeTeams.map(t => ({ label: t?.name, value: t?._id || t?.id }));
+    }, [teamsData]);
 
-    // usage: contextUsers comes from useUserContext
+    // Calculate User Options filtered by selected team(s)
     // formData.team is an array of selected team IDs
     const userOptions = useMemo(() => {
+        const safeUsers = Array.isArray(usersData) ? usersData : [];
         if (!formData.team || formData.team.length === 0) {
-            return (contextUsers || []).map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
+            return safeUsers.map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
         }
 
-        const selectedTeamIds = formData.team;
+        const selectedTeamIds = (Array.isArray(formData.team) ? formData.team : [formData.team])
+            .map(t => (t && typeof t === 'object') ? String(t._id || t.id) : String(t));
 
-        const filteredUsers = contextUsers
+        const filteredUsers = safeUsers
             .filter(u => {
-                const userTeamId = u.team?._id || u.team; // Handle object or string ID
+                const userTeamId = (u?.team && typeof u.team === 'object') ? (u.team._id || u.team.id) : u?.team;
                 if (!userTeamId) return false;
-                return selectedTeamIds.includes(userTeamId);
+                return selectedTeamIds.includes(String(userTeamId));
             })
             .map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
 
         return filteredUsers;
-    }, [contextUsers, formData.team]);
+    }, [usersData, formData.team]);
 
 
     const getLookupValue = (field) => {

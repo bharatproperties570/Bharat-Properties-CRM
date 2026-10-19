@@ -11,7 +11,9 @@ export const useUserContext = () => {
     if (!context) {
         console.warn('[UserContext] useUserContext called outside UserProvider or during HMR module reload.');
         return {
-                        roles: [],
+            users: [],
+            teams: [],
+            roles: [],
             loading: false,
             error: null,
                                                             addRole: async () => {},
@@ -254,7 +256,9 @@ export const UserProvider = ({ children }) => {
     const refreshData = fetchAllData;
 
     const value = {
-                roles,
+        users: [],
+        teams: [],
+        roles,
         loading,
         error,
                                         addRole,
