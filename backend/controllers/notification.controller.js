@@ -241,10 +241,24 @@ export const markAllAsRead = async (req, res) => {
 };
 
 // Helper: create a notification programmatically (used in other controllers)
-export const createNotification = async (userId, type, title, message, link = '', metadata = {}, priority = 'medium') => {
+export const createNotification = async (userIdOrOptions, type, title, message, link = '', metadata = {}, priority = 'medium') => {
     try {
+        let opts;
+        if (userIdOrOptions && typeof userIdOrOptions === 'object' && !mongoose.Types.ObjectId.isValid(userIdOrOptions) && !(userIdOrOptions instanceof mongoose.Types.ObjectId)) {
+            opts = {
+                userId: userIdOrOptions.userId || userIdOrOptions.user,
+                type: userIdOrOptions.type,
+                title: userIdOrOptions.title,
+                message: userIdOrOptions.message,
+                link: userIdOrOptions.link || '',
+                metadata: userIdOrOptions.metadata || {},
+                priority: userIdOrOptions.priority || 'medium'
+            };
+        } else {
+            opts = { userId: userIdOrOptions, type, title, message, link, metadata, priority };
+        }
         const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
-        await NotificationEngine.notify({ userId, type, title, message, link, metadata, priority });
+        await NotificationEngine.notify(opts);
     } catch (err) {
         console.error("[NotificationController] Failed to create notification:", err);
     }
