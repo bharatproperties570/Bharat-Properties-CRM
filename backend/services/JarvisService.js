@@ -339,6 +339,195 @@ class JarvisService {
         return config?.value?.apiKey || null;
     }
 
+    /**
+     * Transcribe base64 voice audio using Gemini Multimodal Audio Model
+     * Compatible with WebM, MP4, WAV, AAC from any browser (Safari, Chrome, Firefox)
+     */
+    async transcribeAudio(audioBase64, mimeType = 'audio/mp4') {
+        const apiKey = await this._getApiKey();
+        if (!apiKey) throw new Error('Gemini API key is not configured');
+
+        const base64Data = audioBase64.includes('base64,')
+            ? audioBase64.split('base64,')[1]
+            : audioBase64;
+
+        let cleanMimeType = (mimeType || 'audio/mp4').split(';')[0].trim().toLowerCase();
+        if (cleanMimeType.includes('mp4') || cleanMimeType.includes('m4a') || cleanMimeType.includes('aac')) {
+            cleanMimeType = 'audio/mp4';
+        } else if (cleanMimeType.includes('webm')) {
+            cleanMimeType = 'audio/webm';
+        } else if (cleanMimeType.includes('wav')) {
+            cleanMimeType = 'audio/wav';
+        }
+
+        const payload = {
+            contents: [{
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType: cleanMimeType,
+                            data: base64Data
+                        }
+                    },
+                    {
+                        text: "You are the speech transcriber for JARVIS, an AI assistant for Bharat Properties CRM in North India. Listen carefully to the user's voice command and transcribe what they said word-for-word in Hindi, English, or Hinglish. Output ONLY the raw transcribed text with NO quotes, NO extra words, and NO markdown. If there is only silence, noise, or no spoken words, output NO_SPEECH."
+                    }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 256
+            }
+        };
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${apiKey}`;
+        const response = await axios.post(url, payload, { timeout: 15000 });
+        let text = response?.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        text = text.trim();
+        if (text === 'NO_SPEECH' || text.toUpperCase().includes('NO_SPEECH')) {
+            return '';
+        }
+        return text;
+    }
+
+    /**
+     * Retrieve voice synthesis and persona configuration
+     */
+    async getVoiceConfig(userId) {
+        try {
+            const setting = await SystemSetting.findOne({ key: 'jarvis_voice_config' }).lean();
+            const config = setting?.value || {};
+            return {
+                enabled: config.enabled !== false,
+                voice: config.voice || 'Charon',
+                style: config.style || 'warm, confident, professional Indian executive real estate advisor, crisp natural Hindi and English pronunciation',
+                speed: config.speed || 1.0,
+                provider: config.provider || 'gemini',
+                wakeAlias: config.wakeAlias || 'JARVIS'
+            };
+        } catch (err) {
+            console.error('[JarvisService] getVoiceConfig error:', err.message);
+            return {
+                enabled: true,
+                voice: 'Charon',
+                style: 'warm, confident, professional Indian executive real estate advisor, crisp natural Hindi and English pronunciation',
+                speed: 1.0,
+                provider: 'gemini',
+                wakeAlias: 'JARVIS'
+            };
+        }
+    }
+
+    /**
+     * Save voice synthesis and persona configuration
+     */
+    async saveVoiceConfig(config) {
+        try {
+            const existing = await SystemSetting.findOne({ key: 'jarvis_voice_config' });
+            if (existing) {
+                existing.value = { ...existing.value, ...config };
+                await existing.save();
+                return existing.value;
+            } else {
+                const newSetting = new SystemSetting({
+                    key: 'jarvis_voice_config',
+                    category: 'voice',
+                    description: 'JARVIS Voice OS Speech Synthesis and Persona Configuration',
+                    value: {
+                        enabled: true,
+                        voice: 'Charon',
+                        style: 'warm, confident, professional Indian executive real estate advisor, crisp natural Hindi and English pronunciation',
+                        speed: 1.0,
+                        provider: 'gemini',
+                        wakeAlias: 'JARVIS',
+                        ...config
+                    }
+                });
+                await newSetting.save();
+                return newSetting.value;
+            }
+        } catch (err) {
+            console.error('[JarvisService] saveVoiceConfig error:', err.message);
+            throw err;
+        }
+    }
+
+    /**
+     * Synthesize studio-grade natural Hindi / Hinglish audio using Gemini 3.8 Flash TTS
+     */
+    async synthesizeSpeech(text, options = {}) {
+        if (!text || typeof text !== 'string' || !text.trim()) return null;
+
+        try {
+            const apiKey = await this._getApiKey();
+            if (!apiKey) {
+                console.warn('[JarvisService] No Gemini API key for TTS');
+                return null;
+            }
+
+            const voiceConfig = await this.getVoiceConfig(options.userId);
+            if (!voiceConfig.enabled && !options.force) {
+                return null;
+            }
+
+            const selectedVoice = options.voice || voiceConfig.voice || 'Charon';
+            const selectedStyle = options.style || voiceConfig.style;
+
+            // Sanitize text for TTS: remove markdown tags, URLs, hashes, asterisks
+            const cleanText = text
+                .replace(/[*_#`~]/g, '')
+                .replace(/https?:\/\/\S+/g, 'link')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            if (!cleanText) return null;
+
+            const payload = {
+                model: 'gemini-3.8-flash-tts',
+                input: [{
+                    type: 'user_input',
+                    content: [{
+                        type: 'text',
+                        text: cleanText,
+                        annotations: [{
+                            type: 'speech_metadata',
+                            style: selectedStyle
+                        }]
+                    }]
+                }],
+                response_format: { type: 'audio' },
+                generation_config: {
+                    speech_config: [{ voice: selectedVoice }]
+                }
+            };
+
+            const response = await axios.post('https://generativelanguage.googleapis.com/v1beta/interactions', payload, {
+                headers: {
+                    'x-goog-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+
+            const steps = response.data?.steps || [];
+            const audioStep = steps.find(s => s.type === 'model_output' && s.content?.some(c => c.type === 'audio'));
+            const audioBlock = audioStep?.content?.find(c => c.type === 'audio');
+
+            if (audioBlock?.data) {
+                return {
+                    audioBase64: audioBlock.data,
+                    mimeType: audioBlock.mime_type || 'audio/wav',
+                    voice: selectedVoice
+                };
+            }
+            return null;
+        } catch (error) {
+            console.error('[JarvisService] TTS Synthesis failed:', error.response?.data || error.message);
+            // Non-blocking fail-safe: return null so caller falls back seamlessly
+            return null;
+        }
+    }
+
     _resolvePagePath(pageName) {
         const normalized = (pageName || '').toLowerCase().trim().replace(/[-_\s]+/g, '_');
         const routeMap = {
@@ -792,6 +981,20 @@ class JarvisService {
 
             await commandLog.save();
 
+            let audioBase64 = null;
+            let audioMimeType = null;
+            if (speechResponse && payload.returnAudio !== false) {
+                try {
+                    const audioRes = await this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    if (audioRes?.audioBase64) {
+                        audioBase64 = audioRes.audioBase64;
+                        audioMimeType = audioRes.mimeType;
+                    }
+                } catch (e) {
+                    console.warn('[JarvisService] Audio synthesis error:', e.message);
+                }
+            }
+
             return {
                 success: true,
                 commandId: commandLog._id,
@@ -800,6 +1003,8 @@ class JarvisService {
                 action,
                 targetUrl,
                 speechResponse,
+                audioBase64,
+                audioMimeType,
                 displayData,
                 requiresConfirmation,
                 pendingAction,
@@ -893,12 +1098,26 @@ class JarvisService {
             command.speechResponse = speechResponse;
             await command.save();
 
+            let audioBase64 = null;
+            let audioMimeType = null;
+            if (speechResponse) {
+                try {
+                    const audioRes = await this.synthesizeSpeech(speechResponse, { userId: user?._id });
+                    if (audioRes?.audioBase64) {
+                        audioBase64 = audioRes.audioBase64;
+                        audioMimeType = audioRes.mimeType;
+                    }
+                } catch (e) {}
+            }
+
             return {
                 success: true,
                 actionId: command._id,
                 action: intent,
                 status: 'executed',
                 speechResponse,
+                audioBase64,
+                audioMimeType,
                 result: executionResult,
                 safetyTier: 2
             };
@@ -935,11 +1154,23 @@ class JarvisService {
             command.speechResponse = "Sir, action cancel kar di gayi hai.";
             await command.save();
 
+            let audioBase64 = null;
+            let audioMimeType = null;
+            try {
+                const audioRes = await this.synthesizeSpeech(command.speechResponse, { userId: user?._id });
+                if (audioRes?.audioBase64) {
+                    audioBase64 = audioRes.audioBase64;
+                    audioMimeType = audioRes.mimeType;
+                }
+            } catch (e) {}
+
             return {
                 success: true,
                 actionId: command._id,
                 status: 'cancelled',
                 speechResponse: "Sir, action cancel kar di gayi hai.",
+                audioBase64,
+                audioMimeType,
                 safetyTier: 2
             };
         } catch (error) {
@@ -2095,10 +2326,24 @@ Return ONLY valid JSON.`;
             activeDeals: activeDeals.length
         };
 
+        let audioBase64 = null;
+        let audioMimeType = null;
+        if (speech) {
+            try {
+                const audioRes = await this.synthesizeSpeech(speech, { userId: user?._id });
+                if (audioRes?.audioBase64) {
+                    audioBase64 = audioRes.audioBase64;
+                    audioMimeType = audioRes.mimeType;
+                }
+            } catch (e) {}
+        }
+
         return {
             success: true,
             greeting,
             speechResponse: speech,
+            audioBase64,
+            audioMimeType,
             todayDate: todayStart.toISOString().split('T')[0],
             counts,
             briefing: {

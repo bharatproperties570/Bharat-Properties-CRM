@@ -7,22 +7,40 @@ import JarvisCommand from '../models/JarvisCommand.js';
  */
 export const handleJarvisCommand = async (req, res) => {
     try {
-        const { transcript, inputType, sessionId, source, deviceInfo } = req.body;
+        let { transcript, audio, mimeType, inputType, sessionId, source, deviceInfo } = req.body;
+
+        // If audio payload was sent (Direct Hardware Audio Recording mode)
+        if (audio && (!transcript || !transcript.trim())) {
+            try {
+                transcript = await JarvisService.transcribeAudio(audio, mimeType);
+            } catch (audioErr) {
+                console.error('[JarvisController] Audio transcription error:', audioErr?.response?.data || audioErr?.message);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Voice audio could not be transcribed',
+                    speechResponse: 'Sir, aapki aawaz theek se sunai nahi di. Kripya mic dabakar dobara boliye ya type kijiye.'
+                });
+            }
+        }
 
         if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
             return res.status(400).json({
                 success: false,
-                message: 'Command transcript is required'
+                message: 'Command transcript or audio is required',
+                speechResponse: 'Sir, koi aawaz detect nahi hui. Kripya mic dabakar dobara boliye.'
             });
         }
 
         const result = await JarvisService.processCommand(req.user, {
             transcript,
-            inputType: inputType || 'voice',
+            inputType: inputType || (audio ? 'audio' : 'voice'),
             sessionId,
             source: source || 'web',
             deviceInfo
         });
+
+        // Include transcript in response so frontend HUD reflects the transcribed voice
+        result.transcript = transcript;
 
         return res.json(result);
     } catch (error) {
