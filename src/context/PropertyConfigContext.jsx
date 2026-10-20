@@ -57,17 +57,6 @@ if (typeof window !== 'undefined') {
     }
 }
 
-const PropertyConfigContext = createContext();
-
-// eslint-disable-next-line react-refresh/only-export-components
-export const usePropertyConfig = () => {
-    const context = useContext(PropertyConfigContext);
-    if (!context) {
-        throw new Error('usePropertyConfig must be used within a PropertyConfigProvider');
-    }
-    return context;
-};
-
 const defaultProjectMasterFields = {
     approvals: [
         'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
@@ -90,6 +79,115 @@ const defaultProjectMasterFields = {
     videos: [
         'Walkthrough', 'Drone View', 'Interior Tour'
     ]
+};
+
+const defaultActivityMasterFields = {
+    activities: [
+        { name: 'Call', purposes: [] },
+        { name: 'Meeting', purposes: [] },
+        { name: 'Site Visit', purposes: [] },
+        { name: 'Email', purposes: [] },
+        { name: 'Task', purposes: [] }
+    ]
+};
+
+export const DEFAULT_PROPERTY_CONFIG = {
+    propertyConfig: PROPERTY_CATEGORIES || {},
+    updateConfig: () => {},
+    projects: [],
+    isLoading: false,
+    masterFields: {},
+    updateMasterFields: () => {},
+    projectMasterFields: defaultProjectMasterFields,
+    updateProjectMasterFields: () => {},
+    projectAmenities: [],
+    updateProjectAmenities: () => {},
+    companyMasterFields: {},
+    updateCompanyMasterFields: () => {},
+    leadMasterFields: {},
+    updateLeadMasterFields: () => {},
+    dealMasterFields: {},
+    updateDealMasterFields: () => {},
+    scoringAttributes: [],
+    updateScoringAttributes: () => {},
+    scoringConfig: {},
+    updateScoringConfig: () => {},
+    behaviouralSignals: [],
+    updateBehaviouralSignals: () => {},
+    dealFitSignals: [],
+    updateDealFitSignals: () => {},
+    financialSignals: [],
+    updateFinancialSignals: () => {},
+    decayRules: [],
+    updateDecayRules: () => {},
+    aiSignals: [],
+    updateAiSignals: () => {},
+    sourceQualityScores: [],
+    updateSourceQualityScores: () => {},
+    inventoryFitScores: [],
+    updateInventoryFitScores: () => {},
+    stageMultipliers: [],
+    updateStageMultipliers: () => {},
+    dealScoringRules: [],
+    updateDealScoringRules: () => {},
+    scoreBands: [],
+    updateScoreBands: () => {},
+    activityMasterFields: defaultActivityMasterFields,
+    setActivityMasterFields: () => {},
+    updateActivityMasterFields: () => {},
+    stageMappingRules: [],
+    addStageMappingRule: () => {},
+    updateStageMappingRule: () => {},
+    deleteStageMappingRule: () => {},
+    updateOutcomeRule: () => {},
+    stageDensityTargets: {},
+    setStageDensityTargets: () => {},
+    stabilityLockConfig: {},
+    setStabilityLockConfig: () => {},
+    updateStabilityLockConfig: () => {},
+    syncRules: [],
+    updateSyncRule: () => {},
+    addSyncRule: () => {},
+    deleteSyncRule: () => {},
+    sequenceConfig: {},
+    updateSequenceConfig: () => {},
+    agingRules: [],
+    updateAgingRule: () => {},
+    forecastConfig: {},
+    updateForecastConfig: () => {},
+    dealHealthConfig: {},
+    updateDealHealthConfig: () => {},
+    intentSignals: [],
+    updateIntentSignal: () => {},
+    addSize: () => {},
+    updateSize: () => {},
+    deleteSize: () => {},
+    refreshSizes: () => {},
+    sizes: [],
+    addSizeProjectMapping: () => {},
+    removeSizeProjectMapping: () => {},
+    getSizesByProjectBlock: () => [],
+    lookups: {},
+    refreshLookups: () => {},
+    getLookupId: (_type, val) => val || '',
+    getLookupValue: (_type, id) => id || '',
+    findLookup: () => null,
+    syncCategoryLookup: () => {},
+    syncSubCategoryLookup: () => {},
+    syncPropertyTypeLookup: () => {},
+    syncBuiltupTypeLookup: () => {}
+};
+
+const PropertyConfigContext = createContext(DEFAULT_PROPERTY_CONFIG);
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const usePropertyConfig = () => {
+    const context = useContext(PropertyConfigContext);
+    if (!context) {
+        console.warn('[usePropertyConfig] PropertyConfigContext is undefined (e.g. during Fast Refresh / HMR); using safe fallback defaults.');
+        return DEFAULT_PROPERTY_CONFIG;
+    }
+    return context;
 };
 
 export const PropertyConfigProvider = ({ children }) => {

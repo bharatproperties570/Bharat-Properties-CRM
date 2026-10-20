@@ -890,8 +890,27 @@ export const aiAgentsAPI = {
     delete: (id) => apiRequest(`/settings/ai-agents/${id}`, { method: 'DELETE' }),
 };
 
+// Jarvis Voice AI Operating System API
+export const jarvisAPI = {
+    sendCommand: (data) => api.post('/jarvis/command', data).then(res => res.data),
+    confirmAction: (actionId) => api.post(`/jarvis/confirm/${actionId}`).then(res => res.data),
+    cancelAction: (actionId) => api.delete(`/jarvis/confirm/${actionId}`).then(res => res.data),
+    getSession: (params) => api.get('/jarvis/session', { params }).then(res => res.data),
+    getHistory: (params) => api.get('/jarvis/history', { params }).then(res => res.data),
+    getStatus: () => api.get('/jarvis/status').then(res => res.data),
+    processCallIntel: (data) => api.post('/jarvis/call-intel', data).then(res => res.data),
+    getCallIntelHistory: (params) => api.get('/jarvis/call-intel', { params }).then(res => res.data),
+    getCallIntelById: (id) => api.get(`/jarvis/call-intel/${id}`).then(res => res.data),
+    getBriefing: () => api.get('/jarvis/briefing').then(res => res.data),
+    getSuggestions: () => api.get('/jarvis/suggestions').then(res => res.data),
+    getAnalytics: (params) => api.get('/jarvis/analytics', { params }).then(res => res.data),
+    getTeamPerformance: (params) => api.get('/jarvis/team-performance', { params }).then(res => res.data),
+    processMeetingNotes: (data) => api.post('/jarvis/meeting-notes', data).then(res => res.data)
+};
+
 export default {
     auth: authAPI,
+    jarvis: jarvisAPI,
     aiAgents: aiAgentsAPI,
     users: usersAPI,
     roles: rolesAPI,

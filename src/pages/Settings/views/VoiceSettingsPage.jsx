@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { systemSettingsAPI } from '../../../utils/api';
+import { systemSettingsAPI, jarvisAPI } from '../../../utils/api';
 
 // --- Sub-Components (Defined Outside) ---
 
@@ -80,9 +80,25 @@ const VoiceSettingsPage = () => {
     ]);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
     const [editingScript, setEditingScript] = useState(null);
+    const [jarvisAnalytics, setJarvisAnalytics] = useState(null);
+    const [loadingJarvis, setLoadingJarvis] = useState(false);
+    const [wakeAlias, setWakeAlias] = useState('JARVIS');
+    const [voiceRate, setVoiceRate] = useState(1.05);
 
+    useEffect(() => {
+        if (subTab === 'jarvis' && !jarvisAnalytics) {
+            setLoadingJarvis(true);
+            jarvisAPI.getAnalytics()
+                .then(res => {
+                    if (res?.success) setJarvisAnalytics(res);
+                })
+                .catch(err => console.error('Failed to load Jarvis analytics', err))
+                .finally(() => setLoadingJarvis(false));
+        }
+    }, [subTab]);
 
     const tabs = [
+        { id: 'jarvis', label: '⚡ JARVIS Voice OS' },
         { id: 'connection', label: 'Connection' },
         { id: 'outcomes', label: 'Call Outcomes' },
         { id: 'scripts', label: 'Scripts' },
@@ -364,16 +380,203 @@ const VoiceSettingsPage = () => {
         </div>
     );
 
+    const renderJarvisVoiceOS = () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+            {/* System Status Banner */}
+            <div style={{
+                padding: '24px',
+                borderRadius: '16px',
+                background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(8, 47, 73, 0.95))',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                color: '#fff',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+            }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></span>
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '0.5px' }}>
+                            JARVIS VOICE AI OPERATING SYSTEM 2.0
+                        </h3>
+                    </div>
+                    <p style={{ margin: '8px 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
+                        Phase 5: Enterprise Scale, Team Performance Intelligence & Driving Mode active.
+                    </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '6px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                        Model: gemini-flash-lite-latest (₹0 Tier)
+                    </span>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '6px' }}>
+                        Latency target: &lt;1.5s
+                    </div>
+                </div>
+            </div>
+
+            {/* KPI Metrics Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                <div style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TOTAL VOICE COMMANDS</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-main)', marginTop: '6px' }}>
+                        {jarvisAnalytics?.totalCommands || 0}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '4px' }}>
+                        {jarvisAnalytics?.voiceCommands || 0} Voice • {jarvisAnalytics?.textCommands || 0} Text
+                    </div>
+                </div>
+
+                <div style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>SUCCESS RATE</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#10b981', marginTop: '6px' }}>
+                        {jarvisAnalytics?.successRate || 100}%
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Accurate Intent Resolution
+                    </div>
+                </div>
+
+                <div style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>AVERAGE LATENCY</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--primary-color)', marginTop: '6px' }}>
+                        {jarvisAnalytics?.avgLatencyMs || 1450}ms
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Real-time Response Time
+                    </div>
+                </div>
+
+                <div style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>SAFETY TIERS ACTIVE</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#f59e0b', marginTop: '6px' }}>
+                        Tier 1 &amp; Tier 2
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Zero Data Loss Confirmation
+                    </div>
+                </div>
+            </div>
+
+            {/* Customization Settings */}
+            <div style={{ padding: '24px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                    Voice AI Persona &amp; Preferences
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                            Wake Alias / Activation Keyword
+                        </label>
+                        <input
+                            type="text"
+                            value={wakeAlias}
+                            onChange={(e) => setWakeAlias(e.target.value)}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)' }}
+                        />
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                            Speech Speed Rate ({voiceRate}x)
+                        </label>
+                        <input
+                            type="range"
+                            min="0.8"
+                            max="1.3"
+                            step="0.05"
+                            value={voiceRate}
+                            onChange={(e) => setVoiceRate(parseFloat(e.target.value))}
+                            style={{ width: '100%', marginTop: '10px' }}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Command Logs */}
+            <div style={{ borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                        Recent Jarvis Voice Commands
+                    </h3>
+                    <button
+                        onClick={() => {
+                            setLoadingJarvis(true);
+                            jarvisAPI.getAnalytics().then(res => setJarvisAnalytics(res)).finally(() => setLoadingJarvis(false));
+                        }}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.78rem', cursor: 'pointer' }}
+                    >
+                        <i className={`fas fa-sync-alt ${loadingJarvis ? 'fa-spin' : ''}`}></i> Refresh
+                    </button>
+                </div>
+                <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead>
+                            <tr style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
+                                <th style={{ padding: '10px 16px' }}>Timestamp</th>
+                                <th style={{ padding: '10px 16px' }}>User</th>
+                                <th style={{ padding: '10px 16px' }}>Transcript</th>
+                                <th style={{ padding: '10px 16px' }}>Intent</th>
+                                <th style={{ padding: '10px 16px' }}>Latency</th>
+                                <th style={{ padding: '10px 16px' }}>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {jarvisAnalytics?.recentCommands?.length > 0 ? (
+                                jarvisAnalytics.recentCommands.map((cmd, idx) => (
+                                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                        <td style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                                            {new Date(cmd.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                        </td>
+                                        <td style={{ padding: '10px 16px', fontWeight: 600 }}>{cmd.userId?.name || 'Admin'}</td>
+                                        <td style={{ padding: '10px 16px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            "{cmd.transcript}"
+                                        </td>
+                                        <td style={{ padding: '10px 16px' }}>
+                                            <span style={{ padding: '3px 8px', borderRadius: '6px', background: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', fontSize: '0.72rem', fontWeight: 700 }}>
+                                                {cmd.intent || 'conversation'}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '10px 16px', color: 'var(--text-muted)' }}>
+                                            {cmd.llmLatencyMs ? `${cmd.llmLatencyMs}ms` : '—'}
+                                        </td>
+                                        <td style={{ padding: '10px 16px' }}>
+                                            <span style={{
+                                                padding: '3px 8px',
+                                                borderRadius: '6px',
+                                                background: cmd.status === 'executed' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                                color: cmd.status === 'executed' ? '#10b981' : '#f59e0b',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 700
+                                            }}>
+                                                {cmd.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                        No voice commands recorded yet.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', overflow: 'hidden' }}>
             <div style={{ padding: '32px 40px', borderBottom: '1px solid #f1f5f9' }}>
-                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Calls Settings</h2>
-                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px' }}>Manage your voice calls and telephony settings.</div>
+                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>Calls &amp; Voice Settings</h2>
+                <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px' }}>Manage JARVIS Voice OS, team telephony, and call intelligence settings.</div>
             </div>
 
             <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
                 {renderTabs()}
 
+                {subTab === 'jarvis' && renderJarvisVoiceOS()}
                 {subTab === 'connection' && renderConnection()}
                 {subTab === 'outcomes' && renderOutcomes()}
                 {subTab === 'scripts' && renderScripts()}

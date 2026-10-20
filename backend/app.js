@@ -72,6 +72,7 @@ import pricingBenchmarkRoutes from "./routes/pricingBenchmark.routes.js";
 import automationRoutes from "./routes/automation.routes.js";
 import scoringRuleRoutes from "./routes/scoringRule.routes.js";
 import adminQueueRoutes from "./src/routes/admin.queue.routes.js";
+import jarvisRoutes from "./routes/jarvis.routes.js";
 
 const app = express();
 
@@ -303,6 +304,7 @@ app.use("/api/discovery", discoveryRoutes);
 app.use("/api/automations", automationRoutes);
 app.use("/api/scoring-rules", scoringRuleRoutes);
 app.use("/api/admin/queues", adminQueueRoutes);
+app.use("/api/jarvis", jarvisRoutes);
 import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/uploads", express.static(os.tmpdir()));

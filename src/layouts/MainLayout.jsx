@@ -20,6 +20,7 @@ import ClosingFormModal from '../components/ClosingFormModal';
 import AddBookingModal from '../components/AddBookingModal';
 import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
 import { leadsAPI, dealsAPI } from '../utils/api';
+import JarvisWidget from '../components/jarvis/JarvisWidget';
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
     const navigate = useNavigate();
@@ -615,6 +616,8 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         </div>
                     </>
                 )}
+                {/* 🤖 JARVIS Enterprise Voice Operating System Widget */}
+                <JarvisWidget />
             </main>
         </div>
     );
