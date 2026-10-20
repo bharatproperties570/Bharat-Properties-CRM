@@ -1,7 +1,8 @@
 import { useTheme } from '../../../context/ThemeContext';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { resolveUnitDimensionsAndSize } from '../../../utils/sizeDimensionUtils';
 
 const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, handleCreateDeal, onFeedback, isInventoryActive, hideConsole = false }) => {
     const { isDark } = useTheme();
@@ -108,93 +109,49 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                 </div>
 
                 {/* Sizing & Dimensions Strip - MOVED TO BOTTOM */}
-                <div style={{ 
-                    marginTop: '20px', 
-                    padding: '20px', 
-                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))', 
-                    borderRadius: '24px', 
-                    border: '1px solid rgba(59, 130, 246, 0.2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '24px',
-                    boxShadow: '0 10px 30px -15px rgba(59, 130, 246, 0.2)'
-                }}>
-                    <div style={{ flex: 2 }}>
-                        <p style={{ margin: '0 0 6px 0', fontSize: '0.65rem', fontWeight: 800, color: 'var(--premium-blue)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                            <i className="fas fa-expand-arrows-alt" style={{ marginRight: '8px' }}></i> Size Label (Primary)
-                        </p>
-                        <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
-                            {(() => {
-                                const resolveSizeLabel = (item, resolveLookupFn) => {
-                                    if (!item) return null;
-                                    
-                                    // ✅ ENTERPRISE FIX: Use new Size Master system first
-                                    if (item.sizeId && Array.isArray(sizes)) {
-                                        const matchedSize = sizes.find(s => s.id === item.sizeId || s.id === String(item.sizeId));
-                                        if (matchedSize) {
-                                            // Format: Name or "UnitType - TotalArea"
-                                            return matchedSize.name || `${matchedSize.unitType || ''} ${matchedSize.totalArea ? matchedSize.totalArea + ' ' + (matchedSize.resultMetric || 'Sq Yd') : ''}`.trim();
-                                        }
-                                    }
-                                    
-                                    if (item.totalLandAreaText) return item.totalLandAreaText;
-                                    
-                                    const extractStr = (val) => {
-                                        if (!val) return null;
-                                        if (typeof val === 'string') return /^[0-9a-fA-F]{24}$/.test(val) ? null : val;
-                                        if (typeof val === 'object') {
-                                            if (val.lookup_value) return val.lookup_value;
-                                            if (val.name) return val.name;
-                                            if (val.label) return val.label;
-                                        }
-                                        return null;
-                                    };
+                {(() => {
+                    const specsData = resolveUnitDimensionsAndSize(inventory, {
+                        sizes,
+                        getLookupValue
+                    });
 
-                                    const c1 = resolveLookupFn('Size', item.sizeConfig) || extractStr(item.sizeConfig);
-                                    if (c1 && c1 !== '0' && c1 !== 0) return c1;
-                                    
-                                    const c2 = resolveLookupFn('PropertyType', item.sizeType) || extractStr(item.sizeType);
-                                    if (c2 && c2 !== '0' && c2 !== 0) return c2;
-                                    
-                                    const c3 = resolveLookupFn('Size', item.sizeLabel) || extractStr(item.sizeLabel);
-                                    if (c3 && c3 !== '0' && c3 !== 0) return c3;
-                                    
-                                    if (item.size) {
-                                        if (typeof item.size === 'object') {
-                                            const val = Number(item.size.value);
-                                            if (!isNaN(val) && val > 0) return `${val} ${item.size.unit || ''}`.trim();
-                                        }
-                                        if (typeof item.size === 'string' && item.size !== '0' && item.size !== '0 Sq.Ft.') {
-                                            return item.size;
-                                        }
-                                    }
-                                    
-                                    return null;
-                                };
-                                const robustSizeStr = resolveSizeLabel(inventory, getLookupValue);
-                                return [
-                                    getLookupValue('UnitType', inventory.unitType),
-                                    getLookupValue('SubCategory', inventory.subCategory),
-                                    robustSizeStr
-                                ].filter(Boolean).map(val => renderValue(val)).join(' • ');
-                            })()}
-                        </h2>
-                    </div>
-                    <div style={{ width: '1px', height: '40px', background: 'rgba(59, 130, 246, 0.2)' }}></div>
-                    <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Width</p>
-                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
-                            {renderValue(inventory.frontage || inventory.width) || '-'}
-                        </p>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Length</p>
-                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
-                            {renderValue(inventory.depth || inventory.length) || '-'}
-                        </p>
-                    </div>
-                </div>
+                    return (
+                        <div style={{ 
+                            marginTop: '20px', 
+                            padding: '20px', 
+                            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))', 
+                            borderRadius: '24px', 
+                            border: '1px solid rgba(59, 130, 246, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '24px',
+                            boxShadow: '0 10px 30px -15px rgba(59, 130, 246, 0.2)'
+                        }}>
+                            <div style={{ flex: 2 }}>
+                                <p style={{ margin: '0 0 6px 0', fontSize: '0.65rem', fontWeight: 800, color: 'var(--premium-blue)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                                    <i className="fas fa-expand-arrows-alt" style={{ marginRight: '8px' }}></i> Size Label (Primary)
+                                </p>
+                                <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
+                                    {specsData.fullSizeText}
+                                </h2>
+                            </div>
+                            <div style={{ width: '1px', height: '40px', background: 'rgba(59, 130, 246, 0.2)' }}></div>
+                            <div style={{ flex: 1 }}>
+                                <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Width</p>
+                                <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                                    {specsData.formattedWidth}
+                                </p>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Length</p>
+                                <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
+                                    {specsData.formattedLength}
+                                </p>
+                            </div>
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );

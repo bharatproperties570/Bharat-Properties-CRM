@@ -315,6 +315,25 @@ DealSchema.pre("save", async function (next) {
         }
     }
 
+    // --- Auto-Sync Dimensions and Size from Inventory or Size Master ---
+    if (this.inventoryId && (!this.width || !this.length || !this.unitSpecification?.width || !this.unitSpecification?.length)) {
+        try {
+            const Inventory = mongoose.models.Inventory || mongoose.model('Inventory');
+            const inv = await Inventory.findById(this.inventoryId).select('width length sizeId sizeConfig sizeLabel unitSpecification').session(this.$session() || null);
+            if (inv) {
+                if (!this.width) this.width = inv.width || inv.unitSpecification?.width;
+                if (!this.length) this.length = inv.length || inv.unitSpecification?.length;
+                if (!this.sizeConfig) this.sizeConfig = inv.sizeConfig || inv.sizeId;
+                if (!this.sizeLabel) this.sizeLabel = inv.sizeLabel;
+                if (!this.unitSpecification) this.unitSpecification = {};
+                if (!this.unitSpecification.width) this.unitSpecification.width = this.width;
+                if (!this.unitSpecification.length) this.unitSpecification.length = this.length;
+            }
+        } catch (err) {
+            console.error("Error syncing dimensions from inventory to deal:", err);
+        }
+    }
+
     // --- Sync GeoJSON ---
     if (this.latitude && this.longitude) {
         const lat = parseFloat(this.latitude);

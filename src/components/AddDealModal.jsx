@@ -11,10 +11,11 @@ import { numberToIndianWords } from '../utils/numberToWords';
 import { api, systemSettingsAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 import whatsappService from '../services/whatsappService';
+import { findMatchedSize } from '../utils/sizeDimensionUtils';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
     const { isDark } = useTheme();
-    const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
+    const { getLookupId, getLookupValue, dealMasterFields, sizes = [] } = usePropertyConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
@@ -347,6 +348,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             setFormData(prev => {
                 const newSize = cleanStr(unit.size, prev.size);
+                const matchedSize = findMatchedSize(unit, null, sizes);
+                const inheritedWidth = unit.width || unit.frontage || unit.unitSpecification?.width || matchedSize?.width || prev.width;
+                const inheritedLength = unit.length || unit.depth || unit.unitSpecification?.length || matchedSize?.length || prev.length;
+                const inheritedSizeId = unit.sizeId || matchedSize?.id || matchedSize?._id || prev.sizeId;
+                const inheritedSizeLabel = unit.sizeLabel || matchedSize?.name || prev.sizeLabel;
 
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
@@ -357,6 +363,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     subCategory: getLookupValue('SubCategory', unit.subCategory) || cleanStr(unit.subCategory, ''),
                     size: newSize,
                     sizeUnit: cleanStr(unit.sizeUnit, prev.sizeUnit),
+                    sizeId: inheritedSizeId,
+                    sizeConfig: unit.sizeConfig || inheritedSizeId,
+                    sizeLabel: inheritedSizeLabel,
+                    width: inheritedWidth,
+                    length: inheritedLength,
 
                     // Detailed Data Inheritance
                     unitSpecification: {
@@ -366,9 +377,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         roadWidth: unit.roadWidth,
                         builtupType: unit.builtupType,
                         ownership: unit.ownership,
-                        length: unit.length,
-                        width: unit.width,
-                        sizeLabel: unit.sizeLabel,
+                        length: inheritedLength,
+                        width: inheritedWidth,
+                        sizeLabel: inheritedSizeLabel,
                         totalSaleableArea: unit.totalSaleableArea,
                         builtUpArea: unit.builtUpArea,
                         carpetArea: unit.carpetArea
@@ -650,6 +661,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 team: formData.team || null,
                 assignedTo: formData.assignedTo || null,
                 status: formData.status,
+                width: formData.width || formData.unitSpecification?.width,
+                length: formData.length || formData.unitSpecification?.length,
+                sizeId: formData.sizeId,
+                sizeConfig: formData.sizeConfig,
+                sizeLabel: formData.sizeLabel,
                 // Ensure inherited data is saved
                 unitSpecification: formData.unitSpecification,
                 locationDetails: formData.locationDetails,

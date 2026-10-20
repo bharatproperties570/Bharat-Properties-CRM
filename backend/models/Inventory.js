@@ -347,6 +347,39 @@ InventorySchema.pre('save', async function (next) {
         if (this.sizeConfig !== undefined && !isObjectId(this.sizeConfig)) {
             this.sizeConfig = await resolveLookupLocal('Size', this.sizeConfig);
         }
+
+        // Auto-sync Width, Length, and SizeId from Size Master Lookup if not explicitly set
+        const targetSizeLookupId = this.sizeConfig || this.sizeId;
+        if (targetSizeLookupId && (!this.width || !this.length || !this.sizeId)) {
+            try {
+                const LookupModel = mongoose.models.Lookup || mongoose.model('Lookup');
+                let sizeDoc = null;
+                if (isObjectId(targetSizeLookupId)) {
+                    sizeDoc = await LookupModel.findById(targetSizeLookupId).select('metadata lookup_value').lean();
+                } else if (typeof targetSizeLookupId === 'string') {
+                    sizeDoc = await LookupModel.findOne({ lookup_type: 'Size', lookup_value: targetSizeLookupId }).select('metadata lookup_value').lean();
+                }
+                if (sizeDoc) {
+                    if (!this.sizeId && sizeDoc._id) this.sizeId = sizeDoc._id;
+                    if (sizeDoc.metadata) {
+                        const meta = sizeDoc.metadata;
+                        if (!this.width && meta.width) {
+                            const parsedW = parseFloat(meta.width);
+                            if (!isNaN(parsedW)) this.width = parsedW;
+                        }
+                        if (!this.length && meta.length) {
+                            const parsedL = parseFloat(meta.length);
+                            if (!isNaN(parsedL)) this.length = parsedL;
+                        }
+                        if (!this.sizeLabel && sizeDoc.lookup_value) {
+                            this.sizeLabel = sizeDoc.lookup_value;
+                        }
+                    }
+                }
+            } catch (err) {
+                // Non-fatal fallback
+            }
+        }
         if (this.soilType !== undefined && !isObjectId(this.soilType)) {
             this.soilType = await resolveLookupLocal('SoilType', this.soilType);
         }

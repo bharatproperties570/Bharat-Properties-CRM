@@ -212,7 +212,15 @@ const InventoryUnitSection = ({
                                     setFormData(prev => ({ 
                                         ...prev, 
                                         size: selectedSizeName,
-                                        sizeType: sizeObj?.sizeType || prev.sizeType || ''
+                                        sizeType: sizeObj?.sizeType || prev.sizeType || '',
+                                        sizeId: sizeObj?.id || sizeObj?._id || prev.sizeId,
+                                        sizeConfig: sizeObj?.id || sizeObj?._id || prev.sizeConfig,
+                                        width: (sizeObj?.width !== undefined && sizeObj?.width !== '') ? sizeObj.width : prev.width,
+                                        length: (sizeObj?.length !== undefined && sizeObj?.length !== '') ? sizeObj.length : prev.length,
+                                        widthMetric: sizeObj?.widthMetric || prev.widthMetric,
+                                        lengthMetric: sizeObj?.lengthMetric || prev.lengthMetric,
+                                        totalArea: sizeObj?.totalArea || prev.totalArea,
+                                        resultMetric: sizeObj?.resultMetric || prev.resultMetric
                                     }));
                                 }}
                             >

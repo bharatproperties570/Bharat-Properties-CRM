@@ -3,6 +3,7 @@ import { parseShareToMarlas, formatMarlas } from '../utils/landCalculations';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { useContacts, useLookups, useUpdateInventoryMutation, useAddInventoryMutation } from '../utils/crmHooks';
+import { findMatchedSize } from '../utils/sizeDimensionUtils';
 
 export const useInventoryForm = (isOpen, initialProject, property, allProjects, sizes, getLookupId, getLookupValue, executeDistribution, fireEvent, evaluateAndEnroll, validateAsync, onClose, onSave, activeTab) => {
     // Canonical Lookups Cache for Geocoding & Project Resolution
@@ -687,14 +688,24 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 delete payload.kmlFileName;
             }
 
+            const matchedSize = findMatchedSize(payload, null, sizes);
+            const resolvedWidth = payload.width || payload.frontage || matchedSize?.width || undefined;
+            const resolvedLength = payload.length || payload.depth || matchedSize?.length || undefined;
+            const resolvedSizeId = payload.sizeId || matchedSize?.id || matchedSize?._id || undefined;
+
             const transformedData = {
                 ...payload,
                 category: getLookupId('Category', payload.category),
                 subCategory: getLookupId('SubCategory', payload.subCategory),
                 unitType: getLookupId('UnitType', payload.unitType),
                 sizeType: getLookupId('PropertyType', payload.sizeType), // Resolve sizeType against PropertyType
-                sizeConfig: getLookupId('Size', payload.size) || payload.sizeConfig,
+                sizeId: resolvedSizeId,
+                sizeConfig: getLookupId('Size', payload.size) || resolvedSizeId || payload.sizeConfig,
                 sizeLabel: payload.size, // Retain string label for reference
+                width: resolvedWidth !== undefined && resolvedWidth !== '' ? (isNaN(Number(resolvedWidth)) ? resolvedWidth : Number(resolvedWidth)) : payload.width,
+                length: resolvedLength !== undefined && resolvedLength !== '' ? (isNaN(Number(resolvedLength)) ? resolvedLength : Number(resolvedLength)) : payload.length,
+                widthMetric: payload.widthMetric || matchedSize?.widthMetric || undefined,
+                lengthMetric: payload.lengthMetric || matchedSize?.lengthMetric || undefined,
                 size: (typeof payload.size === 'string' && payload.size.trim() !== '') ? {
                     value: parseFloat((payload.size.match(/[\d.]+/)?.[0]) || 0),
                     unit: payload.size.replace(/[\d.]+/g, '').trim() || 'Sq.Yd.'
@@ -742,7 +753,11 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 };
 
                 const dirtyFormKeys = computeDirtyKeys(initialFormData.current, formData);
-                const formToPayloadKeys = { size: ['size', 'sizeLabel', 'sizeConfig'], kmlFile: ['kmlFileUrl'], kmlFileUrl: ['kmlFileUrl'] };
+                const formToPayloadKeys = { 
+                    size: ['size', 'sizeLabel', 'sizeConfig', 'sizeId', 'width', 'length', 'widthMetric', 'lengthMetric'], 
+                    kmlFile: ['kmlFileUrl'], 
+                    kmlFileUrl: ['kmlFileUrl'] 
+                };
                 const partialPayload = {};
                 
                 dirtyFormKeys.forEach(formKey => {
