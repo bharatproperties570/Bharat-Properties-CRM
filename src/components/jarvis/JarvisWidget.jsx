@@ -21,12 +21,36 @@ export const JarvisWidget = () => {
     const [isAnalyzingCall, setIsAnalyzingCall] = useState(false);
     const [briefingData, setBriefingData] = useState(null);
     const [isLoadingBriefing, setIsLoadingBriefing] = useState(false);
+    const [micBlocked, setMicBlocked] = useState(false);
+    const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator?.userAgent || '');
 
     const recognitionRef = useRef(null);
     const synthRef = useRef(typeof window !== 'undefined' ? window.speechSynthesis : null);
     const handleCommandSubmitRef = useRef(null);
     const accumulatedTextRef = useRef('');
     const hasSubmittedRef = useRef(false);
+
+    // Monitor browser microphone permission changes
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (navigator.permissions && navigator.permissions.query) {
+            navigator.permissions.query({ name: 'microphone' }).then(permissionStatus => {
+                if (permissionStatus.state === 'denied') {
+                    setMicBlocked(true);
+                } else if (permissionStatus.state === 'granted') {
+                    setMicBlocked(false);
+                }
+                permissionStatus.onchange = () => {
+                    if (permissionStatus.state === 'granted') {
+                        setMicBlocked(false);
+                        toast.success('Microphone unblocked! You can now speak to Jarvis.', { icon: '🎙️' });
+                    } else if (permissionStatus.state === 'denied') {
+                        setMicBlocked(true);
+                    }
+                };
+            }).catch(() => {});
+        }
+    }, []);
 
     // Global Keyboard Shortcut: Ctrl+J / Cmd+J to toggle Jarvis HUD
     useEffect(() => {
@@ -197,17 +221,15 @@ export const JarvisWidget = () => {
 
             recognition.onerror = (event) => {
                 console.warn('[Jarvis] Speech recognition event:', event.error);
-                if (event.error === 'not-allowed') {
-                    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator?.userAgent || '');
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    setMicBlocked(true);
+                    setIsOpen(true);
+                    setStatus('idle');
                     if (isSafari) {
-                        toast.error('Safari: Microphone or Speech blocked. If site permission is allowed, check Mac Settings → Keyboard → Dictation is ON.', { duration: 7000 });
+                        toast.error('Safari: Apple Speech Service blocked on localhost. Please open in Google Chrome (recommended) or type below.', { duration: 7000 });
                     } else {
-                        toast.error('Microphone access blocked. Please enable mic permissions in your browser & macOS Privacy Settings.', { duration: 6000 });
+                        toast.error('Microphone blocked. Please allow mic in browser address bar (🔒 icon).', { duration: 6000 });
                     }
-                    setStatus('idle');
-                } else if (event.error === 'service-not-allowed') {
-                    toast.error('Speech recognition service blocked. On macOS, enable Dictation in System Settings → Keyboard.', { duration: 7000 });
-                    setStatus('idle');
                 } else if (event.error === 'audio-capture') {
                     toast.error('No microphone hardware detected or mic is in use by another application.', { duration: 5000 });
                     setStatus('idle');
@@ -945,6 +967,126 @@ export const JarvisWidget = () => {
                         ) : (
                             /* 🎙️ ASSISTANT HUD VIEW */
                             <>
+                                {/* ⚠️ MICROPHONE PERMISSION BLOCKED GUIDE */}
+                                {micBlocked && (
+                                    <div style={{
+                                        padding: '14px 16px',
+                                        borderRadius: '14px',
+                                        background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(185, 28, 28, 0.28))',
+                                        border: '1.5px solid rgba(239, 68, 68, 0.5)',
+                                        boxShadow: '0 8px 25px rgba(239, 68, 68, 0.25)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '10px',
+                                        animation: 'jarvisFadeIn 0.25s ease-out'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-microphone-slash" style={{ color: '#ef4444', fontSize: '1.1rem' }}></i>
+                                                <div>
+                                                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#fecaca', letterSpacing: '0.5px' }}>
+                                                        MICROPHONE ACCESS IS BLOCKED
+                                                    </div>
+                                                    <div style={{ fontSize: '0.68rem', color: '#fca5a5' }}>
+                                                        Browser me mic permission allow karne ke 2 easy steps:
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setMicBlocked(false)}
+                                                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.85rem' }}
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        </div>
+
+                                        <div style={{
+                                            background: 'rgba(0, 0, 0, 0.35)',
+                                            padding: '10px 14px',
+                                            borderRadius: '8px',
+                                            fontSize: '0.74rem',
+                                            color: '#f8fafc',
+                                            lineHeight: '1.55',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '6px'
+                                        }}>
+                                            {isSafari ? (
+                                                <>
+                                                    <div>
+                                                        <strong>🍎 Safari on Mac:</strong> Safari Apple Speech engine ko unverified <code>http://localhost</code> par block karta hai (Siri server timeout).
+                                                    </div>
+                                                    <div>
+                                                        <strong>⚡ Instant Fix (Recommended):</strong> CRM ko <strong>Google Chrome</strong> me open karein (aapke Mac Dock me 3rd icon hai). Chrome me voice bina kisi setting ke 100% smoothly chalti hai!
+                                                    </div>
+                                                    <div>
+                                                        <strong>⌨️ Direct Typing:</strong> Ya fir aap neeche diye gaye box me seedha type karke bhi command bhej sakte hain.
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div>
+                                                        <strong>1. URL Address Bar:</strong> Browser me URL ke left me <strong>Tune / Lock (🔒)</strong> icon par click karein.
+                                                    </div>
+                                                    <div>
+                                                        <strong>2. Toggle Allow:</strong> <strong>Microphone</strong> ko <em>Block</em> se badal kar <strong>Allow (ON)</strong> karein.
+                                                    </div>
+                                                    <div>
+                                                        <strong>3. Mac OS check:</strong> <em>System Settings &gt; Privacy &amp; Security &gt; Microphone &gt; Google Chrome</em> [ON] rakhein.
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setMicBlocked(false);
+                                                    startListening();
+                                                }}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '7px 10px',
+                                                    borderRadius: '8px',
+                                                    background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                                                    border: 'none',
+                                                    color: '#fff',
+                                                    fontSize: '0.74rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '5px'
+                                                }}
+                                            >
+                                                <i className="fas fa-redo"></i> Try Mic Again
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const inputEl = document.querySelector('input[placeholder*="Speak command"]');
+                                                    if (inputEl) inputEl.focus();
+                                                }}
+                                                style={{
+                                                    padding: '7px 12px',
+                                                    borderRadius: '8px',
+                                                    background: 'rgba(255, 255, 255, 0.08)',
+                                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                                    color: '#e2e8f0',
+                                                    fontSize: '0.74rem',
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                ⌨️ Type Instead
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* 🔴 LIVE AUDIO WAVE EQUALIZER WHEN LISTENING */}
                                 {status === 'listening' && (
                                     <div style={{
