@@ -1,10 +1,15 @@
 import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
+import { v4 as uuidv4 } from "uuid";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import withMongoTransaction from "../utils/withMongoTransaction.js";
 import FeedbackForm from "../models/FeedbackForm.js";
 import FeedbackSubmission from "../models/FeedbackSubmission.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
+import AuditLog from "../models/AuditLog.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import NurtureBot from "../services/NurtureBot.js";
 
@@ -125,6 +130,58 @@ export const deleteForm = async (req, res, next) => {
     }
 };
 
+// 🛡️ CRITICAL-01: Cryptographic Token Verifier with Scoped Purpose & Claim Dropping
+export const verifyFeedbackToken = (rawToken, slug) => {
+    if (!rawToken || typeof rawToken !== 'string') return null;
+    const normalized = rawToken.replace(/~/g, '.');
+    const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
+    if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('FATAL: JWT secrets missing in production');
+    }
+    const signingSecret = secret || 'dev_secret_fallback';
+    try {
+        const decoded = jwt.verify(normalized, signingSecret);
+
+        // Modern Token Contract
+        if (decoded.iss === 'bharat-properties-crm' && (decoded.purpose === 'feedback_submission' || decoded.purpose === 'general_feedback')) {
+            // Finding 3: Strictly require non-empty formSlug claim exactly matching target form slug
+            if (!slug || typeof slug !== 'string' || !slug.trim()) {
+                return null;
+            }
+            if (!decoded.formSlug || typeof decoded.formSlug !== 'string' || !decoded.formSlug.trim()) {
+                return null;
+            }
+            if (decoded.formSlug !== slug) {
+                return null; // Reject token for mismatched form slug
+            }
+            return {
+                valid: true,
+                isLegacy: false,
+                leadId: (decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) ? decoded.leadId : null,
+                activityId: (decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId)) ? decoded.activityId : null,
+                jti: decoded.jti || null,
+                purpose: decoded.purpose
+            };
+        }
+
+        // Legacy Token Contract: { leadId, source: 'customer_feedback' }
+        if (decoded.source === 'customer_feedback' && decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) {
+            return {
+                valid: true,
+                isLegacy: true,
+                leadId: decoded.leadId,
+                activityId: null, // Legacy tokens CANNOT complete activities
+                jti: null,
+                purpose: 'legacy_feedback'
+            };
+        }
+
+        return null;
+    } catch (_) {
+        return null;
+    }
+};
+
 export const getFormBySlug = async (req, res, next) => {
     try {
         const form = await FeedbackForm.findOne({ slug: req.params.slug, isActive: true }).lean();
@@ -133,24 +190,37 @@ export const getFormBySlug = async (req, res, next) => {
         // Increment view analytics in background without blocking
         FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.views': 1 } }).catch(() => {});
 
+        // 🛡️ CRITICAL-01: Strict PII Protection
+        // Check for verified token in custom header, query ref, or token param
+        const rawToken = req.headers['x-feedback-token'] || req.query.ref || req.query.token;
+        const claims = verifyFeedbackToken(rawToken, req.params.slug);
+
         let leadInfo = null;
-        const leadId = req.query.leadId;
-        if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
-            const lead = await Lead.findById(leadId).select('firstName lastName email mobile companyName').lean();
+        if (claims && claims.leadId) {
+            const lead = await Lead.findById(claims.leadId).select('firstName companyName').lean();
             if (lead) {
-                const fullName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || lead.companyName || 'Valued Client';
+                // Return ONLY safe greeting name. NEVER expose email, mobile, or raw lead documents
                 leadInfo = {
-                    _id: lead._id,
-                    name: fullName,
-                    firstName: lead.firstName || '',
-                    lastName: lead.lastName || '',
-                    email: lead.email || '',
-                    mobile: lead.mobile || ''
+                    greetingName: lead.firstName || lead.companyName || 'Valued Client'
                 };
             }
         }
 
-        res.json({ success: true, data: { ...form, leadInfo } });
+        let activityDetails = null;
+        if (claims && claims.activityId) {
+            const activity = await Activity.findById(claims.activityId).select('type subject details status').lean();
+            if (activity) {
+                activityDetails = {
+                    _id: activity._id,
+                    type: activity.type,
+                    subject: activity.subject,
+                    status: activity.status,
+                    visitedProperties: activity.details?.visitedProperties || []
+                };
+            }
+        }
+
+        res.json({ success: true, data: { ...form, leadInfo, activityDetails } });
     } catch (error) {
         next(error);
     }
@@ -159,7 +229,7 @@ export const getFormBySlug = async (req, res, next) => {
 export const submitFeedback = async (req, res, next) => {
     try {
         const { slug } = req.params;
-        const { responses, sourceMeta, leadId, inventoryId, activityId } = req.body;
+        const { responses = {}, inventoryId, token: bodyToken } = req.body;
 
         const form = await FeedbackForm.findOne({ slug, isActive: true });
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
@@ -171,211 +241,266 @@ export const submitFeedback = async (req, res, next) => {
             submissionRating = Number(responses[ratingField.id]);
         }
 
-        // 🌟 PROFESIONAL LOGIC: Smart Lead Matching (if leadId not provided)
-        let finalLeadId = leadId;
-        if (!finalLeadId || !mongoose.Types.ObjectId.isValid(finalLeadId)) {
-            const phoneField = form.sections.flatMap(s => s.fields).find(f => f.type === 'phone');
-            const phoneResponse = phoneField ? responses[phoneField.id] : null;
-            if (phoneResponse) {
-                const { normalizePhone } = await import('../utils/normalization.js');
-                const cleanPhone = normalizePhone(phoneResponse);
-                const existingLead = await Lead.findOne({ 
-                    $or: [
-                        { mobile: cleanPhone },
-                        { 'phones.number': cleanPhone }
-                    ]
-                }).select('_id').lean();
-                if (existingLead) {
-                    finalLeadId = existingLead._id;
-                    console.log(`[FeedbackSubmit] Auto-matched Lead: ${finalLeadId} via Phone: ${cleanPhone}`);
-                }
+        // 🛡️ CRITICAL-01: Token Verification & Untrusted Claim Dropping
+        // Client-supplied leadId and activityId in req.body are COMPLETELY DISCARDED
+        const rawToken = bodyToken || req.headers['x-feedback-token'] || req.query.ref || req.query.token;
+        const claims = verifyFeedbackToken(rawToken, slug);
+
+        const authoritativeLeadId = claims?.leadId || null;
+        const authoritativeActivityId = claims?.activityId || null;
+
+        // Establish stable request identity for idempotency
+        const requestIdentity = claims?.jti || (claims?.isLegacy && authoritativeLeadId ? `legacy:${authoritativeLeadId}:${slug}` : null);
+
+        // 🛡️ Activity-bound Feedback Submission Flow
+        if (authoritativeActivityId) {
+            const activityDoc = await Activity.findById(authoritativeActivityId).lean();
+            if (!activityDoc) {
+                return res.status(404).json({ success: false, error: 'Activity not found' });
             }
-        }
 
-        const submission = await FeedbackSubmission.create({
-            form: form._id,
-            lead: (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) ? finalLeadId : null,
-            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-            department: form.department, // Heritage: inherit branch from form
-            teams: form.teams,
-            responses,
-            rating: submissionRating,
-            sourceMeta: sourceMeta || {}
-        });
+            // Safe Activity Ownership Validation
+            const activityLeadId = activityDoc.entityId || activityDoc.lead;
+            const isLead = !activityDoc.entityType || activityDoc.entityType?.toLowerCase() === 'lead';
+            if (!isLead || String(activityLeadId) !== String(authoritativeLeadId)) {
+                return res.status(403).json({ success: false, error: 'Activity entity does not match token subject' });
+            }
 
-        // 🚀 SMART SYNC: Update Inventory History and Activity Timeline
-        if (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) {
-            const inventory = await Inventory.findById(inventoryId).populate('owners associates.contact');
-            if (inventory) {
-                // [ENTERPRISE] Heuristic Field Resolution for Outcome, Reason, and Follow-up
-                let outcome = '';
-                let reason = '';
-                let nextFollowUp = null;
+            try {
+                const txResult = await withMongoTransaction(async (session) => {
+                    // Step 1: Atomic CAS on Activity
+                    const completedActivity = await Activity.findOneAndUpdate(
+                        {
+                            _id: authoritativeActivityId,
+                            status: { $ne: 'Completed' }
+                        },
+                        {
+                            $set: {
+                                status: 'Completed',
+                                completedAt: new Date(),
+                                completionResult: 'Feedback Received',
+                                performedBy: 'Customer (Public Form)',
+                                'details.completedVia': 'public_feedback_form'
+                            }
+                        },
+                        { session, new: true }
+                    );
 
-                const fieldEntries = Object.entries(responses);
-                const formFields = form.sections.flatMap(s => s.fields);
+                    if (completedActivity) {
+                        // CAS Succeeded: Primary Feedback Completion
+                        const [submission] = await FeedbackSubmission.create([{
+                            form: form._id,
+                            lead: authoritativeLeadId,
+                            activity: completedActivity._id,
+                            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                            department: completedActivity.department || form.department || null,
+                            teams: completedActivity.teams || form.teams || [],
+                            responses,
+                            rating: submissionRating,
+                            idempotencyKey: requestIdentity || undefined,
+                            sourceMeta: {
+                                userAgent: req.headers['user-agent']
+                            }
+                        }], { session });
 
-                for (const [fieldId, value] of fieldEntries) {
-                    const fieldDef = formFields.find(f => f.id === fieldId);
-                    if (!fieldDef) continue;
+                        // Link submission to Activity
+                        await Activity.updateOne(
+                            { _id: completedActivity._id },
+                            { $set: { 'details.submissionId': submission._id } },
+                            { session }
+                        );
 
-                    const label = fieldDef.label.toLowerCase();
-                    if (label.includes('outcome')) outcome = value;
-                    else if (label.includes('reason')) reason = value;
-                    else if (label.includes('follow-up') || label.includes('next action')) {
-                        const d = new Date(value);
-                        if (!isNaN(d.getTime())) nextFollowUp = d;
-                    }
-                }
-
-                const feedbackNote = Object.values(responses).join(' | ');
-                const updatePayload = {
-                    $push: {
-                        history: {
-                            type: 'Feedback',
-                            note: `Feedback Received via ${form.name}: ${feedbackNote}`,
-                            details: {
+                        // Insert Transactional AuditLog
+                        await AuditLog.create([{
+                            eventType: 'lead_updated',
+                            targetType: 'lead',
+                            targetId: authoritativeLeadId,
+                            targetName: 'Lead',
+                            description: `Customer feedback submitted for Activity ${completedActivity._id}`,
+                            changes: {
+                                before: { status: activityDoc.status, submissionId: null },
+                                after: { status: 'Completed', submissionId: submission._id }
+                            },
+                            metadata: {
+                                activityId: completedActivity._id,
+                                formSlug: form.slug,
                                 submissionId: submission._id,
                                 rating: submissionRating,
-                                responses,
-                                result: outcome,
-                                reason: reason
+                                source: 'public_feedback_form'
                             },
-                            date: new Date()
+                            status: 'success'
+                        }], { session });
+
+                        // Insert Transactional OutboxEvent
+                        await OutboxEvent.create([{
+                            eventId: uuidv4(),
+                            eventType: 'ActivityUpdated',
+                            aggregateType: 'Activity',
+                            aggregateId: completedActivity._id,
+                            correlationId: req.headers['x-correlation-id'] || uuidv4(),
+                            status: 'PENDING',
+                            payload: {
+                                activityId: completedActivity._id,
+                                entityType: 'Lead',
+                                entityId: String(authoritativeLeadId),
+                                status: 'Completed',
+                                newStatus: 'Completed',
+                                statusChanged: true,
+                                type: completedActivity.type,
+                                subject: completedActivity.subject || '',
+                                description: completedActivity.description || '',
+                                completedAt: completedActivity.completedAt,
+                                completionResult: 'Feedback Received',
+                                completionSource: 'public_feedback_form',
+                                performedBy: 'Customer (Public Form)',
+                                companyId: null,
+                                actorId: null,
+                                submissionId: submission._id,
+                                details: completedActivity.details || {}
+                            }
+                        }], { session });
+
+                        return { statusCode: 201, submissionId: submission._id };
+                    }
+
+                    // CAS Failed: Activity was already 'Completed'
+                    const existingActivity = await Activity.findById(authoritativeActivityId).session(session);
+                    const existingSubId = existingActivity?.details?.submissionId;
+
+                    if (existingSubId) {
+                        const existingSub = await FeedbackSubmission.findById(existingSubId).session(session);
+                        if (existingSub && requestIdentity && existingSub.idempotencyKey === requestIdentity) {
+                            // Identical Request Retry (Idempotent)
+                            return { statusCode: 200, duplicate: true, submissionId: existingSub._id };
                         }
-                    },
-                    $set: { lastContactedAt: new Date() }
-                };
+                        // Conflict: Activity already fulfilled by another submission
+                        return { statusCode: 409, conflict: true, error: 'Feedback has already been submitted for this activity.' };
+                    }
 
-                if (nextFollowUp) updatePayload.$set.followUpDate = nextFollowUp;
-
-                await Inventory.findByIdAndUpdate(inventoryId, updatePayload);
-
-                // [ENTERPRISE] Unified Activity Linking (One record, multiple timelines)
-                const relatedTo = [
-                    { id: inventory._id, name: inventory.unitNo || 'Property', model: 'Inventory' }
-                ];
-
-                // Add Owners
-                if (inventory.owners && inventory.owners.length > 0) {
-                    inventory.owners.forEach(owner => {
-                        relatedTo.push({ id: owner._id || owner, name: owner.name || 'Owner', model: 'Contact' });
-                    });
-                }
-
-                // Add Associates
-                if (inventory.associates && inventory.associates.length > 0) {
-                    inventory.associates.forEach(assoc => {
-                        const contactId = assoc.contact?._id || assoc.contact;
-                        if (contactId) {
-                            relatedTo.push({ id: contactId, name: assoc.contact?.name || assoc.name || 'Associate', model: 'Contact' });
-                        }
-                    });
-                }
-
-                // Add Lead if present
-                if (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) {
-                    relatedTo.push({ id: finalLeadId, name: 'Target Lead', model: 'Lead' });
-                }
-
-                await Activity.create({
-                    type: 'Feedback',
-                    subject: `Feedback: ${outcome || 'Received'}`,
-                    description: feedbackNote,
-                    status: 'Completed',
-                    performedBy: 'System (Feedback Form)',
-                    dueDate: new Date(),
-                    entityType: 'Inventory',
-                    entityId: inventory._id,
-                    relatedTo,
-                    details: { submissionId: submission._id, outcome, reason },
-                    department: form.department,
-                    teams: form.teams
+                    // Policy A: Activity completed by staff without customer feedback
+                    return { statusCode: 409, conflict: true, error: 'Activity has already been completed.' };
                 });
 
-                console.log(`[FeedbackSync] Unified Activity Logging Complete for ${relatedTo.length} entities linked to Inventory: ${inventoryId}`);
+                if (txResult.conflict) {
+                    return res.status(409).json({ success: false, error: txResult.error, message: txResult.error });
+                }
+
+                if (txResult.duplicate) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: txResult.submissionId,
+                        message: 'Feedback already recorded.'
+                    });
+                }
+
+                // Increment submission count in analytics
+                FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.submissions': 1 } }).catch(() => {});
+
+                return res.status(201).json({
+                    success: true,
+                    submissionId: txResult.submissionId,
+                    message: form.settings?.successMessage || 'Thank you for your feedback!'
+                });
+
+            } catch (err) {
+                // Duplicate Key Error handling outside the aborted transaction
+                if (err.code === 11000 || err.message?.includes('E11000')) {
+                    if (requestIdentity) {
+                        const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                        if (existing && existing.idempotencyKey === requestIdentity) {
+                            return res.status(200).json({
+                                success: true,
+                                duplicate: true,
+                                submissionId: existing._id,
+                                message: 'Feedback already recorded.'
+                            });
+                        }
+                    }
+                }
+                throw err;
             }
         }
 
-        // 🚀 SMART SYNC: Update Specific Activity if linked
-        if (activityId && mongoose.Types.ObjectId.isValid(activityId)) {
-            const activity = await Activity.findById(activityId);
-            if (activity && activity.status !== 'Completed') {
-                // If the form sent property_feedback, it is usually nested in responses
-                const propertyFeedbackField = form.sections.flatMap(s => s.fields).find(f => f.type === 'property_feedback');
-                let updatedVisitedProperties = activity.details?.visitedProperties || [];
-                
-                if (propertyFeedbackField && responses[propertyFeedbackField.id]) {
-                    const customerPropertyFeedback = responses[propertyFeedbackField.id]; // Object keyed by property index
-                    updatedVisitedProperties = updatedVisitedProperties.map((prop, idx) => {
-                        const feedback = customerPropertyFeedback[idx];
-                        if (feedback) {
-                            return {
-                                ...prop,
-                                result: feedback.result || prop.result,
-                                customerRating: feedback.rating,
-                                customerComments: feedback.comments
-                            };
-                        }
-                        return prop;
+        // 🛡️ General Lead Feedback or Anonymous Public Submission Flow
+        // (authoritativeActivityId is null; NO Activity is completed; NO OutboxEvent is emitted)
+        if (requestIdentity) {
+            const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+            if (existing && existing.idempotencyKey === requestIdentity) {
+                // Verify matching logical request (same form and lead)
+                if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: existing._id,
+                        message: 'Feedback already recorded.'
                     });
                 }
+            }
+        }
 
-                await Activity.findByIdAndUpdate(activityId, {
-                    status: 'Completed',
-                    completedAt: new Date(),
-                    completionResult: 'Feedback Received',
-                    performedBy: 'Customer (Form)',
-                    description: Object.values(responses).filter(v => typeof v === 'string').join(' | '),
-                    'details.submissionId': submission._id,
-                    'details.visitedProperties': updatedVisitedProperties
-                });
-                console.log(`[FeedbackSubmit] Updated Activity ${activityId} with property-wise feedback`);
-                
-                if (finalLeadId) {
-                    const lead = await Lead.findById(finalLeadId);
-                    if (lead) {
-                        NurtureBot.executeAutomation('onFeedbackReceived', lead).catch(err => {
-                            console.error('[Automation] Failed to trigger feedback automation:', err.message);
+        let generalSubmission;
+        try {
+            [generalSubmission] = await FeedbackSubmission.create([{
+                form: form._id,
+                lead: authoritativeLeadId,
+                activity: null,
+                inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                department: form.department || null,
+                teams: form.teams || [],
+                responses,
+                rating: submissionRating,
+                idempotencyKey: requestIdentity || undefined,
+                sourceMeta: {
+                    userAgent: req.headers['user-agent']
+                }
+            }]);
+        } catch (err) {
+            // Handle race-condition duplicate key error on concurrent submissions
+            if ((err.code === 11000 || err.message?.includes('E11000')) && requestIdentity) {
+                const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                if (existing && existing.idempotencyKey === requestIdentity) {
+                    if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                        return res.status(200).json({
+                            success: true,
+                            duplicate: true,
+                            submissionId: existing._id,
+                            message: 'Feedback already recorded.'
                         });
                     }
                 }
             }
-        } else if (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) {
-            // Fallback: Create new activity if no specific activityId was provided
-            const lead = await Lead.findById(finalLeadId);
-            if (lead) {
-                await Activity.create({
-                    type: 'Feedback',
-                    subject: `Feedback Submitted: ${form.name}`,
-                    entityId: finalLeadId,
-                    entityType: 'Lead',
-                    status: 'Completed',
-                    performedBy: 'Customer (Form)',
-                    description: Object.values(responses).filter(v => typeof v === 'string').join(' | '),
-                    dueDate: new Date(),
-                    details: { submissionId: submission._id, rating: submissionRating }
-                });
-
-                // Trigger Automation Rules with full lead context
-                NurtureBot.executeAutomation('onFeedbackReceived', lead).catch(err => {
-                    console.error('[Automation] Failed to trigger feedback automation:', err.message);
-                });
-            }
+            throw err;
         }
 
-        // Update analytics
-        form.analytics.submissions += 1;
-        if (submissionRating > 0) {
-            form.analytics.averageRating = ((form.analytics.averageRating * (form.analytics.submissions - 1)) + submissionRating) / form.analytics.submissions;
+        if (authoritativeLeadId) {
+            AuditLog.create([{
+                eventType: 'lead_updated',
+                targetType: 'lead',
+                targetId: authoritativeLeadId,
+                targetName: 'Lead',
+                description: `General customer feedback recorded via form ${form.slug}`,
+                changes: {
+                    after: { submissionId: generalSubmission._id }
+                },
+                metadata: {
+                    formSlug: form.slug,
+                    submissionId: generalSubmission._id,
+                    rating: submissionRating,
+                    source: 'public_feedback_form'
+                },
+                status: 'success'
+            }]).catch(err => console.error('[AuditLog Error]:', err.message));
         }
-        await form.save();
 
-        res.status(201).json({
+        FeedbackForm.updateOne({ _id: form._id }, { $inc: { 'analytics.submissions': 1 } }).catch(() => {});
+
+        return res.status(201).json({
             success: true,
-            message: form.settings.successMessage,
-            redirectUrl: form.settings.redirectUrl
+            submissionId: generalSubmission._id,
+            message: form.settings?.successMessage || 'Thank you for your feedback!'
         });
+
     } catch (error) {
         console.error('[FeedbackSubmit] Fatal Error:', error);
         next(error);

@@ -5,7 +5,8 @@
     "main": "src/server.js",
     "scripts": {
         "start": "node src/server.js",
-        "dev": "nodemon src/server.js"
+        "dev": "nodemon src/server.js",
+        "test:feedback-security": "node tests/feedbackSecurity.test.js"
     },
     "dependencies": {
         "@opentelemetry/api": "^1.9.1",

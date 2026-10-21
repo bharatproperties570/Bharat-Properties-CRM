@@ -7,6 +7,7 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
 
 export function cleanSubCategory(val) {
     if (!val) return '';
@@ -109,8 +110,8 @@ class VariableResolutionService {
             "office_address": "Gurugram, Haryana",
             
             // --- Smart Links ---
-            "site_visit_link": this.extractValue(lead, 'siteVisitLink'),
-            "feedback_link": this.extractValue(lead, 'feedbackLink'),
+            "site_visit_link": this.extractValue(lead, 'siteVisitLink', customOverrides),
+            "feedback_link": this.extractValue(lead, 'feedbackLink', customOverrides),
             "property_list_default": this.extractValue(lead, 'matchListDefault'),
             "property_list_dtl": this.extractValue(lead, 'matchListDetailed'),
             "portal_link": "https://crm.bharatproperties.co",
@@ -456,10 +457,49 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'token_missing';
-                    const token = jwt.sign({ leadId, source: 'customer_feedback' }, process.env.JWT_SECRET || 'crm_secret_key', { expiresIn: '60d' });
+
+                    const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
+                    if (!secret && process.env.NODE_ENV === 'production') {
+                        throw new Error('FATAL: JWT secret not configured');
+                    }
+                    const signingSecret = secret || 'dev_secret_fallback';
+                    const formSlug = 'customer-experience-feedback-qx9z2';
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-                    // Using your standard feedback form slug
-                    const formSlug = 'customer-experience-feedback-qx9z2'; 
+
+                    // 🛡️ CRITICAL-01: Dual-branch context resolution
+                    // If activity is provided in customOverrides, bind to Activity
+                    // If only lead is provided, generate a Lead-scoped token (activityId: null)
+                    const overrides = (typeof customVal === 'object' && customVal !== null) ? customVal : {};
+                    const activity = overrides.activity;
+                    if (activity && (activity._id || activity.id)) {
+                        const token = jwt.sign(
+                            {
+                                iss: 'bharat-properties-crm',
+                                purpose: 'feedback_submission',
+                                leadId: String(leadId),
+                                activityId: String(activity._id || activity.id),
+                                formSlug,
+                                jti: uuidv4()
+                            },
+                            signingSecret,
+                            { expiresIn: '7d' }
+                        );
+                        return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
+                    }
+
+                    // Lead-only context: DO NOT guess or invent an Activity
+                    const token = jwt.sign(
+                        {
+                            iss: 'bharat-properties-crm',
+                            purpose: 'general_feedback',
+                            leadId: String(leadId),
+                            activityId: null,
+                            formSlug,
+                            jti: uuidv4()
+                        },
+                        signingSecret,
+                        { expiresIn: '30d' }
+                    );
                     return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
                 } catch (e) {
                     return 'error';
