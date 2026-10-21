@@ -144,7 +144,14 @@ export const verifyFeedbackToken = (rawToken, slug) => {
 
         // Modern Token Contract
         if (decoded.iss === 'bharat-properties-crm' && (decoded.purpose === 'feedback_submission' || decoded.purpose === 'general_feedback')) {
-            if (slug && decoded.formSlug && decoded.formSlug !== slug) {
+            // Finding 3: Strictly require non-empty formSlug claim exactly matching target form slug
+            if (!slug || typeof slug !== 'string' || !slug.trim()) {
+                return null;
+            }
+            if (!decoded.formSlug || typeof decoded.formSlug !== 'string' || !decoded.formSlug.trim()) {
+                return null;
+            }
+            if (decoded.formSlug !== slug) {
                 return null; // Reject token for mismatched form slug
             }
             return {
@@ -417,20 +424,54 @@ export const submitFeedback = async (req, res, next) => {
 
         // 🛡️ General Lead Feedback or Anonymous Public Submission Flow
         // (authoritativeActivityId is null; NO Activity is completed; NO OutboxEvent is emitted)
-        const [generalSubmission] = await FeedbackSubmission.create([{
-            form: form._id,
-            lead: authoritativeLeadId,
-            activity: null,
-            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-            department: form.department || null,
-            teams: form.teams || [],
-            responses,
-            rating: submissionRating,
-            idempotencyKey: requestIdentity || undefined,
-            sourceMeta: {
-                userAgent: req.headers['user-agent']
+        if (requestIdentity) {
+            const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+            if (existing && existing.idempotencyKey === requestIdentity) {
+                // Verify matching logical request (same form and lead)
+                if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: existing._id,
+                        message: 'Feedback already recorded.'
+                    });
+                }
             }
-        }]);
+        }
+
+        let generalSubmission;
+        try {
+            [generalSubmission] = await FeedbackSubmission.create([{
+                form: form._id,
+                lead: authoritativeLeadId,
+                activity: null,
+                inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                department: form.department || null,
+                teams: form.teams || [],
+                responses,
+                rating: submissionRating,
+                idempotencyKey: requestIdentity || undefined,
+                sourceMeta: {
+                    userAgent: req.headers['user-agent']
+                }
+            }]);
+        } catch (err) {
+            // Handle race-condition duplicate key error on concurrent submissions
+            if ((err.code === 11000 || err.message?.includes('E11000')) && requestIdentity) {
+                const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                if (existing && existing.idempotencyKey === requestIdentity) {
+                    if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                        return res.status(200).json({
+                            success: true,
+                            duplicate: true,
+                            submissionId: existing._id,
+                            message: 'Feedback already recorded.'
+                        });
+                    }
+                }
+            }
+            throw err;
+        }
 
         if (authoritativeLeadId) {
             AuditLog.create([{
