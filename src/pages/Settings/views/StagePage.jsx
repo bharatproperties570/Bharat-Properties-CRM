@@ -359,6 +359,41 @@ const AddCustomFieldModal = ({ onSave, onClose }) => {
     );
 };
 
+const DEFAULT_QUAL_FIELDS = [
+    // Requirement Page Fields
+    { key: 'requirement', label: 'Requirement Type (Buy / Rent / Lease)', tab: 'requirement', isCore: true },
+    { key: 'propertyType', label: 'Property Category (Residential / Commercial / Industrial / etc.)', tab: 'requirement', isCore: true },
+    { key: 'subType', label: 'Sub-Category / Property Type', tab: 'requirement', isCore: true },
+    { key: 'sizeType', label: 'Size Type / Configuration (e.g. 2BHK, 3BHK, Plot Size)', tab: 'requirement', isCore: true },
+    { key: 'budgetMin', label: 'Budget Range (Min / Max / Budget)', tab: 'requirement', isCore: true, aliases: ['budgetMax', 'budget'] },
+    { key: 'timeline', label: 'Possession / Move-in Timeline', tab: 'requirement', isCore: true },
+    { key: 'areaMin', label: 'Area Range (Min / Max)', tab: 'requirement', isCore: false, aliases: ['areaMax'] },
+    { key: 'areaMetric', label: 'Area Metric Unit (Sq Yard, Sq Feet, etc.)', tab: 'requirement', isCore: false },
+    { key: 'funding', label: 'Funding / Loan Source', tab: 'requirement', isCore: false },
+    { key: 'furnishing', label: 'Furnishing Status', tab: 'requirement', isCore: false },
+    { key: 'transactionType', label: 'Transaction Type (Outright, Flexible, etc.)', tab: 'requirement', isCore: false },
+    { key: 'whitePortion', label: 'Payment Terms / White Ratio %', tab: 'requirement', isCore: false },
+    { key: 'purpose', label: 'End Use / Purpose (Self Use, Investment)', tab: 'requirement', isCore: false },
+
+    // Location Page Fields
+    { key: 'locCity', label: 'City', tab: 'location', isCore: true },
+    { key: 'locArea', label: 'Locality / Area / Sector', tab: 'location', isCore: true, aliases: ['sector'] },
+    { key: 'locState', label: 'State', tab: 'location', isCore: false },
+    { key: 'searchLocation', label: 'Search Location / Landmark (Geo-Search)', tab: 'location', isCore: false },
+    { key: 'range', label: 'Proximity Range', tab: 'location', isCore: false },
+    { key: 'projectCity', label: 'Project City', tab: 'location', isCore: false },
+    { key: 'projectName', label: 'Specific Project Name', tab: 'location', isCore: false },
+    { key: 'projectTowers', label: 'Block / Tower', tab: 'location', isCore: false },
+    { key: 'locPinCode', label: 'Pincode / Postal Code', tab: 'location', isCore: false, aliases: ['locPincode'] },
+    { key: 'locHNo', label: 'Plot / House / Flat No.', tab: 'location', isCore: false, aliases: ['propertyNo'] },
+    { key: 'locStreet', label: 'Street / Road Name', tab: 'location', isCore: false },
+    { key: 'propertyNo', label: 'Specific Unit Number', tab: 'location', isCore: false, aliases: ['locHNo'] },
+    { key: 'unitType', label: 'Unit Type / Mode', tab: 'location', isCore: false },
+    { key: 'facing', label: 'Facing Preference', tab: 'location', isCore: false },
+    { key: 'roadWidth', label: 'Road Width', tab: 'location', isCore: false },
+    { key: 'direction', label: 'Direction', tab: 'location', isCore: false }
+];
+
 // ─────────────────────────────────────────────
 // Main StagePage Component
 // ─────────────────────────────────────────────
@@ -446,10 +481,10 @@ const StagePage = () => {
         enabled: true,
         targetStage: 'Prospect',
         thresholdPercent: 80,
-        selectedFields: [],
+        selectedFields: DEFAULT_QUAL_FIELDS.filter(f => f.isCore).map(f => f.key),
         customFields: []
     });
-    const [availableQualFields, setAvailableQualFields] = useState([]);
+    const [availableQualFields, setAvailableQualFields] = useState(DEFAULT_QUAL_FIELDS);
     const [availableStages, setAvailableStages] = useState(['Incoming', 'Prospect', 'Engaged', 'Opportunity', 'Negotiation', 'Won', 'Lost']);
     const [loadingQual, setLoadingQual] = useState(false);
     const [savingQual, setSavingQual] = useState(false);
@@ -1239,7 +1274,7 @@ const StagePage = () => {
                         </div>
 
                         {/* Section 1: Requirement Tab Fields */}
-                        {(activeFieldTab === 'all' || activeFieldTab === 'requirement') && visibleReq.length > 0 && (
+                        {(activeFieldTab === 'all' || activeFieldTab === 'requirement') && (
                             <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                 <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1273,7 +1308,7 @@ const StagePage = () => {
                                     </div>
                                 </div>
                                 <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-                                    {visibleReq.map(f => {
+                                    {visibleReq.length > 0 ? visibleReq.map(f => {
                                         const isSelected = selectedSet.has(f.key);
                                         return (
                                             <div
@@ -1315,13 +1350,17 @@ const StagePage = () => {
                                                 </div>
                                             </div>
                                         );
-                                    })}
+                                    }) : (
+                                        <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                            No requirement fields match your search.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
 
                         {/* Section 2: Location Tab Fields */}
-                        {(activeFieldTab === 'all' || activeFieldTab === 'location') && visibleLoc.length > 0 && (
+                        {(activeFieldTab === 'all' || activeFieldTab === 'location') && (
                             <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                 <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1355,7 +1394,7 @@ const StagePage = () => {
                                     </div>
                                 </div>
                                 <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-                                    {visibleLoc.map(f => {
+                                    {visibleLoc.length > 0 ? visibleLoc.map(f => {
                                         const isSelected = selectedSet.has(f.key);
                                         return (
                                             <div
@@ -1397,7 +1436,11 @@ const StagePage = () => {
                                                 </div>
                                             </div>
                                         );
-                                    })}
+                                    }) : (
+                                        <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                            No location fields match your search.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
