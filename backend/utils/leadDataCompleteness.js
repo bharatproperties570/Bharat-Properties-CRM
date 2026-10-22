@@ -2,34 +2,35 @@ import mongoose from 'mongoose';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 export const DEFAULT_QUALIFICATION_FIELDS = [
-    // ─── Requirement Page Fields (11 Form Fields) ─────────────────────────
-    { key: 'requirement', label: 'Requirement Type (Buy / Rent / Lease)', tab: 'requirement', isCore: true },
-    { key: 'propertyType', label: 'Property Category (Residential / Commercial / Industrial / etc.)', tab: 'requirement', isCore: true },
-    { key: 'subType', label: 'Sub-Category / Property Type', tab: 'requirement', isCore: true },
-    { key: 'sizeType', label: 'Size Type / Configuration (e.g. 2BHK, 3BHK, Plot Size)', tab: 'requirement', isCore: true },
-    { key: 'budgetMin', label: 'Budget Range (Min / Max / Budget)', tab: 'requirement', isCore: true, aliases: ['budgetMax', 'budget'] },
-    { key: 'timeline', label: 'Possession / Move-in Timeline', tab: 'requirement', isCore: true },
-    { key: 'areaMin', label: 'Area Range (Min / Max)', tab: 'requirement', isCore: false, aliases: ['areaMax'] },
-    { key: 'areaMetric', label: 'Area Metric Unit (Sq Yard, Sq Feet, etc.)', tab: 'requirement', isCore: false },
-    { key: 'funding', label: 'Funding / Loan Source', tab: 'requirement', isCore: false },
+    // ─── Requirement Page Fields (12 Form Fields) ─────────────────────────
+    { key: 'requirement', label: 'Requirement Type', tab: 'requirement', isCore: true },
+    { key: 'propertyType', label: 'Categories', tab: 'requirement', isCore: true },
+    { key: 'subType', label: 'Sub-Categories', tab: 'requirement', isCore: true },
+    { key: 'sizeType', label: 'Size Type / Configuration', tab: 'requirement', isCore: true },
+    { key: 'budgetMin', label: 'Budget Range', tab: 'requirement', isCore: true, aliases: ['budgetMax', 'budget'] },
+    { key: 'timeline', label: 'Timeline', tab: 'requirement', isCore: true },
+    { key: 'areaMin', label: 'Area Range', tab: 'requirement', isCore: false, aliases: ['areaMax'] },
+    { key: 'areaMetric', label: 'Area Metric', tab: 'requirement', isCore: false },
+    { key: 'funding', label: 'Funding Source', tab: 'requirement', isCore: false },
     { key: 'furnishing', label: 'Furnishing Status', tab: 'requirement', isCore: false },
-    { key: 'transactionType', label: 'Transaction Type (Outright, Flexible)', tab: 'requirement', isCore: false, aliases: ['whitePortion'] },
+    { key: 'transactionType', label: 'Transaction Type', tab: 'requirement', isCore: false, aliases: ['whitePortion'] },
+    { key: 'purpose', label: 'Purpose', tab: 'requirement', isCore: false },
 
-    // ─── Location Page Fields ─────────────────────────────────────────────
-    { key: 'locCity', label: 'City', tab: 'location', isCore: true },
-    { key: 'locArea', label: 'Locality / Area / Sector', tab: 'location', isCore: true, aliases: ['sector'] },
+    // ─── Location Page Fields (16 Form Fields) ─────────────────────────────
+    { key: 'locCity', label: 'City', tab: 'location', isCore: true, aliases: ['projectCity'] },
+    { key: 'locArea', label: 'Area / Sector', tab: 'location', isCore: true, aliases: ['sector', 'projectName'] },
     { key: 'locState', label: 'State', tab: 'location', isCore: false },
-    { key: 'searchLocation', label: 'Search Location / Landmark (Geo-Search)', tab: 'location', isCore: false },
+    { key: 'searchLocation', label: 'Search Location / Landmark', tab: 'location', isCore: false },
     { key: 'range', label: 'Proximity Range', tab: 'location', isCore: false },
-    { key: 'projectCity', label: 'Project City', tab: 'location', isCore: false },
-    { key: 'projectName', label: 'Specific Project Name', tab: 'location', isCore: false },
+    { key: 'projectCity', label: 'Project City', tab: 'location', isCore: false, aliases: ['locCity'] },
+    { key: 'projectName', label: 'Project Name', tab: 'location', isCore: false },
     { key: 'projectTowers', label: 'Block / Tower', tab: 'location', isCore: false },
-    { key: 'locPinCode', label: 'Pincode / Postal Code', tab: 'location', isCore: false, aliases: ['locPincode'] },
-    { key: 'locHNo', label: 'Plot / House / Flat No.', tab: 'location', isCore: false, aliases: ['propertyNo'] },
-    { key: 'locStreet', label: 'Street / Road Name', tab: 'location', isCore: false },
+    { key: 'locPinCode', label: 'Pin Code', tab: 'location', isCore: false, aliases: ['locPincode'] },
+    { key: 'locHNo', label: 'House / Flat No.', tab: 'location', isCore: false, aliases: ['propertyNo'] },
+    { key: 'locStreet', label: 'Street / Road', tab: 'location', isCore: false },
     { key: 'propertyNo', label: 'Specific Unit Number', tab: 'location', isCore: false, aliases: ['locHNo'] },
-    { key: 'unitType', label: 'Unit Type / Mode', tab: 'location', isCore: false },
-    { key: 'facing', label: 'Facing Preference', tab: 'location', isCore: false },
+    { key: 'unitType', label: 'Unit Type', tab: 'location', isCore: false },
+    { key: 'facing', label: 'Facing', tab: 'location', isCore: false },
     { key: 'roadWidth', label: 'Road Width', tab: 'location', isCore: false },
     { key: 'direction', label: 'Direction', tab: 'location', isCore: false }
 ];

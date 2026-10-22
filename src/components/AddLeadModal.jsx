@@ -639,7 +639,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         // Requirement Details (Lead Specific)
         requirement: 'Buy',
         propertyType: ['Residential'],
-        purpose: 'End use',
+        purpose: 'End Use',
         nri: false,
         subType: [],
         sizeType: [],
@@ -819,7 +819,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 visibleTo: 'Everyone',
                 requirement: 'Buy',
                 propertyType: ['Residential'],
-                purpose: 'End use',
+                purpose: 'End Use',
                 nri: false,
                 subType: [],
                 sizeType: [],
@@ -2985,16 +2985,16 @@ const RequirementSection = React.memo(function RequirementSection({
                     </div>
                 </div>
 
-                {/* 5. Furnishing & Timeline */}
+                {/* 5. Furnishing, Timeline & Purpose */}
                 <div style={entCard}>
                     <div style={entHdr}>
                         <div style={entIcon('#f59e0b')}>
                             <i className="fas fa-calendar-alt" style={{ fontSize: '12px' }}></i>
                         </div>
-                        <h4 style={entTitle}>Furnishing & Move-in Timeline</h4>
+                        <h4 style={entTitle}>Furnishing, Timeline & Purpose</h4>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
                         <div>
                             <label style={entLabel}>Furnishing Status</label>
                             <select value={formData.furnishing} onChange={(e) => handleInputChange('furnishing', e.target.value)} style={customSelectStyle}>
@@ -3012,6 +3012,23 @@ const RequirementSection = React.memo(function RequirementSection({
                                 {(leadMasterFields?.timelines || []).map((time, idx) => {
                                     const tmVal = renderValue(time);
                                     return <option key={tmVal || idx} value={tmVal}>{tmVal}</option>;
+                                })}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={entLabel}>Purpose</label>
+                            <select
+                                value={formData.purpose || 'End Use'}
+                                onChange={(e) => handleInputChange('purpose', e.target.value)}
+                                style={customSelectStyle}
+                            >
+                                <option value="">Select Purpose</option>
+                                {((leadMasterFields?.purposes && leadMasterFields.purposes.length > 0)
+                                    ? leadMasterFields.purposes
+                                    : ['End Use', 'Investment']
+                                ).map((purp, idx) => {
+                                    const pVal = renderValue(purp);
+                                    return <option key={pVal || idx} value={pVal}>{pVal}</option>;
                                 })}
                             </select>
                         </div>
