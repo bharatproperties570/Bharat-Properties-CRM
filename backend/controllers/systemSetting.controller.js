@@ -291,23 +291,29 @@ export const reEvaluateExistingLeadsQualification = async (req, res) => {
         let promotedCount = 0;
         const now = new Date();
         const promotedDetails = [];
+        const bulkOps = [];
 
         for (const lead of incomingLeads) {
             const qual = await evaluateLeadStageQualification(lead);
             if (qual.qualified) {
-                const historyEntry = {
-                    stage: targetStageName,
-                    enteredAt: now,
-                    triggeredBy: 'batch_qualification_sync',
-                    reason: `Batch promoted by Stage Qualification Rule (${qual.score}% data completeness)`
-                };
-
-                await Lead.findByIdAndUpdate(lead._id, {
-                    $set: {
-                        stage: targetStageLookup._id,
-                        stageChangedAt: now
-                    },
-                    $push: { stageHistory: historyEntry }
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: lead._id },
+                        update: {
+                            $set: {
+                                stage: targetStageLookup._id,
+                                stageChangedAt: now
+                            },
+                            $push: {
+                                stageHistory: {
+                                    stage: targetStageName,
+                                    enteredAt: now,
+                                    triggeredBy: 'batch_qualification_sync',
+                                    reason: `Batch promoted by Stage Qualification Rule (${qual.score}% data completeness)`
+                                }
+                            }
+                        }
+                    }
                 });
 
                 promotedCount++;
@@ -318,6 +324,15 @@ export const reEvaluateExistingLeadsQualification = async (req, res) => {
                         score: `${qual.score}%`
                     });
                 }
+            }
+        }
+
+        // 🏎️ Enterprise Scalability: Chunked bulkWrite (chunks of 500) to prevent socket/memory exhaustion
+        if (bulkOps.length > 0) {
+            const CHUNK_SIZE = 500;
+            for (let i = 0; i < bulkOps.length; i += CHUNK_SIZE) {
+                const chunk = bulkOps.slice(i, i + CHUNK_SIZE);
+                await Lead.bulkWrite(chunk, { ordered: false });
             }
         }
 
