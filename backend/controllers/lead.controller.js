@@ -22,6 +22,10 @@ import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
 import AddressParsingService from '../services/AddressParsingService.js';
 import WhatsAppService from '../services/WhatsAppService.js';
+import {
+    evaluateLeadStageQualification,
+    checkLeadQualifiedStatus
+} from "../utils/leadDataCompleteness.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -1018,8 +1022,23 @@ export const addLead = async (req, res, next) => {
         // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
         await resolveAllReferenceFields(data);
         
-        // 🛡️ [SENIOR ROBUSTNESS] Default stage to 'Incoming' and status to 'New' if missing
-        if (!data.stage) data.stage = await resolveLookup('Stage', 'Incoming');
+        // 🛡️ Stage Qualification Engine: Evaluate requirement completeness before defaulting
+        if (!data.stage) {
+            try {
+                const qualResult = await evaluateLeadStageQualification(data);
+                if (qualResult.qualified) {
+                    const targetStageName = qualResult.targetStage || 'Prospect';
+                    data.stage = await resolveLookup('Stage', targetStageName);
+                    console.log(`[StageQualification] AddLead: Qualified (${qualResult.score}% >= ${qualResult.threshold}%) -> auto-assigned stage: ${targetStageName}`);
+                } else {
+                    data.stage = await resolveLookup('Stage', 'Incoming');
+                    console.log(`[StageQualification] AddLead: Not qualified (${qualResult.score}% < ${qualResult.threshold}%) -> default stage: Incoming`);
+                }
+            } catch (qualErr) {
+                console.warn('[StageQualification] AddLead error, fallback to Incoming:', qualErr.message);
+                data.stage = await resolveLookup('Stage', 'Incoming');
+            }
+        }
         if (!data.status) data.status = await resolveLookup('Status', 'New');
         
         console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
@@ -1141,6 +1160,34 @@ export const updateLead = async (req, res, next) => {
             const now = new Date();
             const historyUpdate = { $push: {} };
             let requiresHistoryUpdate = false;
+
+            // 🛡️ Stage Qualification Engine: Check if lead in Incoming now qualifies for Prospect
+            if (!updateData.stage && existing) {
+                let currentStageLabel = 'Incoming';
+                if (existing.stage) {
+                    if (mongoose.Types.ObjectId.isValid(existing.stage) && String(existing.stage).length === 24) {
+                        const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
+                        currentStageLabel = existingLookup?.lookup_value || String(existing.stage);
+                    } else {
+                        currentStageLabel = String(existing.stage);
+                    }
+                }
+
+                if (currentStageLabel.toLowerCase() === 'incoming') {
+                    try {
+                        const qualResult = await evaluateLeadStageQualification(updateData, existing);
+                        if (qualResult.qualified) {
+                            const targetStageName = qualResult.targetStage || 'Prospect';
+                            updateData.stage = await resolveLookup('Stage', targetStageName);
+                            updateData.triggeredBy = 'requirement_qualification';
+                            updateData.reason = `Auto-promoted to ${targetStageName} (${qualResult.score}% requirement data completed)`;
+                            console.log(`[StageQualification] UpdateLead: Promoted lead ${req.params.id} to ${targetStageName}`);
+                        }
+                    } catch (qualErr) {
+                        console.warn('[StageQualification] UpdateLead error:', qualErr.message);
+                    }
+                }
+            }
 
             // 1. Stage History
             if (updateData.stage) {
@@ -1264,7 +1311,7 @@ export const updateLead = async (req, res, next) => {
 
         // 🧠 DATA COMPLETENESS AUTO-QUALIFICATION
         if (finalLead && checkLeadQualifiedStatus(finalLead)) {
-            const qualifiedStatusLookup = await Lookup.findOne({ type: 'Status', value: { $regex: /^Qualified$/i } });
+            const qualifiedStatusLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $regex: /^Qualified$/i } });
             if (qualifiedStatusLookup) {
                 const isCurrentlyQualified = finalLead.status && finalLead.status._id && finalLead.status._id.toString() === qualifiedStatusLookup._id.toString();
                 if (!isCurrentlyQualified) {

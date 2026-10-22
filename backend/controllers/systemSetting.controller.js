@@ -4,6 +4,12 @@ import openaiService from "../services/OpenAIService.js";
 import claudeService from "../services/ClaudeService.js";
 import { invalidateSequenceGuardCache } from "../src/services/SequenceGuardService.js";
 import { invalidateRulesCache } from "../src/services/StageTransitionEngine.js";
+import {
+    getAvailableQualificationFields,
+    getQualificationRule,
+    invalidateQualificationRulesCache
+} from "../utils/leadDataCompleteness.js";
+import Lookup from "../models/Lookup.js";
 
 
 // Mock storage for when DB is unavailable
@@ -138,6 +144,11 @@ export const upsertSystemSetting = async (req, res) => {
             invalidateRulesCache();
         }
 
+        // Invalidate stage qualification cache when stage_qualification_rules changes
+        if (key === 'stage_qualification_rules') {
+            invalidateQualificationRulesCache();
+        }
+
         res.json({ success: true, status: "success", data: setting });
     } catch (error) {
         console.error("Upsert Setting Error:", error);
@@ -181,6 +192,34 @@ export const deleteSystemSetting = async (req, res) => {
         await SystemSetting.findOneAndDelete({ key });
         res.json({ success: true, status: "success", message: "Setting deleted" });
     } catch (error) {
+        res.status(500).json({ success: false, status: "error", message: error.message });
+    }
+};
+
+// Get Stage Qualification Configuration (Rule + Available Fields + Stages)
+export const getStageQualificationConfig = async (req, res) => {
+    try {
+        const [rule, fields, stageLookups] = await Promise.all([
+            getQualificationRule(),
+            getAvailableQualificationFields(),
+            Lookup.find({ lookup_type: 'Stage', isActive: true }).select('lookup_value order').sort({ order: 1 }).lean().catch(() => [])
+        ]);
+
+        const stages = (stageLookups && stageLookups.length > 0)
+            ? stageLookups.map(s => s.lookup_value)
+            : ['Incoming', 'Prospect', 'Engaged', 'Opportunity', 'Negotiation', 'Won', 'Lost'];
+
+        res.json({
+            success: true,
+            status: "success",
+            data: {
+                rule,
+                fields,
+                stages
+            }
+        });
+    } catch (error) {
+        console.error("[getStageQualificationConfig] Error:", error);
         res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };
