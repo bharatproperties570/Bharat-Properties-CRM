@@ -10,6 +10,12 @@ export const resolveToken = async (req, res, next) => {
         const { token } = req.params;
         if (!token) return res.status(400).json({ success: false, message: "No token provided" });
 
+        const secret = process.env.JWT_SECRET;
+        if (!secret || typeof secret !== 'string' || secret.trim() === '') {
+            // Fail closed: without explicit JWT_SECRET configuration, reject resolution safely
+            return res.status(400).json({ success: false, message: "Token expired or invalid" });
+        }
+
         // Meta WhatsApp doesn't allow dots in URL variables.
         // We now use ~ to represent dots. Legacy tokens might have used - which is unsafe.
         let normalizedToken = token.includes("~") ? token.replace(/~/g, ".") : token;
@@ -19,9 +25,12 @@ export const resolveToken = async (req, res, next) => {
             normalizedToken = token.replace(/-/g, ".");
         }
         
-        // In a real professional setup, we verify the JWT. 
-        // For simplicity and resilience, we'll try to decode it.
-        const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET || 'crm_secret_key');
+        let decoded;
+        try {
+            decoded = jwt.verify(normalizedToken, secret);
+        } catch (verifyErr) {
+            return res.status(400).json({ success: false, message: "Token expired or invalid" });
+        }
         
         if (!decoded || !decoded.leadId) {
             return res.status(400).json({ success: false, message: "Invalid token" });
@@ -45,7 +54,7 @@ export const resolveToken = async (req, res, next) => {
 
         res.json({ success: true, data: context });
     } catch (error) {
-        console.error("[TOKEN RESOLVE ERROR]:", error);
+        console.error("[TOKEN RESOLVE ERROR]:", error?.message || 'Token resolution error');
         res.status(400).json({ success: false, message: "Token expired or invalid" });
     }
 };
@@ -96,7 +105,16 @@ export const createForm = async (req, res) => {
 export const getForms = async (req, res) => {
     try {
         const { category } = req.query;
-        const query = category ? { category } : {};
+        let query = {};
+        if (category !== undefined && category !== null) {
+            if (typeof category !== 'string' || category.includes('$')) {
+                return res.status(400).json({ success: false, error: "Invalid category filter" });
+            }
+            const trimmed = category.trim();
+            if (trimmed !== '') {
+                query = { category: trimmed };
+            }
+        }
         const forms = await DynamicForm.find(query).sort({ createdAt: -1 });
         res.json({ success: true, data: forms });
     } catch (error) {
@@ -106,7 +124,11 @@ export const getForms = async (req, res) => {
 
 export const getFormBySlug = async (req, res) => {
     try {
-        const form = await DynamicForm.findOne({ slug: req.params.slug });
+        const { slug } = req.params;
+        if (!slug || typeof slug !== 'string' || slug.includes('$')) {
+            return res.status(400).json({ success: false, error: "Invalid form slug" });
+        }
+        const form = await DynamicForm.findOne({ slug: slug.trim() });
         if (!form) return res.status(404).json({ success: false, error: "Form not found" });
         
         // Increment views

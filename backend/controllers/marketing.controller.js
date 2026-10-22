@@ -696,7 +696,32 @@ export const getJobStatus = async (req, res) => {
 
 export const getMarketingContent = async (req, res) => {
     try {
-        const content = await MarketingContent.find(req.query).sort({ date: 1 }).populate('dealId', 'unitNo').lean();
+        const query = {};
+        const { dealId, leadId, platform, type, status, date, month, year } = req.query;
+
+        if (dealId && typeof dealId === 'string' && mongoose.Types.ObjectId.isValid(dealId)) {
+            query.dealId = dealId;
+        }
+        if (leadId && typeof leadId === 'string' && mongoose.Types.ObjectId.isValid(leadId)) {
+            query.leadId = leadId;
+        }
+        if (platform && typeof platform === 'string' && !platform.includes('$')) {
+            query.platform = platform.trim();
+        }
+        if (type && typeof type === 'string' && !type.includes('$')) {
+            query.type = type.trim();
+        }
+        if (status && typeof status === 'string' && !status.includes('$')) {
+            query.status = status.trim();
+        }
+        if (date && typeof date === 'string' && !date.includes('$')) {
+            query.date = date.trim();
+        } else if (month && year && typeof month === 'string' && typeof year === 'string') {
+            const m = month.padStart(2, '0');
+            query.date = { $regex: `^${year}-${m}` };
+        }
+
+        const content = await MarketingContent.find(query).sort({ date: 1 }).populate('dealId', 'unitNo').lean();
         res.json({ success: true, data: content });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

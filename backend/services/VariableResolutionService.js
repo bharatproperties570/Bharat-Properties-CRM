@@ -119,7 +119,7 @@ class VariableResolutionService {
             "siteVisitToken": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId || !process.env.JWT_SECRET) return '?ref=demo_token';
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -137,7 +137,7 @@ class VariableResolutionService {
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        process.env.JWT_SECRET,
                         { expiresIn: '30d' }
                     );
                 } catch(e) { return '?ref=demo_token'; }
@@ -145,7 +145,7 @@ class VariableResolutionService {
             "site_visit_token": (() => {
                 try {
                     const leadId = lead.id || lead._id;
-                    if (!leadId) return '?ref=demo_token';
+                    if (!leadId || !process.env.JWT_SECRET) return '?ref=demo_token';
                     
                     const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
                         id: p.inventoryId?._id || p.inventoryId,
@@ -163,7 +163,7 @@ class VariableResolutionService {
                             hideUnit: lead.hideUnit || false,
                             hideLocation: lead.hideLocation || false
                         },
-                        process.env.JWT_SECRET || 'crm_secret_key',
+                        process.env.JWT_SECRET,
                         { expiresIn: '30d' }
                     );
                 } catch(e) { return '?ref=demo_token'; }
@@ -443,7 +443,11 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'token_missing';
-                    const token = jwt.sign({ leadId, projectId: lead.projectName || lead.project?.name || null, source: 'whatsapp_smart_link' }, process.env.JWT_SECRET || 'crm_secret_key', { expiresIn: '30d' });
+                    if (!process.env.JWT_SECRET) {
+                        console.error("[VariableResolution] JWT_SECRET is not configured");
+                        return 'error';
+                    }
+                    const token = jwt.sign({ leadId, projectId: lead.projectName || lead.project?.name || null, source: 'whatsapp_smart_link' }, process.env.JWT_SECRET, { expiresIn: '30d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
                     const formSlug = 'standard-project-tour-scheduler-bqnh6visit';
                     return `${baseUrl}/public/form/${formSlug}?ref=${token}`;
@@ -456,7 +460,11 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'token_missing';
-                    const token = jwt.sign({ leadId, source: 'customer_feedback' }, process.env.JWT_SECRET || 'crm_secret_key', { expiresIn: '60d' });
+                    if (!process.env.JWT_SECRET) {
+                        console.error("[VariableResolution] JWT_SECRET is not configured");
+                        return 'error';
+                    }
+                    const token = jwt.sign({ leadId, source: 'customer_feedback' }, process.env.JWT_SECRET, { expiresIn: '60d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
                     // Using your standard feedback form slug
                     const formSlug = 'customer-experience-feedback-qx9z2'; 

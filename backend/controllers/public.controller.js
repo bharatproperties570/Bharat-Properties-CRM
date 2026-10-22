@@ -1356,9 +1356,23 @@ export const submitWaSiteVisit = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'crm_secret_key');
-        const leadId = decoded.leadId;
-        const properties = decoded.properties || [];
+        const secret = process.env.JWT_SECRET;
+        if (!secret || typeof secret !== 'string' || secret.trim() === '') {
+            return res.status(400).json({ success: false, message: 'Invalid or unauthorized token' });
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(token, secret);
+        } catch (jwtErr) {
+            return res.status(400).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const leadId = decoded?.leadId;
+        if (!leadId || !mongoose.Types.ObjectId.isValid(leadId)) {
+            return res.status(400).json({ success: false, message: 'Invalid token payload' });
+        }
+        const properties = Array.isArray(decoded.properties) ? decoded.properties : [];
         const hideLocation = decoded.hideLocation || false;
 
         let lead = await Lead.findById(leadId);
@@ -1471,19 +1485,30 @@ export const getAvailableUnits = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { project, block } = req.query;
-        if (!project) {
-            return res.status(400).json({ success: false, message: 'Project is required' });
+        // Strict input sanitization against NoSQL injection
+        if (!project || typeof project !== 'string' || project.trim() === '' || project.includes('$')) {
+            return res.status(400).json({ success: false, message: 'Valid project string is required' });
         }
 
+        const sanitizedProject = project.trim();
         const query = { 
             $or: [
-                { projectName: project },
-                { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined }
-            ].filter(q => q.projectName || q.projectId)
+                { projectName: sanitizedProject }
+            ]
         };
 
-        if (block) {
-            query.block = block;
+        if (mongoose.Types.ObjectId.isValid(sanitizedProject)) {
+            query.$or.push({ projectId: sanitizedProject });
+        }
+
+        if (block !== undefined && block !== null) {
+            if (typeof block !== 'string' || block.includes('$')) {
+                return res.status(400).json({ success: false, message: 'Invalid block parameter' });
+            }
+            const sanitizedBlock = block.trim();
+            if (sanitizedBlock !== '') {
+                query.block = sanitizedBlock;
+            }
         }
 
         // Fetch distinct unit numbers

@@ -109,15 +109,19 @@ export const submitForm = async (req, res) => {
 
         if (refToken) {
             try {
-                // Meta WhatsApp replaces . with ~ (new) or - (legacy)
-                let normalizedToken = refToken.includes("~") ? refToken.replace(/~/g, ".") : refToken;
-                if (!refToken.includes("~") && refToken.split("-").length === 3) {
-                    normalizedToken = refToken.replace(/-/g, ".");
-                }
-                
-                const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET || 'crm_secret_key');
-                if (decoded && decoded.leadId) {
-                    leadId = decoded.leadId;
+                if (!process.env.JWT_SECRET) {
+                    console.warn("[SUBMIT] JWT_SECRET not configured, skipping ref token verification");
+                } else {
+                    // Meta WhatsApp replaces . with ~ (new) or - (legacy)
+                    let normalizedToken = refToken.includes("~") ? refToken.replace(/~/g, ".") : refToken;
+                    if (!refToken.includes("~") && refToken.split("-").length === 3) {
+                        normalizedToken = refToken.replace(/-/g, ".");
+                    }
+
+                    const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET);
+                    if (decoded && decoded.leadId) {
+                        leadId = decoded.leadId;
+                    }
                 }
             } catch (e) {
                 console.warn("[SUBMIT] Token verification failed, falling back to new lead capture");

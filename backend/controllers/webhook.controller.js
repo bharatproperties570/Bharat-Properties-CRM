@@ -830,7 +830,11 @@ export const exotelCallback = async (req, res) => {
 
 // ── GET /api/webhooks/facebook-lead ──────────────────────────────────────────
 export const facebookLeadVerify = (req, res) => {
-    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN || "bharat-properties-webhook-2026";
+    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN;
+    if (!VERIFY_TOKEN) {
+        console.error('[Facebook Lead Webhook] Error: FB_WEBHOOK_VERIFY_TOKEN is not configured in environment.');
+        return res.status(500).send('Webhook verify token unconfigured');
+    }
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];

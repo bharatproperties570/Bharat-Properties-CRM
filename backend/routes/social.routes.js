@@ -34,12 +34,12 @@ const router = express.Router();
 router.get('/webhook',  verifyWebhook);
 router.post('/webhook', receiveWebhook);
 
-// ── WhatsApp (TEMPORARILY PUBLIC TO DEBUG 401) ──
-router.post('/whatsapp/config',    saveWhatsAppConfig);
-router.get('/whatsapp/templates',  getWhatsAppTemplates);
-
 // Apply authentication to all following routes
 router.use(authenticate);
+
+// ── WhatsApp Configuration & Templates (Authenticated) ──────────────────────
+router.post('/whatsapp/config',    saveWhatsAppConfig);
+router.get('/whatsapp/templates',  getWhatsAppTemplates);
 
 // ── Baileys QR Integration ────────────────────────────────────────────────────
 router.post('/whatsapp/baileys/start', startBaileysConnection);
