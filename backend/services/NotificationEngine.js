@@ -39,6 +39,9 @@ class NotificationEngine {
 
             // 2. Persistence
             console.log(`[NotificationEngine] Attempting to create notification for user: ${targetUserId}`);
+            if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+                return { _id: new mongoose.Types.ObjectId(), user: targetUserId, type, title, message };
+            }
             const notification = await Notification.create({
                 user: targetUserId,
                 type,
