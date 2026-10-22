@@ -42,25 +42,33 @@ export const createBooking = async (req, res) => {
         }
 
         let bookingId;
-        const session = await mongoose.startSession();
+        const hasDb = mongoose.connection && mongoose.connection.readyState === 1 && typeof mongoose.startSession === 'function';
+        let session = null;
+        if (hasDb) {
+            try {
+                session = await mongoose.startSession();
+            } catch (sErr) {
+                session = null;
+            }
+        }
         
         try {
             let isIdempotentReturn = false;
-            await session.withTransaction(async () => {
+            const executeBookingLogic = async () => {
                 const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
                 let idK = null;
                 const AutomationLog = mongoose.model('AutomationLog');
 
                 if (idempotencyKey) {
                     idK = `booking_${idempotencyKey}`;
-                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session);
+                    const existingLog = await AutomationLog.findOne({ idempotencyKey: idK }).session(session || undefined);
                     if (existingLog && existingLog.targetEntityId) {
                         bookingId = existingLog.targetEntityId;
                         isIdempotentReturn = true;
                         return; 
                     }
                     try {
-                        await AutomationLog.create([{ idempotencyKey: idK, status: 'pending', ruleType: 'IdempotencyLock', details: { description: 'Booking Creation Idempotency Lock' } }], { session });
+                        await AutomationLog.create([{ idempotencyKey: idK, status: 'pending', ruleType: 'IdempotencyLock', details: { description: 'Booking Creation Idempotency Lock' } }], { session: session || undefined });
                     } catch (err) {
                         if (err.code === 11000) {
                             throw new Error('IDEMPOTENT_CONFLICT: Booking creation in progress.');
@@ -69,15 +77,7 @@ export const createBooking = async (req, res) => {
                     }
                 }
 
-                const booking = new Booking(bookingData);
-                const savedBookings = await Booking.create([bookingData], { session });
-                const savedBooking = savedBookings[0];
-                bookingId = savedBooking._id;
-                if (idK) {
-                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { targetEntityId: bookingId, status: 'success' } }, { session });
-                }
-
-                // 🚀 Deal Lifecycle Synchronization
+                // 🚀 Resolve Closed-Loop Attribution & Site Visit Linkage
                 const Deal = mongoose.model('Deal');
                 let dealToUpdate = null;
 
@@ -90,6 +90,52 @@ export const createBooking = async (req, res) => {
                         stage: { $ne: 'Closed' }
                     }).session(session);
                 }
+
+                if (dealToUpdate) {
+                    if (dealToUpdate.siteVisitId && !bookingData.siteVisitId) {
+                        bookingData.siteVisitId = dealToUpdate.siteVisitId;
+                    }
+                    if (dealToUpdate.marketingAttribution && !bookingData.marketingAttribution) {
+                        bookingData.marketingAttribution = dealToUpdate.marketingAttribution;
+                    }
+                    if (!bookingData.lead && dealToUpdate.leadId) {
+                        bookingData.lead = dealToUpdate.leadId;
+                    }
+                } else if (bookingData.lead) {
+                    const Lead = mongoose.model('Lead');
+                    const leadDoc = await Lead.findById(bookingData.lead).session(session).lean();
+                    if (leadDoc && leadDoc.source_meta && !bookingData.marketingAttribution) {
+                        bookingData.marketingAttribution = {
+                            source: leadDoc.source_meta.utm_source || leadDoc.source_meta.source || leadDoc.source || 'Direct',
+                            medium: leadDoc.source_meta.utm_medium || leadDoc.source_meta.medium || 'organic',
+                            campaign: leadDoc.source_meta.utm_campaign || leadDoc.source_meta.campaign || leadDoc.campaign || '',
+                            content: leadDoc.source_meta.utm_content || '',
+                            term: leadDoc.source_meta.utm_term || '',
+                            landingPage: leadDoc.source_meta.landingPage || '',
+                            referrer: leadDoc.source_meta.referrer || '',
+                            capturedAt: leadDoc.createdAt || new Date()
+                        };
+                    }
+                }
+
+                const savedBookings = await Booking.create([bookingData], { session });
+                const savedBooking = savedBookings[0];
+                bookingId = savedBooking._id;
+
+                // Backlink initiating Site Visit activity
+                if (savedBooking.siteVisitId) {
+                    const Activity = mongoose.model('Activity');
+                    await Activity.findByIdAndUpdate(savedBooking.siteVisitId, {
+                        $set: { 'details.linkedBookingId': savedBooking._id },
+                        $addToSet: { relatedTo: { id: savedBooking._id, model: 'Booking' } }
+                    }, { session });
+                }
+
+                if (idK) {
+                    await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { targetEntityId: bookingId, status: 'success' } }, { session });
+                }
+
+                // 🚀 Deal Lifecycle Synchronization
 
                 if (dealToUpdate) {
                     console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
@@ -172,28 +218,47 @@ export const createBooking = async (req, res) => {
                     dueDate: new Date(),
                     status: 'Completed',
                     description: `Booking confirmed for deal amount ₹${savedBooking.totalDealAmount} with token ₹${savedBooking.tokenAmount}.`,
+                    details: {
+                        siteVisitId: savedBooking.siteVisitId || null,
+                        marketingAttribution: savedBooking.marketingAttribution || null
+                    },
                     relatedTo: [{
                         id: savedBooking.lead,
                         model: 'Lead'
                     }],
                     createdBy: req.user?._id
-                }], { session });
-            });
+                }], { session: session || undefined });
+            };
+
+            if (session && typeof session.withTransaction === 'function') {
+                await session.withTransaction(executeBookingLogic);
+            } else {
+                await executeBookingLogic();
+            }
         } catch (err) {
-            session.endSession();
+            if (session && typeof session.endSession === 'function') {
+                session.endSession();
+            }
             // Map the transaction error to a 400 Bad Request if it's our inventory business rule
             if (err.message && err.message.includes('INVENTORY_UNAVAILABLE')) {
                 return res.status(400).json({ success: false, message: err.message });
             }
             throw err;
+        } finally {
+            if (session && typeof session.endSession === 'function') {
+                session.endSession();
+            }
         }
-        
-        session.endSession();
 
-        const populated = await Booking.findById(bookingId)
-            .populate('property')
-            .populate('lead')
-            .populate('salesAgent', 'fullName name');
+        let populated = null;
+        try {
+            populated = await Booking.findById(bookingId)
+                .populate('property')
+                .populate('lead')
+                .populate('salesAgent', 'fullName name');
+        } catch (popErr) {
+            populated = await Booking.findById(bookingId);
+        }
 
         res.status(201).json({ success: true, data: populated });
     } catch (error) {

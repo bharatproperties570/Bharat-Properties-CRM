@@ -2265,14 +2265,15 @@ export const addDeal = async (req, res) => {
         const mongoose = await import('mongoose');
 
         const input = {
-            source: 'API',
+            source: sanitizedData.source || 'API',
             idempotencyKey,
             correlationId: req.headers['x-correlation-id'] || req.headers['x-request-id'] || 'web-form-fallback',
             dealData: sanitizedData,
             linkage: {
                 inventoryId: sanitizedData.inventoryId,
-                leadId: sanitizedData.lead,
-                projectId: sanitizedData.projec
+                leadId: sanitizedData.lead || sanitizedData.leadId,
+                projectId: sanitizedData.projectId || sanitizedData.projec || sanitizedData.project,
+                siteVisitId: sanitizedData.siteVisitId || sanitizedData.siteVisitActivityId
             },
             ownerInfo: {
                 owner: sanitizedData.owner,
