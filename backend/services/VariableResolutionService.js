@@ -111,6 +111,8 @@ class VariableResolutionService {
             // --- Smart Links ---
             "site_visit_link": this.extractValue(lead, 'siteVisitLink'),
             "feedback_link": this.extractValue(lead, 'feedbackLink'),
+            "campaign_link": this.extractValue(lead, 'trackedCampaignLink'),
+            "tracked_link": this.extractValue(lead, 'trackedCampaignLink'),
             "property_list_default": this.extractValue(lead, 'matchListDefault'),
             "property_list_dtl": this.extractValue(lead, 'matchListDetailed'),
             "portal_link": "https://crm.bharatproperties.co",
@@ -447,10 +449,22 @@ class VariableResolutionService {
                         console.error("[VariableResolution] JWT_SECRET is not configured");
                         return 'error';
                     }
-                    const token = jwt.sign({ leadId, projectId: lead.projectName || lead.project?.name || null, source: 'whatsapp_smart_link' }, process.env.JWT_SECRET, { expiresIn: '30d' });
+                    const campaign = lead.campaign?.name || lead.campaign || lead.context?.campaignName || lead.context?.campaign || '';
+                    const source = lead.source?.name || lead.source || lead.context?.source || 'whatsapp_smart_link';
+                    const token = jwt.sign({
+                        leadId,
+                        projectId: lead.projectName || lead.project?.name || null,
+                        source,
+                        campaign,
+                        purpose: 'site_visit_scheduler'
+                    }, process.env.JWT_SECRET, { expiresIn: '30d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
                     const formSlug = 'standard-project-tour-scheduler-bqnh6visit';
-                    return `${baseUrl}/public/form/${formSlug}?ref=${token}`;
+                    let url = `${baseUrl}/public/form/${formSlug}?ref=${token}`;
+                    if (campaign) url += `&utm_campaign=${encodeURIComponent(campaign)}`;
+                    if (source) url += `&utm_source=${encodeURIComponent(source)}`;
+                    url += `&utm_medium=messaging`;
+                    return url;
                 } catch (e) {
                     console.error("[VariableResolution] JWT Error:", e.message);
                     return 'error';
@@ -464,11 +478,36 @@ class VariableResolutionService {
                         console.error("[VariableResolution] JWT_SECRET is not configured");
                         return 'error';
                     }
-                    const token = jwt.sign({ leadId, source: 'customer_feedback' }, process.env.JWT_SECRET, { expiresIn: '60d' });
+                    const activityId = lead.activityId || lead.context?.activityId || lead.context?.siteVisitId || null;
+                    const token = jwt.sign({
+                        leadId,
+                        activityId,
+                        source: 'customer_feedback',
+                        purpose: 'customer_feedback'
+                    }, process.env.JWT_SECRET, { expiresIn: '60d' });
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-                    // Using your standard feedback form slug
                     const formSlug = 'customer-experience-feedback-qx9z2'; 
                     return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
+                } catch (e) {
+                    return 'error';
+                }
+
+            case 'trackedCampaignLink':
+            case 'campaignLink':
+                try {
+                    const leadId = lead.id || lead._id || null;
+                    const dest = lead.context?.destinationUrl || process.env.FRONTEND_URL || 'https://bharatproperties.co';
+                    const campaign = lead.campaign?.name || lead.campaign || lead.context?.campaignName || lead.context?.campaign || 'general_campaign';
+                    const source = lead.source?.name || lead.source || lead.context?.channel || 'messaging';
+                    const medium = lead.context?.channel || 'cpc';
+                    let url = dest;
+                    const sep = url.includes('?') ? '&' : '?';
+                    let query = `utm_source=${encodeURIComponent(source)}&utm_medium=${encodeURIComponent(medium)}&utm_campaign=${encodeURIComponent(campaign)}`;
+                    if (leadId && process.env.JWT_SECRET) {
+                        const token = jwt.sign({ leadId, campaign, source, medium }, process.env.JWT_SECRET, { expiresIn: '30d' });
+                        query += `&ref=${token}`;
+                    }
+                    return `${url}${sep}${query}`;
                 } catch (e) {
                     return 'error';
                 }

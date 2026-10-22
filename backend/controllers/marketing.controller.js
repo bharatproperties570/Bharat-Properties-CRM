@@ -5,6 +5,7 @@
  * Version 2.0: Integrated MarketingAudienceService for 360-degree source control.
  */
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import geminiService    from '../services/GeminiService.js';
@@ -586,6 +587,16 @@ export const sendCampaign = async (req, res) => {
                 waMapping: activeMapping,
                 smsData: { ...(smsData || {}), ...dltMetadata },
                 recipients,
+                attribution: {
+                    campaignId: req.body.campaignId || null,
+                    campaignName: name || 'Campaign',
+                    contentId: req.body.contentId || null,
+                    utmSource: req.body.utmSource || channel,
+                    utmMedium: req.body.utmMedium || channel,
+                    utmCampaign: req.body.utmCampaign || name || 'Campaign',
+                    utmContent: req.body.utmContent || null,
+                    utmTerm: req.body.utmTerm || null
+                },
                 performedBy: req.user?.firstName || 'System'
             }).catch(err => console.error('[MarketingController] Direct Dispatch Error:', err));
 
@@ -648,6 +659,16 @@ export const sendCampaign = async (req, res) => {
             mobiles,
             emails,
             leads: recipients,
+            attribution: {
+                campaignId: req.body.campaignId || null,
+                campaignName: name || 'Campaign',
+                contentId: req.body.contentId || null,
+                utmSource: req.body.utmSource || channel,
+                utmMedium: req.body.utmMedium || channel,
+                utmCampaign: req.body.utmCampaign || name || 'Campaign',
+                utmContent: req.body.utmContent || null,
+                utmTerm: req.body.utmTerm || null
+            },
             isScheduled,
             scheduledAt,
             repeatMode,
@@ -1483,7 +1504,8 @@ export async function _dispatchDirectly(data) {
     const { 
         channel, name, subject, content, html, 
         templateName, templateLang, templateComponents,
-        waMapping, smsData, recipients, performedBy 
+        waMapping, smsData, recipients, performedBy,
+        attribution = {}
     } = data;
 
     // 🧠 SENIOR PROFESSIONAL: Observability Hook
@@ -1629,9 +1651,34 @@ export async function _dispatchDirectly(data) {
                         channel,
                         campaignName: name,
                         msgId: msgId,
-                        direct: true
+                        direct: true,
+                        attribution: {
+                            campaignId: attribution.campaignId || null,
+                            campaignName: attribution.campaignName || name,
+                            contentId: attribution.contentId || null,
+                            utmSource: attribution.utmSource || channel,
+                            utmMedium: attribution.utmMedium || channel,
+                            utmCampaign: attribution.utmCampaign || name,
+                            utmContent: attribution.utmContent || null,
+                            utmTerm: attribution.utmTerm || null
+                        }
                     }
                 });
+
+                if (lead.id && mongoose.Types.ObjectId.isValid(lead.id)) {
+                    const LeadModel = mongoose.models.Lead || mongoose.model('Lead');
+                    await LeadModel.findByIdAndUpdate(lead.id, {
+                        $set: {
+                            'lastMarketingTouchpoint': {
+                                channel,
+                                campaignName: name,
+                                utmCampaign: attribution.utmCampaign || name,
+                                utmSource: attribution.utmSource || channel,
+                                sentAt: new Date()
+                            }
+                        }
+                    }).catch(() => {});
+                }
             }
 
             // Throttle to prevent API rate limits
@@ -2040,5 +2087,50 @@ export const generateMatchLink = async (req, res) => {
     } catch (err) {
         console.error('[MarketingController] generateMatchLink error:', err);
         return res.status(500).json({ success: false, error: 'Failed to generate match link' });
+    }
+};
+
+export const createCampaignTrackedLink = async (req, res) => {
+    try {
+        const { destinationUrl, campaignName, source, medium, content, term, leadId, projectId } = req.body;
+        const baseUrl = destinationUrl || process.env.FRONTEND_URL || 'https://bharatproperties.co';
+        const src = source || 'marketing_os';
+        const med = medium || 'cpc';
+        const camp = campaignName || 'campaign';
+
+        let token = null;
+        if (leadId && process.env.JWT_SECRET) {
+            token = jwt.sign({
+                leadId,
+                projectId: projectId || null,
+                source: src,
+                campaign: camp,
+                medium: med,
+                content: content || null
+            }, process.env.JWT_SECRET, { expiresIn: '30d' });
+        }
+
+        const sep = baseUrl.includes('?') ? '&' : '?';
+        let query = `utm_source=${encodeURIComponent(src)}&utm_medium=${encodeURIComponent(med)}&utm_campaign=${encodeURIComponent(camp)}`;
+        if (content) query += `&utm_content=${encodeURIComponent(content)}`;
+        if (term) query += `&utm_term=${encodeURIComponent(term)}`;
+        if (token) query += `&ref=${token}`;
+
+        res.json({
+            success: true,
+            data: {
+                url: `${baseUrl}${sep}${query}`,
+                token,
+                attribution: {
+                    source: src,
+                    medium: med,
+                    campaign: camp,
+                    content: content || null,
+                    term: term || null
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };
