@@ -499,15 +499,20 @@ const StagePage = () => {
     const handleSyncExistingLeads = async () => {
         try {
             setRunningSync(true);
-            const res = await systemSettingsAPI.reEvaluateExistingLeads();
+            const res = await systemSettingsAPI.reEvaluateExistingLeads({
+                body: JSON.stringify({ rule: qualConfig })
+            });
             if (res?.success) {
                 showToast(res.message || `Promoted ${res.data?.promotedCount} leads!`, 'success');
+                // Refresh data if needed
+                await fetchQualData();
             } else {
                 showToast(res?.message || 'Sync failed', 'error');
             }
         } catch (err) {
             console.error('Error syncing existing leads:', err);
-            showToast('Failed to sync existing leads', 'error');
+            const errMsg = err?.response?.data?.message || err?.message || 'Failed to sync existing leads';
+            showToast(errMsg, 'error');
         } finally {
             setRunningSync(false);
         }
@@ -1084,7 +1089,7 @@ const StagePage = () => {
                                     onChange={(e) => setQualConfig(prev => ({ ...prev, targetStage: e.target.value }))}
                                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', fontWeight: 700, color: '#1e293b', background: '#f8fafc', outline: 'none' }}
                                 >
-                                    {availableStages.map(st => (
+                                    {Array.from(new Set([qualConfig.targetStage, ...availableStages])).filter(Boolean).map(st => (
                                         <option key={st} value={st}>{st}</option>
                                     ))}
                                 </select>

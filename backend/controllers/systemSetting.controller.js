@@ -196,18 +196,34 @@ export const deleteSystemSetting = async (req, res) => {
     }
 };
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 // Get Stage Qualification Configuration (Rule + Available Fields + Stages)
 export const getStageQualificationConfig = async (req, res) => {
     try {
         const [rule, fields, stageLookups] = await Promise.all([
             getQualificationRule(),
             getAvailableQualificationFields(),
-            Lookup.find({ lookup_type: 'Stage', isActive: true }).select('lookup_value order').sort({ order: 1 }).lean().catch(() => [])
+            Lookup.find({ lookup_type: 'Stage', isDeleted: { $ne: true }, isActive: { $ne: false } })
+                .select('lookup_value order')
+                .sort({ order: 1 })
+                .lean()
+                .catch(() => [])
         ]);
 
-        const stages = (stageLookups && stageLookups.length > 0)
-            ? stageLookups.map(s => s.lookup_value)
-            : ['Incoming', 'Prospect', 'Engaged', 'Opportunity', 'Negotiation', 'Won', 'Lost'];
+        // Clean unique list of stages, ensuring Prospect is always available
+        const rawStages = (stageLookups && stageLookups.length > 0)
+            ? stageLookups.map(s => s.lookup_value).filter(Boolean)
+            : ['Incoming', 'Prospect', 'Opportunity', 'Negotiation', 'Closed Won', 'Closed (Lost)'];
+
+        const stageSet = new Set(rawStages);
+        // Guarantee Prospect is in the stage list
+        if (!stageSet.has('Prospect')) {
+            rawStages.splice(1, 0, 'Prospect');
+        }
 
         res.json({
             success: true,
@@ -215,7 +231,7 @@ export const getStageQualificationConfig = async (req, res) => {
             data: {
                 rule,
                 fields,
-                stages
+                stages: Array.from(new Set(rawStages))
             }
         });
     } catch (error) {
@@ -227,11 +243,15 @@ export const getStageQualificationConfig = async (req, res) => {
 // Re-evaluate and promote existing leads currently in Incoming
 export const reEvaluateExistingLeadsQualification = async (req, res) => {
     try {
-        const { evaluateLeadStageQualification, getQualificationRule } = await import("../utils/leadDataCompleteness.js");
+        const { evaluateLeadStageQualification, getQualificationRule, invalidateQualificationRulesCache } = await import("../utils/leadDataCompleteness.js");
         const Lead = (await import("../models/Lead.js")).default;
         const Lookup = (await import("../models/Lookup.js")).default;
 
-        const rule = await getQualificationRule();
+        // Allow caller to pass custom rule overrides in req.body or fallback to DB rule
+        const dbRule = await getQualificationRule();
+        const incomingRule = (req.body && req.body.rule) ? req.body.rule : (req.body && req.body.thresholdPercent ? req.body : null);
+        const rule = incomingRule ? { ...dbRule, ...incomingRule } : dbRule;
+
         if (!rule.enabled) {
             return res.status(400).json({
                 success: false,
@@ -240,9 +260,11 @@ export const reEvaluateExistingLeadsQualification = async (req, res) => {
         }
 
         const targetStageName = rule.targetStage || 'Prospect';
+        const escapedTarget = escapeRegExp(targetStageName);
+
         const [incomingLookup, targetStageLookup] = await Promise.all([
             Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: /^Incoming$/i } }).lean(),
-            Lookup.findOne({ lookup_type: 'Stage', lookup_value: new RegExp(`^${targetStageName}$`, 'i') }).lean()
+            Lookup.findOne({ lookup_type: 'Stage', lookup_value: new RegExp(`^${escapedTarget}$`, 'i') }).lean()
         ]);
 
         if (!targetStageLookup) {
@@ -289,7 +311,7 @@ export const reEvaluateExistingLeadsQualification = async (req, res) => {
                 });
 
                 promotedCount++;
-                if (promotedDetails.length < 10) {
+                if (promotedDetails.length < 15) {
                     promotedDetails.push({
                         id: lead._id,
                         name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
