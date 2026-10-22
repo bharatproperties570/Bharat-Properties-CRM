@@ -426,7 +426,7 @@ export const autoTriggerStageChange = async (activityInput, userId = null) => {
                 dealIds.push(activity.entityId);
             }
 
-            if (dealIds.length > 0) {
+            if (dealIds.length > 0 && mongoose.connection && mongoose.connection.readyState === 1) {
                 const uniqueDealIds = [...new Set(dealIds)];
 
                 // For each linked Deal:
