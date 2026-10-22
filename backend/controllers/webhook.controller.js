@@ -389,7 +389,7 @@ const reviveTerminalLeadOnInboundWhatsApp = async (lead, text) => {
         subject: 'Inbound WhatsApp Revival', description: `Inbound WhatsApp message received: "${text}"`,
         status: 'Completed', dueDate: new Date(), createdBy: lead.owner || null
     });
-    await autoTriggerStageChange(activity._id, lead.owner);
+    await autoTriggerStageChange(activity, lead.owner);
     if (lead.owner) {
         await createNotification(lead.owner, 'leads', '🔥 Lead Auto-Revived!', `Lead ${lead.firstName || ''} was revived from ${stageName} due to an inbound WhatsApp message.`, `/leads/${lead._id}`);
     }

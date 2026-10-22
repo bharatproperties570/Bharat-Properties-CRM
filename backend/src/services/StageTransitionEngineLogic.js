@@ -28,6 +28,7 @@
 
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
+import mongoose from 'mongoose';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
@@ -106,7 +107,11 @@ export const loadTransitionRules = async () => {
             return parsed;
         }
         
-        // 2. Fallback to DB
+        // 2. Fallback to DB if connected, otherwise return default rules
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return DEFAULT_STAGE_RULES;
+        }
+
         const [transitionSetting, mappingSetting, activityMasterFieldsSetting] = await Promise.all([
             SystemSetting.findOne({ key: 'stage_transition_rules' }).lean(),
             SystemSetting.findOne({ key: 'stageMappingRules' }).lean(),
@@ -385,20 +390,23 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // Resolve the new stage lookup ObjectId
     let newStageId = null;
-    const stageLookup = await Lookup.findOne({
-        lookup_type: { $regex: /^stage$/i },
-        lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
-    });
-    if (stageLookup) newStageId = stageLookup._id;
-    
-    // Resolve the new status lookup ObjectId if applicable
     let newStatusId = null;
-    if (targetStatusName) {
-        const statusLookup = await Lookup.findOne({
-            lookup_type: { $regex: /^status$/i },
-            lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
+
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        const stageLookup = await Lookup.findOne({
+            lookup_type: { $regex: /^stage$/i },
+            lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
         });
-        if (statusLookup) newStatusId = statusLookup._id;
+        if (stageLookup) newStageId = stageLookup._id;
+
+        // Resolve the new status lookup ObjectId if applicable
+        if (targetStatusName) {
+            const statusLookup = await Lookup.findOne({
+                lookup_type: { $regex: /^status$/i },
+                lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
+            });
+            if (statusLookup) newStatusId = statusLookup._id;
+        }
     }
 
     // Build stage history entry
@@ -450,7 +458,9 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
 
     console.log(`[StageEngine] Executing transition for Lead ${leadId}: ${prevStageName} -> ${newStageName}`);
-    await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
+    }
 
     // Audit log
     try {
@@ -750,83 +760,85 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
 
     // 🛡️ LAYER 3.5: ENTERPRISE SEQUENCE GUARD & STABILITY LOCK
     try {
-        const sequenceConfigDoc = await SystemSetting.findOne({ key: 'sequenceConfig' }).lean();
-        const sequenceConfig = sequenceConfigDoc?.value || null;
-        
-        const currentLead = await Lead.findById(leadId).select('stage stageChangedAt createdAt').lean();
-        const currentStage = currentLead?.stage || 'New';
-        
-        if (sequenceConfig && sequenceConfig.enforcementMode !== 'off' && sequenceConfig.sequence) {
-            const seq = sequenceConfig.sequence;
-            const currentIdx = seq.findIndex(s => s.stage.toLowerCase() === currentStage.toLowerCase());
-            const targetIdx = seq.findIndex(s => s.stage.toLowerCase() === rule.newStage.toLowerCase());
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
+            const sequenceConfigDoc = await SystemSetting.findOne({ key: 'sequenceConfig' }).lean();
+            const sequenceConfig = sequenceConfigDoc?.value || null;
             
-            // 1. SEQUENCE GUARD (Preventing forward skips)
-            if (currentIdx !== -1 && targetIdx !== -1 && targetIdx > currentIdx + 1) {
-                const missingStages = seq.slice(currentIdx + 1, targetIdx).map(s => s.stage);
-                if (sequenceConfig.enforcementMode === 'block') {
-                    try {
-                        await StageTransitionLog.create({
-                            leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
-                            status: 'sequence_violation', matchedRuleId: rule.id, newStage: rule.newStage,
-                            failureReason: `Strict Sequence Gate: Cannot skip stages. Missing: ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
-                        });
-                    } catch (_) {}
-
-                    return {
-                        stageChanged: false,
-                        newStage: rule.newStage,
-                        requiresForm: false,
-                        ruleId: rule.id,
-                        notification: `Sequence Error: You must pass through ${missingStages.join(', ')} first.`
-                    };
-                } else if (sequenceConfig.enforcementMode === 'warn') {
-                    try {
-                        await StageTransitionLog.create({
-                            leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
-                            status: 'sequence_warning', matchedRuleId: rule.id, newStage: rule.newStage,
-                            failureReason: `Warning: Skipped stages ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
-                        });
-                    } catch (_) {}
-                }
-            }
+            const currentLead = await Lead.findById(leadId).select('stage stageChangedAt createdAt').lean();
+            const currentStage = currentLead?.stage || 'New';
             
-            // 2. STABILITY LOCK (Preventing false regressions)
-            if (currentIdx !== -1 && targetIdx !== -1 && targetIdx < currentIdx) {
-                const stabilityConfigDoc = await SystemSetting.findOne({ key: 'stabilityLockConfig' }).lean();
-                const STABILITY_CONFIG = stabilityConfigDoc?.value || {
-                    Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
-                    Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
-                    Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' }
-                };
+            if (sequenceConfig && sequenceConfig.enforcementMode !== 'off' && sequenceConfig.sequence) {
+                const seq = sequenceConfig.sequence;
+                const currentIdx = seq.findIndex(s => s.stage.toLowerCase() === currentStage.toLowerCase());
+                const targetIdx = seq.findIndex(s => s.stage.toLowerCase() === rule.newStage.toLowerCase());
                 
-                const lock = STABILITY_CONFIG[currentStage];
-                if (lock) {
-                    const Activity = (await import('../../models/Activity.js')).default || (await import('../../models/Activity.js'));
-                    const sinceDate = currentLead.stageChangedAt || currentLead.createdAt || new Date();
-                    const activitiesInStage = await Activity.countDocuments({ 
-                        entityType: 'Lead', 
-                        entityId: leadId, 
-                        createdAt: { $gte: sinceDate } 
-                    });
-                    
-                    const daysInStage = Math.floor((Date.now() - new Date(sinceDate).getTime()) / (1000 * 60 * 60 * 24));
-                    
-                    if (activitiesInStage < lock.minActivities || daysInStage < lock.minDays) {
+                // 1. SEQUENCE GUARD (Preventing forward skips)
+                if (currentIdx !== -1 && targetIdx !== -1 && targetIdx > currentIdx + 1) {
+                    const missingStages = seq.slice(currentIdx + 1, targetIdx).map(s => s.stage);
+                    if (sequenceConfig.enforcementMode === 'block') {
                         try {
                             await StageTransitionLog.create({
                                 leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
-                                status: 'stability_lock', matchedRuleId: rule.id, newStage: rule.newStage,
-                                failureReason: `Stability Lock: Cannot downgrade. Requires ${lock.minActivities} activities, has ${activitiesInStage}.`, triggeredByUser: context.triggeredByUser
+                                status: 'sequence_violation', matchedRuleId: rule.id, newStage: rule.newStage,
+                                failureReason: `Strict Sequence Gate: Cannot skip stages. Missing: ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
                             });
                         } catch (_) {}
 
                         return {
                             stageChanged: false,
                             newStage: rule.newStage,
+                            requiresForm: false,
                             ruleId: rule.id,
-                            notification: `Stability Lock: Cannot downgrade to ${rule.newStage}. Required activities in ${currentStage}: ${lock.minActivities} (You have ${activitiesInStage}).`
+                            notification: `Sequence Error: You must pass through ${missingStages.join(', ')} first.`
                         };
+                    } else if (sequenceConfig.enforcementMode === 'warn') {
+                        try {
+                            await StageTransitionLog.create({
+                                leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                                status: 'sequence_warning', matchedRuleId: rule.id, newStage: rule.newStage,
+                                failureReason: `Warning: Skipped stages ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
+                            });
+                        } catch (_) {}
+                    }
+                }
+
+                // 2. STABILITY LOCK (Preventing false regressions)
+                if (currentIdx !== -1 && targetIdx !== -1 && targetIdx < currentIdx) {
+                    const stabilityConfigDoc = await SystemSetting.findOne({ key: 'stabilityLockConfig' }).lean();
+                    const STABILITY_CONFIG = stabilityConfigDoc?.value || {
+                        Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
+                        Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
+                        Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' }
+                    };
+
+                    const lock = STABILITY_CONFIG[currentStage];
+                    if (lock) {
+                        const Activity = (await import('../../models/Activity.js')).default || (await import('../../models/Activity.js'));
+                        const sinceDate = currentLead.stageChangedAt || currentLead.createdAt || new Date();
+                        const activitiesInStage = await Activity.countDocuments({
+                            entityType: 'Lead',
+                            entityId: leadId,
+                            createdAt: { $gte: sinceDate }
+                        });
+
+                        const daysInStage = Math.floor((Date.now() - new Date(sinceDate).getTime()) / (1000 * 60 * 60 * 24));
+
+                        if (activitiesInStage < lock.minActivities || daysInStage < lock.minDays) {
+                            try {
+                                await StageTransitionLog.create({
+                                    leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                                    status: 'stability_lock', matchedRuleId: rule.id, newStage: rule.newStage,
+                                    failureReason: `Stability Lock: Cannot downgrade. Requires ${lock.minActivities} activities, has ${activitiesInStage}.`, triggeredByUser: context.triggeredByUser
+                                });
+                            } catch (_) {}
+
+                            return {
+                                stageChanged: false,
+                                newStage: rule.newStage,
+                                ruleId: rule.id,
+                                notification: `Stability Lock: Cannot downgrade to ${rule.newStage}. Required activities in ${currentStage}: ${lock.minActivities} (You have ${activitiesInStage}).`
+                            };
+                        }
                     }
                 }
             }

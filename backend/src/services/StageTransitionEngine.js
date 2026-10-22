@@ -27,6 +27,7 @@
 
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
+import mongoose from 'mongoose';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
@@ -866,7 +867,11 @@ export const loadTransitionRules = async () => {
             return parsed;
         }
         
-        // 2. Fallback to DB
+        // 2. Fallback to DB if connected
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return DEFAULT_STAGE_RULES;
+        }
+
         const [transitionSetting, mappingSetting, activityMasterFieldsSetting] = await Promise.all([
             SystemSetting.findOne({ key: 'stage_transition_rules' }).lean(),
             SystemSetting.findOne({ key: 'stageMappingRules' }).lean(),
@@ -1145,20 +1150,23 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // Resolve the new stage lookup ObjectId
     let newStageId = null;
-    const stageLookup = await Lookup.findOne({
-        lookup_type: { $regex: /^stage$/i },
-        lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
-    });
-    if (stageLookup) newStageId = stageLookup._id;
-    
-    // Resolve the new status lookup ObjectId if applicable
     let newStatusId = null;
-    if (targetStatusName) {
-        const statusLookup = await Lookup.findOne({
-            lookup_type: { $regex: /^status$/i },
-            lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
+
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        const stageLookup = await Lookup.findOne({
+            lookup_type: { $regex: /^stage$/i },
+            lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
         });
-        if (statusLookup) newStatusId = statusLookup._id;
+        if (stageLookup) newStageId = stageLookup._id;
+
+        // Resolve the new status lookup ObjectId if applicable
+        if (targetStatusName) {
+            const statusLookup = await Lookup.findOne({
+                lookup_type: { $regex: /^status$/i },
+                lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
+            });
+            if (statusLookup) newStatusId = statusLookup._id;
+        }
     }
 
     // Build stage history entry
@@ -1210,7 +1218,9 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
 
     console.log(`[StageEngine] Executing transition for Lead ${leadId}: ${prevStageName} -> ${newStageName}`);
-    await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+        await Lead.findByIdAndUpdate(leadId, updatePayload, { session: options.session });
+    }
 
     // Audit log
     try {
@@ -1511,7 +1521,8 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
 
     // 🛡️ LAYER 3.5: ENTERPRISE SEQUENCE GUARD & STABILITY LOCK
     try {
-        const sequenceConfigDoc = await SystemSetting.findOne({ key: 'sequenceConfig' }).lean();
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
+            const sequenceConfigDoc = await SystemSetting.findOne({ key: 'sequenceConfig' }).lean();
         const sequenceConfig = sequenceConfigDoc?.value || null;
         
         const currentLead = await Lead.findById(leadId).select('stage stageChangedAt createdAt').lean();
@@ -1591,6 +1602,7 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                     }
                 }
             }
+        }
         }
     } catch (error) {
         console.error('[StageEngine] Sequence/Stability Gate error:', error);

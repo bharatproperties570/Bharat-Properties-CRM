@@ -271,6 +271,7 @@ const AT_RISK_THRESHOLD = 3;
  */
 const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     try {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) return;
         const outcomeNorm = (resolvedOutcome || '').toLowerCase().trim();
         const isNegative = NEGATIVE_OUTCOMES.has(outcomeNorm) ||
             [...NEGATIVE_OUTCOMES].some(n => outcomeNorm.includes(n));
@@ -336,11 +337,20 @@ const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     }
 };
 
-export const autoTriggerStageChange = async (activity, userId = null) => {
+export const autoTriggerStageChange = async (activityInput, userId = null) => {
     try {
-        if (activity.entityType?.toLowerCase() !== 'lead') return;
-        if (activity.status?.toLowerCase() !== 'completed') return;
-        if (!activity.entityId) return;
+        let activity = activityInput;
+        if (!activity) return null;
+        if (typeof activity === 'string' || activity instanceof mongoose.Types.ObjectId) {
+            activity = await Activity.findById(activity);
+        } else if (activity._id && !activity.type) {
+            activity = await Activity.findById(activity._id);
+        }
+        if (!activity) return null;
+
+        if (activity.entityType?.toLowerCase() !== 'lead') return null;
+        if (activity.status?.toLowerCase() !== 'completed') return null;
+        if (!activity.entityId) return null;
 
         const leadId = activity.entityId;
         const actType = activity.type;
@@ -383,17 +393,21 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
         );
 
         // 2. Recalculate Lead Score (unified scoring engine)
-        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId });
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
+            await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId }).catch(() => {});
+        }
 
         // 🚀 OMNICHANNEL AUTOMATION TRIGGER
         // Trigger professional workflow (WhatsApp/SMS/Email) based on the specific outcome
-        if (resolvedOutcome) {
+        if (resolvedOutcome && mongoose.connection && mongoose.connection.readyState === 1) {
             const NurtureBot = (await import("../services/NurtureBot.js")).default;
             const lead = await Lead.findById(leadId).lean();
             if (lead) {
                 // Determine triggerId from outcome (e.g., 'Interested', 'Visit Scheduled')
                 // The Automation Engine rules are mapped to these outcome names
-                await NurtureBot.executeAutomation(resolvedOutcome, lead);
+                await NurtureBot.executeAutomation(resolvedOutcome, lead).catch(err => {
+                    console.warn('[ActivityController] NurtureBot automation execution failed:', err.message);
+                });
             }
         }
 
