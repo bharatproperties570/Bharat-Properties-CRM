@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 export const DEFAULT_QUALIFICATION_FIELDS = [
-    // ─── Requirement Page Fields ──────────────────────────────────────────
+    // ─── Requirement Page Fields (11 Form Fields) ─────────────────────────
     { key: 'requirement', label: 'Requirement Type (Buy / Rent / Lease)', tab: 'requirement', isCore: true },
     { key: 'propertyType', label: 'Property Category (Residential / Commercial / Industrial / etc.)', tab: 'requirement', isCore: true },
     { key: 'subType', label: 'Sub-Category / Property Type', tab: 'requirement', isCore: true },
@@ -13,9 +13,7 @@ export const DEFAULT_QUALIFICATION_FIELDS = [
     { key: 'areaMetric', label: 'Area Metric Unit (Sq Yard, Sq Feet, etc.)', tab: 'requirement', isCore: false },
     { key: 'funding', label: 'Funding / Loan Source', tab: 'requirement', isCore: false },
     { key: 'furnishing', label: 'Furnishing Status', tab: 'requirement', isCore: false },
-    { key: 'transactionType', label: 'Transaction Type (Outright, Flexible, etc.)', tab: 'requirement', isCore: false },
-    { key: 'whitePortion', label: 'Payment Terms / White Ratio %', tab: 'requirement', isCore: false },
-    { key: 'purpose', label: 'End Use / Purpose (Self Use, Investment)', tab: 'requirement', isCore: false },
+    { key: 'transactionType', label: 'Transaction Type (Outright, Flexible)', tab: 'requirement', isCore: false, aliases: ['whitePortion'] },
 
     // ─── Location Page Fields ─────────────────────────────────────────────
     { key: 'locCity', label: 'City', tab: 'location', isCore: true },
