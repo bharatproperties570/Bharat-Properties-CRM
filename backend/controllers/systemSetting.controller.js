@@ -223,3 +223,97 @@ export const getStageQualificationConfig = async (req, res) => {
         res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };
+
+// Re-evaluate and promote existing leads currently in Incoming
+export const reEvaluateExistingLeadsQualification = async (req, res) => {
+    try {
+        const { evaluateLeadStageQualification, getQualificationRule } = await import("../utils/leadDataCompleteness.js");
+        const Lead = (await import("../models/Lead.js")).default;
+        const Lookup = (await import("../models/Lookup.js")).default;
+
+        const rule = await getQualificationRule();
+        if (!rule.enabled) {
+            return res.status(400).json({
+                success: false,
+                message: "Stage Qualification Rule is currently disabled. Please enable it before running sync."
+            });
+        }
+
+        const targetStageName = rule.targetStage || 'Prospect';
+        const [incomingLookup, targetStageLookup] = await Promise.all([
+            Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: /^Incoming$/i } }).lean(),
+            Lookup.findOne({ lookup_type: 'Stage', lookup_value: new RegExp(`^${targetStageName}$`, 'i') }).lean()
+        ]);
+
+        if (!targetStageLookup) {
+            return res.status(400).json({
+                success: false,
+                message: `Target stage "${targetStageName}" lookup not found in database.`
+            });
+        }
+
+        const incomingQuery = {
+            isDeleted: { $ne: true },
+            isArchived: { $ne: true },
+            $or: [
+                ...(incomingLookup ? [{ stage: incomingLookup._id }] : []),
+                { stage: 'Incoming' },
+                { stage: null },
+                { stage: { $exists: false } }
+            ]
+        };
+
+        const incomingLeads = await Lead.find(incomingQuery).lean();
+        console.log(`[BatchQualification] Found ${incomingLeads.length} incoming leads to evaluate.`);
+
+        let promotedCount = 0;
+        const now = new Date();
+        const promotedDetails = [];
+
+        for (const lead of incomingLeads) {
+            const qual = await evaluateLeadStageQualification(lead);
+            if (qual.qualified) {
+                const historyEntry = {
+                    stage: targetStageName,
+                    enteredAt: now,
+                    triggeredBy: 'batch_qualification_sync',
+                    reason: `Batch promoted by Stage Qualification Rule (${qual.score}% data completeness)`
+                };
+
+                await Lead.findByIdAndUpdate(lead._id, {
+                    $set: {
+                        stage: targetStageLookup._id,
+                        stageChangedAt: now
+                    },
+                    $push: { stageHistory: historyEntry }
+                });
+
+                promotedCount++;
+                if (promotedDetails.length < 10) {
+                    promotedDetails.push({
+                        id: lead._id,
+                        name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                        score: `${qual.score}%`
+                    });
+                }
+            }
+        }
+
+        console.log(`[BatchQualification] Successfully promoted ${promotedCount} of ${incomingLeads.length} leads to ${targetStageName}.`);
+
+        res.json({
+            success: true,
+            status: "success",
+            data: {
+                totalScanned: incomingLeads.length,
+                promotedCount,
+                targetStage: targetStageName,
+                samples: promotedDetails
+            },
+            message: `Evaluated ${incomingLeads.length} leads. Promoted ${promotedCount} qualified leads to ${targetStageName}!`
+        });
+    } catch (error) {
+        console.error("[reEvaluateExistingLeadsQualification] Error:", error);
+        res.status(500).json({ success: false, status: "error", message: error.message });
+    }
+};

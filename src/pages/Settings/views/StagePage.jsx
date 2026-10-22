@@ -453,6 +453,7 @@ const StagePage = () => {
     const [availableStages, setAvailableStages] = useState(['Incoming', 'Prospect', 'Engaged', 'Opportunity', 'Negotiation', 'Won', 'Lost']);
     const [loadingQual, setLoadingQual] = useState(false);
     const [savingQual, setSavingQual] = useState(false);
+    const [runningSync, setRunningSync] = useState(false);
     const [fieldSearch, setFieldSearch] = useState('');
     const [activeFieldTab, setActiveFieldTab] = useState('all'); // 'all', 'requirement', 'location', 'custom'
     const [showAddCustomModal, setShowAddCustomModal] = useState(false);
@@ -492,6 +493,23 @@ const StagePage = () => {
             showToast('Failed to save qualification rule', 'error');
         } finally {
             setSavingQual(false);
+        }
+    };
+
+    const handleSyncExistingLeads = async () => {
+        try {
+            setRunningSync(true);
+            const res = await systemSettingsAPI.reEvaluateExistingLeads();
+            if (res?.success) {
+                showToast(res.message || `Promoted ${res.data?.promotedCount} leads!`, 'success');
+            } else {
+                showToast(res?.message || 'Sync failed', 'error');
+            }
+        } catch (err) {
+            console.error('Error syncing existing leads:', err);
+            showToast('Failed to sync existing leads', 'error');
+        } finally {
+            setRunningSync(false);
         }
     };
 
@@ -1012,7 +1030,31 @@ const StagePage = () => {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleSyncExistingLeads}
+                                    disabled={runningSync || !qualConfig.enabled}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid #6366f1',
+                                        background: runningSync ? '#f1f5f9' : '#6366f115',
+                                        color: '#6366f1',
+                                        fontWeight: 800,
+                                        fontSize: '12px',
+                                        cursor: (runningSync || !qualConfig.enabled) ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        boxShadow: '0 1px 3px rgba(99,102,241,0.1)'
+                                    }}
+                                    title="Scan all existing Incoming leads in CRM and promote those meeting the completeness threshold to Prospect"
+                                >
+                                    {runningSync ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-sync" />}
+                                    {runningSync ? 'Evaluating Leads...' : 'Sync & Qualify Existing Leads'}
+                                </button>
+
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
                                     <span style={{ fontSize: '13px', fontWeight: 700, color: qualConfig.enabled ? '#047857' : '#64748b' }}>
                                         {qualConfig.enabled ? 'Rule Enabled' : 'Rule Paused'}

@@ -5,7 +5,8 @@ import {
     upsertSystemSetting,
     deleteSystemSetting,
     testAiConnection,
-    getStageQualificationConfig
+    getStageQualificationConfig,
+    reEvaluateExistingLeadsQualification
 } from "../controllers/systemSetting.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -18,8 +19,9 @@ router.use(authenticate);
 router.post("/upsert", upsertSystemSetting);
 router.post("/test-ai", testAiConnection);
 
-// Dedicated route for dynamic Stage Qualification Engine config
+// Dedicated routes for dynamic Stage Qualification Engine config & batch re-evaluation
 router.get("/stage-qualification/fields", getStageQualificationConfig);
+router.post("/stage-qualification/re-evaluate", reEvaluateExistingLeadsQualification);
 
 // Settings read operations
 router.get("/", getSystemSettings);

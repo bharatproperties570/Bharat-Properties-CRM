@@ -644,6 +644,10 @@ export const systemSettingsAPI = {
     getAll: (options = {}) => apiRequest('/system-settings', options),
     getByKey: (key, options = {}) => apiRequest(`/system-settings/${key}`, { _silentError: true, ...options }),
     getStageQualificationConfig: (options = {}) => apiRequest('/system-settings/stage-qualification/fields', options),
+    reEvaluateExistingLeads: (options = {}) => apiRequest('/system-settings/stage-qualification/re-evaluate', {
+        method: 'POST',
+        ...options
+    }),
     upsert: (key, data, options = {}) => apiRequest('/system-settings/upsert', {
         method: 'POST',
         body: JSON.stringify({ key, ...data }),
