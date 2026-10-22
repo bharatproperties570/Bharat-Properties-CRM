@@ -1363,10 +1363,12 @@ export const submitWaSiteVisit = async (req, res) => {
         }
 
         let normalizedToken = typeof token === 'string' ? token.trim() : '';
-        if (normalizedToken.includes('~')) {
-            normalizedToken = normalizedToken.replace(/~/g, '.');
-        } else if (normalizedToken.split('-').length === 3) {
-            normalizedToken = normalizedToken.replace(/-/g, '.');
+        if (!normalizedToken.includes('.')) {
+            if (normalizedToken.includes('~')) {
+                normalizedToken = normalizedToken.replace(/~/g, '.');
+            } else if (normalizedToken.split('-').length === 3) {
+                normalizedToken = normalizedToken.replace(/-/g, '.');
+            }
         }
 
         let decoded;
