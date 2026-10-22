@@ -14,14 +14,14 @@ import whatsappService from '../services/whatsappService';
 import { findMatchedSize } from '../utils/sizeDimensionUtils';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
-    const { isDark } = useTheme();
-    const { getLookupId, getLookupValue, dealMasterFields, sizes = [] } = usePropertyConfig();
-    const { validateAsync } = useFieldRules();
-    const { fireEvent } = useTriggers();
-    const { executeDistribution } = useDistribution();
-    const { data: users = [] } = useActiveUsers();
+    const { isDark } = useTheme() || {};
+    const { getLookupId, getLookupValue, dealMasterFields, sizes = [] } = usePropertyConfig() || {};
+    const { validateAsync = async () => ({ isValid: true, errors: {} }) } = useFieldRules() || {};
+    const { fireEvent = () => {} } = useTriggers() || {};
+    const { executeDistribution = async () => null } = useDistribution() || {};
+    const { data: users = [] } = useActiveUsers() || {};
     
-    const { data: teams = [] } = useTeams();
+    const { data: teams = [] } = useTeams() || {};
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
     const addDealMutation = useAddDealMutation();

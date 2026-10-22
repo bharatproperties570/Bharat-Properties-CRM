@@ -277,6 +277,7 @@ export const getLeads = async (req, res, next) => {
             page = 1, limit = 100, search = "", stage, status, teamId, userId, mobile, showDormant,
             source, project, location, budgetMin, budgetMax, areaMin, areaMax,
             propertyType, subType, unitType, facing, direction, roadWidth, requirement,
+            category, operationalFilter,
             view, sortBy, sortOrder, ...dynamicFilters
         } = req.query;
 
@@ -405,13 +406,82 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Multi-select Arrays
-        const arrayFields = { propertyType, subType, unitType, facing, direction, roadWidth };
+        const arrayFields = { subType, unitType, facing, direction, roadWidth };
         Object.entries(arrayFields).forEach(([field, val]) => {
             if (val) {
                 if (Array.isArray(val)) query[field] = { $in: val };
                 else query[field] = val;
             }
         });
+
+        // 🎯 [ENTERPRISE SUMMARY FOOTER FILTER] Category & PropertyType Filter
+        const effectiveCategory = category || propertyType || req.query['category[]'];
+        if (effectiveCategory && effectiveCategory !== 'all' && effectiveCategory !== 'total') {
+            const catValues = Array.isArray(effectiveCategory) ? effectiveCategory : [effectiveCategory];
+            const catLookups = await Lookup.find({
+                lookup_type: 'Category',
+                $or: [
+                    { lookup_value: { $in: catValues } },
+                    { lookup_value: { $in: catValues.map(c => new RegExp(`^${c}$`, 'i')) } }
+                ]
+            }).select('_id lookup_value').lean();
+
+            const allCatMatches = [...catValues];
+            catLookups.forEach(l => {
+                allCatMatches.push(l._id);
+                allCatMatches.push(l.lookup_value);
+            });
+            query.propertyType = { $in: allCatMatches };
+        } else if (propertyType) {
+            query.propertyType = Array.isArray(propertyType) ? { $in: propertyType } : propertyType;
+        }
+
+        // 🎯 [ENTERPRISE SUMMARY FOOTER FILTER] Operational Filters (unassigned, untouched, noFollowup, dormant, returning)
+        if (operationalFilter && operationalFilter !== 'all' && operationalFilter !== 'total') {
+            if (operationalFilter === 'unassigned') {
+                const unassignedCondition = [
+                    { owner: null }, { owner: { $exists: false } },
+                    { assignedTo: null }, { assignedTo: { $exists: false } }
+                ];
+                if (query.$or) {
+                    query.$and = (query.$and || []).concat([{ $or: query.$or }, { $or: unassignedCondition }]);
+                    delete query.$or;
+                } else {
+                    query.$or = unassignedCondition;
+                }
+            } else if (operationalFilter === 'untouched') {
+                const leadsWithActivities = await Activity.distinct('entityId', { entityType: { $in: ['Lead', 'lead', 'leads'] } });
+                const validLeadIds = leadsWithActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+                query._id = { $nin: validLeadIds };
+            } else if (operationalFilter === 'noFollowup') {
+                const futureActivities = await Activity.distinct('entityId', { 
+                    entityType: { $in: ['Lead', 'lead', 'leads'] }, 
+                    dueDate: { $gte: new Date() } 
+                });
+                const validFutureIds = futureActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+                query._id = { $nin: validFutureIds };
+            } else if (operationalFilter === 'dormant') {
+                const dormantCondition = [
+                    { isDormant: true }, { status: 'Dormant' }, { stage: 'Dormant' }
+                ];
+                if (query.$or) {
+                    query.$and = (query.$and || []).concat([{ $or: query.$or }, { $or: dormantCondition }]);
+                    delete query.$or;
+                } else {
+                    query.$or = dormantCondition;
+                }
+            } else if (operationalFilter === 'returning') {
+                const returningCondition = [
+                    { isReengaged: true }, { isReturning: true }, { 'reengagementDetails.reengaged': true }
+                ];
+                if (query.$or) {
+                    query.$and = (query.$and || []).concat([{ $or: query.$or }, { $or: returningCondition }]);
+                    delete query.$or;
+                } else {
+                    query.$or = returningCondition;
+                }
+            }
+        }
 
         // Support for 'status' keywords (fresh, hot, incoming, prospect, etc.)
         if (status) {
@@ -436,9 +506,30 @@ export const getLeads = async (req, res, next) => {
                 query.status = status;
             }
         }
+
+        // 🎯 [STAGE FILTER] Support for stage filtering from Pipeline Dashboard
+        const stageParam = req.query.stage || req.query['stage[]'];
+        if (stageParam && stageParam !== 'all' && stageParam !== 'total') {
+            const rawStages = Array.isArray(stageParam) ? stageParam : [stageParam];
+            const stageRegexes = rawStages.map(s => new RegExp(`^${escapeRegExp(String(s))}$`, 'i'));
+            const stageObjectIds = rawStages.filter(s => mongoose.Types.ObjectId.isValid(s)).map(s => new mongoose.Types.ObjectId(s));
+            
+            const matchedStages = await Lookup.find({
+                lookup_type: 'Stage',
+                $or: [
+                    { lookup_value: { $in: stageRegexes } },
+                    { _id: { $in: stageObjectIds } }
+                ]
+            }).select('_id lookup_value').lean();
+
+            const allMatchedIds = matchedStages.map(s => s._id).concat(stageObjectIds);
+            if (allMatchedIds.length > 0) {
+                query.stage = { $in: allMatchedIds };
+            }
+        }
         
-        // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true OR searching) ---
-        if (showDormant !== "true" && !req.query.stage && !search) {
+        // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true OR searching OR filtering dormant) ---
+        if (showDormant !== "true" && !req.query.stage && !search && operationalFilter !== 'dormant') {
             const dormantLookups = await Lookup.find({ 
                 lookup_value: { $regex: /^Dormant$/i } 
             }).select('_id').lean();
@@ -486,13 +577,17 @@ export const getLeads = async (req, res, next) => {
             bucketToIds[bucket] = labels.map(l => stageToId.get(l.toLowerCase())).filter(Boolean);
         });
 
-        // 📊 [SENIOR RESILIENCE] Wrap stats in try-catch
-        // Ensure stats failures don't block the lead list from loading
+        // 📊 [SENIOR RESILIENCE] Operational Footer Stats
+        // Computed on statsBaseFilter so operational filter clicks DO NOT hide or change other badges
         let statsObj = null;
-        if (Number(page) === 1) {
-            try {
-                const stats = await Lead.aggregate([
-                    { $match: query },
+        try {
+            const statsBaseFilter = { ...visibilityFilter, isDeleted: { $ne: true }, isArchived: { $ne: true } };
+            const dormantLookupsForStats = await Lookup.find({ lookup_value: { $regex: /^Dormant$/i } }).select('_id').lean();
+            const dormantIdsForStats = dormantLookupsForStats.map(l => l._id);
+
+            const [stats, leadsWithActivities, futureActivities] = await Promise.all([
+                Lead.aggregate([
+                    { $match: statsBaseFilter },
                     {
                         $facet: {
                             total: [{ $count: "count" }],
@@ -500,47 +595,75 @@ export const getLeads = async (req, res, next) => {
                                 { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
                                 { $count: "count" }
                             ],
+                            unassigned: [
+                                { $match: { $or: [{ owner: null }, { owner: { $exists: false } }, { assignedTo: null }, { assignedTo: { $exists: false } }] } },
+                                { $count: "count" }
+                            ],
+                            dormant: [
+                                { $match: { $or: [{ isDormant: true }, { status: 'Dormant' }, { stage: { $in: dormantIdsForStats } }] } },
+                                { $count: "count" }
+                            ],
+                            returning: [
+                                { $match: { $or: [{ isReengaged: true }, { isReturning: true }, { 'reengagementDetails.reengaged': true }] } },
+                                { $count: "count" }
+                            ],
                             fresh: [
-                            { $match: { stage: { $in: bucketToIds.fresh || [] } } },
-                            { $count: "count" }
-                        ],
-                        hot: [
-                            { $match: { stage: { $in: bucketToIds.hot || [] } } },
-                            { $count: "count" }
-                        ],
-                        incoming: [
-                            { $match: { stage: { $in: bucketToIds.incoming || [] } } },
-                            { $count: "count" }
-                        ],
-                        prospect: [
-                            { $match: { stage: { $in: bucketToIds.prospect || [] } } },
-                            { $count: "count" }
-                        ],
-                        opportunity: [
-                            { $match: { stage: { $in: bucketToIds.opportunity || [] } } },
-                            { $count: "count" }
-                        ],
-                        negotiation: [
-                            { $match: { stage: { $in: bucketToIds.negotiation || [] } } },
-                            { $count: "count" }
-                        ],
-                        won: [
-                            { $match: { stage: { $in: bucketToIds.won || [] } } },
-                            { $count: "count" }
-                        ],
-                        lost: [
-                            { $match: { stage: { $in: bucketToIds.lost || [] } } },
-                            { $count: "count" }
-                        ]
+                                { $match: { stage: { $in: bucketToIds.fresh || [] } } },
+                                { $count: "count" }
+                            ],
+                            hot: [
+                                { $match: { stage: { $in: bucketToIds.hot || [] } } },
+                                { $count: "count" }
+                            ],
+                            incoming: [
+                                { $match: { stage: { $in: bucketToIds.incoming || [] } } },
+                                { $count: "count" }
+                            ],
+                            prospect: [
+                                { $match: { stage: { $in: bucketToIds.prospect || [] } } },
+                                { $count: "count" }
+                            ],
+                            opportunity: [
+                                { $match: { stage: { $in: bucketToIds.opportunity || [] } } },
+                                { $count: "count" }
+                            ],
+                            negotiation: [
+                                { $match: { stage: { $in: bucketToIds.negotiation || [] } } },
+                                { $count: "count" }
+                            ],
+                            won: [
+                                { $match: { stage: { $in: bucketToIds.won || [] } } },
+                                { $count: "count" }
+                            ],
+                            lost: [
+                                { $match: { stage: { $in: bucketToIds.lost || [] } } },
+                                { $count: "count" }
+                            ]
+                        }
                     }
-                }
-            ]); console.timeEnd("interaction_agg");
+                ]),
+                Activity.distinct('entityId', { entityType: { $in: ['Lead', 'lead', 'leads'] } }),
+                Activity.distinct('entityId', { entityType: { $in: ['Lead', 'lead', 'leads'] }, dueDate: { $gte: new Date() } })
+            ]);
+
+            const validLeadIds = leadsWithActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+            const validFutureIds = futureActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+
+            const [untouchedCount, noFollowupCount] = await Promise.all([
+                Lead.countDocuments({ ...statsBaseFilter, _id: { $nin: validLeadIds } }),
+                Lead.countDocuments({ ...statsBaseFilter, _id: { $nin: validFutureIds } })
+            ]);
 
             statsObj = {
                 total: stats[0]?.total[0]?.count || 0,
                 today: stats[0]?.today[0]?.count || 0,
                 fresh: stats[0]?.fresh[0]?.count || 0,
                 hot: stats[0]?.hot[0]?.count || 0,
+                unassigned: stats[0]?.unassigned[0]?.count || 0,
+                dormant: stats[0]?.dormant[0]?.count || 0,
+                returning: stats[0]?.returning[0]?.count || 0,
+                untouched: untouchedCount,
+                noFollowup: noFollowupCount,
                 pipeline: {
                     incoming: stats[0]?.incoming[0]?.count || 0,
                     prospect: stats[0]?.prospect[0]?.count || 0,
@@ -551,8 +674,32 @@ export const getLeads = async (req, res, next) => {
                 }
             };
         } catch (err) {
-                console.error('[LeadStats] Failed to compute stats:', err.message);
-            }
+            console.error('[LeadStats] Failed to compute stats:', err.message);
+        }
+
+        // 🏎️ [ENTERPRISE SUMMARY FOOTER] Compute Lead Category Stats
+        let categoryStatsPromise = Promise.resolve([]);
+        if (Number(page) === 1) {
+            categoryStatsPromise = Lead.aggregate([
+                { $match: { ...visibilityFilter, isArchived: { $ne: true } } },
+                { $unwind: { path: "$propertyType", preserveNullAndEmptyArrays: false } },
+                { $group: { _id: "$propertyType", count: { $sum: 1 } } }
+            ]).then(async (agg) => {
+                const catMap = new Map();
+                agg.forEach(s => {
+                    if (s._id) {
+                        catMap.set(String(s._id), s.count);
+                    }
+                });
+                const categories = await Lookup.find({ lookup_type: 'Category' }).select('_id lookup_type lookup_value').lean();
+                return categories.map(cat => ({
+                    name: cat.lookup_value,
+                    count: catMap.get(String(cat._id)) || catMap.get(cat.lookup_value) || 0
+                }));
+            }).catch(err => {
+                console.error('[LeadCategoryStats] Error:', err.message);
+                return [];
+            });
         }
 
         // --- 📊 DYNAMIC SORTING (Senior Professional Optimization) ---
@@ -584,8 +731,14 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Enable population for key fields (Use lean population for list view)
-        console.time("paginate"); const results = await paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation, projection);
-        results.stats = statsObj; console.timeEnd("paginate");
+        console.time("paginate");
+        const [results, leadCategoryStats] = await Promise.all([
+            paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation, projection),
+            categoryStatsPromise
+        ]);
+        results.stats = statsObj;
+        results.categoryStats = leadCategoryStats;
+        console.timeEnd("paginate");
 
         if (req.query.sortBy) {
             console.log(`[LeadSort] Applied sort: ${sortBy} (${sortOrder}) - Records: ${results.records?.length}`);

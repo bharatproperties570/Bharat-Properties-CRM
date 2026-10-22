@@ -188,7 +188,9 @@ export const router = createBrowserRouter([
                     { path: '/deal-intake', element: <WithNav Component={DealIntakePage} /> },
                     
                     { path: '/company', element: <WithNav Component={CompanyPage} /> },
+                    { path: '/companies', element: <Navigate to="/company" replace /> },
                     { path: '/company/:id', element: <WithNav Component={CompanyDetailPage} /> },
+                    { path: '/companies/:id', element: <Navigate to="/company/:id" replace /> },
                     
                     { path: '/inventory', element: <WithNav Component={InventoryPage} /> },
                     { path: '/inventory-analytics', element: <WithNav Component={InventoryAnalyticsPage} /> },

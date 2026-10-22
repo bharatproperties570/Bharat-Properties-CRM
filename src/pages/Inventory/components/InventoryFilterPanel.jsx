@@ -256,8 +256,8 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
         setSizeMode('type');
     };
 
-    const selectedCategories = filters.category || [];
-    const selectedSubCategories = filters.subCategory || [];
+    const selectedCategories = (Array.isArray(filters.category) ? filters.category : [filters.category]).filter(Boolean).map(String);
+    const selectedSubCategories = (Array.isArray(filters.subCategory) ? filters.subCategory : [filters.subCategory]).filter(Boolean).map(String);
 
     // 🧠 [SENIOR HARDENING] Robust Configuration Resolver
     const resolveCategoryConfig = (catName) => {
@@ -293,9 +293,9 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
             allSizes
                 .filter(s => {
                     const matchesCat = selectedCategories.length === 0 || selectedCategories.some(cat =>
-                        (s.category || '').toLowerCase() === cat.toLowerCase());
+                        cat && (s.category || '').toLowerCase() === cat.toLowerCase());
                     const matchesSub = selectedSubCategories.some(sub =>
-                        (s.subCategory || '').toLowerCase() === sub.toLowerCase());
+                        sub && (s.subCategory || '').toLowerCase() === sub.toLowerCase());
                     return matchesCat && matchesSub && s.unitType;
                 })
                 .map(s => s.unitType)
@@ -305,7 +305,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                 allSizes
                     .filter(s =>
                         selectedCategories.some(cat =>
-                            (s.category || '').toLowerCase() === cat.toLowerCase()
+                            cat && (s.category || '').toLowerCase() === cat.toLowerCase()
                         ) && s.unitType
                     )
                     .map(s => s.unitType)

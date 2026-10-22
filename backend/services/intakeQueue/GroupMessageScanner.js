@@ -333,7 +333,8 @@ class GroupMessageScanner {
                     participant: msg.metadata?.participant || null,
                     messageId: msgId || `idx_${cursor.conversationId}_${Date.now()}_${i}`,
                     timestamp: msgTime,
-                    conversationId: cursor.conversationId
+                    conversationId: cursor.conversationId,
+                    whatsappIntegrationId: conversation.whatsappIntegrationId || msg.metadata?.whatsappIntegrationId || null
                 };
 
                 const result = await addToIntakeQueue('whatsapp_group', rawData, null);

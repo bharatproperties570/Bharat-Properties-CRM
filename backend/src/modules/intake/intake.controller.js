@@ -740,9 +740,19 @@ export const sendWAVerification = async (req, res) => {
 
             if (!resolvedIntegrationId) {
                 // If intake has a specific whatsappIntegrationId from the originating group, prefer that line if authorized
-                const intakeRecord = await Intake.findById(id).select('whatsappIntegrationId').lean();
-                if (intakeRecord?.whatsappIntegrationId) {
-                    const matchIntakeLine = userAllowedBaileys.find(b => b._id.toString() === intakeRecord.whatsappIntegrationId.toString());
+                const intakeRecord = await Intake.findById(id).select('whatsappIntegrationId raw_source_data extracted_entities').lean();
+                let sourceLineId = intakeRecord?.whatsappIntegrationId || intakeRecord?.raw_source_data?.whatsappIntegrationId;
+                
+                if (!sourceLineId && (intakeRecord?.raw_source_data?.conversationId || intakeRecord?.extracted_entities?._whatsappGroup?.conversationId)) {
+                    try {
+                        const Conversation = (await import('../../../models/Conversation.js')).default;
+                        const c = await Conversation.findById(intakeRecord.raw_source_data?.conversationId || intakeRecord.extracted_entities?._whatsappGroup?.conversationId).select('whatsappIntegrationId').lean();
+                        if (c?.whatsappIntegrationId) sourceLineId = c.whatsappIntegrationId;
+                    } catch (e) {}
+                }
+
+                if (sourceLineId) {
+                    const matchIntakeLine = userAllowedBaileys.find(b => b._id.toString() === sourceLineId.toString());
                     if (matchIntakeLine) {
                         resolvedIntegrationId = matchIntakeLine._id.toString();
                     }

@@ -220,6 +220,20 @@ Price mentioned: ${price || 'Not mentioned'}`;
         const isMeta = String(provider).toUpperCase() === 'META';
         let resolvedIntegrationId = integrationId || (intake.whatsappIntegrationId ? String(intake.whatsappIntegrationId) : null);
 
+        // Fallback: Check if originating conversation holds the source line
+        if (!resolvedIntegrationId && (intake.raw_source_data?.whatsappIntegrationId || intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId)) {
+            if (intake.raw_source_data?.whatsappIntegrationId) {
+                resolvedIntegrationId = String(intake.raw_source_data.whatsappIntegrationId);
+            } else {
+                try {
+                    const Conversation = mongoose.models.Conversation || (await import('../../models/Conversation.js')).default;
+                    const convId = intake.raw_source_data?.conversationId || intake.extracted_entities?._whatsappGroup?.conversationId;
+                    const c = await Conversation.findById(convId).select('whatsappIntegrationId').lean();
+                    if (c?.whatsappIntegrationId) resolvedIntegrationId = String(c.whatsappIntegrationId);
+                } catch (e) {}
+            }
+        }
+
         if (!isMeta) {
             // Strictly enforce per-user WhatsApp Web session isolation if not already resolved from intake group
             if (!resolvedIntegrationId && userId) {

@@ -435,13 +435,13 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, saveLabel = "Save", initialTab = null }) => {
-    const { propertyConfig, lookups, masterFields, leadMasterFields, getLookupId, getLookupValue, projects: allProjects } = usePropertyConfig();
-    const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
-    const { executeDistribution } = useDistribution(); // Get Distribution Engine
-    const { evaluateAndEnroll } = useSequences();
-    const { fireEvent } = useTriggers();
-    const { data: users = [] } = useActiveUsers();
-    const { isDark } = useTheme();
+    const { propertyConfig, lookups, masterFields, leadMasterFields, getLookupId, getLookupValue, projects: allProjects } = usePropertyConfig() || {};
+    const { validate = () => ({ isValid: true, errors: {} }), validateAsync = async () => ({ isValid: true, errors: {} }) } = useFieldRules() || {}; // Get Validator Engine
+    const { executeDistribution = async () => null } = useDistribution() || {}; // Get Distribution Engine
+    const { evaluateAndEnroll = () => {} } = useSequences() || {};
+    const { fireEvent = () => {} } = useTriggers() || {};
+    const { data: users = [] } = useActiveUsers() || {};
+    const { isDark } = useTheme() || {};
     
     const { data: teams = [] } = useTeams();
     const addLeadMutation = useAddLeadMutation();

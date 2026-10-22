@@ -1322,11 +1322,12 @@ export const getDeals = async (req, res) => {
 
         // Deal State Filters
         if (queryIntent) query.intent = await resolveMultiFilter('Intent', queryIntent);
-        if (queryStage) {
-            const stages = Array.isArray(queryStage) ? queryStage : queryStage.split(',').filter(Boolean);
+        const rawStage = queryStage || req.query['stage[]'];
+        if (rawStage) {
+            const stages = Array.isArray(rawStage) ? rawStage : (typeof rawStage === 'string' ? rawStage.split(',').filter(Boolean) : [rawStage]);
             if (stages.length > 0) query.stage = { $in: stages };
         } else {
-            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by defaul
+            // 🚀 ENTERPRISE RULE: Hide post-sales and lost deals from active pre-sales pipeline by default
             query.stage = { $nin: ['Closed Won', 'Closed Lost', 'Cancelled', 'Closed', 'Sold Out'] };
         }
         if (queryUnitType) {

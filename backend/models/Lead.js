@@ -317,6 +317,15 @@ LeadSchema.pre('save', async function (next) {
         if (!this.assignment) this.assignment = {};
         this.assignment.assignedTo = primaryRMId;
     }
+    if (this.teams && Array.isArray(this.teams) && this.teams.length > 0) {
+        if (!this.assignment) this.assignment = {};
+        if (!this.assignment.team || this.assignment.team.length === 0) {
+            this.assignment.team = this.teams;
+        }
+    }
+    if (this.assignment && !this.assignment.visibleTo) {
+        this.assignment.visibleTo = 'Team';
+    }
 
     next();
 });

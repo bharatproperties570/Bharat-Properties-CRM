@@ -351,8 +351,41 @@ export const getInventory = async (req, res) => {
             applyDeepFilter(query, 'status', statusFilter);
         }
 
-        const categoryFilter = await resolveMultiFilter('Category', categoryReq);
-        applyDeepFilter(query, 'category', categoryFilter);
+        let categoryCondition = null;
+        if (categoryReq) {
+            const catArr = Array.isArray(categoryReq) ? categoryReq : String(categoryReq).split(',').map(s => s.trim()).filter(Boolean);
+            const isUnknownCategory = catArr.some(c => String(c).toLowerCase() === 'unknown' || String(c).toLowerCase() === 'null' || String(c).toLowerCase() === 'n/a');
+            const otherCategoryVals = catArr.filter(c => String(c).toLowerCase() !== 'unknown' && String(c).toLowerCase() !== 'null' && String(c).toLowerCase() !== 'n/a');
+
+            const unknownOrConditions = [
+                { category: null },
+                { category: { $exists: false } },
+                { category: "" },
+                { category: { $in: ["Unknown", "UNKNOWN", "unknown"] } }
+            ];
+
+            let knownConditions = [];
+            if (otherCategoryVals.length > 0) {
+                const categoryFilter = await resolveMultiFilter('Category', otherCategoryVals);
+                if (categoryFilter) {
+                    knownConditions = [
+                        { category: categoryFilter },
+                        { 'category._id': categoryFilter },
+                        { 'category.id': categoryFilter },
+                        { 'category.lookup_value': categoryFilter },
+                        { 'category.name': categoryFilter }
+                    ];
+                }
+            }
+
+            if (isUnknownCategory && knownConditions.length > 0) {
+                categoryCondition = { $or: [...knownConditions, ...unknownOrConditions] };
+            } else if (isUnknownCategory) {
+                categoryCondition = { $or: unknownOrConditions };
+            } else if (knownConditions.length > 0) {
+                categoryCondition = { $or: knownConditions };
+            }
+        }
 
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
         applyDeepFilter(query, 'subCategory', subCategoryFilter);
@@ -511,7 +544,22 @@ export const getInventory = async (req, res) => {
         // Single aggregation for all stats
         // We need a separate query for category stats that ignores the category filter
         const categoryStatsQuery = { ...query };
-        delete categoryStatsQuery.category;
+        if (query.$and) categoryStatsQuery.$and = [...query.$and];
+        if (query.$or) categoryStatsQuery.$or = [...query.$or];
+
+        // Apply category filter to the operational query for fetching records and active/inactive counts
+        if (categoryCondition) {
+            if (query.$or) {
+                if (!query.$and) {
+                    const existingOr = query.$or;
+                    delete query.$or;
+                    query.$and = [{ $or: existingOr }];
+                }
+                query.$and.push(categoryCondition);
+            } else {
+                query.$or = categoryCondition.$or || [categoryCondition];
+            }
+        }
 
         // 🚀 SENIOR OPTIMIZATION: Run heavy stats aggregations ONLY on page 1.
         // Scroll-triggered pages (2, 3...) don't need stats — saves 400–1000ms per scroll event.

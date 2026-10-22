@@ -654,7 +654,7 @@ const AddContactModal = ({
 
 
   // --- Field Rules Integration ---
-  const { validate, validateAsync } = useFieldRules();
+  const { validate = () => ({ isValid: true, errors: {} }), validateAsync = async () => ({ isValid: true, errors: {} }) } = useFieldRules() || {};
   const [hiddenFields, setHiddenFields] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
 

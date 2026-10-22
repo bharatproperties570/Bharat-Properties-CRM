@@ -14,13 +14,27 @@ import {
 } from '../utils/distributionEngine';
 import { distributionRulesAPI, safeStorage } from '../utils/api';
 
-const DistributionContext = createContext();
+const defaultDistribution = {
+    distributionRules: [],
+    distributionLog: [],
+    agentWorkload: {},
+    addDistributionRule: () => {},
+    updateDistributionRule: () => {},
+    deleteDistributionRule: () => {},
+    executeDistribution: () => {},
+    manualOverride: () => {},
+    checkAndReassign: () => {},
+    getDistributionAnalytics: () => ({}),
+    getEntityDistributionHistory: () => []
+};
+
+const DistributionContext = createContext(defaultDistribution);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useDistribution = () => {
     const context = useContext(DistributionContext);
     if (!context) {
-        throw new Error('useDistribution must be used within DistributionProvider');
+        return defaultDistribution;
     }
     return context;
 };

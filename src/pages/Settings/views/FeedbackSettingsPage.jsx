@@ -26,9 +26,9 @@ const FeedbackSettingsPage = () => {
     };
 
     const copyLink = (form) => {
-        const url = window.location.origin + '/public/feedback/' + form.slug + '?inventoryId={inventoryId}&leadId={leadId}';
+        const url = window.location.origin + '/public/feedback/' + form.slug;
         navigator.clipboard.writeText(url);
-        toast.success('Survey link copied with placeholders!');
+        toast.success('Public survey link copied to clipboard!');
     };
 
     const handleWhatsApp = (form) => {

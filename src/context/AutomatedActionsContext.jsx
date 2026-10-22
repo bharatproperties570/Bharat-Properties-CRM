@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 export const AutomatedActionsContext = createContext();
 
 export const AutomatedActionsProvider = ({ children }) => {
-    const { validate } = useFieldRules();
+    const { validate = () => ({ isValid: true, errors: {} }) } = useFieldRules() || {};
     const [actions, setActions] = useState([]);
 
     useEffect(() => {

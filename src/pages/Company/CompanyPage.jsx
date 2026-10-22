@@ -52,6 +52,35 @@ function CompanyPage({ onEdit, onNavigate }) {
     const totalCount = companiesData?.totalCount || 0;
     const totalPages = companiesData?.totalPages || 0;
     const industryStats = companiesData?.industryStats || [];
+
+    const persistentTotalCompanies = React.useRef(0);
+    if (totalCount > 0 && !filters.industry && !filters.category) {
+        persistentTotalCompanies.current = totalCount;
+    }
+
+    const handleIndustryFilter = useCallback((industryName) => {
+        setFilters(prev => {
+            const next = { ...prev };
+            if (!industryName) {
+                delete next.industry;
+                delete next.category;
+                return next;
+            }
+            const currentInd = prev.industry || prev.category;
+            const isMatch = Array.isArray(currentInd)
+                ? currentInd.some(i => String(i).toLowerCase() === String(industryName).toLowerCase())
+                : currentInd && String(currentInd).toLowerCase() === String(industryName).toLowerCase();
+            if (isMatch) {
+                delete next.industry;
+                delete next.category;
+                return next;
+            }
+            next.industry = industryName;
+            delete next.category;
+            return next;
+        });
+        setCurrentPage(1);
+    }, []);
     
     // Using a debounced search term for the query would be better, but the API handles the delay currently by the effect.
     // TanStack Query handles this gracefully if we rely on the state changing.
@@ -819,29 +848,117 @@ function CompanyPage({ onEdit, onNavigate }) {
                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>Try adjusting your search or filters</div>
                         </div>
                     )}
-
-                    {/* Footer Summary - Standard Style matching Contacts */}
-                    <footer className="summary-footer" style={{ height: "55px", background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: "flex", alignItems: "center" }}>
-                        <div style={{ display: "flex", gap: "20px", alignItems: "center", padding: "0 2rem", width: "100%", overflowX: "auto" }}>
-                            <div className="summary-label" style={{ background: isDark ? 'var(--primary-color)' : '#334155', color: "#fff", borderRadius: "8px", fontSize: "0.65rem", padding: "4px 12px", fontWeight: 800, whiteSpace: "nowrap" }}>SUMMARY</div>
-                            <div className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                <span style={{ color: "var(--primary-color)", fontWeight: 700, fontSize: "0.80rem", textTransform: "uppercase" }}>TOTAL COMPANIES:</span>
-                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: "1.1rem" }}>{totalCount.toLocaleString()}</span>
-                            </div>
-                            {industryStats && industryStats.filter(s => s.count > 0).map((stat, idx) => {
-                                const colors = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#38bdf8'];
-                                const color = colors[idx % colors.length];
-                                return (
-                                    <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                        <span style={{ color: color, fontWeight: 700, fontSize: '0.80rem', textTransform: 'uppercase' }}>{stat.name}:</span>
-                                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </footer>
                 </div>
             </div>
+
+            {/* Footer Summary - Standard Style matching Contacts */}
+            <footer className="summary-footer" style={{ minHeight: "55px", height: "auto", background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: "flex", alignItems: "center", padding: "8px 2rem", flexShrink: 0, zIndex: 100, width: "100%" }}>
+                <div style={{ display: "flex", gap: "15px", alignItems: "center", flexWrap: "wrap", width: "100%" }}>
+                    <div 
+                        className="summary-label" 
+                        onClick={() => handleIndustryFilter(null)}
+                        style={{ 
+                            background: "#334155", 
+                            color: "#fff", 
+                            borderRadius: "8px", 
+                            fontSize: "0.65rem", 
+                            padding: "4px 12px", 
+                            fontWeight: 800, 
+                            letterSpacing: "0.5px", 
+                            cursor: "pointer", 
+                            whiteSpace: "nowrap",
+                            boxShadow: (!filters.industry && !filters.category) ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title="Click to reset filters and view all companies"
+                    >
+                        SUMMARY
+                    </div>
+                    {/* TOTAL COMPANIES Pill */}
+                    <div 
+                        className={`stat-pill ${(!filters.industry && !filters.category) ? 'active-summary-pill' : ''}`}
+                        onClick={() => handleIndustryFilter(null)}
+                        style={{ 
+                            cursor: "pointer", 
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "2px 8px",
+                            borderRadius: "10px",
+                            fontSize: "0.7rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.5px",
+                            border: (!filters.industry && !filters.category) ? "1.5px solid var(--primary-color)" : "1px solid transparent",
+                            background: (!filters.industry && !filters.category) ? "rgba(99, 102, 241, 0.12)" : "transparent",
+                            boxShadow: (!filters.industry && !filters.category) ? "0 0 5px rgba(99, 102, 241, 0.25)" : undefined,
+                            transition: "all 0.15s ease-in-out" 
+                        }}
+                        title={(!filters.industry && !filters.category) ? "Showing all companies" : "Click to view all companies"}
+                    >
+                        TOTAL COMPANIES 
+                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: "1.1rem", color: "#2ecc71" }}>
+                            {(persistentTotalCompanies.current || totalCount).toLocaleString()}
+                        </span>
+                    </div>
+
+                    {/* Industry Category Pills */}
+                    {industryStats && industryStats.map((stat, idx) => {
+                        const industryPalette = {
+                            'Real Estate': { color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
+                            'Construction': { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
+                            'Architecture': { color: '#6366f1', bg: 'rgba(99, 102, 241, 0.15)' },
+                            'Interior Design': { color: '#ec4899', bg: 'rgba(236, 72, 153, 0.15)' },
+                            'Finance': { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)' },
+                            'Consultancy': { color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)' },
+                            'Agricultural': { color: '#14b8a6', bg: 'rgba(20, 184, 166, 0.15)' }
+                        };
+                        const fallbackColors = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#3b82f6', '#14b8a6'];
+                        const theme = industryPalette[stat.name] || {
+                            color: fallbackColors[idx % fallbackColors.length],
+                            bg: `${fallbackColors[idx % fallbackColors.length]}20`
+                        };
+
+                        const isSelected = filters.industry
+                            ? (Array.isArray(filters.industry)
+                                ? filters.industry.some(i => String(i).toLowerCase() === stat.name.toLowerCase())
+                                : String(filters.industry).toLowerCase() === stat.name.toLowerCase())
+                            : (filters.category && (Array.isArray(filters.category)
+                                ? filters.category.some(c => String(c).toLowerCase() === stat.name.toLowerCase())
+                                : String(filters.category).toLowerCase() === stat.name.toLowerCase()));
+
+                        return (
+                            <div 
+                                key={stat._id || idx}
+                                className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`}
+                                onClick={() => handleIndustryFilter(stat.name)}
+                                style={{ 
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                    padding: "2px 8px",
+                                    borderRadius: "10px",
+                                    fontSize: "0.7rem",
+                                    fontWeight: 800,
+                                    letterSpacing: "0.5px",
+                                    border: isSelected ? `1.5px solid ${theme.color}` : "1px solid transparent",
+                                    background: isSelected ? theme.bg : "transparent",
+                                    boxShadow: isSelected ? `0 0 5px ${theme.color}40` : undefined,
+                                    transition: "all 0.15s ease-in-out"
+                                }}
+                                title={isSelected ? `Click to clear ${stat.name} filter` : `Filter by ${stat.name}`}
+                            >
+                                <span style={{ color: theme.color, fontWeight: 800, textTransform: "uppercase" }}>
+                                    {stat.name}
+                                </span>
+                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: "1.1rem", color: theme.color }}>
+                                    {stat.count.toLocaleString()}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </footer>
             {/* Filter Panel */}
             <CompanyFilterPanel
                 isOpen={isFilterPanelOpen}

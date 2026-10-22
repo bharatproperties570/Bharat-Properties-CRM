@@ -1,0 +1,13 @@
+{
+  "watch": [
+    "src/",
+    "controllers/",
+    "routes/",
+    "models/",
+    "utils/",
+    "services/",
+    "middleware/"
+  ],
+  "ext": "js,json",
+  "ignore": ["node_modules/", "logs/", "*.log", "scratch/"]
+}

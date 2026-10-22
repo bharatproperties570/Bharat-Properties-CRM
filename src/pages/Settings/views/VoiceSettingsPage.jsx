@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { systemSettingsAPI, jarvisAPI } from '../../../utils/api';
+import toast from 'react-hot-toast';
 
 // --- Sub-Components (Defined Outside) ---
 
@@ -84,18 +85,88 @@ const VoiceSettingsPage = () => {
     const [loadingJarvis, setLoadingJarvis] = useState(false);
     const [wakeAlias, setWakeAlias] = useState('JARVIS');
     const [voiceRate, setVoiceRate] = useState(1.05);
+    const [voiceConfig, setVoiceConfig] = useState({
+        enabled: true,
+        voice: 'Charon',
+        style: 'warm, confident, professional Indian executive real estate advisor, crisp natural Hindi and English pronunciation',
+        speed: 1.0,
+        provider: 'gemini',
+        wakeAlias: 'JARVIS',
+        customVoiceId: ''
+    });
+    const [isSavingVoice, setIsSavingVoice] = useState(false);
+    const [isAuditioning, setIsAuditioning] = useState(false);
 
     useEffect(() => {
-        if (subTab === 'jarvis' && !jarvisAnalytics) {
-            setLoadingJarvis(true);
-            jarvisAPI.getAnalytics()
+        if (subTab === 'jarvis') {
+            if (!jarvisAnalytics) {
+                setLoadingJarvis(true);
+                jarvisAPI.getAnalytics()
+                    .then(res => {
+                        if (res?.success) setJarvisAnalytics(res);
+                    })
+                    .catch(err => console.error('Failed to load Jarvis analytics', err))
+                    .finally(() => setLoadingJarvis(false));
+            }
+            jarvisAPI.getVoiceConfig()
                 .then(res => {
-                    if (res?.success) setJarvisAnalytics(res);
+                    if (res?.success && res?.config) {
+                        setVoiceConfig(prev => ({ ...prev, ...res.config }));
+                        if (res.config.wakeAlias) setWakeAlias(res.config.wakeAlias);
+                    }
                 })
-                .catch(err => console.error('Failed to load Jarvis analytics', err))
-                .finally(() => setLoadingJarvis(false));
+                .catch(err => console.error('Failed to load voice config', err));
         }
     }, [subTab]);
+
+    const handleAudition = async () => {
+        setIsAuditioning(true);
+        try {
+            const sampleText = "नमस्ते सर! भारत प्रॉपर्टीज में आपका स्वागत है। विकास शर्मा जी की लीड सेव हो गई है।";
+            const effectiveVoice = voiceConfig.voice === 'custom' && voiceConfig.customVoiceId ? voiceConfig.customVoiceId : (voiceConfig.voice || 'Charon');
+            const res = await jarvisAPI.synthesizeSpeech({
+                text: sampleText,
+                voice: effectiveVoice,
+                style: voiceConfig.style
+            });
+            if (res?.success && res?.audioBase64) {
+                const audio = new Audio('data:audio/wav;base64,' + res.audioBase64);
+                audio.play();
+                audio.onended = () => setIsAuditioning(false);
+                audio.onerror = () => {
+                    toast.error('Audio playback failed');
+                    setIsAuditioning(false);
+                };
+            } else {
+                toast.error('Failed to generate studio voice sample');
+                setIsAuditioning(false);
+            }
+        } catch (err) {
+            console.error('Audition error:', err);
+            toast.error('Error generating audio sample');
+            setIsAuditioning(false);
+        }
+    };
+
+    const handleSaveVoiceConfig = async () => {
+        setIsSavingVoice(true);
+        try {
+            const payload = {
+                ...voiceConfig,
+                wakeAlias
+            };
+            await jarvisAPI.saveVoiceConfig(payload);
+            toast.success('JARVIS Voice OS configuration saved successfully!', {
+                icon: '🎙️',
+                style: { background: '#0f172a', color: '#38bdf8', border: '1px solid #0284c7' }
+            });
+        } catch (err) {
+            console.error('Save voice config error:', err);
+            toast.error('Failed to save voice configuration');
+        } finally {
+            setIsSavingVoice(false);
+        }
+    };
 
     const tabs = [
         { id: 'jarvis', label: '⚡ JARVIS Voice OS' },
@@ -459,35 +530,157 @@ const VoiceSettingsPage = () => {
 
             {/* Customization Settings */}
             <div style={{ padding: '24px', borderRadius: '12px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                    Voice AI Persona &amp; Preferences
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="fas fa-microphone-alt" style={{ color: '#0284c7' }}></i>
+                            Studio Voice AI Persona &amp; Natural Hindi Speech Synthesis
+                        </h3>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            Powered by Google Gemini 3.8 Flash TTS with natural Hindi/Hinglish pronunciation &amp; custom persona replication.
+                        </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                            type="button"
+                            onClick={handleAudition}
+                            disabled={isAuditioning}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(56, 189, 248, 0.5)',
+                                background: isAuditioning ? 'rgba(56, 189, 248, 0.25)' : 'var(--bg-card)',
+                                color: '#0284c7',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                cursor: isAuditioning ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            <i className={`fas ${isAuditioning ? 'fa-spinner fa-spin' : 'fa-volume-up'}`}></i>
+                            {isAuditioning ? 'Playing Sample...' : 'Audition / टेस्ट वॉइस'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSaveVoiceConfig}
+                            disabled={isSavingVoice}
+                            style={{
+                                padding: '8px 20px',
+                                borderRadius: '8px',
+                                border: 'none',
+                                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                                color: '#ffffff',
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                cursor: isSavingVoice ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)'
+                            }}
+                        >
+                            <i className={`fas ${isSavingVoice ? 'fa-spinner fa-spin' : 'fa-check'}`}></i>
+                            {isSavingVoice ? 'Saving...' : 'Save Voice Persona'}
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px', marginBottom: '16px' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                            Wake Alias / Activation Keyword
+                            Studio Voice Actor / Model Persona
                         </label>
-                        <input
-                            type="text"
-                            value={wakeAlias}
-                            onChange={(e) => setWakeAlias(e.target.value)}
-                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)' }}
-                        />
+                        <select
+                            value={voiceConfig.voice}
+                            onChange={(e) => setVoiceConfig({ ...voiceConfig, voice: e.target.value })}
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        >
+                            <option value="Charon">Charon — Tony Stark / Steady Executive Advisor (Male, Deep &amp; Authoritative) [Recommended]</option>
+                            <option value="Algieba">Algieba — High-Trust Corporate Advisor (Male, Polished &amp; Smooth)</option>
+                            <option value="Alnilam">Alnilam — Commanding Senior Director (Male, Direct &amp; Firm)</option>
+                            <option value="Puck">Puck — Upbeat &amp; Energetic Sales Partner (Male, Dynamic)</option>
+                            <option value="Kore">Kore — Senior Managing Partner (Female, Crisp &amp; Executive)</option>
+                            <option value="Aoede">Aoede — Relationship Manager (Female, Warm &amp; Breezy)</option>
+                            <option value="custom">Custom Cloned Voice (Enter Voice ID below)</option>
+                        </select>
                     </div>
+
+                    {voiceConfig.voice === 'custom' ? (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                Custom Replicated Voice ID (from Google AI Studio)
+                            </label>
+                            <input
+                                type="text"
+                                value={voiceConfig.customVoiceId || ''}
+                                onChange={(e) => setVoiceConfig({ ...voiceConfig, customVoiceId: e.target.value })}
+                                placeholder="voice_12345abcdef..."
+                                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                            />
+                        </div>
+                    ) : (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                Wake Alias / Activation Keyword
+                            </label>
+                            <input
+                                type="text"
+                                value={wakeAlias}
+                                onChange={(e) => {
+                                    setWakeAlias(e.target.value);
+                                    setVoiceConfig({ ...voiceConfig, wakeAlias: e.target.value });
+                                }}
+                                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        Voice Delivery Style &amp; Pronunciation Persona Prompt
+                    </label>
+                    <input
+                        type="text"
+                        value={voiceConfig.style}
+                        onChange={(e) => setVoiceConfig({ ...voiceConfig, style: e.target.value })}
+                        placeholder="warm, confident, professional Indian executive real estate advisor, crisp natural Hindi and English pronunciation"
+                        style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                    />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        💡 Instructs the studio audio model on emotional warmth, pacing, and regional Hindi/Hinglish vocabulary fidelity.
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                            Speech Speed Rate ({voiceRate}x)
-                        </label>
-                        <input
-                            type="range"
-                            min="0.8"
-                            max="1.3"
-                            step="0.05"
-                            value={voiceRate}
-                            onChange={(e) => setVoiceRate(parseFloat(e.target.value))}
-                            style={{ width: '100%', marginTop: '10px' }}
-                        />
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            ✨ Enable Gemini 3.8 Flash Studio Audio
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            Generates natural human-like studio audio. If disabled or offline, falls back to browser voice.
+                        </div>
                     </div>
+                    <label style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={voiceConfig.enabled}
+                            onChange={(e) => setVoiceConfig({ ...voiceConfig, enabled: e.target.checked })}
+                            style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{
+                            position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: voiceConfig.enabled ? '#0284c7' : '#cbd5e1',
+                            transition: '.3s', borderRadius: '24px'
+                        }}>
+                            <span style={{
+                                position: 'absolute', content: '""', height: '18px', width: '18px', left: voiceConfig.enabled ? '22px' : '3px', bottom: '3px',
+                                backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
+                            }}></span>
+                        </span>
+                    </label>
                 </div>
             </div>
 

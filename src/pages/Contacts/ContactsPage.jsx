@@ -489,6 +489,23 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
     }
   }, []);
 
+  const handleRoleFilter = useCallback((roleKey) => {
+    setFilters(prev => {
+      if (!roleKey) {
+        const next = { ...prev };
+        delete next.role;
+        return next;
+      }
+      if (prev.role === roleKey) {
+        const next = { ...prev };
+        delete next.role;
+        return next;
+      }
+      return { ...prev, role: roleKey };
+    });
+    setCurrentPage(1);
+  }, []);
+
   
   const queryParams = useMemo(() => {
       const params = {
@@ -985,18 +1002,139 @@ function ContactsPage({ onEdit, onEditContact, onAddActivity, onNavigate }) {
       </div>
 
       <footer className="summary-footer" style={{ height: "auto", minHeight: "60px", padding: "12px var(--row-padding)", flexWrap: "wrap", gap: "15px" }}>
-        <div className="summary-label" style={{ background: "#334155", color: "#fff", padding: "4px 12px", borderRadius: "6px", fontSize: "0.7rem", fontWeight: 700 }}>SUMMARY</div>
+        <div 
+          className="summary-label" 
+          onClick={() => handleRoleFilter(null)}
+          style={{ background: "#334155", color: "#fff", padding: "4px 12px", borderRadius: "6px", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
+          title="Click to reset filters"
+        >
+          SUMMARY
+        </div>
         <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", alignItems: "center" }}>
-          <div className="stat-pill">TOTAL <strong>{stats.total || totalRecords}</strong></div>
-          <div className="stat-pill" style={{ background: "var(--stat-property-bg)", color: "var(--stat-property-color)" }}>PROPERTY OWNERS <strong>{stats.propertyOwners || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "var(--stat-investor-bg)", color: "var(--stat-investor-color)" }}>INVESTORS <strong>{stats.investors || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)" }}>AGENTS <strong>{stats.realEstateAgents || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "var(--stat-sales-bg)", color: "var(--stat-sales-color)" }}>SALES <strong>{stats.salesPersons || 0}</strong></div>
+          <div 
+            className={`stat-pill ${!filters.role ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter(null)}
+            style={{ 
+              cursor: "pointer", 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              border: !filters.role ? "1.5px solid var(--primary-color)" : "1px solid var(--border-color)",
+              background: !filters.role ? "rgba(99, 102, 241, 0.15)" : undefined,
+              fontWeight: !filters.role ? 800 : undefined,
+              boxShadow: !filters.role ? "0 0 5px rgba(99, 102, 241, 0.25)" : undefined,
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title="Click to view all contacts"
+          >
+            TOTAL <strong>{stats.total || totalRecords}</strong>
+          </div>
+          <div 
+            className={`stat-pill ${filters.role === 'propertyOwners' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('propertyOwners')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              background: filters.role === 'propertyOwners' ? "var(--stat-property-color)" : "var(--stat-property-bg)", 
+              color: filters.role === 'propertyOwners' ? "#fff" : "var(--stat-property-color)",
+              border: filters.role === 'propertyOwners' ? "1.5px solid var(--stat-property-color)" : "1px solid transparent",
+              boxShadow: filters.role === 'propertyOwners' ? "0 0 5px rgba(16, 185, 129, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'propertyOwners' ? "Click to clear filter" : "Filter by Property Owners"}
+          >
+            PROPERTY OWNERS <strong>{stats.propertyOwners || 0}</strong>
+          </div>
+          <div 
+            className={`stat-pill ${filters.role === 'investors' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('investors')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              background: filters.role === 'investors' ? "var(--stat-investor-color)" : "var(--stat-investor-bg)", 
+              color: filters.role === 'investors' ? "#fff" : "var(--stat-investor-color)",
+              border: filters.role === 'investors' ? "1.5px solid var(--stat-investor-color)" : "1px solid transparent",
+              boxShadow: filters.role === 'investors' ? "0 0 5px rgba(59, 130, 246, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'investors' ? "Click to clear filter" : "Filter by Investors"}
+          >
+            INVESTORS <strong>{stats.investors || 0}</strong>
+          </div>
+          <div 
+            className={`stat-pill ${filters.role === 'realEstateAgents' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('realEstateAgents')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              background: filters.role === 'realEstateAgents' ? "var(--stat-agent-color)" : "var(--stat-agent-bg)", 
+              color: filters.role === 'realEstateAgents' ? "#fff" : "var(--stat-agent-color)",
+              border: filters.role === 'realEstateAgents' ? "1.5px solid var(--stat-agent-color)" : "1px solid transparent",
+              boxShadow: filters.role === 'realEstateAgents' ? "0 0 5px rgba(139, 92, 246, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'realEstateAgents' ? "Click to clear filter" : "Filter by Agents"}
+          >
+            AGENTS <strong>{stats.realEstateAgents || 0}</strong>
+          </div>
+          <div 
+            className={`stat-pill ${filters.role === 'salesPersons' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('salesPersons')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              background: filters.role === 'salesPersons' ? "var(--stat-sales-color)" : "var(--stat-sales-bg)", 
+              color: filters.role === 'salesPersons' ? "#fff" : "var(--stat-sales-color)",
+              border: filters.role === 'salesPersons' ? "1.5px solid var(--stat-sales-color)" : "1px solid transparent",
+              boxShadow: filters.role === 'salesPersons' ? "0 0 5px rgba(245, 158, 11, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'salesPersons' ? "Click to clear filter" : "Filter by Sales"}
+          >
+            SALES <strong>{stats.salesPersons || 0}</strong>
+          </div>
           
           <div style={{ width: "1px", height: "20px", background: "var(--border-color)", margin: "0 5px" }}></div>
           
-          <div className="stat-pill" style={{ opacity: 0.8 }}>PROSPECTS <strong>{stats.prospects || 0}</strong></div>
-          <div className="stat-pill" style={{ opacity: 0.8 }}>CUSTOMERS <strong>{stats.customers || 0}</strong></div>
+          <div 
+            className={`stat-pill ${filters.role === 'prospects' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('prospects')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              opacity: filters.role === 'prospects' ? 1 : 0.85,
+              background: filters.role === 'prospects' ? "#0284c7" : undefined,
+              color: filters.role === 'prospects' ? "#fff" : undefined,
+              border: filters.role === 'prospects' ? "1.5px solid #0284c7" : "1px solid var(--border-color)",
+              boxShadow: filters.role === 'prospects' ? "0 0 5px rgba(2, 132, 199, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'prospects' ? "Click to clear filter" : "Filter by Prospects (Leads)"}
+          >
+            PROSPECTS <strong>{stats.prospects || 0}</strong>
+          </div>
+          <div 
+            className={`stat-pill ${filters.role === 'customers' ? 'active-summary-pill' : ''}`}
+            onClick={() => handleRoleFilter('customers')}
+            style={{ 
+              padding: "2px 8px",
+              borderRadius: "10px",
+              opacity: filters.role === 'customers' ? 1 : 0.85,
+              background: filters.role === 'customers' ? "#16a34a" : undefined,
+              color: filters.role === 'customers' ? "#fff" : undefined,
+              border: filters.role === 'customers' ? "1.5px solid #16a34a" : "1px solid var(--border-color)",
+              boxShadow: filters.role === 'customers' ? "0 0 5px rgba(22, 163, 74, 0.4)" : undefined,
+              cursor: "pointer", 
+              transition: "all 0.15s ease-in-out" 
+            }}
+            title={filters.role === 'customers' ? "Click to clear filter" : "Filter by Customers"}
+          >
+            CUSTOMERS <strong>{stats.customers || 0}</strong>
+          </div>
         </div>
       </footer>
 
