@@ -154,6 +154,17 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         }
 
         console.log(`[Cron Worker] Dispatched ${remindersSent} follow-up reminders.`);
+
+        // Enterprise: Site Visit 24h and 2h Reminders
+        try {
+            const { default: SiteVisitAutomationService } = await import('../modules/siteVisit/siteVisitAutomation.service.js');
+            const res24 = await SiteVisitAutomationService.dispatch24hReminders();
+            const res2 = await SiteVisitAutomationService.dispatch2hReminders();
+            console.log(`[Cron Worker] Site Visit Reminders: 24h=${res24.count}, 2h=${res2.count}`);
+        } catch (svRemErr) {
+            console.warn('[Cron Worker] Site Visit Reminders Warning:', svRemErr.message);
+        }
+
         return { remindersDispatched: remindersSent };
     }
     if (job.name === 'enforceSLAReassignment') {

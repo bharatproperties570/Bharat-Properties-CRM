@@ -5,6 +5,7 @@ import Lead from '../../../models/Lead.js';
 import Deal from '../../../models/Deal.js';
 import LookupService from '../../../services/LookupService.js';
 import { autoTriggerStageChange } from '../../../controllers/activity.controller.js';
+import SiteVisitAutomationService from './siteVisitAutomation.service.js';
 
 export class SiteVisitService {
     /**
@@ -299,6 +300,13 @@ export class SiteVisitService {
         }
 
         await activity.save();
+
+        // Automatically dispatch feedback request
+        try {
+            await SiteVisitAutomationService.dispatchPostVisitFeedback(activity);
+        } catch (autoErr) {
+            console.warn('[SiteVisitService] Feedback dispatch warning:', autoErr.message);
+        }
 
         // Trigger Stage Transition Engine & Scoring
         let transition = null;

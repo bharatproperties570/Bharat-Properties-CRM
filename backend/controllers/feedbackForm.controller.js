@@ -375,6 +375,14 @@ export const submitFeedback = async (req, res, next) => {
                             link: `/activities/${activity._id}`
                         }).catch(() => {});
                     }
+
+                    try {
+                        const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
+                        const comments = Object.values(responses || {}).filter(v => typeof v === 'string').join(' | ');
+                        await SiteVisitAutomationService.escalateNegativeFeedback(activity, submissionRating, comments);
+                    } catch (escErr) {
+                        console.warn('[FeedbackSubmit] Escalation service warning:', escErr.message);
+                    }
                 }
 
                 activityUpdates.$addToSet = { tags: { $each: tagsToAdd } };
