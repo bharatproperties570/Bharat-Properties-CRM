@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import Activity from '../../../models/Activity.js';
 import Lead from '../../../models/Lead.js';
@@ -161,6 +162,18 @@ export class SiteVisitService {
         activity.details.lastRescheduledReason = reason.trim();
         activity.details.lastRescheduledAt = new Date();
 
+        // Reconcile reminder eligibility for new schedule
+        if (activity.details.remindersSent) {
+            activity.details.remindersSent = {
+                previousSchedule: { ...activity.details.remindersSent },
+                h24: false,
+                h24Status: 'PENDING_RESCHEDULED',
+                h2: false,
+                h2Status: 'PENDING_RESCHEDULED',
+                rescheduledAt: new Date()
+            };
+        }
+
         await activity.save();
 
         return {
@@ -190,6 +203,13 @@ export class SiteVisitService {
         }
         if (activity.status === 'Completed') {
             throw new Error('Completed site visits cannot be cancelled');
+        }
+        if (activity.status === 'Cancelled') {
+            return {
+                activity,
+                alreadyCancelled: true,
+                message: 'Site visit is already cancelled'
+            };
         }
 
         if (!activity.details) activity.details = {};
@@ -229,6 +249,9 @@ export class SiteVisitService {
         if (activity.status === 'Completed') {
             throw new Error('Site visit is already completed');
         }
+        if (activity.status === 'Cancelled') {
+            throw new Error('Cancelled site visits cannot be completed');
+        }
 
         const performerName = user?.fullName || user?.name || 'CRM Consultant';
         activity.status = 'Completed';
@@ -252,12 +275,28 @@ export class SiteVisitService {
             activity.details.visitedProperties = visitedProperties;
         }
 
-        // Deal linkage
-        if (dealId && mongoose.Types.ObjectId.isValid(dealId)) {
+        // Deal linkage verification: prevent invalid or mismatched deal IDs from being linked
+        if (dealId) {
+            if (!mongoose.Types.ObjectId.isValid(dealId)) {
+                throw new Error('Valid dealId is required');
+            }
+            let dealTitle = 'Linked Deal';
+            if (mongoose.connection?.readyState === 1) {
+                const deal = await Deal.findById(dealId);
+                if (!deal) {
+                    throw new Error('Linked deal does not exist');
+                }
+                const dealLeadId = deal.lead || deal.leadId;
+                if (dealLeadId && String(dealLeadId) !== String(activity.entityId)) {
+                    throw new Error('Linked deal does not belong to the same lead as this site visit');
+                }
+                if (deal.title) dealTitle = deal.title;
+            }
+
             if (!Array.isArray(activity.relatedTo)) activity.relatedTo = [];
             const exists = activity.relatedTo.some(r => String(r.id) === String(dealId));
             if (!exists) {
-                activity.relatedTo.push({ id: dealId, model: 'Deal', name: 'Linked Deal' });
+                activity.relatedTo.push({ id: dealId, model: 'Deal', name: dealTitle });
             }
 
             // Sync property details to deal
@@ -276,34 +315,47 @@ export class SiteVisitService {
             }
         }
 
-        // Generate Customer Feedback Token & Link
+        // Generate Customer Feedback Token & Link (Compatible with feedbackForm contract)
         let feedbackToken = null;
         let feedbackLink = null;
-        if (process.env.JWT_SECRET && activity.entityId) {
+        const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
+        if (secret && activity.entityId) {
+            const jti = crypto.randomUUID ? crypto.randomUUID() : (await import('uuid')).v4();
+            const formSlug = 'customer-experience-feedback-qx9z2';
+            const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
+
             feedbackToken = jwt.sign(
                 {
+                    iss: 'bharat-properties-crm',
                     leadId: String(activity.entityId),
                     activityId: String(activity._id),
                     purpose: 'customer_feedback',
-                    source: 'site_visit_completion'
+                    source: 'site_visit_completion',
+                    formSlug,
+                    jti
                 },
-                process.env.JWT_SECRET,
-                { expiresIn: '60d' }
+                secret,
+                { expiresIn: '30d' }
             );
 
-            const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
-            const formSlug = 'customer-experience-feedback-qx9z2';
-            feedbackLink = `${baseUrl}/public/feedback/${formSlug}?ref=${feedbackToken}`;
+            // Replace dots with ~ for Meta WhatsApp URL variable safety
+            const safeToken = feedbackToken.replace(/\./g, '~');
+            feedbackLink = `${baseUrl}/public/feedback/${formSlug}?ref=${safeToken}`;
 
-            activity.details.feedbackToken = feedbackToken;
+            // Store minimum necessary sensitive info: token hash and JTI rather than raw bearer token
+            const tokenHash = crypto.createHash('sha256').update(feedbackToken).digest('hex');
+            activity.details.feedbackTokenHash = tokenHash;
+            activity.details.feedbackTokenJti = jti;
             activity.details.feedbackLink = feedbackLink;
+            delete activity.details.feedbackToken; // Avoid persisting raw bearer token
         }
 
         await activity.save();
 
-        // Automatically dispatch feedback request
+        // Automatically dispatch feedback request via genuine notification delivery
+        let dispatchResult = null;
         try {
-            await SiteVisitAutomationService.dispatchPostVisitFeedback(activity);
+            dispatchResult = await SiteVisitAutomationService.dispatchPostVisitFeedback(activity);
         } catch (autoErr) {
             console.warn('[SiteVisitService] Feedback dispatch warning:', autoErr.message);
         }
@@ -321,6 +373,7 @@ export class SiteVisitService {
             stageTransition: transition,
             feedbackLink,
             feedbackToken,
+            feedbackDispatch: dispatchResult,
             message: 'Site visit completed successfully'
         };
     }

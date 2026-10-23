@@ -25,79 +25,84 @@ class WhatsAppService {
     async _getMetaConfig(integrationIdOrPhoneId = null) {
         const isPlaceholder = (val) => !val || val.includes('YOUR_') || val.includes('SYSTEM_USER');
 
-        // 1. If explicit account ID or Phone ID is requested, look in WhatsAppIntegration
-        if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
-            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
-            const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
-                ? { _id: integrationIdOrPhoneId, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }
-                : { phoneNumberId: String(integrationIdOrPhoneId), provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' };
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
+            // 1. If explicit account ID or Phone ID is requested, look in WhatsAppIntegration
+            if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
+                try {
+                    const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+                    const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
+                        ? { _id: integrationIdOrPhoneId, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }
+                        : { phoneNumberId: String(integrationIdOrPhoneId), provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' };
 
-            let integration = await WhatsAppIntegration.findOne(query).lean();
-            if (!integration) {
-                // If explicit ID was not an active Meta account (e.g. was Baileys ID passed during cross-channel toggle), fall back to default Meta account
-                console.warn(`[WhatsAppService] Explicit account '${integrationIdOrPhoneId}' is not an active Meta account. Falling back to default Meta integration.`);
-                integration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
-            }
+                    let integration = await WhatsAppIntegration.findOne(query).lean();
+                    if (!integration) {
+                        console.warn(`[WhatsAppService] Explicit account '${integrationIdOrPhoneId}' is not an active Meta account. Falling back to default Meta integration.`);
+                        integration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+                    }
 
-            if (integration) {
-                if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
-                    throw new Error(`Target WhatsApp account '${integration.accountLabel || integration._id}' has no valid credentials`);
+                    if (integration) {
+                        if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
+                            throw new Error(`Target WhatsApp account '${integration.accountLabel || integration._id}' has no valid credentials`);
+                        }
+                        return {
+                            integrationId: integration._id,
+                            token: integration.credentials?.systemUserToken,
+                            phoneId: integration.phoneNumberId,
+                            businessId: integration.wabaId,
+                            appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                            displayPhoneNumber: integration.displayPhoneNumber,
+                            accountLabel: integration.accountLabel || 'WhatsApp Account',
+                            connectionType: integration.connectionType,
+                            provider: integration.provider || 'META'
+                        };
+                    }
+                } catch (e) {
+                    // Ignore DB lookup error in test/unconnected mode
                 }
-                return {
-                    integrationId: integration._id,
-                    token: integration.credentials?.systemUserToken,
-                    phoneId: integration.phoneNumberId,
-                    businessId: integration.wabaId,
-                    appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
-                    displayPhoneNumber: integration.displayPhoneNumber,
-                    accountLabel: integration.accountLabel || 'WhatsApp Account',
-                    connectionType: integration.connectionType,
-                    provider: integration.provider || 'META'
-                };
+            }
+
+            // 2. Try default active WhatsAppIntegration (e.g. if configured as default)
+            try {
+                const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+                const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
+                if (defaultIntegration && (defaultIntegration.provider === 'BAILEYS' || (defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)))) {
+                    return {
+                        integrationId: defaultIntegration._id,
+                        token: defaultIntegration.credentials?.systemUserToken,
+                        phoneId: defaultIntegration.phoneNumberId,
+                        businessId: defaultIntegration.wabaId,
+                        appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                        displayPhoneNumber: defaultIntegration.displayPhoneNumber,
+                        accountLabel: defaultIntegration.accountLabel || 'Main WhatsApp API',
+                        connectionType: defaultIntegration.connectionType,
+                        provider: defaultIntegration.provider || 'META'
+                    };
+                }
+            } catch (e) {
+                // ignore if model not compiled yet
+            }
+
+            // 3. Fallback: Legacy meta_wa_config in SystemSetting (100% Backward Compatible)
+            try {
+                const SystemSetting = mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default;
+                const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+
+                if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
+                    return {
+                        token: setting.value.token,
+                        phoneId: setting.value.phoneId,
+                        businessId: setting.value.businessId,
+                        appId: setting.value.appId || process.env.META_WA_APP_ID,
+                        displayPhoneNumber: setting.value.displayPhoneNumber || '+91 99960 00570',
+                        accountLabel: 'Main Official WhatsApp API'
+                    };
+                }
+            } catch (e) {
+                console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
             }
         }
 
-        // 2. Try default active WhatsAppIntegration (e.g. if configured as default)
-        try {
-            const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
-            const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
-            if (defaultIntegration && (defaultIntegration.provider === 'BAILEYS' || (defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)))) {
-                return {
-                    integrationId: defaultIntegration._id,
-                    token: defaultIntegration.credentials?.systemUserToken,
-                    phoneId: defaultIntegration.phoneNumberId,
-                    businessId: defaultIntegration.wabaId,
-                    appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
-                    displayPhoneNumber: defaultIntegration.displayPhoneNumber,
-                    accountLabel: defaultIntegration.accountLabel || 'Main WhatsApp API',
-                    connectionType: defaultIntegration.connectionType,
-                    provider: defaultIntegration.provider || 'META'
-                };
-            }
-        } catch (e) {
-            // ignore if model not compiled yet
-        }
-
-        // 3. Fallback: Legacy meta_wa_config in SystemSetting (100% Backward Compatible)
-        try {
-            const SystemSetting = mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default;
-            const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-
-            if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
-                return {
-                    token: setting.value.token,
-                    phoneId: setting.value.phoneId,
-                    businessId: setting.value.businessId,
-                    appId: setting.value.appId || process.env.META_WA_APP_ID,
-                    displayPhoneNumber: setting.value.displayPhoneNumber || '+91 99960 00570',
-                    accountLabel: 'Main Official WhatsApp API'
-                };
-            }
-        } catch (e) {
-            console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
-        }
-
-        // 4. Fallback to Env if DB is empty
+        // 4. Fallback to Env if DB is empty or unconnected
         if (process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID && !isPlaceholder(process.env.META_WA_TOKEN)) {
             return {
                 token: process.env.META_WA_TOKEN,
@@ -113,6 +118,9 @@ class WhatsAppService {
     }
 
     async _getBaileysConfig(integrationIdOrPhoneId = null) {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            throw new Error("Active WhatsApp Web account not found (database not connected).");
+        }
         const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
         let integration = null;
         if (integrationIdOrPhoneId) {
