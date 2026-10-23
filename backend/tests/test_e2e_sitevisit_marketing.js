@@ -43,6 +43,13 @@ async function runE2ETests() {
     const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
     const { createBooking } = await import('../controllers/booking.controller.js');
     const { getSiteVisitFunnelAnalytics, getCampaignAttributionAnalytics } = await import('../controllers/analytics.controller.js');
+    const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
+
+    const origWaSendMessage = WhatsAppService.sendMessage;
+    WhatsAppService.sendMessage = async () => ({
+        success: true,
+        messages: [{ id: 'wa-msg-e2e-1' }]
+    });
 
     // Models
     const Lead = mongoose.models.Lead || mongoose.model('Lead');
@@ -662,6 +669,8 @@ async function runE2ETests() {
     console.log(`All 10 E2E Lifecycle Stages Verified!`);
     console.log(`Results: ${passed} passed, ${failed} failed`);
     console.log(`========================================\n`);
+
+    WhatsAppService.sendMessage = origWaSendMessage;
 
     if (failed > 0) process.exit(1);
     process.exit(0);

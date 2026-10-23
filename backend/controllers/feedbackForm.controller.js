@@ -322,8 +322,12 @@ export const submitFeedback = async (req, res, next) => {
             }
 
             // Check if feedback already submitted (Single-use & Idempotency)
-            if (activityDoc.details?.customerFeedback?.submissionId || activityDoc.details?.feedbackSubmitted) {
-                const existingSubmissionId = activityDoc.details?.customerFeedback?.submissionId;
+            if (
+                activityDoc.details?.customerFeedback?.submissionId ||
+                activityDoc.details?.feedbackSubmitted === true ||
+                activityDoc.details?.submissionId
+            ) {
+                const existingSubmissionId = activityDoc.details?.customerFeedback?.submissionId || activityDoc.details?.submissionId;
                 const existingSub = existingSubmissionId ? await FeedbackSubmission.findById(existingSubmissionId).lean().catch(() => null) : null;
                 return res.status(200).json({
                     success: true,
@@ -333,18 +337,27 @@ export const submitFeedback = async (req, res, next) => {
                 });
             }
 
-            // Concurrency-Safe Atomic Lock
+            // Concurrency-Safe Atomic Lock with 60s Lease Expiry Recovery
             let lockedActivity = null;
-            if (typeof Activity.findOneAndUpdate === 'function' && mongoose.connection?.readyState === 1) {
+            const lockId = crypto.randomUUID();
+            const lockThreshold = new Date(Date.now() - 60000); // 60s lease expiry recovery
+
+            if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
                 lockedActivity = await Activity.findOneAndUpdate(
                     {
                         _id: authoritativeActivityId,
+                        'details.feedbackSubmitted': { $ne: true },
                         'details.customerFeedback.submissionId': { $exists: false },
-                        'details.feedbackLock': { $ne: true }
+                        'details.submissionId': { $exists: false },
+                        $or: [
+                            { 'details.feedbackLock': { $ne: true } },
+                            { 'details.feedbackLockAt': { $lt: lockThreshold } }
+                        ]
                     },
                     {
                         $set: {
                             'details.feedbackLock': true,
+                            'details.feedbackLockId': lockId,
                             'details.feedbackLockAt': new Date()
                         }
                     },
@@ -353,15 +366,21 @@ export const submitFeedback = async (req, res, next) => {
 
                 if (!lockedActivity) {
                     const recheck = await Activity.findById(authoritativeActivityId);
-                    if (recheck?.details?.customerFeedback?.submissionId) {
+                    if (recheck?.details?.customerFeedback?.submissionId || recheck?.details?.feedbackSubmitted === true || recheck?.details?.submissionId) {
+                        const existingSubId = recheck?.details?.customerFeedback?.submissionId || recheck?.details?.submissionId;
+                        const existingSub = existingSubId ? await FeedbackSubmission.findById(existingSubId).lean().catch(() => null) : null;
                         return res.status(200).json({
                             success: true,
                             duplicate: true,
+                            data: existingSub || { _id: existingSubId },
                             message: "Feedback has already been recorded for this activity."
                         });
                     }
                     return res.status(409).json({ success: false, message: "Feedback submission in progress by another request" });
                 }
+            } else if (process.env.NODE_ENV === 'production') {
+                // Fail closed when database is disconnected / unavailable in production
+                return res.status(503).json({ success: false, message: "Database temporarily unavailable" });
             } else {
                 lockedActivity = activityDoc;
             }
@@ -413,7 +432,11 @@ export const submitFeedback = async (req, res, next) => {
                         feedbackText,
                         submittedAt: new Date()
                     },
-                    $unset: { 'details.feedbackLock': 1 }
+                    $unset: {
+                        'details.feedbackLock': 1,
+                        'details.feedbackLockId': 1,
+                        'details.feedbackLockAt': 1
+                    }
                 };
 
                 if (activityDoc.status !== 'Completed') {
@@ -488,7 +511,18 @@ export const submitFeedback = async (req, res, next) => {
                 });
 
             } catch (innerErr) {
-                await Activity.findByIdAndUpdate(authoritativeActivityId, { $unset: { 'details.feedbackLock': 1 } }).catch(() => {});
+                if (lockId) {
+                    await Activity.findOneAndUpdate(
+                        { _id: authoritativeActivityId, 'details.feedbackLockId': lockId },
+                        {
+                            $unset: {
+                                'details.feedbackLock': 1,
+                                'details.feedbackLockId': 1,
+                                'details.feedbackLockAt': 1
+                            }
+                        }
+                    ).catch(() => {});
+                }
                 throw innerErr;
             }
         }

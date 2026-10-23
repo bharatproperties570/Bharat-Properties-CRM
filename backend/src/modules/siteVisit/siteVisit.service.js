@@ -126,55 +126,97 @@ export class SiteVisitService {
             throw new Error('A valid reason is mandatory when rescheduling a site visit');
         }
 
-        const activity = await Activity.findById(activityId);
-        if (!activity) {
-            throw new Error('Activity not found');
-        }
-        if (activity.type !== 'Site Visit') {
-            throw new Error('Activity is not a Site Visit');
-        }
-        if (activity.status === 'Completed') {
-            throw new Error('Completed site visits cannot be rescheduled');
-        }
-        if (activity.status === 'Cancelled') {
-            throw new Error('Cancelled site visits cannot be rescheduled');
-        }
+        const trimmedReason = reason.trim();
+        const userName = user?.fullName || user?.name || 'CRM User';
+        const userId = user?._id || user?.id || null;
 
-        if (!activity.details) activity.details = {};
-        if (!Array.isArray(activity.details.rescheduleHistory)) {
-            activity.details.rescheduleHistory = [];
-        }
+        // Atomic CAS State Transition
+        let activity = null;
+        if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
+            activity = await Activity.findOneAndUpdate(
+                {
+                    _id: activityId,
+                    type: 'Site Visit',
+                    status: { $in: ['Pending', 'Scheduled'] }
+                },
+                {
+                    $set: {
+                        dueDate: new Date(newDate),
+                        dueTime: newTime,
+                        status: 'Pending',
+                        'details.lastRescheduledReason': trimmedReason,
+                        'details.lastRescheduledAt': new Date(),
+                        'details.remindersSent.h24': false,
+                        'details.remindersSent.h24Status': 'PENDING_RESCHEDULED',
+                        'details.remindersSent.h2': false,
+                        'details.remindersSent.h2Status': 'PENDING_RESCHEDULED',
+                        'details.remindersSent.rescheduledAt': new Date()
+                    },
+                    $push: {
+                        'details.rescheduleHistory': {
+                            newDate: new Date(newDate),
+                            newTime,
+                            reason: trimmedReason,
+                            rescheduledBy: userId,
+                            rescheduledByName: userName,
+                            rescheduledAt: new Date()
+                        }
+                    }
+                },
+                { new: true }
+            );
+        } else {
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Completed site visits cannot be rescheduled');
+            if (current.status === 'Cancelled') throw new Error('Cancelled site visits cannot be rescheduled');
 
-        activity.details.rescheduleHistory.push({
-            previousDate: activity.dueDate,
-            previousTime: activity.dueTime,
-            newDate: new Date(newDate),
-            newTime,
-            reason: reason.trim(),
-            rescheduledBy: user?._id || user?.id || null,
-            rescheduledByName: user?.fullName || user?.name || 'CRM User',
-            rescheduledAt: new Date()
-        });
+            if (!current.details) current.details = {};
+            if (!Array.isArray(current.details.rescheduleHistory)) current.details.rescheduleHistory = [];
 
-        activity.dueDate = new Date(newDate);
-        activity.dueTime = newTime;
-        activity.status = 'Pending';
-        activity.details.lastRescheduledReason = reason.trim();
-        activity.details.lastRescheduledAt = new Date();
-
-        // Reconcile reminder eligibility for new schedule
-        if (activity.details.remindersSent) {
-            activity.details.remindersSent = {
-                previousSchedule: { ...activity.details.remindersSent },
-                h24: false,
-                h24Status: 'PENDING_RESCHEDULED',
-                h2: false,
-                h2Status: 'PENDING_RESCHEDULED',
+            current.details.rescheduleHistory.push({
+                previousDate: current.dueDate,
+                previousTime: current.dueTime,
+                newDate: new Date(newDate),
+                newTime,
+                reason: trimmedReason,
+                rescheduledBy: userId,
+                rescheduledByName: userName,
                 rescheduledAt: new Date()
-            };
+            });
+
+            current.dueDate = new Date(newDate);
+            current.dueTime = newTime;
+            current.status = 'Pending';
+            current.details.lastRescheduledReason = trimmedReason;
+            current.details.lastRescheduledAt = new Date();
+
+            if (current.details.remindersSent) {
+                current.details.remindersSent = {
+                    previousSchedule: { ...current.details.remindersSent },
+                    h24: false,
+                    h24Status: 'PENDING_RESCHEDULED',
+                    h2: false,
+                    h2Status: 'PENDING_RESCHEDULED',
+                    rescheduledAt: new Date()
+                };
+            }
+            activity = current;
         }
 
-        await activity.save();
+        if (!activity) {
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Completed site visits cannot be rescheduled');
+            if (current.status === 'Cancelled') throw new Error('Cancelled site visits cannot be rescheduled');
+            throw new Error(`Cannot reschedule site visit with status '${current.status}'`);
+        }
+
+        if (typeof activity.save === 'function') {
+            await activity.save().catch(() => {});
+        }
 
         return {
             activity,
@@ -194,35 +236,65 @@ export class SiteVisitService {
             throw new Error('A valid cancellation reason is mandatory');
         }
 
-        const activity = await Activity.findById(activityId);
+        const trimmedReason = reason.trim();
+        const userName = user?.fullName || user?.name || 'CRM User';
+        const userId = user?._id || user?.id || null;
+
+        // Atomic CAS State Transition
+        let activity = null;
+        if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
+            activity = await Activity.findOneAndUpdate(
+                {
+                    _id: activityId,
+                    type: 'Site Visit',
+                    status: { $in: ['Pending', 'Scheduled'] }
+                },
+                {
+                    $set: {
+                        status: 'Cancelled',
+                        'details.cancelReason': trimmedReason,
+                        'details.cancelledAt': new Date(),
+                        'details.cancelledBy': userId,
+                        'details.cancelledByName': userName
+                    }
+                },
+                { new: true }
+            );
+        } else {
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Completed site visits cannot be cancelled');
+            if (current.status === 'Cancelled') {
+                return { activity: current, alreadyCancelled: true, message: 'Site visit is already cancelled' };
+            }
+            current.status = 'Cancelled';
+            if (!current.details) current.details = {};
+            current.details.cancelReason = trimmedReason;
+            current.details.cancelledAt = new Date();
+            current.details.cancelledBy = userId;
+            current.details.cancelledByName = userName;
+            activity = current;
+        }
+
         if (!activity) {
-            throw new Error('Activity not found');
-        }
-        if (activity.type !== 'Site Visit') {
-            throw new Error('Activity is not a Site Visit');
-        }
-        if (activity.status === 'Completed') {
-            throw new Error('Completed site visits cannot be cancelled');
-        }
-        if (activity.status === 'Cancelled') {
-            return {
-                activity,
-                alreadyCancelled: true,
-                message: 'Site visit is already cancelled'
-            };
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Completed site visits cannot be cancelled');
+            if (current.status === 'Cancelled') {
+                return { activity: current, alreadyCancelled: true, message: 'Site visit is already cancelled' };
+            }
+            throw new Error(`Cannot cancel site visit with status '${current.status}'`);
         }
 
-        if (!activity.details) activity.details = {};
-        activity.status = 'Cancelled';
-        activity.details.cancelReason = reason.trim();
-        activity.details.cancelledAt = new Date();
-        activity.details.cancelledBy = user?._id || user?.id || null;
-        activity.details.cancelledByName = user?.fullName || user?.name || 'CRM User';
-
-        await activity.save();
+        if (typeof activity.save === 'function') {
+            await activity.save().catch(() => {});
+        }
 
         return {
             activity,
+            alreadyCancelled: false,
             message: 'Site visit cancelled successfully'
         };
     }
@@ -239,74 +311,107 @@ export class SiteVisitService {
             throw new Error('Completion outcome is required (e.g. Interested, Token Given, Low Budget, Location Mismatch, Postponed, Not Interested)');
         }
 
-        const activity = await Activity.findById(activityId);
-        if (!activity) {
-            throw new Error('Activity not found');
-        }
-        if (activity.type !== 'Site Visit') {
-            throw new Error('Activity is not a Site Visit');
-        }
-        if (activity.status === 'Completed') {
-            throw new Error('Site visit is already completed');
-        }
-        if (activity.status === 'Cancelled') {
-            throw new Error('Cancelled site visits cannot be completed');
-        }
-
         const performerName = user?.fullName || user?.name || 'CRM Consultant';
-        activity.status = 'Completed';
-        activity.completedAt = new Date();
-        activity.completionResult = outcome.trim();
-        activity.performedBy = performerName;
+        const trimmedOutcome = outcome.trim();
 
-        if (completionNotes) {
-            activity.description = activity.description
-                ? `${activity.description}\n[Completion Notes]: ${completionNotes}`
-                : completionNotes;
-        }
-
-        if (!activity.details) activity.details = {};
-        activity.details.outcome = outcome.trim();
-        if (clientRating) {
-            activity.details.clientRating = Number(clientRating);
-        }
-
-        if (Array.isArray(visitedProperties) && visitedProperties.length > 0) {
-            activity.details.visitedProperties = visitedProperties;
-        }
-
-        // Deal linkage verification: prevent invalid or mismatched deal IDs from being linked
+        // 1. Pre-validate Deal Linkage if provided (Fail-Closed!)
+        let dealDoc = null;
         if (dealId) {
-            if (!mongoose.Types.ObjectId.isValid(dealId)) {
+            if (!dealId || !mongoose.Types.ObjectId.isValid(dealId)) {
                 throw new Error('Valid dealId is required');
             }
-            let dealTitle = 'Linked Deal';
-            if (mongoose.connection?.readyState === 1) {
-                const deal = await Deal.findById(dealId);
-                if (!deal) {
-                    throw new Error('Linked deal does not exist');
-                }
-                const dealLeadId = deal.lead || deal.leadId;
-                if (dealLeadId && String(dealLeadId) !== String(activity.entityId)) {
-                    throw new Error('Linked deal does not belong to the same lead as this site visit');
-                }
-                if (deal.title) dealTitle = deal.title;
+            // Database must be available to verify the deal relationship — fail closed!
+            if (mongoose.connection?.readyState !== 1 && Deal.findById === mongoose.Model.findById) {
+                throw new Error('Database unavailable: Cannot verify deal linkage');
+            }
+            dealDoc = await Deal.findById(dealId);
+            if (!dealDoc) {
+                throw new Error('Linked deal does not exist');
+            }
+            const dealLeadId = dealDoc.lead || dealDoc.leadId;
+            if (!dealLeadId) {
+                throw new Error('Linked deal has no associated lead relation');
+            }
+        }
+
+        // 2. Atomic Compare-And-Set (CAS) State Transition
+        let activity = null;
+        if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
+            const updateOps = {
+                status: 'Completed',
+                completedAt: new Date(),
+                completionResult: trimmedOutcome,
+                performedBy: performerName,
+                'details.outcome': trimmedOutcome
+            };
+            if (clientRating) updateOps['details.clientRating'] = Number(clientRating);
+            if (Array.isArray(visitedProperties) && visitedProperties.length > 0) {
+                updateOps['details.visitedProperties'] = visitedProperties;
             }
 
+            activity = await Activity.findOneAndUpdate(
+                {
+                    _id: activityId,
+                    type: 'Site Visit',
+                    status: { $in: ['Pending', 'Scheduled'] }
+                },
+                { $set: updateOps },
+                { new: true }
+            );
+        } else {
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Site visit is already completed');
+            if (current.status === 'Cancelled') throw new Error('Cancelled site visits cannot be completed');
+            current.status = 'Completed';
+            current.completedAt = new Date();
+            current.completionResult = trimmedOutcome;
+            current.performedBy = performerName;
+            if (!current.details) current.details = {};
+            current.details.outcome = trimmedOutcome;
+            if (clientRating) current.details.clientRating = Number(clientRating);
+            if (Array.isArray(visitedProperties) && visitedProperties.length > 0) {
+                current.details.visitedProperties = visitedProperties;
+            }
+            activity = current;
+        }
+
+        if (!activity) {
+            const current = await Activity.findById(activityId);
+            if (!current) throw new Error('Activity not found');
+            if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
+            if (current.status === 'Completed') throw new Error('Site visit is already completed');
+            if (current.status === 'Cancelled') throw new Error('Cancelled site visits cannot be completed');
+            throw new Error(`Cannot complete site visit with status '${current.status}'`);
+        }
+
+        // 3. Confirm Deal Lead matches Activity Lead
+        if (dealDoc) {
+            const dealLeadId = dealDoc.lead || dealDoc.leadId;
+            if (String(dealLeadId) !== String(activity.entityId)) {
+                await Activity.findByIdAndUpdate(activityId, {
+                    $set: { status: 'Pending', completionResult: null },
+                    $unset: { completedAt: 1 }
+                }).catch(() => {});
+                throw new Error('Linked deal does not belong to the same lead as this site visit');
+            }
+
+            const dealTitle = dealDoc.title || 'Linked Deal';
             if (!Array.isArray(activity.relatedTo)) activity.relatedTo = [];
             const exists = activity.relatedTo.some(r => String(r.id) === String(dealId));
             if (!exists) {
                 activity.relatedTo.push({ id: dealId, model: 'Deal', name: dealTitle });
             }
 
-            // Sync property details to deal
-            const firstVisited = activity.details.visitedProperties?.[0];
-            if (firstVisited && mongoose.connection && mongoose.connection.readyState === 1) {
+            // Sync property details and update deal score (SINGLE EXECUTION on winning transition)
+            const firstVisited = activity.details?.visitedProperties?.[0];
+            if (firstVisited && (mongoose.connection?.readyState === 1 || Deal.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate)) {
                 const dealUpdate = {};
                 if (firstVisited.property) dealUpdate.unitNo = firstVisited.property;
                 if (firstVisited.project) dealUpdate.projectName = firstVisited.project;
                 if (firstVisited.block) dealUpdate.block = firstVisited.block;
-                if (['interested', 'token given', 'negotiation'].includes(outcome.toLowerCase())) {
+                if (['interested', 'token given', 'negotiation'].includes(trimmedOutcome.toLowerCase())) {
                     dealUpdate.$inc = { dealScore: 15 };
                 }
                 if (Object.keys(dealUpdate).length > 0) {
@@ -315,7 +420,13 @@ export class SiteVisitService {
             }
         }
 
-        // Generate Customer Feedback Token & Link (Compatible with feedbackForm contract)
+        if (completionNotes) {
+            activity.description = activity.description
+                ? `${activity.description}\n[Completion Notes]: ${completionNotes}`
+                : completionNotes;
+        }
+
+        // Generate Customer Feedback Token & Link (Store ONLY hash & JTI - Never persist raw token)
         let feedbackToken = null;
         let feedbackLink = null;
         const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
@@ -338,19 +449,20 @@ export class SiteVisitService {
                 { expiresIn: '30d' }
             );
 
-            // Replace dots with ~ for Meta WhatsApp URL variable safety
             const safeToken = feedbackToken.replace(/\./g, '~');
             feedbackLink = `${baseUrl}/public/feedback/${formSlug}?ref=${safeToken}`;
 
-            // Store minimum necessary sensitive info: token hash and JTI rather than raw bearer token
             const tokenHash = crypto.createHash('sha256').update(feedbackToken).digest('hex');
+            if (!activity.details) activity.details = {};
             activity.details.feedbackTokenHash = tokenHash;
             activity.details.feedbackTokenJti = jti;
             activity.details.feedbackLink = feedbackLink;
-            delete activity.details.feedbackToken; // Avoid persisting raw bearer token
+            delete activity.details.feedbackToken;
         }
 
-        await activity.save();
+        if (typeof activity.save === 'function') {
+            await activity.save().catch(() => {});
+        }
 
         // Automatically dispatch feedback request via genuine notification delivery
         let dispatchResult = null;

@@ -67,8 +67,10 @@ async function runSecurityDeliveryTests() {
 
     const { getFormBySlug, submitFeedback, verifyFeedbackToken } = await import('../controllers/feedbackForm.controller.js');
     const { SiteVisitService } = await import('../src/modules/siteVisit/siteVisit.service.js');
+    const { completeSiteVisit } = await import('../src/modules/siteVisit/siteVisit.controller.js');
     const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
     const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
+    const Deal = (await import('../models/Deal.js')).default || mongoose.models.Deal;
 
     const FeedbackForm = mongoose.models.FeedbackForm || mongoose.model('FeedbackForm');
     const FeedbackSubmission = mongoose.models.FeedbackSubmission || mongoose.model('FeedbackSubmission');
@@ -87,6 +89,8 @@ async function runSecurityDeliveryTests() {
     const origLeadFindById = Lead.findById;
     const origLeadFindByIdAndUpdate = Lead.findByIdAndUpdate;
     const origWaSendMessage = WhatsAppService.sendMessage;
+    const origDealFindById = Deal.findById;
+    const origDealFindByIdAndUpdate = Deal.findByIdAndUpdate;
 
     // Standard Mock Form
     const standardFormSlug = 'customer-experience-feedback-qx9z2';
@@ -787,6 +791,260 @@ async function runSecurityDeliveryTests() {
         assert.strictEqual(savedDoc.details.rescheduleHistory.length, 1);
     });
 
+    // ------------------------------------------------------------------------
+    // Test 17: Genuine notification provider dispatch states (GAP A)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 17: Genuine Provider Dispatch States & Retryability (GAP A) ---');
+    await recordAsync('17. Provider absent, simulated, or failed preserves retryability; only accepted or delivered persists sent flag', async () => {
+        // 17.1 Unconfigured / absent provider
+        const unconfigRes = SiteVisitAutomationService.evaluateProviderDispatch(null, 'whatsapp');
+        assert.strictEqual(unconfigRes.status, 'UNCONFIGURED');
+        assert.strictEqual(unconfigRes.delivered, false);
+        assert.strictEqual(unconfigRes.retryable, true);
+
+        // 17.2 Simulated / mock provider
+        const simRes = SiteVisitAutomationService.evaluateProviderDispatch({ success: true, mockMode: true }, 'whatsapp');
+        assert.strictEqual(simRes.status, 'SIMULATED');
+        assert.strictEqual(simRes.delivered, false);
+        assert.strictEqual(simRes.retryable, true);
+
+        // 17.3 Carrier accepted provider
+        const acceptedRes = SiteVisitAutomationService.evaluateProviderDispatch({ success: true, messageId: 'wa_msg_123', status: 'ACCEPTED' }, 'whatsapp');
+        assert.strictEqual(acceptedRes.status, 'ACCEPTED');
+        assert.strictEqual(acceptedRes.delivered, false);
+        assert.strictEqual(acceptedRes.retryable, false);
+
+        // 17.4 Genuine delivery
+        const deliveredRes = SiteVisitAutomationService.evaluateProviderDispatch({ success: true, status: 'DELIVERED', messageId: 'wa_msg_456' }, 'whatsapp');
+        assert.strictEqual(deliveredRes.status, 'DELIVERED');
+        assert.strictEqual(deliveredRes.delivered, true);
+        assert.strictEqual(deliveredRes.retryable, false);
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 18: Atomic CAS transitions prevent concurrent completion races (GAP B)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 18: Atomic CAS Transitions (GAP B) ---');
+    await recordAsync('18. Atomic CAS transitions ensure single winning execution on concurrent complete', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+
+        let state = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {}
+        };
+
+        let casAttempts = 0;
+        let casSuccesses = 0;
+        Activity.findOneAndUpdate = (query, update, options) => {
+            casAttempts++;
+            // Check predicate: status must be in ['Pending', 'Scheduled']
+            const validStatus = query.status?.$in || ['Pending', 'Scheduled'];
+            if (validStatus.includes(state.status)) {
+                casSuccesses++;
+                state.status = 'Completed';
+                return Promise.resolve({ ...state });
+            }
+            return Promise.resolve(null); // CAS rejected!
+        };
+
+        Activity.findById = () => Promise.resolve({ ...state });
+
+        // First complete caller
+        const first = await SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Great site visit' });
+        assert.strictEqual(first.activity.status, 'Completed');
+        assert.strictEqual(casSuccesses, 1);
+
+        // Second complete caller attempts concurrent complete
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Concurrent attempt' }),
+            /already completed/
+        );
+        assert.strictEqual(casSuccesses, 1, 'Only one caller can succeed in atomic CAS transition');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 19: Fail-closed Deal & Lead validation on complete (GAP C)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 19: Fail-Closed Deal & Lead Validation (GAP C) ---');
+    await recordAsync('19. Deal validation fails closed on malformed ID, missing deal, missing lead, or mismatched lead', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const otherLeadId = new mongoose.Types.ObjectId();
+
+        const pendingVisit = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {}
+        };
+        Activity.findById = () => Promise.resolve(pendingVisit);
+        Activity.findOneAndUpdate = (q, u) => Promise.resolve({ ...pendingVisit, status: 'Completed' });
+
+        // 19.1 Malformed dealId format
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', dealId: 'invalid-hex-id' }),
+            /Valid dealId is required/
+        );
+
+        // 19.2 Deal does not exist
+        const nonExistentDealId = new mongoose.Types.ObjectId();
+        Deal.findById = () => Promise.resolve(null);
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', dealId: String(nonExistentDealId) }),
+            /does not exist/
+        );
+
+        // 19.3 Deal has missing lead / leadId
+        const orphanDealId = new mongoose.Types.ObjectId();
+        Deal.findById = () => Promise.resolve({ _id: orphanDealId, title: 'Orphan Deal', lead: null, leadId: null });
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', dealId: String(orphanDealId) }),
+            /no associated lead/
+        );
+
+        // 19.4 Deal lead does not match activity lead
+        const mismatchedDealId = new mongoose.Types.ObjectId();
+        Deal.findById = () => Promise.resolve({ _id: mismatchedDealId, title: 'Other Deal', lead: otherLeadId });
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', dealId: String(mismatchedDealId) }),
+            /does not belong to the same lead/
+        );
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 20: Bearer Token Exclusion in Controller Response (GAP D)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 20: Bearer Token Exclusion in Controller Response (GAP D) ---');
+    await recordAsync('20. completeSiteVisit controller excludes feedbackToken and raw link from HTTP response', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+
+        const pendingVisit = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {},
+            save() { return Promise.resolve(this); }
+        };
+        Activity.findById = () => Promise.resolve(pendingVisit);
+        Activity.findOneAndUpdate = (q, u) => Promise.resolve({ ...pendingVisit, status: 'Completed', details: u.$set?.details || {} });
+
+        const req = {
+            params: { id: String(fakeActId) },
+            body: { outcome: 'Interested', notes: 'Completed visit' },
+            user: { _id: 'agent_user_1', fullName: 'Agent Verma' }
+        };
+        const res = createMockRes();
+
+        await completeSiteVisit(req, res);
+
+        assert.strictEqual(res.statusCode, 200);
+        assert.strictEqual(res.body.success, true);
+        assert.strictEqual(res.body.feedbackToken, undefined, 'feedbackToken must NOT be present in HTTP response');
+        assert.strictEqual(res.body.feedbackLink, undefined, 'feedbackLink must NOT be present in HTTP response');
+        assert(res.body.feedbackDispatch !== undefined, 'feedbackDispatch status should be present');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 21: Feedback Lock & 60s Lease Expiry Recovery (GAP E)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 21: Feedback Lock & Lease Expiry Recovery (GAP E) ---');
+    await recordAsync('21. Stale lock older than 60s is recovered; active lock returns 409 conflict', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeSubId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        // 21.1 Stale lock (70s old) - should be recovered by lease expiry
+        const staleLockActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit'],
+            details: {
+                feedbackLock: true,
+                feedbackLockAt: new Date(Date.now() - 70000), // 70s ago
+                feedbackLockId: 'old-crashed-lock-uuid'
+            }
+        };
+
+        Activity.findById = () => Promise.resolve(staleLockActivity);
+        let acquiredLockId = null;
+        Activity.findOneAndUpdate = (query, update) => {
+            // Check predicate: $or lock check
+            const lockFilter = query.$or;
+            const threshold = lockFilter?.[1]?.['details.feedbackLockAt']?.$lt;
+            if (staleLockActivity.details.feedbackLockAt < threshold) {
+                staleLockActivity.details.feedbackLock = true;
+                staleLockActivity.details.feedbackLockId = update.$set['details.feedbackLockId'];
+                acquiredLockId = update.$set['details.feedbackLockId'];
+                return Promise.resolve(staleLockActivity);
+            }
+            return Promise.resolve(null);
+        };
+        Activity.findByIdAndUpdate = (id, updates) => Promise.resolve(staleLockActivity);
+        FeedbackSubmission.create = (doc) => Promise.resolve({ ...doc, _id: fakeSubId });
+
+        const req1 = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res1 = createMockRes();
+        await submitFeedback(req1, res1, () => {});
+
+        assert.strictEqual(res1.statusCode, 201, 'Stale lock must be successfully recovered');
+        assert(acquiredLockId, 'Lock must have been acquired with unique lockId');
+
+        // 21.2 Active lock (5s old) - cannot be acquired, returns 409 Conflict
+        const activeLockActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit'],
+            details: {
+                feedbackLock: true,
+                feedbackLockAt: new Date(Date.now() - 5000), // 5s ago
+                feedbackLockId: 'active-processing-lock'
+            }
+        };
+        Activity.findById = () => Promise.resolve(activeLockActivity);
+        Activity.findOneAndUpdate = (query, update) => {
+            const threshold = query.$or?.[1]?.['details.feedbackLockAt']?.$lt;
+            if (threshold && activeLockActivity.details.feedbackLockAt < threshold) {
+                return Promise.resolve(activeLockActivity);
+            }
+            return Promise.resolve(null); // Active lock -> findOneAndUpdate returns null
+        };
+
+        const req2 = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res2 = createMockRes();
+        await submitFeedback(req2, res2, () => {});
+
+        assert.strictEqual(res2.statusCode, 409, 'Active lock must return 409 Conflict');
+        assert.strictEqual(res2.body.message, 'Feedback submission in progress by another request');
+    });
+
     // Cleanup globals
     FeedbackForm.findOne = origFormFindOne;
     FeedbackForm.updateOne = origFormUpdateOne;
@@ -800,6 +1058,8 @@ async function runSecurityDeliveryTests() {
     Lead.findById = origLeadFindById;
     Lead.findByIdAndUpdate = origLeadFindByIdAndUpdate;
     WhatsAppService.sendMessage = origWaSendMessage;
+    Deal.findById = origDealFindById;
+    Deal.findByIdAndUpdate = origDealFindByIdAndUpdate;
 
     console.log(`\n========================================`);
     console.log(`CRITICAL-SV-11 Security Suite Results:`);

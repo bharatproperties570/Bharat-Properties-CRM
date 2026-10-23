@@ -62,8 +62,7 @@ export const completeSiteVisit = async (req, res) => {
             success: true,
             data: result.activity,
             stageTransition: result.stageTransition,
-            feedbackLink: result.feedbackLink,
-            feedbackToken: result.feedbackToken,
+            feedbackDispatch: result.feedbackDispatch,
             message: result.message
         });
     } catch (err) {

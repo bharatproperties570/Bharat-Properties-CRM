@@ -31,6 +31,8 @@ async function runDomainTests() {
     const origActCreate = Activity.create;
     const origActFind = Activity.find;
     const origActCount = Activity.countDocuments;
+    const origDealFindById = Deal.findById;
+    const origDealFindByIdAndUpdate = Deal.findByIdAndUpdate;
 
     console.log('--- 1. Site Visit Scheduling & Idempotency ---');
     await recordAsync('SiteVisitService.schedule rejects invalid leadId or missing date/time', async () => {
@@ -134,6 +136,12 @@ async function runDomainTests() {
         };
 
         Activity.findById = () => Promise.resolve(mockActivity);
+        Deal.findById = (id) => Promise.resolve({
+            _id: id,
+            title: 'DLF Flat 1201',
+            lead: fakeLeadId
+        });
+        Deal.findByIdAndUpdate = () => Promise.resolve({});
 
         try {
             // Missing reason rejects
@@ -171,6 +179,12 @@ async function runDomainTests() {
         };
 
         Activity.findById = () => Promise.resolve(mockActivity);
+        Deal.findById = (id) => Promise.resolve({
+            _id: id,
+            title: 'DLF Flat 1201',
+            lead: fakeLeadId
+        });
+        Deal.findByIdAndUpdate = () => Promise.resolve({});
 
         try {
             await assert.rejects(
@@ -213,6 +227,12 @@ async function runDomainTests() {
         };
 
         Activity.findById = () => Promise.resolve(mockActivity);
+        Deal.findById = (id) => Promise.resolve({
+            _id: id,
+            title: 'DLF Flat 1201',
+            lead: fakeLeadId
+        });
+        Deal.findByIdAndUpdate = () => Promise.resolve({});
 
         try {
             const result = await SiteVisitService.complete(fakeActId, {
@@ -243,6 +263,8 @@ async function runDomainTests() {
             assert.strictEqual(decoded.purpose, 'customer_feedback');
         } finally {
             Activity.findById = origActFindById;
+            Deal.findById = origDealFindById;
+            Deal.findByIdAndUpdate = origDealFindByIdAndUpdate;
             process.env.JWT_SECRET = origJwt;
         }
     });

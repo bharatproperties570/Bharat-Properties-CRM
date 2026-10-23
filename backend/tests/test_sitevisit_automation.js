@@ -33,6 +33,7 @@ console.log('=== Phase 8: Automation & Notification Triggers Suite ===');
 async function runTests() {
     const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
     const { SiteVisitService } = await import('../src/modules/siteVisit/siteVisit.service.js');
+    const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
 
     const Activity = mongoose.models.Activity || mongoose.model('Activity');
     const Lead = mongoose.models.Lead || mongoose.model('Lead');
@@ -43,6 +44,12 @@ async function runTests() {
     const origActCreate = Activity.create;
     const origLeadFindById = Lead.findById;
     const origLeadFindByIdAndUpdate = Lead.findByIdAndUpdate;
+    const origWaSendMessage = WhatsAppService.sendMessage;
+
+    WhatsAppService.sendMessage = async () => ({
+        success: true,
+        messages: [{ id: 'wa-msg-automation-1' }]
+    });
 
     console.log('\n--- 1. Site Visit 24-Hour Reminder Automation ---');
     await recordAsync('dispatch24hReminders detects visits due tomorrow, notifies agent and stamps h24 flag', async () => {
@@ -244,12 +251,14 @@ async function runTests() {
     Activity.create = origActCreate;
     Lead.findById = origLeadFindById;
     Lead.findByIdAndUpdate = origLeadFindByIdAndUpdate;
+    WhatsAppService.sendMessage = origWaSendMessage;
 
     console.log(`\n========================================`);
     console.log(`Results: ${passed} passed, ${failed} failed`);
     console.log(`========================================\n`);
 
     if (failed > 0) process.exit(1);
+    process.exit(0);
 }
 
 runTests().catch(err => {
