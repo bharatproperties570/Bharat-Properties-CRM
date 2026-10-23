@@ -2278,6 +2278,7 @@ export const matchLeads = async (req, res) => {
         return res.status(200).json({
             success: true,
             count: sorted.length,
+            totalCount: matchingLeads.length,
             preferredCount,
             matchingLeads: sorted,
             excluded: excludedLeads.slice(0, 20),

@@ -22,9 +22,10 @@ export const getMetricAbbreviation = (metric) => {
 /**
  * Formats a raw numeric/string dimension with its metric unit
  * e.g. (24.001, 'Feet') -> "24.001 Ft."
+ * e.g. (24, 'Feet', false) -> "24 Feet"
  * e.g. (null, 'Feet') -> "-"
  */
-export const formatDimension = (val, metric = 'Feet') => {
+export const formatDimension = (val, metric = 'Feet', useAbbr = true) => {
     if (val === null || val === undefined || val === '' || val === 0 || val === '0' || val === '-') {
         return '-';
     }
@@ -40,8 +41,53 @@ export const formatDimension = (val, metric = 'Feet') => {
     const num = parseFloat(str);
     if (isNaN(num)) return str;
 
+    if (!useAbbr) {
+        const cleanMetric = metric ? String(metric).trim() : 'Feet';
+        return `${num} ${cleanMetric}`;
+    }
+
     const unitAbbr = getMetricAbbreviation(metric) || 'Ft.';
     return `${num} ${unitAbbr}`;
+};
+
+/**
+ * Extracts numeric count and area metric from a size label string containing parentheses.
+ * Enterprise standard: The count in brackets represents the true total area in Sq. Yard (Gaj).
+ * e.g. "8 Marla (200.01 Sq Yd)" -> { area: 200.01, unit: 'Sq Yard', rawUnit: 'Sq Yd', matched: true }
+ * e.g. "14 Marla (381.04 Sq Yd)" -> { area: 381.04, unit: 'Sq Yard', rawUnit: 'Sq Yd', matched: true }
+ * e.g. "6 Marla (162.10 Sq Yd)" -> { area: 162.10, unit: 'Sq Yard', rawUnit: 'Sq Yd', matched: true }
+ * e.g. "10 Marla (250 Sq Yd)" -> { area: 250, unit: 'Sq Yard', rawUnit: 'Sq Yd', matched: true }
+ */
+export const extractAreaFromLabel = (label) => {
+    if (!label || typeof label !== 'string') return null;
+    const match = label.match(/\(\s*([0-9,]+(?:\.[0-9]+)?)\s*([^)]*)\)/);
+    if (!match) return null;
+
+    const num = parseFloat(match[1].replace(/,/g, ''));
+    if (isNaN(num) || num <= 0) return null;
+
+    const unitStr = (match[2] || '').trim().toLowerCase();
+    let unit = 'Sq Yard';
+    if (unitStr.includes('meter') || unitStr.includes('sqm') || unitStr.includes('sq.m') || unitStr.includes('mtr')) {
+        unit = 'Sq Meter';
+    } else if (unitStr.includes('feet') || unitStr.includes('sqft') || unitStr.includes('sq.ft') || unitStr.includes('ft')) {
+        unit = 'Sq Feet';
+    } else if (unitStr.includes('marla')) {
+        unit = 'Marla';
+    } else if (unitStr.includes('kanal') || unitStr.includes('kananl')) {
+        unit = 'Kanal';
+    } else if (unitStr.includes('acre')) {
+        unit = 'Acre';
+    } else if (unitStr.includes('hectare')) {
+        unit = 'Hectare';
+    }
+
+    return {
+        area: num,
+        unit,
+        rawUnit: match[2]?.trim() || 'Sq Yd',
+        matched: true
+    };
 };
 
 /**
@@ -206,19 +252,27 @@ export const resolveUnitDimensionsAndSize = (item, options = {}) => {
     else if (isPresent(matchedSize?.length)) rawLength = matchedSize.length;
     else if (isPresent(matchedSize?.metadata?.length)) rawLength = matchedSize.metadata.length;
 
-    // 4. Resolve Metrics
-    const widthMetric = matchedSize?.widthMetric || 
-                        matchedSize?.metadata?.widthMetric || 
-                        primary?.widthMetric || 
+    // 4. Resolve Metrics (prioritize unit's saved metric over master template)
+    const widthMetric = primary?.widthMetric || 
+                        primary?.dimensionMetric ||
                         primary?.unitSpecification?.widthMetric || 
                         inv?.widthMetric || 
+                        inv?.dimensionMetric ||
+                        inv?.unitSpecification?.widthMetric || 
+                        matchedSize?.widthMetric || 
+                        matchedSize?.dimensionMetric ||
+                        matchedSize?.metadata?.widthMetric || 
                         'Feet';
 
-    const lengthMetric = matchedSize?.lengthMetric || 
-                         matchedSize?.metadata?.lengthMetric || 
-                         primary?.lengthMetric || 
+    const lengthMetric = primary?.lengthMetric || 
+                         primary?.dimensionMetric ||
                          primary?.unitSpecification?.lengthMetric || 
                          inv?.lengthMetric || 
+                         inv?.dimensionMetric ||
+                         inv?.unitSpecification?.lengthMetric || 
+                         matchedSize?.lengthMetric || 
+                         matchedSize?.dimensionMetric ||
+                         matchedSize?.metadata?.lengthMetric || 
                          'Feet';
 
     // 5. Resolve Formatted Width & Length
@@ -234,6 +288,17 @@ export const resolveUnitDimensionsAndSize = (item, options = {}) => {
     } else if (primary?.totalLandAreaText) {
         resolvedSizeLabel = primary.totalLandAreaText;
     } else {
+        const safeLookup = (cat, val) => {
+            if (!val || val === '-') return null;
+            try {
+                const res = getLookupValue(cat, val);
+                if (!res || res === '-' || res === 'undefined' || res === 'null') return null;
+                return res;
+            } catch (e) {
+                return null;
+            }
+        };
+
         const extractStr = (val) => {
             if (!val) return null;
             if (typeof val === 'string') return /^[0-9a-fA-F]{24}$/.test(val) ? null : val;
@@ -244,23 +309,25 @@ export const resolveUnitDimensionsAndSize = (item, options = {}) => {
         };
 
         resolvedSizeLabel = 
-            getLookupValue('Size', primary?.sizeConfig) ||
+            safeLookup('Size', primary?.sizeConfig) ||
             extractStr(primary?.sizeConfig) ||
-            getLookupValue('PropertyType', primary?.sizeType) ||
+            safeLookup('PropertyType', primary?.sizeType) ||
             extractStr(primary?.sizeType) ||
-            getLookupValue('Size', primary?.sizeLabel) ||
+            safeLookup('Size', primary?.sizeLabel) ||
             extractStr(primary?.sizeLabel) ||
             extractStr(primary?.unitSpecification?.sizeLabel) ||
             (typeof primary?.size === 'string' && primary.size !== '0' && primary.size !== '0 Sq.Ft.' ? primary.size : null) ||
-            (inv?.sizeConfig ? getLookupValue('Size', inv.sizeConfig) || extractStr(inv.sizeConfig) : null) ||
-            (inv?.sizeLabel ? getLookupValue('Size', inv.sizeLabel) || extractStr(inv.sizeLabel) : null) ||
+            safeLookup('Size', inv?.sizeConfig) ||
+            extractStr(inv?.sizeConfig) ||
+            safeLookup('Size', inv?.sizeLabel) ||
+            extractStr(inv?.sizeLabel) ||
             (typeof inv?.size === 'string' && inv.size !== '0' ? inv.size : null) ||
             '-';
     }
 
     // 7. Full Size Text (Unit Type • SubCategory • Size Label)
-    const unitTypeVal = getLookupValue('UnitType', primary?.unitType || inv?.unitType);
-    const subCatVal = getLookupValue('SubCategory', primary?.subCategory || inv?.subCategory);
+    const unitTypeVal = getLookupValue ? getLookupValue('UnitType', primary?.unitType || inv?.unitType) : null;
+    const subCatVal = getLookupValue ? getLookupValue('SubCategory', primary?.subCategory || inv?.subCategory) : null;
     
     const parts = [
         unitTypeVal && unitTypeVal !== '-' ? unitTypeVal : null,
@@ -269,6 +336,11 @@ export const resolveUnitDimensionsAndSize = (item, options = {}) => {
     ].filter(Boolean);
 
     const fullSizeText = parts.length > 0 ? parts.join(' • ') : (resolvedSizeLabel || '-');
+
+    // 8. Resolve Total Area & Bracket Area
+    const bracketInfo = extractAreaFromLabel(resolvedSizeLabel) || extractAreaFromLabel(matchedSize?.name);
+    const resolvedTotalArea = bracketInfo?.area || matchedSize?.totalArea || matchedSize?.metadata?.totalArea || null;
+    const resolvedResultMetric = bracketInfo?.unit || matchedSize?.resultMetric || matchedSize?.metadata?.resultMetric || 'Sq Yd';
 
     return {
         sizeLabel: resolvedSizeLabel || '-',
@@ -279,8 +351,10 @@ export const resolveUnitDimensionsAndSize = (item, options = {}) => {
         lengthMetric,
         formattedWidth,
         formattedLength,
-        totalArea: matchedSize?.totalArea || matchedSize?.metadata?.totalArea || null,
-        resultMetric: matchedSize?.resultMetric || matchedSize?.metadata?.resultMetric || 'Sq Yd',
+        totalArea: resolvedTotalArea,
+        resultMetric: resolvedResultMetric,
+        bracketArea: bracketInfo?.area || null,
+        bracketUnit: bracketInfo?.unit || null,
         matchedSize
     };
 };
