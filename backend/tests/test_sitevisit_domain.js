@@ -251,16 +251,14 @@ async function runDomainTests() {
             assert.strictEqual(result.activity.relatedTo.length, 1);
             assert.strictEqual(String(result.activity.relatedTo[0].id), String(fakeDealId));
 
-            // Feedback Token & Link verification
-            assert(result.feedbackToken, 'Should generate feedbackToken');
-            assert(result.feedbackLink, 'Should generate feedbackLink');
-            assert(result.feedbackLink.includes('customer-experience-feedback-qx9z2'));
-
-            // Verify the generated token can be decoded with JWT_SECRET
-            const decoded = jwt.verify(result.feedbackToken, process.env.JWT_SECRET);
-            assert.strictEqual(decoded.leadId, String(fakeLeadId));
-            assert.strictEqual(decoded.activityId, String(fakeActId));
-            assert.strictEqual(decoded.purpose, 'customer_feedback');
+            // GAP C: Feedback Token & Link sanitized from service contract
+            assert.strictEqual(result.feedbackToken, undefined, 'feedbackToken must NOT be in service return');
+            assert.strictEqual(result.feedbackLink, undefined, 'feedbackLink must NOT be in service return');
+            assert(result.activity.details.feedbackTokenHash, 'Activity details must contain feedbackTokenHash');
+            assert(result.activity.details.feedbackTokenJti, 'Activity details must contain feedbackTokenJti');
+            assert.strictEqual(result.activity.details.feedbackFormSlug, 'customer-experience-feedback-qx9z2');
+            assert.strictEqual(result.activity.details.feedbackToken, undefined, 'Activity details must not expose raw token');
+            assert.strictEqual(result.activity.details.feedbackLink, undefined, 'Activity details must not expose raw token-bearing link');
         } finally {
             Activity.findById = origActFindById;
             Deal.findById = origDealFindById;

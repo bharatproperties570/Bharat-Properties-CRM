@@ -17,16 +17,22 @@ function evaluateProviderDispatch(res, channel) {
             error: res?.error || 'Provider unconfigured or returned empty response'
         };
     }
-    // Simulation / mock fallback detection
-    if (res.mock === true || res.provider === 'mock' || res.simulated === true || res.mockMode === true) {
+    // Staging guard block / simulation / mock fallback detection
+    const firstMsgId = res.messages?.[0]?.id || res.messageId || '';
+    const isBlocked = String(firstMsgId).includes('staging-blocked') || res.blocked === true;
+    const isMock = res.mock === true || res.provider === 'mock' || res.simulated === true || res.mockMode === true || isBlocked;
+
+    if (isMock) {
         return {
             success: false,
-            status: 'SIMULATED',
-            channel: 'mock',
+            status: isBlocked ? 'BLOCKED_BY_GUARD' : 'SIMULATED',
+            channel: isBlocked ? 'guard' : 'mock',
             providerMessageId: null,
             delivered: false,
             retryable: true,
-            error: 'Simulated send in test/mock mode - carrier dispatch bypassed'
+            error: isBlocked
+                ? 'Outbound dispatch blocked by staging environment guard'
+                : 'Simulated send in test/mock mode - carrier dispatch bypassed'
         };
     }
     // Confirmed delivery receipt
@@ -346,8 +352,9 @@ export class SiteVisitAutomationService {
     /**
      * Dispatch Customer Feedback Link right after visit completion.
      */
-    static async dispatchPostVisitFeedback(activity) {
-        if (!activity || !activity.details?.feedbackLink) {
+    static async dispatchPostVisitFeedback(activity, deliveryOptions = {}) {
+        const feedbackUrl = deliveryOptions.feedbackUrl || activity?.details?.feedbackLink;
+        if (!activity || !feedbackUrl) {
             return { success: false, message: 'No feedback link generated for activity' };
         }
 
@@ -364,7 +371,7 @@ export class SiteVisitAutomationService {
                 success: true,
                 alreadyDispatched: true,
                 status: currentAct.details?.feedbackDispatchStatus || 'ACCEPTED',
-                feedbackLink: activity.details?.feedbackLink
+                feedbackLink: feedbackUrl
             };
         }
 
@@ -374,7 +381,6 @@ export class SiteVisitAutomationService {
         }
 
         const projectName = activity.details?.projectName || 'our project';
-        const feedbackUrl = activity.details.feedbackLink;
 
         let dispatchResult = { success: false, status: 'UNCONFIGURED', channel: 'none', error: 'No messaging providers configured' };
 

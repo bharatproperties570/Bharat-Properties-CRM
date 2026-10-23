@@ -386,20 +386,37 @@ export const submitFeedback = async (req, res, next) => {
             }
 
             try {
-                // Create single feedback submission
-                const created = await FeedbackSubmission.create({
-                    form: form._id,
-                    lead: authoritativeLeadId,
-                    activity: authoritativeActivityId,
-                    inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-                    department: activityDoc.department || form.department,
-                    teams: activityDoc.teams || form.teams,
-                    responses,
-                    rating: submissionRating,
-                    idempotencyKey: requestIdentity || undefined,
-                    sourceMeta: sourceMeta || {}
-                });
-                const submission = Array.isArray(created) ? created[0] : created;
+                // Create single feedback submission with durable idempotency
+                const requestKey = requestIdentity || `activity:${authoritativeActivityId}`;
+                let submission = null;
+                try {
+                    const created = await FeedbackSubmission.create({
+                        form: form._id,
+                        lead: authoritativeLeadId,
+                        activity: authoritativeActivityId,
+                        inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                        department: activityDoc.department || form.department,
+                        teams: activityDoc.teams || form.teams,
+                        responses,
+                        rating: submissionRating,
+                        idempotencyKey: requestKey,
+                        sourceMeta: sourceMeta || {}
+                    });
+                    submission = Array.isArray(created) ? created[0] : created;
+                } catch (createErr) {
+                    if (createErr.code === 11000 || (createErr.name === 'MongoServerError' && createErr.code === 11000)) {
+                        const existingSub = await FeedbackSubmission.findOne({
+                            $or: [{ idempotencyKey: requestKey }, { activity: authoritativeActivityId }]
+                        }).lean().catch(() => null);
+                        return res.status(200).json({
+                            success: true,
+                            duplicate: true,
+                            data: existingSub || { _id: activityDoc.details?.submissionId },
+                            message: "Feedback has already been recorded for this activity."
+                        });
+                    }
+                    throw createErr;
+                }
 
                 // Update visited properties ratings if property_feedback field is present
                 const propertyFeedbackField = form.sections.flatMap(s => s.fields).find(f => f.type === 'property_feedback');
@@ -454,9 +471,51 @@ export const submitFeedback = async (req, res, next) => {
                 }
 
                 activityUpdates.$addToSet = { tags: { $each: tagsToAdd } };
-                await Activity.findByIdAndUpdate(authoritativeActivityId, activityUpdates);
 
-                // Update Lead Intent & Stage Automation (SINGLE EXECUTION)
+                // Conditionally finalize activity matching our lockId
+                let finalizedActivity = null;
+                if (mongoose.connection?.readyState === 1) {
+                    finalizedActivity = await Activity.findOneAndUpdate(
+                        {
+                            _id: authoritativeActivityId,
+                            'details.feedbackLockId': lockId,
+                            'details.feedbackSubmitted': { $ne: true }
+                        },
+                        {
+                            $set: {
+                                'details.submissionId': submission._id,
+                                'details.feedbackSubmitted': true,
+                                'details.visitedProperties': updatedVisitedProperties,
+                                'details.customerFeedback': activityUpdates['details.customerFeedback'],
+                                ...(activityDoc.status !== 'Completed' ? {
+                                    status: 'Completed',
+                                    completedAt: new Date(),
+                                    completionResult: 'Feedback Received',
+                                    performedBy: 'Customer (Form)'
+                                } : {})
+                            },
+                            $addToSet: { tags: { $each: tagsToAdd } },
+                            $unset: activityUpdates.$unset
+                        },
+                        { new: true }
+                    );
+                } else {
+                    finalizedActivity = await Activity.findByIdAndUpdate(authoritativeActivityId, activityUpdates, { new: true });
+                }
+
+                // If finalizedActivity is null in production database, this request lost the lock or state was already finalized!
+                if (!finalizedActivity && mongoose.connection?.readyState === 1) {
+                    const existingSubId = activityDoc.details?.customerFeedback?.submissionId || activityDoc.details?.submissionId;
+                    const existingSub = existingSubId ? await FeedbackSubmission.findById(existingSubId).lean().catch(() => null) : null;
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        data: existingSub || submission,
+                        message: "Feedback has already been recorded for this activity."
+                    });
+                }
+
+                // Update Lead Intent & Stage Automation (SINGLE EXECUTION on winning finalized activity)
                 if (authoritativeLeadId && mongoose.Types.ObjectId.isValid(authoritativeLeadId)) {
                     const leadUpdate = {
                         lastFeedbackReceivedAt: new Date(),
@@ -465,7 +524,9 @@ export const submitFeedback = async (req, res, next) => {
                     if (submissionRating >= 4) {
                         leadUpdate.$inc = { intent_index: 10 };
                     }
-                    await Lead.findByIdAndUpdate(authoritativeLeadId, leadUpdate).catch(() => {});
+                    if (mongoose.connection?.readyState === 1 || Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate) {
+                        await Lead.findByIdAndUpdate(authoritativeLeadId, leadUpdate).catch(() => {});
+                    }
 
                     if (mongoose.connection && mongoose.connection.readyState === 1) {
                         const lead = await Lead.findById(authoritativeLeadId);
@@ -475,9 +536,12 @@ export const submitFeedback = async (req, res, next) => {
                     }
                 }
 
-                // Escalations on Negative Feedback (SINGLE EXECUTION)
+                // Escalations on Negative Feedback (SINGLE EXECUTION on winning finalized activity)
                 if (submissionRating > 0 && submissionRating <= 2) {
-                    const alertTarget = activityDoc.assignedTo || (authoritativeLeadId ? (await Lead.findById(authoritativeLeadId).select('owner').lean())?.owner : null);
+                    let alertTarget = activityDoc.assignedTo;
+                    if (!alertTarget && authoritativeLeadId && (mongoose.connection?.readyState === 1 || Lead.findById !== mongoose.Model.findById)) {
+                        alertTarget = (await Lead.findById(authoritativeLeadId).select('owner').lean().catch(() => null))?.owner;
+                    }
                     if (alertTarget) {
                         createNotification({
                             userId: alertTarget,
@@ -496,7 +560,7 @@ export const submitFeedback = async (req, res, next) => {
                     }
                 }
 
-                // Update analytics
+                // Update analytics (SINGLE EXECUTION)
                 form.analytics.submissions += 1;
                 if (submissionRating > 0) {
                     form.analytics.averageRating = ((form.analytics.averageRating * (form.analytics.submissions - 1)) + submissionRating) / form.analytics.submissions;

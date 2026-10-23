@@ -504,14 +504,29 @@ async function runE2ETests() {
         const result = await SiteVisitService.complete(siteVisitActivityId, completionPayload, { _id: agentId, name: 'Agent Rajesh' });
 
         assert.strictEqual(result.message, 'Site visit completed successfully');
-        assert(result.feedbackLink);
-        assert(result.feedbackToken);
-        feedbackToken = result.feedbackToken;
+        // GAP C: Raw credentials removed from service contract
+        assert.strictEqual(result.feedbackToken, undefined, 'feedbackToken must NOT be returned in service contract');
+        assert.strictEqual(result.feedbackLink, undefined, 'feedbackLink must NOT be returned in service contract');
 
         const act = db.activities.get(String(siteVisitActivityId));
         assert.strictEqual(act.status, 'Completed');
         assert.strictEqual(act.completionResult, 'Interested');
+        assert(act.details.feedbackTokenHash, 'Activity details must contain feedbackTokenHash');
+        assert(act.details.feedbackTokenJti, 'Activity details must contain feedbackTokenJti');
         assert(act.details.feedbackDispatchedAt);
+
+        // Sign customer feedback token for the client simulation in Step 7
+        feedbackToken = jwt.sign(
+            {
+                iss: 'bharat-properties-crm',
+                leadId: String(leadId),
+                activityId: String(siteVisitActivityId),
+                purpose: 'customer_feedback',
+                source: 'site_visit_completion',
+                formSlug: 'customer-experience-feedback-qx9z2'
+            },
+            process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET
+        );
     });
 
     console.log('\n--- Step 7: Customer 5-Star Feedback Submission ---');

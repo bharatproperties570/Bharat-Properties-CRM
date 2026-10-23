@@ -633,6 +633,7 @@ async function runSecurityDeliveryTests() {
 
             const tokenResult = SiteVisitService.complete('invalid_id', { outcome: 'Interested' });
             assert(tokenResult instanceof Promise);
+            tokenResult.catch(() => {});
         } finally {
             process.env.JWT_SECRET = savedJwt;
             process.env.FEEDBACK_JWT_SECRET = savedFeedbackJwt;
@@ -840,30 +841,33 @@ async function runSecurityDeliveryTests() {
 
         let casAttempts = 0;
         let casSuccesses = 0;
-        Activity.findOneAndUpdate = (query, update, options) => {
+        Activity.findOneAndUpdate = async (query, update, options) => {
             casAttempts++;
+            await new Promise(r => setTimeout(r, 2));
             // Check predicate: status must be in ['Pending', 'Scheduled']
             const validStatus = query.status?.$in || ['Pending', 'Scheduled'];
             if (validStatus.includes(state.status)) {
                 casSuccesses++;
                 state.status = 'Completed';
-                return Promise.resolve({ ...state });
+                return { ...state };
             }
-            return Promise.resolve(null); // CAS rejected!
+            return null; // CAS rejected!
         };
 
         Activity.findById = () => Promise.resolve({ ...state });
 
-        // First complete caller
-        const first = await SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Great site visit' });
-        assert.strictEqual(first.activity.status, 'Completed');
-        assert.strictEqual(casSuccesses, 1);
+        // Genuinely overlapping concurrent requests with Promise.allSettled
+        const [res1, res2] = await Promise.allSettled([
+            SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Concurrent Call 1' }),
+            SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Concurrent Call 2' })
+        ]);
 
-        // Second complete caller attempts concurrent complete
-        await assert.rejects(
-            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', notes: 'Concurrent attempt' }),
-            /already completed/
-        );
+        const fulfilled = [res1, res2].filter(r => r.status === 'fulfilled');
+        const rejected = [res1, res2].filter(r => r.status === 'rejected');
+
+        assert.strictEqual(fulfilled.length, 1, 'Exactly one concurrent completion must succeed');
+        assert.strictEqual(rejected.length, 1, 'The losing concurrent completion must be rejected');
+        assert(rejected[0].reason.message.includes('already completed'));
         assert.strictEqual(casSuccesses, 1, 'Only one caller can succeed in atomic CAS transition');
     });
 
@@ -1043,6 +1047,235 @@ async function runSecurityDeliveryTests() {
 
         assert.strictEqual(res2.statusCode, 409, 'Active lock must return 409 Conflict');
         assert.strictEqual(res2.body.message, 'Feedback submission in progress by another request');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 22: Concurrent Complete vs Cancel Race Invariant (GAP B & GAP F)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 22: Concurrent Complete vs Cancel Race Invariant ---');
+    await recordAsync('22. Overlapping complete and cancel requests result in exactly one terminal winner', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+
+        let state = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {}
+        };
+
+        Activity.findById = () => Promise.resolve({ ...state });
+        Activity.findOneAndUpdate = async (query, update) => {
+            await new Promise(r => setTimeout(r, Math.random() * 5));
+            const validStatus = query.status?.$in || ['Pending', 'Scheduled'];
+            if (validStatus.includes(state.status)) {
+                state.status = update.$set.status;
+                return { ...state };
+            }
+            return null;
+        };
+
+        const [compRes, cancelRes] = await Promise.allSettled([
+            SiteVisitService.complete(fakeActId, { outcome: 'Interested' }),
+            SiteVisitService.cancel(fakeActId, { reason: 'Client changed mind' })
+        ]);
+
+        const winnerCount = [compRes, cancelRes].filter(r => r.status === 'fulfilled').length;
+        assert.strictEqual(winnerCount, 1, 'Exactly one terminal status transition must win');
+        assert(['Completed', 'Cancelled'].includes(state.status), 'Final state must be one of the terminal states');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 23: Concurrent Complete vs Reschedule Invariant (GAP A & GAP F)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 23: Concurrent Complete vs Reschedule Invariant ---');
+    await recordAsync('23. Completed visit rejects concurrent reschedule attempt', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+
+        let state = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {}
+        };
+
+        Activity.findById = () => Promise.resolve({ ...state });
+        Activity.findOneAndUpdate = async (query, update) => {
+            await new Promise(r => setTimeout(r, 2));
+            const validStatus = query.status?.$in || ['Pending', 'Scheduled'];
+            if (validStatus.includes(state.status)) {
+                state.status = update.$set.status;
+                return { ...state };
+            }
+            return null;
+        };
+
+        // Complete the visit
+        await SiteVisitService.complete(fakeActId, { outcome: 'Interested' });
+
+        // Attempt to reschedule the completed visit
+        await assert.rejects(
+            () => SiteVisitService.reschedule(fakeActId, { newDate: new Date(), newTime: '11:00 AM', reason: 'Post-visit reschedule attempt' }),
+            /Completed site visits cannot be rescheduled/
+        );
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 24: Concurrent Overlapping Feedback Submissions (GAP D & GAP F)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 24: Concurrent Overlapping Feedback Submissions (GAP D & F) ---');
+    await recordAsync('24. Concurrent Promise.all feedback submissions result in exactly one database creation', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+        const submissionId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        let activityDoc = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit'],
+            details: {
+                visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }]
+            }
+        };
+
+        Activity.findById = () => Promise.resolve(activityDoc);
+
+        let lockHeld = false;
+        let createdCount = 0;
+        let leadScoreIncrements = 0;
+
+        Activity.findOneAndUpdate = async (query, update) => {
+            await new Promise(r => setTimeout(r, 2));
+            if (update.$set?.['details.feedbackLock']) {
+                // Lock acquisition
+                if (!lockHeld && !activityDoc.details?.feedbackSubmitted) {
+                    lockHeld = true;
+                    activityDoc.details.feedbackLock = true;
+                    activityDoc.details.feedbackLockId = update.$set['details.feedbackLockId'];
+                    return { ...activityDoc };
+                }
+                return null;
+            }
+            if (update.$set?.['details.feedbackSubmitted']) {
+                // Finalization
+                if (activityDoc.details.feedbackLockId === query['details.feedbackLockId']) {
+                    activityDoc.details.feedbackSubmitted = true;
+                    activityDoc.details.customerFeedback = update.$set['details.customerFeedback'];
+                    lockHeld = false;
+                    return { ...activityDoc };
+                }
+                return null;
+            }
+            return { ...activityDoc };
+        };
+
+        FeedbackSubmission.create = async (doc) => {
+            createdCount++;
+            return { ...doc, _id: submissionId };
+        };
+
+        Lead.findByIdAndUpdate = async (id, update) => {
+            if (update.$inc?.intent_index) leadScoreIncrements++;
+            return {};
+        };
+
+        const req1 = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res1 = createMockRes();
+
+        const req2 = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res2 = createMockRes();
+
+        await Promise.all([
+            submitFeedback(req1, res1, () => {}),
+            submitFeedback(req2, res2, () => {})
+        ]);
+
+        const statuses = [res1.statusCode, res2.statusCode];
+        assert(statuses.includes(201), 'One request must succeed with 201');
+        assert(statuses.includes(200) || statuses.includes(409), 'Second request must either return 200 duplicate or 409 in-progress');
+        assert.strictEqual(createdCount, 1, 'Only exactly 1 FeedbackSubmission record must be created');
+        assert.strictEqual(leadScoreIncrements, 1, 'Lead score must be incremented at most once');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 25: Fail-Closed on Disconnected Database in Production (GAP A)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 25: Fail-Closed on Disconnected Database (GAP A) ---');
+    await recordAsync('25. In production paths with unmocked models, disconnected DB fails closed', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const origEnv = process.env.NODE_ENV;
+        process.env.NODE_ENV = 'production';
+
+        try {
+            await assert.rejects(
+                () => SiteVisitService.complete(fakeActId, { outcome: 'Interested' }),
+                /Database connection unavailable/
+            );
+            await assert.rejects(
+                () => SiteVisitService.reschedule(fakeActId, { newDate: new Date(), newTime: '10:00 AM', reason: 'Reschedule test' }),
+                /Database connection unavailable/
+            );
+            await assert.rejects(
+                () => SiteVisitService.cancel(fakeActId, { reason: 'Cancel test' }),
+                /Database connection unavailable/
+            );
+        } finally {
+            process.env.NODE_ENV = origEnv;
+        }
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 26: Rejected Completion Zero Downstream Mutations (GAP B)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 26: Zero Downstream Mutations on Rejected Completion (GAP B) ---');
+    await recordAsync('26. Rejected completion due to deal mismatch leaves Activity and Deal unchanged', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const mismatchLeadId = new mongoose.Types.ObjectId();
+        const fakeDealId = new mongoose.Types.ObjectId();
+
+        const pendingVisit = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Pending',
+            entityId: fakeLeadId,
+            tags: [],
+            details: {}
+        };
+        Activity.findById = () => Promise.resolve(pendingVisit);
+
+        let dealUpdated = false;
+        Deal.findById = () => Promise.resolve({ _id: fakeDealId, lead: mismatchLeadId });
+        Deal.findByIdAndUpdate = () => { dealUpdated = true; return Promise.resolve({}); };
+
+        await assert.rejects(
+            () => SiteVisitService.complete(fakeActId, { outcome: 'Interested', dealId: String(fakeDealId) }),
+            /Linked deal does not belong to the same lead/
+        );
+
+        assert.strictEqual(pendingVisit.status, 'Pending', 'Activity status must remain Pending');
+        assert.strictEqual(dealUpdated, false, 'Deal must NOT be updated when completion is rejected');
     });
 
     // Cleanup globals
