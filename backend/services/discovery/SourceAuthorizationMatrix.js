@@ -647,27 +647,40 @@ export class DomainGovernancePolicy {
         if (!clean) return false;
 
         try {
-            // 1. Check exact match in durable registry
+            // 1. Query the exact domain record regardless of status
             const exactDoc = await ApprovedDomain.findOne({
-                domain: clean,
-                status: 'approved'
+                domain: clean
             }).lean();
 
             if (exactDoc) {
+                if (exactDoc.status === 'approved') {
+                    this.verifiedDomains.set(clean, {
+                        domain: clean,
+                        status: 'approved',
+                        includeSubdomains: Boolean(exactDoc.includeSubdomains),
+                        approvedBy: exactDoc.operatorEmail || String(exactDoc.operatorId || 'durable_record'),
+                        approvedAt: exactDoc.approvedAt,
+                        notes: exactDoc.approvalReason || exactDoc.notes
+                    });
+                    this.lastDbError = null;
+                    return true;
+                }
+
+                // If an exact record exists with 'revoked', 'pending_review', or any non-approved status:
+                // Deny authorization immediately! Do NOT continue to parent-domain matching!
                 this.verifiedDomains.set(clean, {
                     domain: clean,
-                    status: 'approved',
-                    includeSubdomains: Boolean(exactDoc.includeSubdomains),
-                    approvedBy: exactDoc.operatorEmail || String(exactDoc.operatorId || 'durable_record'),
-                    approvedAt: exactDoc.approvedAt,
-                    notes: exactDoc.approvalReason || exactDoc.notes
+                    status: exactDoc.status,
+                    revocationReason: exactDoc.revocationReason,
+                    revokedBy: exactDoc.revokedByEmail,
+                    revokedAt: exactDoc.revokedAt
                 });
                 this.lastDbError = null;
-                return true;
+                return false;
             }
 
-            // 2. Safe parent domain match above Public Suffix boundary
-            // ONLY if parent has includeSubdomains: true
+            // 2. Only when NO exact record exists may an explicitly approved parent domain authorize the child,
+            // and only when includeSubdomains: true above the Public Suffix boundary.
             const safeParents = getSafeParentDomains(clean);
             if (safeParents.length > 0) {
                 const parentDoc = await ApprovedDomain.findOne({

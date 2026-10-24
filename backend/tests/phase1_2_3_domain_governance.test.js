@@ -1086,6 +1086,8 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             'gov.in',
             'co.in',
             'nic.in',
+            'co.nz',
+            'com.br',
             'com',
             'org',
             'net',
@@ -1375,6 +1377,153 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(auditLogs[0].eventType, 'domain_approved');
         assert.equal(auditLogs[1].eventType, 'domain_revoked');
         assert.equal(auditLogs[2].eventType, 'domain_approved');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. REVOCATION PRECEDENCE & COMPLETE PSL REGRESSION SUITE (Final Fix)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    await t.test('30. Finding 1: Revoked Child Domain Must NEVER Be Re-authorized by an Approved Parent with Subdomain Scope', async () => {
+        const parentDomain = 'state-portal.gov.in';
+        const revokedChild = 'compromised-sub.state-portal.gov.in';
+        const legitChild = 'authorized-sub.state-portal.gov.in';
+        const operatorId = new mongoose.Types.ObjectId();
+        const operatorEmail = 'super_admin@bharatproperties.in';
+
+        // 1. Durably approve parent domain with includeSubdomains: true
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: parentDomain,
+            operatorId,
+            operatorEmail,
+            operatorRole: 'SuperAdmin',
+            includeSubdomains: true,
+            reason: 'Official State Regulatory Root with Subdomain Scope'
+        });
+
+        // 2. Legit child domain is authorized via parent subdomain scope
+        const legitVerified = await domainGovernancePolicy.isDomainVerifiedAsync(legitChild);
+        assert.equal(legitVerified, true, 'Legit unrecorded child must be authorized via approved parent with subdomain scope');
+
+        // 3. Durably revoke the specific child domain
+        await domainGovernancePolicy.revokeDomainDurable({
+            domain: revokedChild,
+            operatorId,
+            operatorEmail,
+            operatorRole: 'SuperAdmin',
+            reason: 'Security incident: compromised child subdomain revoked'
+        });
+
+        // 4. Revoked child MUST be denied authorization immediately
+        const revokedVerified = await domainGovernancePolicy.isDomainVerifiedAsync(revokedChild);
+        assert.equal(revokedVerified, false, 'Revoked child must NEVER be authorized, even though parent is approved with includeSubdomains: true');
+
+        // 5. evaluateOperationAuthorizationAsync must report blocked status
+        const decision = await evaluateOperationAuthorizationAsync(`https://${revokedChild}/listing/123`, 'automated_fetch');
+        assert.equal(decision.allowed, false, 'evaluateOperationAuthorizationAsync must block revoked child');
+        assert.equal(decision.status, SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED);
+
+        // 6. Verify subsequent request remains blocked
+        const secondCheck = await domainGovernancePolicy.isDomainVerifiedAsync(revokedChild);
+        assert.equal(secondCheck, false, 'Revoked child must remain blocked on subsequent requests');
+
+        // 7. Verify after cache reset / server restart: child remains durably blocked
+        domainGovernancePolicy.clear();
+        assert.equal(domainGovernancePolicy.verifiedDomains.size, 0, 'In-memory cache must be empty');
+
+        const postRestartVerified = await domainGovernancePolicy.isDomainVerifiedAsync(revokedChild);
+        assert.equal(postRestartVerified, false, 'Revoked child must remain blocked after cache reset / restart');
+
+        // 8. Unrevoked sibling child remains authorized after cache reset
+        const legitPostRestart = await domainGovernancePolicy.isDomainVerifiedAsync(legitChild);
+        assert.equal(legitPostRestart, true, 'Unrevoked sibling child domain must remain authorized');
+
+        // 9. Four-boundary enforcement: Direct Connector, Queue, Worker & Redirects block revoked child
+        const connectorResult = await publicUrlConnector.process({
+            url: `https://${revokedChild}/page`,
+            user_id: 'usr_test'
+        });
+        assert.equal(connectorResult.source_confidence, 10);
+        assert.ok(connectorResult.verification_notes[0].includes('Automated HTTP fetch blocked'));
+
+        const queueResult = await addToIntakeQueue('public_url', { url: `https://${revokedChild}/page` });
+        assert.equal(queueResult.heldForReview, true, 'Queue must hold candidate for human review without worker processing');
+    });
+
+    await t.test('31. Finding 2: Complete Offline Mozilla PSL Protection & Registrable Domain Validation', async () => {
+        // Test PSL identification & rejection across country-code suffixes, generic TLDs, and private platforms
+        const pslTestCases = [
+            'co.nz',
+            'net.nz',
+            'com.br',
+            'gov.br',
+            'co.in',
+            'gov.in',
+            'nic.in',
+            'github.io',
+            'vercel.app',
+            'pages.dev',
+            's3.amazonaws.com',
+            'herokuapp.com',
+            'com',
+            'org',
+            'io'
+        ];
+
+        for (const suffix of pslTestCases) {
+            assert.equal(isPublicSuffix(suffix), true, `${suffix} must be identified as public suffix via tldts`);
+            const validation = validateDomainForApproval(suffix);
+            assert.equal(validation.valid, false, `${suffix} registration must be rejected`);
+            assert.ok(validation.error.includes('Cannot approve public suffix'), `Error must mention public suffix for ${suffix}`);
+        }
+
+        // Test valid registrable domains & subdomains
+        const validDomains = [
+            'example.com',
+            'sub.example.com',
+            'tenant1.github.io',
+            'tenant2.github.io',
+            'tenant1.vercel.app',
+            'tenant2.vercel.app',
+            'tcpharyana.gov.in',
+            'hsvp.org.in',
+            'estate.co.nz',
+            'imoveis.com.br'
+        ];
+
+        for (const domain of validDomains) {
+            assert.equal(isPublicSuffix(domain), false, `${domain} is a registrable domain, not a public suffix`);
+            const validation = validateDomainForApproval(domain);
+            assert.equal(validation.valid, true, `${domain} must be valid for approval: ${validation.error}`);
+        }
+
+        // Test safe parent extraction stops before PSL boundaries
+        assert.deepEqual(getSafeParentDomains('sub.example.com'), ['example.com']);
+        assert.deepEqual(getSafeParentDomains('example.com'), []);
+        assert.deepEqual(getSafeParentDomains('tenant1.github.io'), []);
+        assert.deepEqual(getSafeParentDomains('sub.tenant1.github.io'), ['tenant1.github.io']);
+        assert.deepEqual(getSafeParentDomains('tenant2.github.io'), []);
+        assert.deepEqual(getSafeParentDomains('sub.tenant2.vercel.app'), ['tenant2.vercel.app']);
+        assert.deepEqual(getSafeParentDomains('co.nz'), []);
+        assert.deepEqual(getSafeParentDomains('com.br'), []);
+
+        // Multi-tenant shared hosting platform isolation
+        const opId = new mongoose.Types.ObjectId();
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: 'tenant1.github.io',
+            operatorId: opId,
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            includeSubdomains: true,
+            reason: 'Tenant 1 verified'
+        });
+
+        // Tenant 1 authorized
+        assert.equal(await domainGovernancePolicy.isDomainVerifiedAsync('tenant1.github.io'), true);
+        assert.equal(await domainGovernancePolicy.isDomainVerifiedAsync('sub.tenant1.github.io'), true);
+
+        // Tenant 2 must NOT be authorized!
+        assert.equal(await domainGovernancePolicy.isDomainVerifiedAsync('tenant2.github.io'), false);
+        assert.equal(await domainGovernancePolicy.isDomainVerifiedAsync('unrelated.github.io'), false);
     });
 
 });
