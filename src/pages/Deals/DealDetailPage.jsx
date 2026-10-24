@@ -604,6 +604,33 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         return stageColors[currentStage] || stageColors['Open'];
     }, [currentStage]);
 
+    const isReadOnly = isMarkingLost || deal?.stage === 'Closed Won' || deal?.stage === 'Closed Lost' || deal?.stage === 'Cancelled';
+
+    const relatedEntities = useMemo(() => {
+        if (!dealId) return [];
+        const entities = [{ type: 'Deal', id: dealId }];
+        if (deal?.contactId?._id || deal?.contactId) {
+            entities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+        }
+        if (inventory) {
+            const invId = inventory._id || inventory.id;
+            if (invId) entities.push({ type: 'Inventory', id: invId });
+            if (inventory.owners && Array.isArray(inventory.owners)) {
+                inventory.owners.forEach(o => {
+                    const oId = o._id || o.id;
+                    if (oId) entities.push({ type: 'Contact', id: oId });
+                });
+            }
+            if (inventory.associates && Array.isArray(inventory.associates)) {
+                inventory.associates.forEach(a => {
+                    const cId = a.contact?._id || a.contact?.id || a.id;
+                    if (cId) entities.push({ type: 'Contact', id: cId });
+                });
+            }
+        }
+        return entities;
+    }, [dealId, deal?.contactId, inventory]);
+
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
             <div className="loader"></div>
@@ -635,33 +662,6 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             </button>
         </div>
     );
-
-    const isReadOnly = isMarkingLost || deal.stage === 'Closed Won' || deal.stage === 'Closed Lost' || deal.stage === 'Cancelled';
-
-    const relatedEntities = useMemo(() => {
-        if (!dealId) return [];
-        const entities = [{ type: 'Deal', id: dealId }];
-        if (deal?.contactId?._id || deal?.contactId) {
-            entities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
-        }
-        if (inventory) {
-            const invId = inventory._id || inventory.id;
-            if (invId) entities.push({ type: 'Inventory', id: invId });
-            if (inventory.owners && Array.isArray(inventory.owners)) {
-                inventory.owners.forEach(o => {
-                    const oId = o._id || o.id;
-                    if (oId) entities.push({ type: 'Contact', id: oId });
-                });
-            }
-            if (inventory.associates && Array.isArray(inventory.associates)) {
-                inventory.associates.forEach(a => {
-                    const cId = a.contact?._id || a.contact?.id || a.id;
-                    if (cId) entities.push({ type: 'Contact', id: cId });
-                });
-            }
-        }
-        return entities;
-    }, [dealId, deal?.contactId, inventory]);
 
     return (
         <div className="deal-detail-page bg-slate-50 min-h-screen" style={{ fontFamily: '"Inter", sans-serif' }}>
