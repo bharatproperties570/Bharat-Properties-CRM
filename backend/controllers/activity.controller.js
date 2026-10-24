@@ -3,6 +3,7 @@ import OutboxEvent from "../models/OutboxEvent.js";
 import { withMongoTransaction } from "../utils/withMongoTransaction.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
+import { DomainEventPublisher } from '../utils/DomainEventPublisher.js';
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
@@ -1196,7 +1197,7 @@ export const deleteActivity = async (req, res) => {
             const act = await Activity.softDeleteOne({ _id: req.params.id, ...visibilityFilter }, { userId: req.user?._id, session });
 
             if (act) {
-                await OutboxEvent.create([{
+                await DomainEventPublisher.publishFromHttp(req, session, {
                     eventType: 'ActivityDeleted',
                     aggregateType: 'Activity',
                     aggregateId: act._id,
@@ -1208,7 +1209,7 @@ export const deleteActivity = async (req, res) => {
                         deletedAt: act.deletedAt || new Date(),
                         actorId: req.user?.id || req.user?._id || null
                     }
-                }], { session });
+                });
             }
 
             return act;

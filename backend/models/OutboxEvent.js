@@ -11,7 +11,7 @@ const OutboxEventSchema = new mongoose.Schema({
     eventType: {
         type: String,
         required: true,
-        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested', 'LeadUpdated', 'ContactUpdated', 'ActivityDeleted', 'ContactCreated']
+        enum: ['LeadCreated', 'DealCreated', 'LeadReassignmentRequested', 'DealUpdated', 'ActivityCreated', 'ActivityUpdated', 'ContactMerged', 'TimeTriggerExecutionRequested', 'LeadUpdated', 'ContactUpdated', 'ActivityDeleted', 'ContactCreated', 'ManualEnrichmentRequested']
     },
     aggregateType: {
         type: String,
@@ -30,7 +30,15 @@ const OutboxEventSchema = new mongoose.Schema({
         type: String,
         required: false
     },
+
+    provenance: {
+        source: { type: String, enum: ['HTTP', 'MOBILE', 'PUBLIC_FORM', 'WEBHOOK', 'WORKER'], required: false },
+        actorType: { type: String, enum: ['HUMAN', 'EXTERNAL', 'WEBHOOK', 'SYSTEM'], required: false },
+        actorId: { type: mongoose.Schema.Types.ObjectId, required: false },
+        correlationId: { type: String, required: false }
+    },
     status: {
+
         type: String,
         required: true,
         enum: ['PENDING', 'PROCESSING', 'PUBLISHED', 'FAILED'],
