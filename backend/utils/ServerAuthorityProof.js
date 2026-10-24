@@ -213,7 +213,8 @@ const domainEventIssuer = async (jobData) => {
     } else if (aggregateType === 'Activity') {
         const Activity = mongoose.models.Activity || mongoose.model('Activity');
         const activity = await Activity.findById(aggregateId).select('entityType entityId').lean();
-        if (activity?.entityType?.toLowerCase() === 'lead' && activity?.entityId) {
+        const normalizedType = String(activity?.entityType || '').trim().toLowerCase();
+        if (normalizedType === 'lead' && activity?.entityId) {
             targetLeadId = activity.entityId;
         } else {
             throw new Error("SECURITY_VIOLATION: Activity event missing valid Lead enrichment target");

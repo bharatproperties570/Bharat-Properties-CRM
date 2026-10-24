@@ -12,7 +12,8 @@ import '../models/Project.js';
 import '../models/Inventory.js';
 import { addActivity, updateActivity, deleteActivity } from '../controllers/activity.controller.js';
 import { createContact } from '../controllers/contact.controller.js';
-import { processDomainEvent, domainEventWorker } from '../src/workers/domainEventWorker.js';
+import { domainEventWorker } from '../src/workers/domainEventWorker.js';
+import { processDomainEventJob as processDomainEvent } from '../src/workers/domainEventWorkerLogic.js';
 import { domainEventQueue } from '../src/queues/queueManager.js';
 
 let replSet;
@@ -36,6 +37,79 @@ async function assertEffects(eventId, expectedEffects, notExpectedEffects = []) 
         if (keys.includes(eff)) throw new Error(`Unexpected effect found: ${eff} in ${keys}`);
     }
 }
+
+const dispatchDomainEventThroughQueue = (jobData, timeoutMs = 5000) => {
+    return new Promise((resolve, reject) => {
+        let cleanupTimer = null;
+        let isDone = false;
+        let addedJobId = null;
+
+        const cleanup = () => {
+            if (cleanupTimer) {
+                clearTimeout(cleanupTimer);
+                cleanupTimer = null;
+            }
+            domainEventWorker.removeListener('completed', onCompleted);
+            domainEventWorker.removeListener('failed', onFailed);
+        };
+
+        const onCompleted = (j) => {
+            if (j && j.id === addedJobId) {
+                if (!isDone) {
+                    isDone = true;
+                    cleanup();
+                    resolve({ success: true, jobId: j.id });
+                }
+            }
+        };
+
+        const onFailed = (j, err) => {
+            if (j && j.id === addedJobId) {
+                if (!isDone) {
+                    isDone = true;
+                    cleanup();
+                    reject(err || new Error(`Job ${addedJobId} failed`));
+                }
+            }
+        };
+
+        domainEventWorker.on('completed', onCompleted);
+        domainEventWorker.on('failed', onFailed);
+
+        domainEventQueue.add('event', jobData).then(async (addedJob) => {
+            addedJobId = addedJob.id;
+
+            if (typeof addedJob.isCompleted === 'function' && await addedJob.isCompleted()) {
+                if (!isDone) {
+                    isDone = true;
+                    cleanup();
+                    resolve({ success: true, jobId: addedJob.id });
+                }
+                return;
+            }
+
+            if (typeof addedJob.isFailed === 'function' && await addedJob.isFailed()) {
+                if (!isDone) {
+                    isDone = true;
+                    cleanup();
+                    reject(new Error(`Job ${addedJob.id} already failed`));
+                }
+                return;
+            }
+
+            cleanupTimer = setTimeout(() => {
+                if (!isDone) {
+                    isDone = true;
+                    cleanup();
+                    reject(new Error(`Timeout (${timeoutMs}ms) waiting for domainEventWorker completion for job ${addedJobId}`));
+                }
+            }, timeoutMs);
+        }).catch((err) => {
+            cleanup();
+            reject(err);
+        });
+    });
+};
 
 async function runTests() {
     let summary = { total: 0, passed: 0, failed: 0, limited: 0 };
@@ -177,6 +251,119 @@ async function runTests() {
             // Legacy behavior fires it if status === completed, which we preserved.
         });
 
+        await runTest('C8-AU-05', 'ActivityUpdated EntityType Normalization & Production Capability Boundary', async () => {
+            const { ServerAuthorityProof, AuthorityProofIssuer } = await import('../utils/ServerAuthorityProof.js');
+
+            // 1. Lowercase 'lead' through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadLower = await Lead.create({ firstName: 'LowerLead', mobile: '9999990001' });
+            const actLower = await Activity.create({ type: 'Call', subject: 'Lower Test', entityType: 'lead', entityId: leadLower._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actLower._id,
+                payload: { entityType: 'lead', entityId: leadLower._id }
+            });
+            const checkLower = await Lead.findById(leadLower._id).select('+enrichmentState.claimTokenHash');
+            if (checkLower.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for entityType: 'lead'");
+            }
+            if (!checkLower.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for entityType: 'lead'");
+            }
+
+            // 2. Titlecase 'Lead' through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadTitle = await Lead.create({ firstName: 'TitleLead', mobile: '9999990002' });
+            const actTitle = await Activity.create({ type: 'Call', subject: 'Title Test', entityType: 'Lead', entityId: leadTitle._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actTitle._id,
+                payload: { entityType: 'Lead', entityId: leadTitle._id }
+            });
+            const checkTitle = await Lead.findById(leadTitle._id).select('+enrichmentState.claimTokenHash');
+            if (checkTitle.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for entityType: 'Lead'");
+            }
+            if (!checkTitle.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for entityType: 'Lead'");
+            }
+
+            // 3. Uppercase 'LEAD' with surrounding whitespace in both persisted Activity and payload through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadUpper = await Lead.create({ firstName: 'UpperLead', mobile: '9999990003' });
+            const actUpper = await Activity.create({ type: 'Call', subject: 'Upper Test', entityType: '  LEAD  ', entityId: leadUpper._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actUpper._id,
+                payload: { entityType: '  LEAD  ', entityId: leadUpper._id }
+            });
+            const checkUpper = await Lead.findById(leadUpper._id).select('+enrichmentState.claimTokenHash');
+            if (checkUpper.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for persisted entityType: '  LEAD  '");
+            }
+            if (!checkUpper.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for persisted entityType: '  LEAD  '");
+            }
+
+            // 4. Non-lead entityType (e.g. 'Deal') through production path must NOT request enrichment
+            const leadDeal = await Lead.create({ firstName: 'DealLead', mobile: '9999990004' });
+            const actDeal = await Activity.create({ type: 'Call', subject: 'Deal Test', entityType: 'Deal', entityId: leadDeal._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actDeal._id,
+                payload: { entityType: 'Deal', entityId: leadDeal._id }
+            });
+            const checkDeal = await Lead.findById(leadDeal._id);
+            if (checkDeal.enrichmentState?.status === 'REQUESTED') {
+                throw new Error("Did NOT expect Lead to transition to REQUESTED for entityType: 'Deal'");
+            }
+
+            // 5. Missing or null entityType through production path must NOT request enrichment
+            const leadNull = await Lead.create({ firstName: 'NullLead', mobile: '9999990005' });
+            const actNull = await Activity.create({ type: 'Call', subject: 'Null Test', entityType: 'Lead', entityId: leadNull._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actNull._id,
+                payload: { entityType: null, entityId: leadNull._id }
+            });
+            const checkNull = await Lead.findById(leadNull._id);
+            if (checkNull.enrichmentState?.status === 'REQUESTED') {
+                throw new Error("Did NOT expect Lead to transition to REQUESTED for entityType: null");
+            }
+
+            // 6. Security verification: Untrusted direct invocation cannot bypass capability boundary
+            let constructorBlocked = false;
+            try {
+                new ServerAuthorityProof('fake_secret', leadLower._id.toString(), 'fake_job');
+            } catch (err) {
+                if (err.message.includes('SECURITY_VIOLATION')) constructorBlocked = true;
+            }
+            if (!constructorBlocked) {
+                throw new Error("Expected direct ServerAuthorityProof constructor to throw SECURITY_VIOLATION");
+            }
+
+            let directResolveBlocked = false;
+            try {
+                await AuthorityProofIssuer.resolveSystemProof(leadLower._id.toString(), 'unauthorized_job', 'invalid_token');
+            } catch (err) {
+                if (err.message.includes('SECURITY_VIOLATION')) directResolveBlocked = true;
+            }
+            if (!directResolveBlocked) {
+                throw new Error("Expected direct resolveSystemProof with invalid token to throw SECURITY_VIOLATION");
+            }
+
+            if (typeof domainEventWorker.processFn !== 'undefined') {
+                throw new Error("domainEventWorker must not expose direct processFn execution method");
+            }
+        });
+
         await runTest('C8-AD-01', 'ActivityDeleted', async () => {
             const req = mockReq({}, { id: act01._id });
             const res = mockRes();
@@ -245,7 +432,11 @@ async function runTests() {
         console.log(`Failed: ${summary.failed}`);
         console.log(`Limited: ${summary.limited}`);
         
-        if (summary.failed > 0) process.exit(1);
+        if (summary.failed > 0) {
+            process.exit(1);
+        } else {
+            process.exit(0);
+        }
     }
 }
 

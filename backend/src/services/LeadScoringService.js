@@ -486,6 +486,7 @@ export const computeAndSave = async (leadId, options = {}) => {
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
+            // [R5 UPDATE] Piped options (including session and optional correlationId)
             await AuditLog.logEntityUpdate(
                 'score_changed',
                 'lead',
@@ -493,7 +494,8 @@ export const computeAndSave = async (leadId, options = {}) => {
                 `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
                 null,
                 { before: prevScore, after: result.total },
-                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`,
+                { session, correlationId: authContext?.correlationId }
             );
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
