@@ -446,7 +446,8 @@ export const processDomainEventJob = async (job) => {
 
                 case 'ActivityUpdated': {
             let intentEnrichment = false;
-            if (payload && payload.entityType === 'Lead' && payload.entityId) {
+            const normalizedEntityType = payload?.entityType ? String(payload.entityType).trim().toLowerCase() : null;
+            if (normalizedEntityType === 'lead' && payload.entityId) {
                 intentEnrichment = true;
             }
             if (payload.statusChanged && payload.newStatus?.toLowerCase() === 'completed') {
@@ -454,7 +455,7 @@ export const processDomainEventJob = async (job) => {
                     const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
                     await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_completed');
                 });
-                if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
+                if (normalizedEntityType === 'lead' && payload.entityId) {
                     await executeEffect(eventId, 'activity_scoring_completed', aggregateType, aggregateId, async () => {
                         const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
                         await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' });

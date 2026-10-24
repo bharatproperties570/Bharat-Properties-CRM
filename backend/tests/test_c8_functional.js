@@ -12,7 +12,8 @@ import '../models/Project.js';
 import '../models/Inventory.js';
 import { addActivity, updateActivity, deleteActivity } from '../controllers/activity.controller.js';
 import { createContact } from '../controllers/contact.controller.js';
-import { processDomainEvent, domainEventWorker } from '../src/workers/domainEventWorker.js';
+import { domainEventWorker } from '../src/workers/domainEventWorker.js';
+import { processDomainEventJob as processDomainEvent } from '../src/workers/domainEventWorkerLogic.js';
 import { domainEventQueue } from '../src/queues/queueManager.js';
 
 let replSet;
@@ -177,6 +178,81 @@ async function runTests() {
             // Legacy behavior fires it if status === completed, which we preserved.
         });
 
+        await runTest('C8-AU-05', 'ActivityUpdated EntityType Normalization', async () => {
+            const actId = new mongoose.Types.ObjectId();
+            const leadId = new mongoose.Types.ObjectId();
+
+            // 1. Lowercase 'lead' should trigger intent enrichment
+            const resLower = await processDomainEvent({
+                data: {
+                    eventId: uuidv4(),
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: actId,
+                    payload: { entityType: 'lead', entityId: leadId }
+                }
+            });
+            if (!resLower || resLower.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
+                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: 'lead'");
+            }
+
+            // 2. Titlecase 'Lead' should trigger intent enrichment
+            const resTitle = await processDomainEvent({
+                data: {
+                    eventId: uuidv4(),
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: actId,
+                    payload: { entityType: 'Lead', entityId: leadId }
+                }
+            });
+            if (!resTitle || resTitle.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
+                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: 'Lead'");
+            }
+
+            // 3. Uppercase 'LEAD' with whitespace should trigger intent enrichment
+            const resUpper = await processDomainEvent({
+                data: {
+                    eventId: uuidv4(),
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: actId,
+                    payload: { entityType: ' LEAD ', entityId: leadId }
+                }
+            });
+            if (!resUpper || resUpper.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
+                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: ' LEAD '");
+            }
+
+            // 4. Non-lead entityType (e.g. 'Deal') must NOT trigger intent enrichment
+            const resDeal = await processDomainEvent({
+                data: {
+                    eventId: uuidv4(),
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: actId,
+                    payload: { entityType: 'Deal', entityId: leadId }
+                }
+            });
+            if (resDeal && resDeal.action === 'REQUEST_SYSTEM_ENRICHMENT') {
+                throw new Error("Did NOT expect REQUEST_SYSTEM_ENRICHMENT for entityType: 'Deal'");
+            }
+
+            // 5. Missing or null entityType must NOT trigger intent enrichment
+            const resNull = await processDomainEvent({
+                data: {
+                    eventId: uuidv4(),
+                    eventType: 'ActivityUpdated',
+                    aggregateType: 'Activity',
+                    aggregateId: actId,
+                    payload: { entityType: null, entityId: leadId }
+                }
+            });
+            if (resNull && resNull.action === 'REQUEST_SYSTEM_ENRICHMENT') {
+                throw new Error("Did NOT expect REQUEST_SYSTEM_ENRICHMENT for entityType: null");
+            }
+        });
+
         await runTest('C8-AD-01', 'ActivityDeleted', async () => {
             const req = mockReq({}, { id: act01._id });
             const res = mockRes();
@@ -245,7 +321,11 @@ async function runTests() {
         console.log(`Failed: ${summary.failed}`);
         console.log(`Limited: ${summary.limited}`);
         
-        if (summary.failed > 0) process.exit(1);
+        if (summary.failed > 0) {
+            process.exit(1);
+        } else {
+            process.exit(0);
+        }
     }
 }
 
