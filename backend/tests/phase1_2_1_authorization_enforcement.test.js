@@ -23,12 +23,31 @@ import publicUrlConnector from '../services/intakeConnectors/PublicUrlConnector.
 import propertyListingConnector from '../services/intakeConnectors/PropertyListingConnector.js';
 import intakeQueue, { addToIntakeQueue } from '../services/intakeQueue/IntakeQueue.js';
 import Intake from '../models/Intake.js';
+import ApprovedDomain from '../models/ApprovedDomain.js';
 import ParsingRule from '../src/modules/parsing/parsingRule.model.js';
+import mongoose from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 // Prevent Mongoose buffering timeout
 ParsingRule.find = async () => [];
 
 test('--- PHASE 1.2.1: SOURCE AUTHORIZATION ENFORCEMENT & SAFE FETCHING SUITE ---', async (t) => {
+
+    let replSet;
+
+    t.before(async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        await mongoose.connect(replSet.getUri());
+    });
+
+    t.after(async () => {
+        if (mongoose.connection && mongoose.connection.readyState !== 0) {
+            await mongoose.disconnect();
+        }
+        if (replSet) {
+            await replSet.stop();
+        }
+    });
 
     // Clean any partner grants before testing
     authorizationGrantRegistry.clearAll();
@@ -328,6 +347,11 @@ test('--- PHASE 1.2.1: SOURCE AUTHORIZATION ENFORCEMENT & SAFE FETCHING SUITE --
 
     await t.test('10. Safe Bounded Redirects: Redirects to Internal/Private Addresses Are Blocked', async () => {
         const { domainGovernancePolicy } = await import('../services/discovery/SourceAuthorizationMatrix.js');
+        await ApprovedDomain.create({
+            domain: 'innocent-looking-site.com',
+            status: 'approved',
+            approvalReason: 'Approved for SSRF redirect test fixture'
+        });
         domainGovernancePolicy.registerDomain('innocent-looking-site.com', { approvedBy: 'test_fixture' });
 
         const originalAxiosGet = (await import('axios')).default.get;

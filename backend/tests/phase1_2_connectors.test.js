@@ -22,12 +22,31 @@ import publicUrlConnector from '../services/intakeConnectors/PublicUrlConnector.
 import propertyListingConnector from '../services/intakeConnectors/PropertyListingConnector.js';
 import { addToIntakeQueue } from '../services/intakeQueue/IntakeQueue.js';
 import Intake from '../models/Intake.js';
+import ApprovedDomain from '../models/ApprovedDomain.js';
 import ParsingRule from '../src/modules/parsing/parsingRule.model.js';
+import mongoose from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 // Prevent Mongoose buffering timeout during unit tests
 ParsingRule.find = async () => [];
 
 test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE ---', async (t) => {
+
+    let replSet;
+
+    t.before(async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        await mongoose.connect(replSet.getUri());
+    });
+
+    t.after(async () => {
+        if (mongoose.connection && mongoose.connection.readyState !== 0) {
+            await mongoose.disconnect();
+        }
+        if (replSet) {
+            await replSet.stop();
+        }
+    });
 
     await t.test('1. Source Authorization Matrix & 4-Tier Governance Classification', () => {
         // Tier 1: Official APIs
@@ -206,6 +225,11 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         </html>
         `;
 
+        await ApprovedDomain.findOneAndUpdate(
+            { domain: 'realestateportal.com' },
+            { domain: 'realestateportal.com', status: 'approved' },
+            { upsert: true }
+        );
         domainGovernancePolicy.registerDomain('realestateportal.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         (await import('axios')).default.get = async () => ({
@@ -282,6 +306,11 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             data: mockVagueHtml
         });
 
+        await ApprovedDomain.findOneAndUpdate(
+            { domain: 'kurukshetrarealestate.in' },
+            { domain: 'kurukshetrarealestate.in', status: 'approved' },
+            { upsert: true }
+        );
         domainGovernancePolicy.registerDomain('kurukshetrarealestate.in', { approvedBy: 'test_fixture' });
 
         try {
@@ -333,6 +362,11 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         </html>
         `;
 
+        await ApprovedDomain.findOneAndUpdate(
+            { domain: 'realestateportal.com' },
+            { domain: 'realestateportal.com', status: 'approved' },
+            { upsert: true }
+        );
         domainGovernancePolicy.registerDomain('realestateportal.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         (await import('axios')).default.get = async () => ({

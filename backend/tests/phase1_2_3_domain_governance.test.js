@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'http';
-import net from 'net';
 import dns from 'dns';
 import mongoose from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 import SourceAuthorizationMatrix, {
     SOURCE_TIERS,
@@ -20,6 +20,13 @@ import SourceAuthorizationMatrix, {
     getParentDomains,
     OFFICIAL_REGULATORY_DIRECTORY
 } from '../services/discovery/SourceAuthorizationMatrix.js';
+
+import {
+    validateDomainForApproval,
+    getSafeParentDomains,
+    isPublicSuffix,
+    PUBLIC_SUFFIX_SET
+} from '../services/discovery/PublicSuffixList.js';
 
 import {
     safeFetchHtml,
@@ -50,6 +57,9 @@ ParsingRule.find = async () => [];
 
 test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---', async (t) => {
 
+    let replSet;
+    let mongoUri;
+
     const originalFindOne = Intake.findOne;
     const originalFindById = Intake.findById;
     const originalSave = Intake.prototype.save;
@@ -58,10 +68,30 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
 
     const savedIntakeDocs = new Map();
 
-    t.beforeEach(() => {
+    t.before(async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        mongoUri = replSet.getUri();
+        await mongoose.connect(mongoUri);
+    });
+
+    t.after(async () => {
+        if (mongoose.connection && mongoose.connection.readyState !== 0) {
+            await mongoose.disconnect();
+        }
+        if (replSet) {
+            await replSet.stop();
+        }
+    });
+
+    t.beforeEach(async () => {
         domainGovernancePolicy.reset();
         authorizationGrantRegistry.clearAll();
         savedIntakeDocs.clear();
+
+        if (mongoose.connection && mongoose.connection.readyState === 1) {
+            await ApprovedDomain.deleteMany({});
+            await AuditLog.deleteMany({});
+        }
 
         // Stub queue dispatch to prevent offline worker buffering
         intakeQueue.add = async () => ({ id: 'mock_job_123' });
@@ -75,16 +105,11 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             return this;
         };
 
-        Intake.findOne = async (query) => {
-            return null; // No duplicate found by default
-        };
-
-        Intake.findById = async (id) => {
-            return savedIntakeDocs.get(String(id)) || null;
-        };
+        Intake.findOne = async () => null;
+        Intake.findById = async (id) => savedIntakeDocs.get(String(id)) || null;
 
         // Default DNS stub: maps hostnames to safe public IP
-        dns.promises.lookup = async (host, opts) => {
+        dns.promises.lookup = async (host) => {
             if (host === '169.254.169.254') return [{ address: '169.254.169.254', family: 4 }];
             if (host === '127.0.0.1' || host === 'localhost') return [{ address: '127.0.0.1', family: 4 }];
             return [{ address: '93.184.216.34', family: 4 }];
@@ -110,7 +135,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
     await t.test('1. Unknown Tier 2 Domain Is Blocked by Default for Automated Fetching', () => {
         const unknownUrl = 'https://unregistered-brokerage.in/plot-for-sale-123';
         
-        // No special flags or context passed — default invocation must be secure
         const authDecision = evaluateOperationAuthorization(unknownUrl, 'automated_fetch');
         
         assert.equal(authDecision.allowed, false, 'Unknown domain must be blocked by default');
@@ -119,7 +143,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(authDecision.reason, 'unverified_domain_requires_human_verification');
         assert.equal(authDecision.domain, 'unregistered-brokerage.in');
 
-        // isSourceAuthorized helper must return false
         assert.equal(isSourceAuthorized(unknownUrl, 'automated_fetch'), false);
     });
 
@@ -130,10 +153,11 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         // 1. Initially unverified
         assert.equal(evaluateOperationAuthorization(testUrl, 'automated_fetch').allowed, false);
 
-        // 2. Operator registers and approves domain
+        // 2. Operator registers and approves domain (with includeSubdomains: true)
         const registered = domainGovernancePolicy.registerDomain(domain, {
             approvedBy: 'operator_admin_42',
-            notes: 'Verified local broker website with valid Haryana RERA registration'
+            notes: 'Verified local broker website with valid Haryana RERA registration',
+            includeSubdomains: true
         });
         assert.equal(registered, true);
 
@@ -143,6 +167,7 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(record.domain, domain);
         assert.equal(record.status, 'approved');
         assert.equal(record.approvedBy, 'operator_admin_42');
+        assert.equal(record.includeSubdomains, true);
         assert.ok(record.approvedAt instanceof Date);
         assert.ok(record.notes.includes('RERA'));
 
@@ -152,9 +177,17 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(authDecision.status, SOURCE_STATUS.AUTHORIZED);
         assert.equal(authDecision.reason, null);
 
-        // Subdomain of approved domain is also authorized
+        // Subdomain of approved domain with includeSubdomains: true is also authorized
         const subUrl = `https://plots.${domain}/sector-7-plot`;
         assert.equal(evaluateOperationAuthorization(subUrl, 'automated_fetch').allowed, true);
+
+        // Exact-host only approval (default includeSubdomains: false)
+        domainGovernancePolicy.registerDomain('exact-host-only.com', {
+            approvedBy: 'operator_admin_42',
+            includeSubdomains: false
+        });
+        assert.equal(evaluateOperationAuthorization('https://exact-host-only.com/plot', 'automated_fetch').allowed, true);
+        assert.equal(evaluateOperationAuthorization('https://sub.exact-host-only.com/plot', 'automated_fetch').allowed, false);
     });
 
     await t.test('3. Revocation or Removal of Domain Approval Blocks Subsequent Requests Immediately', () => {
@@ -192,7 +225,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
     await t.test('4. Portal Whitelist Alone Never Grants Authorization', () => {
         const portalUrl = 'https://www.99acres.com/sector-8-commercial-listing';
 
-        // Operator has configured 99acres.com in whitelist filter
         const contextWithWhitelist = {
             portal_whitelist: ['99acres.com'],
             allowedDomains: ['99acres.com'],
@@ -221,7 +253,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             assert.equal(decision.status, SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED);
         }
 
-        // Tier 3 only authorized if active grant is registered
         authorizationGrantRegistry.registerGrant({
             domain: 'squareyards.com',
             grantType: 'syndication_partner',
@@ -264,7 +295,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         };
 
         try {
-            // PublicUrlConnector test
             const publicResult = await publicUrlConnector.process({
                 url: unknownUrl,
                 search_metadata: { title: 'Direct Connector Plot' }
@@ -276,7 +306,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             assert.equal(publicResult.verification_status, 'unverified');
             assert.ok(publicResult.raw_source_data.url.includes('unapproved-direct-connector.com'));
 
-            // PropertyListingConnector test
             const listingResult = await propertyListingConnector.process({
                 url: unknownUrl,
                 search_metadata: { title: 'Direct Listing Candidate' }
@@ -319,7 +348,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             assert.equal(queueRes.reason, 'unverified_domain_requires_human_verification');
             assert.ok(queueRes.intakeId);
 
-            // Verify the intake document was saved in database with complete candidate provenance
             const savedIntake = await Intake.findById(queueRes.intakeId);
             assert.ok(savedIntake);
             assert.equal(savedIntake.status, 'Needs Review');
@@ -362,7 +390,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             assert.equal(queueResult.fetchBlocked, true);
             assert.equal(queueResult.reason, 'unverified_domain_requires_human_verification');
 
-            // Verify stored document
             const intakeDoc = await Intake.findById(queueResult.intakeId);
             assert.ok(intakeDoc);
             assert.equal(intakeDoc.status, 'Needs Review');
@@ -376,7 +403,12 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
 
     await t.test('10. Every Redirect Rechecks Both Domain Authorization and SSRF Controls', async () => {
         const approvedInitialDomain = 'verified-origin-domain.in';
-        domainGovernancePolicy.registerDomain(approvedInitialDomain, { approvedBy: 'test_operator' });
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: approvedInitialDomain,
+            operatorEmail: 'test_operator@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Origin domain approved for redirect testing'
+        });
         const initialUrl = `https://${approvedInitialDomain}/listing-entry`;
 
         const originalAxiosGet = (await import('axios')).default.get;
@@ -452,7 +484,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
     await t.test('11. Manual and WhatsApp Intake Remain Completely Functional Without Web Domain Approval', async () => {
         const dummyUserId = new mongoose.Types.ObjectId();
 
-        // 1. Manual Text Intake
         const manualRes = await addToIntakeQueue('manual', {
             text: 'Direct buyer walked in: looking for 250 sqyd plot in Sector 5 Kurukshetra with 1.5 Cr budget. Contact: 9876543210',
             source: 'Walk-in'
@@ -466,7 +497,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(manualDoc.status, 'Queued');
         assert.equal(manualDoc.source_type, 'manual');
 
-        // 2. WhatsApp Inbound Intake
         const whatsappRes = await addToIntakeQueue('whatsapp_group', {
             text: 'Urgent seller: Sector 13 Urban Estate 350 sqyd East facing plot. Asking 2.25 Cr. Immediate registry.',
             messageId: 'wa_live_msg_' + Date.now(),
@@ -492,53 +522,31 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         };
 
         try {
-            // Rejection 1: Unapproved Tier 2 direct fetch
             await assert.rejects(
                 async () => safeFetchHtml('https://unregistered-agent-website.com/plot'),
                 (err) => err instanceof AuthorizationError
             );
 
-            // Rejection 2: Commercial portal without grant
             await assert.rejects(
                 async () => safeFetchHtml('https://magicbricks.com/commercial-shop'),
                 (err) => err instanceof AuthorizationError
             );
 
-            // Rejection 3: Walled garden
             await assert.rejects(
                 async () => safeFetchHtml('https://facebook.com/groups/plots'),
                 (err) => err instanceof AuthorizationError
             );
 
-            // Rejection 4: Direct connector for unapproved site
             await publicUrlConnector.process({ url: 'https://unapproved-test-source.com/plot' });
-
-            // Rejection 5: Queue admission for unapproved site
             await addToIntakeQueue('public_url', { url: 'https://unapproved-test-queue.com/plot' }, null);
 
-            // Assert that network calls were strictly ZERO
             assert.equal(networkCallCount, 0, 'Zero HTTP/network calls must have been initiated across all blocked cases');
         } finally {
             (await import('axios')).default.get = originalAxiosGet;
         }
     });
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 3. REALISTIC LOCAL HTTP SERVER TEST FOR PINNED AGENT SOCKET BEHAVIOR
-    // ─────────────────────────────────────────────────────────────────────────
-
     await t.test('13. Realistic Local HTTP Server Test: Pinned Agent Socket Lifecycle & Native Lookup Integration', async () => {
-        /**
-         * METHODOLOGY NOTE (Mocked DNS vs Socket-Level Networking):
-         * - Mocked DNS unit tests intercept dns.promises.lookup to assert how the agent handles hypothetical IP answers.
-         * - This test starts a real local Node.js HTTP server on an ephemeral loopback port and executes actual HTTP
-         *   requests through Node's native networking stack (http.request) using createPinnedAgent.
-         * - This proves that:
-         *   1. Node's socket creation directly invokes the agent's custom lookup handler.
-         *   2. Hostname mismatches or illegal destination IPs abort socket connections at the OS/socket layer.
-         */
-
-        // 1. Create a real local HTTP server
         let serverHitCount = 0;
         const server = http.createServer((req, res) => {
             serverHitCount++;
@@ -550,7 +558,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         const port = server.address().port;
 
         try {
-            // Scenario A: Pinned agent with loopback destination is rejected by the agent's lookup guard
             const loopbackAgent = createPinnedAgent('http:', 'localhost', '127.0.0.1', 4);
 
             await assert.rejects(
@@ -575,16 +582,14 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
                 'Native socket request must be aborted by pinned agent lookup when targeting private/internal IP'
             );
 
-            // Server must NOT have received any request
             assert.equal(serverHitCount, 0, 'Server must receive 0 requests when pinned agent blocks connection');
 
-            // Scenario B: Pinned agent with hostname mismatch is rejected during native socket creation
             const mismatchAgent = createPinnedAgent('http:', 'expected-target.com', '93.184.216.34', 4);
 
             await assert.rejects(
                 new Promise((resolve, reject) => {
                     const req = http.request({
-                        host: 'different-host.com', // Mismatch against expected-target.com
+                        host: 'different-host.com',
                         port,
                         path: '/test',
                         method: 'GET',
@@ -610,18 +615,15 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
     });
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 5. CONSOLIDATED SECURITY CORRECTION: FINDINGS A & B GATES
+    // 3. STATUTORY DIRECTORY & DURABLE STORAGE GATES
     // ─────────────────────────────────────────────────────────────────────────
 
-    await t.test('13. Finding A: Baseline Domain Approvals Corrected (No Hardcoded Approvals & Accurate Categorization)', async () => {
-        // 1. Reset must result in ZERO automatic baseline approvals
+    await t.test('14. Finding A: Baseline Domain Approvals Corrected (No Hardcoded Approvals & Accurate Categorization)', async () => {
         domainGovernancePolicy.reset();
         assert.equal(domainGovernancePolicy.listDomains().length, 0, 'Policy registry must start completely empty on reset');
 
-        // 2. kurukshetrarealestate.in is NOT an official government authority and is NOT in regulatory directory
         assert.equal(OFFICIAL_REGULATORY_DIRECTORY['kurukshetrarealestate.in'], undefined, 'Private portal kurukshetrarealestate.in must not be in official regulatory directory');
         
-        // Both sync and async evaluation must reject unapproved kurukshetrarealestate.in by default
         const syncDecision = evaluateOperationAuthorization('https://kurukshetrarealestate.in/plot-details', 'automated_fetch');
         assert.equal(syncDecision.allowed, false);
         assert.equal(syncDecision.reason, 'unverified_domain_requires_human_verification');
@@ -630,7 +632,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(asyncDecision.allowed, false);
         assert.equal(asyncDecision.reason, 'unverified_domain_requires_human_verification');
 
-        // 3. Official statutory authorities are accurately categorized in directory
         assert.ok(OFFICIAL_REGULATORY_DIRECTORY['tcpharyana.gov.in'], 'tcpharyana.gov.in must be in official regulatory directory');
         assert.equal(OFFICIAL_REGULATORY_DIRECTORY['tcpharyana.gov.in'].category, 'regulatory_authority');
         assert.ok(OFFICIAL_REGULATORY_DIRECTORY['tcpharyana.gov.in'].mandate.includes('urban planning'));
@@ -639,14 +640,15 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(OFFICIAL_REGULATORY_DIRECTORY['hsvp.org.in'].category, 'statutory_authority');
         assert.ok(OFFICIAL_REGULATORY_DIRECTORY['hsvp.org.in'].mandate.includes('urban development'));
 
-        // 4. Even official authorities require auditable administrative approval before automated fetch
         assert.equal(evaluateOperationAuthorization('https://tcpharyana.gov.in/notices', 'automated_fetch').allowed, false);
         assert.equal(evaluateOperationAuthorization('https://hsvp.org.in/plots', 'automated_fetch').allowed, false);
 
-        // 5. When registered by an authenticated administrator, official domain and its subdomains become authorized
-        domainGovernancePolicy.registerDomain('tcpharyana.gov.in', {
-            approvedBy: 'admin_officer',
-            notes: OFFICIAL_REGULATORY_DIRECTORY['tcpharyana.gov.in'].mandate
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: 'tcpharyana.gov.in',
+            operatorEmail: 'admin_officer@bp.in',
+            operatorRole: 'Admin',
+            reason: OFFICIAL_REGULATORY_DIRECTORY['tcpharyana.gov.in'].mandate,
+            includeSubdomains: true
         });
 
         assert.equal(evaluateOperationAuthorization('https://tcpharyana.gov.in/notices', 'automated_fetch').allowed, true);
@@ -654,7 +656,7 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(await isSourceAuthorizedAsync('https://tcpharyana.gov.in/notices', 'automated_fetch'), true);
     });
 
-    await t.test('14. Finding B: Durable Domain Storage via ApprovedDomain Schema', async () => {
+    await t.test('15. Finding B: Durable Domain Storage via ApprovedDomain Schema & Atomic AuditLog', async () => {
         const testDomain = 'durable-partner-portal.in';
         const operatorId = new mongoose.Types.ObjectId();
         const operatorEmail = 'senior_admin@bharatproperties.in';
@@ -678,6 +680,11 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(record.approvalReason, approvalReason);
         assert.ok(record.approvedAt);
 
+        // Verify AuditLog written to MongoDB
+        const approvalAudit = await AuditLog.findOne({ targetName: testDomain, eventType: 'domain_approved' });
+        assert.ok(approvalAudit, 'Durable AuditLog must exist in MongoDB');
+        assert.equal(approvalAudit.actorEmail, operatorEmail);
+
         // 2. Evaluator authorizes the registered domain
         const authDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/exclusive-deals`, 'automated_fetch');
         assert.equal(authDecision.allowed, true);
@@ -697,31 +704,37 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(revokedRecord.revocationReason, 'Partnership terms terminated by compliance team');
         assert.ok(revokedRecord.revokedAt);
 
+        // Verify revocation AuditLog written to MongoDB
+        const revokeAudit = await AuditLog.findOne({ targetName: testDomain, eventType: 'domain_revoked' });
+        assert.ok(revokeAudit, 'Durable AuditLog for revocation must exist in MongoDB');
+        assert.equal(revokeAudit.actorEmail, operatorEmail);
+
         // 4. Evaluator immediately blocks the revoked domain
         const revokedDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/exclusive-deals`, 'automated_fetch');
         assert.equal(revokedDecision.allowed, false);
         assert.equal(revokedDecision.reason, 'unverified_domain_requires_human_verification');
     });
 
-    await t.test('15. Finding B: Fail-Closed Behavior on Database Outage / Unreachable Database', async () => {
+    await t.test('16. Finding B: Fail-Closed Behavior on Database Outage / Unreachable Database', async () => {
         const testDomain = 'haryana-land-records.in';
-        domainGovernancePolicy.registerDomain(testDomain, { approvedBy: 'admin' });
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: testDomain,
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Land records verified'
+        });
 
-        // Initially authorized
         assert.equal(await isSourceAuthorizedAsync(`https://${testDomain}/view`, 'automated_fetch'), true);
 
         // Simulate database outage / network failure
         domainGovernancePolicy.setFailClosedMode(true);
 
-        // 1. Async evaluator MUST FAIL CLOSED
         const outageDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/view`, 'automated_fetch');
         assert.equal(outageDecision.allowed, false, 'Database outage must block automated fetch (fail-closed)');
         assert.equal(outageDecision.reason, 'database_unavailable_fail_closed');
 
-        // 2. Helper must return false
         assert.equal(await isSourceAuthorizedAsync(`https://${testDomain}/view`, 'automated_fetch'), false);
 
-        // 3. safeFetchHtml MUST throw AuthorizationError with fail-closed reason
         await assert.rejects(
             async () => safeFetchHtml(`https://${testDomain}/view`),
             (err) => {
@@ -732,13 +745,11 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             'safeFetchHtml must fail closed on database outage'
         );
 
-        // Restore normal mode
         domainGovernancePolicy.setFailClosedMode(false);
         assert.equal(await isSourceAuthorizedAsync(`https://${testDomain}/view`, 'automated_fetch'), true);
     });
 
-    await t.test('16. Finding B: Operator RBAC and Identity Spoofing Protection on Governance Endpoints', async () => {
-        // Setup mock response helper
+    await t.test('17. Finding B: Operator RBAC and Identity Spoofing Protection on Governance Endpoints', async () => {
         const createMockRes = () => {
             const res = {
                 statusCode: null,
@@ -778,7 +789,6 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             body: {
                 domain: 'verified-partner-north.in',
                 reason: 'Formal RERA partnership established',
-                // Malicious caller attempt to spoof operator identity:
                 operatorId: 'fake_spoofed_id',
                 operatorEmail: 'spoofed_impostor@external.com',
                 operatorRole: 'SuperAdmin'
@@ -786,58 +796,57 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         };
         const adminRes = createMockRes();
 
-        // Stub AuditLog.create to inspect recorded provenance
-        let capturedAudit = null;
-        const originalAuditCreate = AuditLog.create;
-        AuditLog.create = async (doc) => {
-            capturedAudit = doc;
-            return doc;
+        await approveDomain(adminReq, adminRes);
+        assert.equal(adminRes.statusCode, 200);
+        assert.equal(adminRes.body.success, true);
+
+        // Verify identity extraction strictly from req.user
+        assert.equal(adminRes.body.data.operatorEmail, legitAdminEmail, 'Operator email must be taken from req.user, not req.body');
+        assert.equal(String(adminRes.body.data.operatorId), String(adminId));
+
+        // Verify AuditLog in MongoDB
+        const auditRecord = await AuditLog.findOne({ targetName: 'verified-partner-north.in', eventType: 'domain_approved' });
+        assert.ok(auditRecord, 'AuditLog entry must be created in MongoDB');
+        assert.equal(auditRecord.actorEmail, legitAdminEmail);
+        assert.equal(auditRecord.targetType, 'domain');
+        assert.equal(auditRecord.targetName, 'verified-partner-north.in');
+
+        // Scenario D: Revocation by Admin
+        const revokeReq = {
+            user: { _id: adminId, email: legitAdminEmail, role: 'Admin' },
+            body: { domain: 'verified-partner-north.in', reason: 'Annual review expired' }
         };
+        const revokeRes = createMockRes();
+        await revokeDomain(revokeReq, revokeRes);
+        assert.equal(revokeRes.statusCode, 200);
+        assert.equal(revokeRes.body.data.status, 'revoked');
 
-        try {
-            await approveDomain(adminReq, adminRes);
-            assert.equal(adminRes.statusCode, 200);
-            assert.equal(adminRes.body.success, true);
-
-            // Verify identity extraction strictly from req.user
-            assert.equal(adminRes.body.data.operatorEmail, legitAdminEmail, 'Operator email must be taken from req.user, not req.body');
-            assert.equal(String(adminRes.body.data.operatorId), String(adminId));
-
-            // Verify AuditLog record
-            assert.ok(capturedAudit, 'AuditLog entry must be created');
-            assert.equal(capturedAudit.eventType, 'domain_approved');
-            assert.equal(capturedAudit.actorEmail, legitAdminEmail);
-            assert.equal(capturedAudit.targetType, 'domain');
-            assert.equal(capturedAudit.targetName, 'verified-partner-north.in');
-
-            // Scenario D: Revocation by Admin
-            const revokeReq = {
-                user: { _id: adminId, email: legitAdminEmail, role: 'Admin' },
-                body: { domain: 'verified-partner-north.in', reason: 'Annual review expired' }
-            };
-            const revokeRes = createMockRes();
-            await revokeDomain(revokeReq, revokeRes);
-            assert.equal(revokeRes.statusCode, 200);
-            assert.equal(revokeRes.body.data.status, 'revoked');
-            assert.equal(capturedAudit.eventType, 'domain_revoked');
-        } finally {
-            AuditLog.create = originalAuditCreate;
-        }
+        const revokeAudit = await AuditLog.findOne({ targetName: 'verified-partner-north.in', eventType: 'domain_revoked' });
+        assert.ok(revokeAudit);
+        assert.equal(revokeAudit.actorEmail, legitAdminEmail);
     });
 
-    await t.test('17. Finding B: Revocation Enforced Across All 4 Ingestion Boundaries', async () => {
+    await t.test('18. Finding B: Revocation Enforced Across All 4 Ingestion Boundaries', async () => {
         const domain = 'revoked-ingestion-check.in';
         const domainUrl = `https://${domain}/prime-sector-9-plot`;
 
-        // 1. Initial approval
-        domainGovernancePolicy.registerDomain(domain, { approvedBy: 'compliance' });
+        await domainGovernancePolicy.registerDomainDurable({
+            domain,
+            operatorEmail: 'compliance@bharatproperties.in',
+            operatorRole: 'Admin',
+            reason: 'Initial partner onboarding'
+        });
         assert.equal(await isSourceAuthorizedAsync(domainUrl, 'automated_fetch'), true);
 
-        // 2. Revoke approval
-        domainGovernancePolicy.revokeDomain(domain, { reason: 'Regulatory violation' });
+        await domainGovernancePolicy.revokeDomainDurable({
+            domain,
+            operatorEmail: 'compliance@bharatproperties.in',
+            operatorRole: 'Admin',
+            reason: 'Regulatory violation'
+        });
         assert.equal(await isSourceAuthorizedAsync(domainUrl, 'automated_fetch'), false);
 
-        // BOUNDARY 1: Direct Connector Invocations (PublicUrlConnector & PropertyListingConnector)
+        // BOUNDARY 1: Direct Connector Invocations
         const publicConnectorResult = await publicUrlConnector.process({ url: domainUrl });
         assert.equal(publicConnectorResult.verification_status, 'unverified');
         assert.equal(publicConnectorResult.raw_source_data.fetch_blocked, true);
@@ -847,7 +856,7 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         assert.equal(listingConnectorResult.verification_status, 'unverified');
         assert.equal(listingConnectorResult.raw_source_data.fetch_blocked, true);
 
-        // BOUNDARY 2: Queue Admission (addToIntakeQueue)
+        // BOUNDARY 2: Queue Admission
         const queueResult = await addToIntakeQueue('public_url', { url: domainUrl });
         assert.equal(queueResult.success, true);
         assert.equal(queueResult.heldForReview, true);
@@ -864,9 +873,14 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             'Worker fetch execution must be blocked for revoked domain'
         );
 
-        // BOUNDARY 4: Redirect Hops (SafeUrlFetcher redirect to revoked domain)
+        // BOUNDARY 4: Redirect Hops
         const initialApprovedDomain = 'redirect-start-domain.in';
-        domainGovernancePolicy.registerDomain(initialApprovedDomain, { approvedBy: 'test_admin' });
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: initialApprovedDomain,
+            operatorEmail: 'test_admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Approved initial domain'
+        });
         const startUrl = `https://${initialApprovedDomain}/redirect`;
 
         const originalAxiosGet = (await import('axios')).default.get;
@@ -874,7 +888,7 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
             if (url.includes(initialApprovedDomain)) {
                 return {
                     status: 302,
-                    headers: { location: domainUrl } // Redirects to revoked domain
+                    headers: { location: domainUrl }
                 };
             }
             return { status: 200, data: '<html><body>Content</body></html>' };
@@ -895,25 +909,472 @@ test('--- PHASE 1.2.3: MANDATORY DOMAIN GOVERNANCE AT EVERY FETCH BOUNDARY ---',
         }
     });
 
-    await t.test('18. Finding B: Manual & WhatsApp Intake Pathways Function Without Web Domain Approval', async () => {
-        // Manual deal intake does NOT require domain governance approval
-        const manualResult = await addToIntakeQueue('manual', {
-            text: 'Direct walk-in buyer seeking 500 sqyd residential plot in Sector 13 Kurukshetra',
-            leadName: 'Ramesh Kumar',
-            leadPhone: '+919876543210'
-        });
-        assert.equal(manualResult.success, true);
-        assert.ok(manualResult.intakeId);
-        assert.equal(manualResult.heldForReview, undefined);
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. CRITICAL FINDING 1: ZERO IN-MEMORY FALLBACK & FAIL-CLOSED INTEGRITY
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // WhatsApp group deal intake does NOT require domain governance approval
-        const waResult = await addToIntakeQueue('whatsapp_group', {
-            text: 'Exclusive listing: Sector 8 plot 200 sqyd corner facing park. Asking 1.25 Cr. Contact direct owner.',
-            messageId: 'wa_msg_unique_gov_test_999',
-            groupName: 'Kurukshetra Property Dealers Group'
-        });
-        assert.equal(waResult.success, true);
-        assert.ok(waResult.intakeId);
-        assert.equal(waResult.heldForReview, undefined);
+    await t.test('19. Finding 1: Disconnected Database Fails Closed in registerDomainDurable & isDomainVerifiedAsync', async () => {
+        const testDomain = 'fail-closed-offline.in';
+
+        // Disconnect MongoDB to simulate database unavailability
+        await mongoose.disconnect();
+        assert.equal(mongoose.connection.readyState, 0);
+
+        try {
+            // 1. registerDomainDurable MUST throw explicit error and NOT cache approved record
+            await assert.rejects(
+                async () => domainGovernancePolicy.registerDomainDurable({
+                    domain: testDomain,
+                    operatorEmail: 'admin@bp.in',
+                    operatorRole: 'Admin',
+                    reason: 'Should fail closed on disconnected DB'
+                }),
+                (err) => {
+                    assert.ok(err.message.includes('Database connection unavailable'));
+                    return true;
+                },
+                'registerDomainDurable must throw when MongoDB is disconnected'
+            );
+
+            // VerifiedDomains cache must NOT have registered the domain
+            assert.equal(domainGovernancePolicy.verifiedDomains.has(testDomain), false);
+
+            // 2. isDomainVerifiedAsync MUST return false (fail-closed)
+            const isVerified = await domainGovernancePolicy.isDomainVerifiedAsync(testDomain);
+            assert.equal(isVerified, false, 'isDomainVerifiedAsync must return false when MongoDB is disconnected');
+            assert.ok(domainGovernancePolicy.lastDbError != null);
+
+            // 3. evaluateOperationAuthorizationAsync MUST report database_unavailable_fail_closed
+            const decision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/plot`, 'automated_fetch');
+            assert.equal(decision.allowed, false);
+            assert.equal(decision.reason, 'database_unavailable_fail_closed');
+
+            // 4. safeFetchHtml MUST fail closed
+            await assert.rejects(
+                async () => safeFetchHtml(`https://${testDomain}/plot`),
+                (err) => {
+                    assert.equal(err.name, 'AuthorizationError');
+                    assert.ok(err.message.includes('database_unavailable_fail_closed'));
+                    return true;
+                }
+            );
+        } finally {
+            // Reconnect to test replica set
+            await mongoose.connect(mongoUri);
+            assert.equal(mongoose.connection.readyState, 1);
+        }
     });
+
+    await t.test('20. Finding 1: AuditLog Write Failure Aborts Transaction and Leaves Zero Cache Grant', async () => {
+        const testDomain = 'audit-rollback-target.in';
+
+        // Simulate AuditLog write failure
+        const originalAuditCreate = AuditLog.create;
+        AuditLog.create = async () => {
+            throw new Error('SIMULATED_AUDIT_DISK_FULL: Failed to persist durable audit record');
+        };
+
+        try {
+            // registerDomainDurable MUST throw and NOT commit or cache
+            await assert.rejects(
+                async () => domainGovernancePolicy.registerDomainDurable({
+                    domain: testDomain,
+                    operatorEmail: 'admin@bp.in',
+                    operatorRole: 'Admin',
+                    reason: 'Testing transaction rollback on audit failure'
+                }),
+                (err) => {
+                    assert.ok(err.message.includes('SIMULATED_AUDIT_DISK_FULL'));
+                    return true;
+                },
+                'registerDomainDurable must fail when AuditLog write fails'
+            );
+
+            // Verify ApprovedDomain was NOT persisted / rolled back in MongoDB
+            const doc = await ApprovedDomain.findOne({ domain: testDomain });
+            assert.equal(doc, null, 'ApprovedDomain write must be rolled back on audit failure');
+
+            // Verify in-memory cache does not contain approved record
+            assert.equal(domainGovernancePolicy.verifiedDomains.has(testDomain), false);
+
+            // Async authorization evaluation must fail closed
+            const authDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/deal`, 'automated_fetch');
+            assert.equal(authDecision.allowed, false);
+            assert.equal(authDecision.reason, 'unverified_domain_requires_human_verification');
+        } finally {
+            AuditLog.create = originalAuditCreate;
+        }
+    });
+
+    await t.test('21. Finding 1: Server Restart / In-Memory Cache Flush Verification (Durable Registry Reliance)', async () => {
+        const testDomain = 'restart-survival-test.in';
+
+        // 1. Durably approve domain
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: testDomain,
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Testing restart survival across cache flush'
+        });
+
+        // 2. Clear entire in-memory cache to simulate server restart
+        domainGovernancePolicy.clear();
+        assert.equal(domainGovernancePolicy.verifiedDomains.size, 0);
+
+        // 3. Evaluator MUST successfully query durable registry in MongoDB and authorize fetch
+        const authDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/plot`, 'automated_fetch');
+        assert.equal(authDecision.allowed, true, 'Domain must be authorized from MongoDB after cache flush');
+        assert.equal(authDecision.status, SOURCE_STATUS.AUTHORIZED);
+
+        // 4. Now delete document from MongoDB
+        await ApprovedDomain.deleteOne({ domain: testDomain });
+        domainGovernancePolicy.clear();
+
+        // 5. Evaluator must immediately block automated fetch (proves no zombie in-memory access)
+        const postDeleteDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/plot`, 'automated_fetch');
+        assert.equal(postDeleteDecision.allowed, false, 'Deleted domain must be blocked immediately');
+        assert.equal(postDeleteDecision.reason, 'unverified_domain_requires_human_verification');
+    });
+
+    await t.test('22. Finding 1: Simulated Database Read Error Fails Closed Even If Cache Has Stale Entry', async () => {
+        const testDomain = 'db-read-error-test.in';
+
+        // Populate in-memory cache with an approved record
+        domainGovernancePolicy.verifiedDomains.set(testDomain, {
+            domain: testDomain,
+            status: 'approved',
+            approvedBy: 'old_cache_operator'
+        });
+
+        // Mock ApprovedDomain.findOne to simulate MongoDB network timeout
+        const originalFindOne = ApprovedDomain.findOne;
+        ApprovedDomain.findOne = () => {
+            throw new Error('MongoNetworkTimeoutError: connection timed out while querying ApprovedDomain');
+        };
+
+        try {
+            // isDomainVerifiedAsync MUST fail closed and NOT fall back to in-memory cache
+            const isVerified = await domainGovernancePolicy.isDomainVerifiedAsync(testDomain);
+            assert.equal(isVerified, false, 'isDomainVerifiedAsync must fail closed on DB read error');
+            assert.ok(domainGovernancePolicy.lastDbError != null);
+
+            // evaluateOperationAuthorizationAsync must return database_unavailable_fail_closed
+            const authDecision = await evaluateOperationAuthorizationAsync(`https://${testDomain}/plot`, 'automated_fetch');
+            assert.equal(authDecision.allowed, false);
+            assert.equal(authDecision.reason, 'database_unavailable_fail_closed');
+
+            // safeFetchHtml must throw AuthorizationError
+            await assert.rejects(
+                async () => safeFetchHtml(`https://${testDomain}/plot`),
+                (err) => {
+                    assert.equal(err.name, 'AuthorizationError');
+                    assert.ok(err.message.includes('database_unavailable_fail_closed'));
+                    return true;
+                }
+            );
+        } finally {
+            ApprovedDomain.findOne = originalFindOne;
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. CRITICAL FINDING 2: PSL DEFENSE & DOMAIN HIERARCHY ISOLATION
+    // ─────────────────────────────────────────────────────────────────────────
+
+    await t.test('23. Finding 2: Public Suffix Approvals Rejected & PSL Defense', async () => {
+        const publicSuffixes = [
+            'gov.in',
+            'co.in',
+            'nic.in',
+            'com',
+            'org',
+            'net',
+            'io',
+            'github.io',
+            'vercel.app',
+            'herokuapp.com',
+            'pages.dev',
+            'azurewebsites.net',
+            'cloudfront.net'
+        ];
+
+        for (const suffix of publicSuffixes) {
+            assert.equal(isPublicSuffix(suffix), true, `${suffix} must be identified as public suffix`);
+            const validation = validateDomainForApproval(suffix);
+            assert.equal(validation.valid, false);
+            assert.ok(validation.error.includes('Cannot approve public suffix'));
+
+            // registerDomainDurable must reject
+            await assert.rejects(
+                async () => domainGovernancePolicy.registerDomainDurable({
+                    domain: suffix,
+                    operatorEmail: 'admin@bp.in',
+                    operatorRole: 'Admin',
+                    reason: 'Illegal public suffix attempt'
+                }),
+                (err) => {
+                    assert.ok(err.message.includes('Cannot approve public suffix'));
+                    return true;
+                }
+            );
+        }
+
+        // approveDomain API endpoint must return HTTP 400
+        const createMockRes = () => ({
+            statusCode: null,
+            body: null,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; }
+        });
+
+        const res = createMockRes();
+        await approveDomain({
+            user: { _id: new mongoose.Types.ObjectId(), email: 'admin@bp.in', role: 'Admin' },
+            body: { domain: 'gov.in', reason: 'Attempting to approve root gov.in' }
+        }, res);
+
+        assert.equal(res.statusCode, 400);
+        assert.equal(res.body.success, false);
+        assert.ok(res.body.message.includes('Cannot approve public suffix'));
+    });
+
+    await t.test('24. Finding 2: IP Literals and Malformed Domains Rejected', async () => {
+        const invalidInputs = [
+            '127.0.0.1',
+            '169.254.169.254',
+            '93.184.216.34',
+            '::1',
+            '[::1]',
+            'localhost',
+            'invalid..domain.com',
+            '-leading-hyphen.com',
+            'trailing-hyphen-.com',
+            'domain with spaces.com',
+            'http://'
+        ];
+
+        for (const input of invalidInputs) {
+            const validation = validateDomainForApproval(input);
+            assert.equal(validation.valid, false, `${input} must be rejected by domain validation`);
+        }
+
+        // Test API endpoint returns 400 for IP literal
+        const createMockRes = () => ({
+            statusCode: null,
+            body: null,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; }
+        });
+
+        const res = createMockRes();
+        await approveDomain({
+            user: { _id: new mongoose.Types.ObjectId(), email: 'admin@bp.in', role: 'Admin' },
+            body: { domain: '169.254.169.254', reason: 'Attempted IP registration' }
+        }, res);
+
+        assert.equal(res.statusCode, 400);
+        assert.ok(res.body.message.includes('IP literals cannot be registered'));
+    });
+
+    await t.test('25. Finding 2: Exact Host vs Subdomain Scope Enforcement', async () => {
+        // 1. Exact-host approval (includeSubdomains: false by default)
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: 'exact-host-scope.com',
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Approved exact host only',
+            includeSubdomains: false
+        });
+
+        // Exact host is authorized
+        assert.equal(await isSourceAuthorizedAsync('https://exact-host-scope.com/plots', 'automated_fetch'), true);
+
+        // Subdomain is BLOCKED because includeSubdomains is false
+        assert.equal(await isSourceAuthorizedAsync('https://sub.exact-host-scope.com/plots', 'automated_fetch'), false);
+        assert.equal(await isSourceAuthorizedAsync('https://sibling-exact-host-scope.com/plots', 'automated_fetch'), false);
+
+        // 2. Wildcard approval (includeSubdomains: true explicitly approved)
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: 'tcpharyana.gov.in',
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Official Haryana statutory department with subdomains',
+            includeSubdomains: true
+        });
+
+        // Exact host authorized
+        assert.equal(await isSourceAuthorizedAsync('https://tcpharyana.gov.in/notices', 'automated_fetch'), true);
+        // Subdomains authorized
+        assert.equal(await isSourceAuthorizedAsync('https://edisha.tcpharyana.gov.in/portal', 'automated_fetch'), true);
+        assert.equal(await isSourceAuthorizedAsync('https://licensing.urban.tcpharyana.gov.in/app', 'automated_fetch'), true);
+
+        // PSL Parent domain 'gov.in' is NOT authorized!
+        assert.equal(await isSourceAuthorizedAsync('https://gov.in/portal', 'automated_fetch'), false);
+        // Sibling domains under gov.in are NOT authorized!
+        assert.equal(await isSourceAuthorizedAsync('https://otherdepartment.gov.in/portal', 'automated_fetch'), false);
+        assert.equal(await isSourceAuthorizedAsync('https://evil-tcpharyana.gov.in/portal', 'automated_fetch'), false);
+    });
+
+    await t.test('26. Finding 2: Multi-Tenant Shared Hosting Isolation (Tenant Bleed Defense)', async () => {
+        // Approving tenant-alpha.github.io must NOT authorize tenant-beta.github.io or github.io
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: 'tenant-alpha.github.io',
+            operatorEmail: 'admin@bp.in',
+            operatorRole: 'Admin',
+            reason: 'Verified tenant alpha on GitHub Pages',
+            includeSubdomains: true
+        });
+
+        assert.equal(await isSourceAuthorizedAsync('https://tenant-alpha.github.io/listings', 'automated_fetch'), true);
+        assert.equal(await isSourceAuthorizedAsync('https://sub.tenant-alpha.github.io/listings', 'automated_fetch'), true);
+
+        // tenant-beta.github.io is strictly blocked
+        assert.equal(await isSourceAuthorizedAsync('https://tenant-beta.github.io/listings', 'automated_fetch'), false);
+        // Root platform github.io is strictly blocked
+        assert.equal(await isSourceAuthorizedAsync('https://github.io/listings', 'automated_fetch'), false);
+
+        // Safe parent domains check: github.io is not returned as candidate authorizer
+        const parents = getSafeParentDomains('tenant-beta.github.io');
+        assert.deepEqual(parents, [], 'getSafeParentDomains must terminate before public suffix github.io');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. CRITICAL FINDING 3: TRUTHFUL API OUTCOMES & DURABLE AUDIT LOGS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    await t.test('27. Finding 3: Mandatory Non-Empty Reason on Approval and Revocation', async () => {
+        const createMockRes = () => ({
+            statusCode: null,
+            body: null,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; }
+        });
+
+        const adminUser = { _id: new mongoose.Types.ObjectId(), email: 'admin@bp.in', role: 'Admin' };
+
+        // Approval with empty string reason -> HTTP 400
+        const emptyApproveRes = createMockRes();
+        await approveDomain({
+            user: adminUser,
+            body: { domain: 'broker-valid.in', reason: '   ' }
+        }, emptyApproveRes);
+        assert.equal(emptyApproveRes.statusCode, 400);
+        assert.ok(emptyApproveRes.body.message.includes('Approval reason is required and cannot be empty'));
+
+        // Approval with missing reason -> HTTP 400
+        const missingApproveRes = createMockRes();
+        await approveDomain({
+            user: adminUser,
+            body: { domain: 'broker-valid.in' }
+        }, missingApproveRes);
+        assert.equal(missingApproveRes.statusCode, 400);
+
+        // Revocation with empty reason -> HTTP 400
+        const emptyRevokeRes = createMockRes();
+        await revokeDomain({
+            user: adminUser,
+            body: { domain: 'broker-valid.in', reason: '' }
+        }, emptyRevokeRes);
+        assert.equal(emptyRevokeRes.statusCode, 400);
+        assert.ok(emptyRevokeRes.body.message.includes('Revocation reason is required and cannot be empty'));
+    });
+
+    await t.test('28. Finding 3: Truthful API Outcomes: Database Outage Returns HTTP 503', async () => {
+        const createMockRes = () => ({
+            statusCode: null,
+            body: null,
+            status(code) { this.statusCode = code; return this; },
+            json(payload) { this.body = payload; return this; }
+        });
+
+        const adminUser = { _id: new mongoose.Types.ObjectId(), email: 'admin@bp.in', role: 'Admin' };
+
+        // Disconnect MongoDB
+        await mongoose.disconnect();
+
+        try {
+            // approveDomain -> 503
+            const approveRes = createMockRes();
+            await approveDomain({
+                user: adminUser,
+                body: { domain: 'any-valid.in', reason: 'Legit reason' }
+            }, approveRes);
+            assert.equal(approveRes.statusCode, 503);
+            assert.equal(approveRes.body.success, false);
+            assert.ok(approveRes.body.message.includes('Database connection unavailable'));
+
+            // revokeDomain -> 503
+            const revokeRes = createMockRes();
+            await revokeDomain({
+                user: adminUser,
+                body: { domain: 'any-valid.in', reason: 'Legit reason' }
+            }, revokeRes);
+            assert.equal(revokeRes.statusCode, 503);
+
+            // listDomains -> 503
+            const listRes = createMockRes();
+            await listDomains({}, listRes);
+            assert.equal(listRes.statusCode, 503);
+
+            // getDomainDetails -> 503
+            const detailRes = createMockRes();
+            await getDomainDetails({ params: { domain: 'any-valid.in' } }, detailRes);
+            assert.equal(detailRes.statusCode, 503);
+        } finally {
+            await mongoose.connect(mongoUri);
+        }
+    });
+
+    await t.test('29. Finding 3: Preserves Full Historical Audit Trail Across Repeated Cycles', async () => {
+        const testDomain = 'audit-lifecycle-check.in';
+        const adminId = new mongoose.Types.ObjectId();
+        const adminEmail = 'super_admin@bharatproperties.in';
+
+        // 1. Initial Approval
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: testDomain,
+            operatorId: adminId,
+            operatorEmail: adminEmail,
+            operatorRole: 'SuperAdmin',
+            reason: 'Cycle 1: Initial RERA Verification'
+        });
+
+        // 2. Revocation
+        await domainGovernancePolicy.revokeDomainDurable({
+            domain: testDomain,
+            operatorId: adminId,
+            operatorEmail: adminEmail,
+            operatorRole: 'SuperAdmin',
+            reason: 'Cycle 2: License Lapsed'
+        });
+
+        // 3. Re-Approval
+        await domainGovernancePolicy.registerDomainDurable({
+            domain: testDomain,
+            operatorId: adminId,
+            operatorEmail: adminEmail,
+            operatorRole: 'SuperAdmin',
+            reason: 'Cycle 3: License Renewed by Authority'
+        });
+
+        // Inspect ApprovedDomain document in MongoDB
+        const doc = await ApprovedDomain.findOne({ domain: testDomain }).lean();
+        assert.ok(doc);
+        assert.equal(doc.status, 'approved');
+        assert.equal(doc.auditHistory.length, 3, 'auditHistory must record all 3 historical events');
+        assert.equal(doc.auditHistory[0].status, 'approved');
+        assert.equal(doc.auditHistory[0].reason, 'Cycle 1: Initial RERA Verification');
+        assert.equal(doc.auditHistory[1].status, 'revoked');
+        assert.equal(doc.auditHistory[1].reason, 'Cycle 2: License Lapsed');
+        assert.equal(doc.auditHistory[2].status, 'approved');
+        assert.equal(doc.auditHistory[2].reason, 'Cycle 3: License Renewed by Authority');
+
+        // Inspect AuditLog collection in MongoDB
+        const auditLogs = await AuditLog.find({ targetName: testDomain }).sort('createdAt').lean();
+        assert.equal(auditLogs.length, 3, 'AuditLog collection must contain all 3 durable audit records');
+        assert.equal(auditLogs[0].eventType, 'domain_approved');
+        assert.equal(auditLogs[1].eventType, 'domain_revoked');
+        assert.equal(auditLogs[2].eventType, 'domain_approved');
+    });
+
 });

@@ -18,6 +18,8 @@
 import mongoose from 'mongoose';
 import ApprovedDomain from '../../models/ApprovedDomain.js';
 import AuditLog from '../../models/AuditLog.js';
+import { validateDomainForApproval, getSafeParentDomains, isPublicSuffix } from './PublicSuffixList.js';
+import withMongoTransaction from '../../utils/withMongoTransaction.js';
 
 export const SOURCE_TIERS = {
     TIER_1_OFFICIAL_API: 'tier_1_official_api',
@@ -150,34 +152,31 @@ export const OFFICIAL_REGULATORY_DIRECTORY = {
 
 /**
  * Extracts parent domain hierarchy for subdomain authorization lookup.
- * e.g. "sub.tcpharyana.gov.in" -> ["tcpharyana.gov.in", "gov.in"]
+ * Safely stops before any Public Suffix (e.g. gov.in, co.in, com, github.io).
  */
 export function getParentDomains(cleanDomain) {
-    if (!cleanDomain || typeof cleanDomain !== 'string') return [];
-    const parts = cleanDomain.split('.');
-    const parents = [];
-    for (let i = 1; i < parts.length - 1; i++) {
-        parents.push(parts.slice(i).join('.'));
-    }
-    return parents;
+    return getSafeParentDomains(cleanDomain);
 }
 
 /**
- * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2 / Phase 1.2.3 Consolidated).
+ * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.3 Final Consolidated Fix).
  * 
- * Enforces mandatory domain governance for automated web fetching.
+ * Enforces mandatory durable domain governance for automated web fetching.
  * Unknown or unapproved public domains are blocked by default from automated fetching
  * and held for operator review on Deal Intake Desk without network requests.
  * 
- * Finding A:
- * - kurukshetrarealestate.in is recognized as a private portal, NOT an official government authority.
- * - No domains are automatically authorized in baseline hardcoding; reset() defaults to empty.
- * - Unverified domains remain blocked from automated HTTP fetching by default.
- * 
- * Finding B:
- * - Durable persistence via ApprovedDomain Mongoose schema.
- * - Durable audit tracking via AuditLog.
- * - Fail-closed on database unavailability (returns false, blocking automated fetch).
+ * Critical Guarantees:
+ * 1. Eliminate in-memory authorization fallback:
+ *    - Production automated fetching relies strictly on durable MongoDB ApprovedDomain records.
+ *    - When MongoDB is disconnected, unreachable, or read/write fails, policy FAILS CLOSED.
+ *    - Synchronous stubs or in-memory cache NEVER grant authorization when DB is down.
+ * 2. PSL and Hierarchy Defense:
+ *    - Approvals of Public Suffixes (gov.in, co.in, com, github.io, etc.) are strictly rejected.
+ *    - Subdomain authorization requires includeSubdomains: true on the approved parent.
+ *    - Subdomain matching terminates before any Public Suffix boundary.
+ * 3. Atomic Operator Provenance:
+ *    - ApprovedDomain mutations and AuditLog entries occur atomically.
+ *    - Failure in database write or audit write rolls back and throws an explicit error.
  */
 export class DomainGovernancePolicy {
     constructor() {
@@ -188,8 +187,7 @@ export class DomainGovernancePolicy {
     }
 
     /**
-     * Resets verified domains.
-     * Starts with an empty registry (ZERO hardcoded baseline approvals).
+     * Resets verified domains in-memory cache.
      */
     reset() {
         this.verifiedDomains = new Map();
@@ -210,21 +208,24 @@ export class DomainGovernancePolicy {
     }
 
     /**
-     * Operator domain verification and registration workflow (in-memory / synchronous).
+     * Operator domain verification and registration workflow (in-memory / test harness).
      * 
      * @param {string} domain 
      * @param {object} [options={}]
      * @param {string} [options.approvedBy='operator']
      * @param {string} [options.notes='']
+     * @param {boolean} [options.includeSubdomains=false]
      * @returns {boolean} True if successfully registered
      */
     registerDomain(domain, options = {}) {
-        const clean = extractCleanDomain(domain);
-        if (!clean) return false;
+        const validation = validateDomainForApproval(domain);
+        if (!validation.valid) return false;
+        const clean = validation.domain;
 
         this.verifiedDomains.set(clean, {
             domain: clean,
             status: 'approved',
+            includeSubdomains: Boolean(options.includeSubdomains),
             approvedBy: options.approvedBy || 'operator',
             approvedAt: options.approvedAt || new Date(),
             notes: options.notes || 'Operator verified domain approval'
@@ -233,36 +234,129 @@ export class DomainGovernancePolicy {
     }
 
     /**
-     * Durable registration persisting to MongoDB ApprovedDomain and creating an AuditLog entry.
+     * Durable registration persisting to MongoDB ApprovedDomain with an atomic AuditLog entry.
+     * Throws an explicit failure if MongoDB is disconnected or if any write fails.
+     * Does NOT cache or grant authorization on failure.
      */
-    async registerDomainDurable({ domain, operatorId, operatorEmail, operatorRole, reason, notes }) {
-        const clean = extractCleanDomain(domain);
-        if (!clean) throw new Error('Invalid domain');
+    async registerDomainDurable({ domain, operatorId, operatorEmail, operatorRole, reason, notes, includeSubdomains = false }) {
+        // Pre-condition: MongoDB connection must be ready
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            this.lastDbError = new Error('Database connection unavailable for durable domain registration');
+            throw this.lastDbError;
+        }
+
+        // Validate domain syntax, reject IP literals and Public Suffixes
+        const validation = validateDomainForApproval(domain);
+        if (!validation.valid) {
+            throw new Error(validation.error);
+        }
+        const clean = validation.domain;
+
+        // Mandatory non-empty reason
+        const reasonText = typeof reason === 'string' ? reason.trim() : '';
+        if (!reasonText) {
+            throw new Error('Approval reason is required and cannot be empty');
+        }
+
+        // Mandatory operator identity
+        if (!operatorEmail) {
+            throw new Error('Authenticated operator identity required');
+        }
 
         const now = new Date();
-        const reasonText = reason || notes || 'Operator approved domain';
-
+        const incSub = Boolean(includeSubdomains);
         let doc = null;
-        try {
-            if (mongoose.connection && mongoose.connection.readyState === 1) {
+
+        const tryWithTxn = async () => {
+            return await withMongoTransaction(async (session) => {
+                const existing = await ApprovedDomain.findOne({ domain: clean }).session(session);
+                const prevStatus = existing ? existing.status : 'unregistered';
+
                 doc = await ApprovedDomain.findOneAndUpdate(
                     { domain: clean },
                     {
                         $set: {
                             domain: clean,
                             status: 'approved',
+                            includeSubdomains: incSub,
                             operatorId: operatorId || null,
-                            operatorEmail: operatorEmail || 'operator',
+                            operatorEmail: operatorEmail,
                             operatorRole: operatorRole || 'Admin',
                             approvedAt: now,
                             approvalReason: reasonText,
-                            notes: notes || ''
+                            notes: (notes || '').trim()
                         },
                         $push: {
                             auditHistory: {
                                 status: 'approved',
+                                includeSubdomains: incSub,
                                 changedBy: operatorId || null,
-                                changedByEmail: operatorEmail || 'operator',
+                                changedByEmail: operatorEmail,
+                                changedByRole: operatorRole || 'Admin',
+                                reason: reasonText,
+                                timestamp: now
+                            }
+                        }
+                    },
+                    { upsert: true, new: true, runValidators: true, session }
+                );
+
+                await AuditLog.create([{
+                    eventType: 'domain_approved',
+                    actorId: operatorId || null,
+                    actorEmail: operatorEmail,
+                    targetType: 'domain',
+                    targetName: clean,
+                    description: `Operator ${operatorEmail} (${operatorRole || 'Admin'}) approved domain '${clean}': ${reasonText}`,
+                    changes: {
+                        before: { status: prevStatus },
+                        after: { status: 'approved', includeSubdomains: incSub }
+                    },
+                    metadata: {
+                        domain: clean,
+                        reason: reasonText,
+                        operatorRole: operatorRole || 'Admin',
+                        includeSubdomains: incSub
+                    }
+                }], { session });
+
+                return doc;
+            });
+        };
+
+        try {
+            await tryWithTxn();
+        } catch (txnErr) {
+            const isTxnUnsupported = txnErr.message && (
+                txnErr.message.includes('Transaction numbers are only allowed') ||
+                txnErr.message.includes('replica set member')
+            );
+            if (isTxnUnsupported) {
+                // Two-phase manual rollback for standalone MongoDB environments
+                const existing = await ApprovedDomain.findOne({ domain: clean });
+                const prevStatus = existing ? existing.status : 'unregistered';
+                const prevSnapshot = existing ? existing.toObject() : null;
+
+                doc = await ApprovedDomain.findOneAndUpdate(
+                    { domain: clean },
+                    {
+                        $set: {
+                            domain: clean,
+                            status: 'approved',
+                            includeSubdomains: incSub,
+                            operatorId: operatorId || null,
+                            operatorEmail: operatorEmail,
+                            operatorRole: operatorRole || 'Admin',
+                            approvedAt: now,
+                            approvalReason: reasonText,
+                            notes: (notes || '').trim()
+                        },
+                        $push: {
+                            auditHistory: {
+                                status: 'approved',
+                                includeSubdomains: incSub,
+                                changedBy: operatorId || null,
+                                changedByEmail: operatorEmail,
                                 changedByRole: operatorRole || 'Admin',
                                 reason: reasonText,
                                 timestamp: now
@@ -271,29 +365,61 @@ export class DomainGovernancePolicy {
                     },
                     { upsert: true, new: true, runValidators: true }
                 );
+
+                try {
+                    await AuditLog.create({
+                        eventType: 'domain_approved',
+                        actorId: operatorId || null,
+                        actorEmail: operatorEmail,
+                        targetType: 'domain',
+                        targetName: clean,
+                        description: `Operator ${operatorEmail} (${operatorRole || 'Admin'}) approved domain '${clean}': ${reasonText}`,
+                        changes: {
+                            before: { status: prevStatus },
+                            after: { status: 'approved', includeSubdomains: incSub }
+                        },
+                        metadata: {
+                            domain: clean,
+                            reason: reasonText,
+                            operatorRole: operatorRole || 'Admin',
+                            includeSubdomains: incSub
+                        }
+                    });
+                } catch (auditErr) {
+                    // Rollback ApprovedDomain modification
+                    if (prevSnapshot) {
+                        await ApprovedDomain.findOneAndReplace({ domain: clean }, prevSnapshot);
+                    } else {
+                        await ApprovedDomain.deleteOne({ domain: clean });
+                    }
+                    throw new Error(`Failed to write durable AuditLog for domain approval: ${auditErr.message}`);
+                }
+            } else {
+                throw txnErr;
             }
-        } catch (dbErr) {
-            console.warn('[DomainGovernance:registerDomainDurable DB Warning]:', dbErr.message);
         }
 
+        // Cache is updated ONLY AFTER confirmed durable write
         const cacheEntry = {
             domain: clean,
             status: 'approved',
+            includeSubdomains: incSub,
             operatorId: operatorId || null,
-            operatorEmail: operatorEmail || 'operator',
+            operatorEmail: operatorEmail,
             operatorRole: operatorRole || 'Admin',
-            approvedBy: operatorEmail || String(operatorId || 'operator'),
+            approvedBy: operatorEmail,
             approvedAt: now,
             approvalReason: reasonText,
-            notes: notes || reasonText
+            notes: (notes || reasonText).trim()
         };
         this.verifiedDomains.set(clean, cacheEntry);
+        this.lastDbError = null;
 
-        return doc || cacheEntry;
+        return doc;
     }
 
     /**
-     * Revokes domain approval (synchronous).
+     * Revokes domain approval (in-memory / test harness).
      * 
      * @param {string} domain 
      * @param {object} [options={}]
@@ -316,18 +442,38 @@ export class DomainGovernancePolicy {
     }
 
     /**
-     * Durable revocation persisting to MongoDB ApprovedDomain.
+     * Durable revocation persisting to MongoDB ApprovedDomain with an atomic AuditLog entry.
+     * Throws an explicit failure if MongoDB is disconnected or if any write fails.
      */
     async revokeDomainDurable({ domain, operatorId, operatorEmail, operatorRole, reason }) {
-        const clean = extractCleanDomain(domain);
-        if (!clean) throw new Error('Invalid domain');
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            this.lastDbError = new Error('Database connection unavailable for durable domain revocation');
+            throw this.lastDbError;
+        }
+
+        const validation = validateDomainForApproval(domain);
+        if (!validation.valid) {
+            throw new Error(validation.error);
+        }
+        const clean = validation.domain;
+
+        const reasonText = typeof reason === 'string' ? reason.trim() : '';
+        if (!reasonText) {
+            throw new Error('Revocation reason is required and cannot be empty');
+        }
+
+        if (!operatorEmail) {
+            throw new Error('Authenticated operator identity required');
+        }
 
         const now = new Date();
-        const reasonText = reason || 'Operator revoked domain approval';
-
         let doc = null;
-        try {
-            if (mongoose.connection && mongoose.connection.readyState === 1) {
+
+        const tryWithTxn = async () => {
+            return await withMongoTransaction(async (session) => {
+                const existing = await ApprovedDomain.findOne({ domain: clean }).session(session);
+                const prevStatus = existing ? existing.status : 'unregistered';
+
                 doc = await ApprovedDomain.findOneAndUpdate(
                     { domain: clean },
                     {
@@ -335,7 +481,7 @@ export class DomainGovernancePolicy {
                             status: 'revoked',
                             revokedAt: now,
                             revokedBy: operatorId || null,
-                            revokedByEmail: operatorEmail || 'operator',
+                            revokedByEmail: operatorEmail,
                             revokedByRole: operatorRole || 'Admin',
                             revocationReason: reasonText
                         },
@@ -343,32 +489,119 @@ export class DomainGovernancePolicy {
                             auditHistory: {
                                 status: 'revoked',
                                 changedBy: operatorId || null,
-                                changedByEmail: operatorEmail || 'operator',
+                                changedByEmail: operatorEmail,
                                 changedByRole: operatorRole || 'Admin',
                                 reason: reasonText,
                                 timestamp: now
                             }
                         }
                     },
-                    { new: true }
+                    { new: true, upsert: true, session }
                 );
+
+                await AuditLog.create([{
+                    eventType: 'domain_revoked',
+                    actorId: operatorId || null,
+                    actorEmail: operatorEmail,
+                    targetType: 'domain',
+                    targetName: clean,
+                    description: `Operator ${operatorEmail} (${operatorRole || 'Admin'}) revoked domain '${clean}': ${reasonText}`,
+                    changes: {
+                        before: { status: prevStatus },
+                        after: { status: 'revoked' }
+                    },
+                    metadata: {
+                        domain: clean,
+                        reason: reasonText,
+                        operatorRole: operatorRole || 'Admin'
+                    }
+                }], { session });
+
+                return doc;
+            });
+        };
+
+        try {
+            await tryWithTxn();
+        } catch (txnErr) {
+            const isTxnUnsupported = txnErr.message && (
+                txnErr.message.includes('Transaction numbers are only allowed') ||
+                txnErr.message.includes('replica set member')
+            );
+            if (isTxnUnsupported) {
+                const existing = await ApprovedDomain.findOne({ domain: clean });
+                const prevStatus = existing ? existing.status : 'unregistered';
+                const prevSnapshot = existing ? existing.toObject() : null;
+
+                doc = await ApprovedDomain.findOneAndUpdate(
+                    { domain: clean },
+                    {
+                        $set: {
+                            status: 'revoked',
+                            revokedAt: now,
+                            revokedBy: operatorId || null,
+                            revokedByEmail: operatorEmail,
+                            revokedByRole: operatorRole || 'Admin',
+                            revocationReason: reasonText
+                        },
+                        $push: {
+                            auditHistory: {
+                                status: 'revoked',
+                                changedBy: operatorId || null,
+                                changedByEmail: operatorEmail,
+                                changedByRole: operatorRole || 'Admin',
+                                reason: reasonText,
+                                timestamp: now
+                            }
+                        }
+                    },
+                    { new: true, upsert: true }
+                );
+
+                try {
+                    await AuditLog.create({
+                        eventType: 'domain_revoked',
+                        actorId: operatorId || null,
+                        actorEmail: operatorEmail,
+                        targetType: 'domain',
+                        targetName: clean,
+                        description: `Operator ${operatorEmail} (${operatorRole || 'Admin'}) revoked domain '${clean}': ${reasonText}`,
+                        changes: {
+                            before: { status: prevStatus },
+                            after: { status: 'revoked' }
+                        },
+                        metadata: {
+                            domain: clean,
+                            reason: reasonText,
+                            operatorRole: operatorRole || 'Admin'
+                        }
+                    });
+                } catch (auditErr) {
+                    if (prevSnapshot) {
+                        await ApprovedDomain.findOneAndReplace({ domain: clean }, prevSnapshot);
+                    } else {
+                        await ApprovedDomain.deleteOne({ domain: clean });
+                    }
+                    throw new Error(`Failed to write durable AuditLog for domain revocation: ${auditErr.message}`);
+                }
+            } else {
+                throw txnErr;
             }
-        } catch (dbErr) {
-            console.warn('[DomainGovernance:revokeDomainDurable DB Warning]:', dbErr.message);
         }
 
         const cacheEntry = {
             domain: clean,
             status: 'revoked',
-            revokedBy: operatorId || null,
-            revokedByEmail: operatorEmail || 'operator',
+            revokedBy: operatorEmail,
+            revokedByEmail: operatorEmail,
             revokedByRole: operatorRole || 'Admin',
             revocationReason: reasonText,
             revokedAt: now
         };
         this.verifiedDomains.set(clean, cacheEntry);
+        this.lastDbError = null;
 
-        return doc || cacheEntry;
+        return doc;
     }
 
     /**
@@ -390,59 +623,85 @@ export class DomainGovernancePolicy {
     /**
      * Determines whether a domain is approved for automated fetching asynchronously.
      * Evaluates durable MongoDB storage and fails closed on DB outage/error.
+     * NEVER falls back to in-memory approvals when the database is unavailable or the record is missing.
      * 
      * @param {string} domain 
      * @returns {Promise<boolean>}
      */
     async isDomainVerifiedAsync(domain) {
-        const clean = extractCleanDomain(domain);
-        if (!clean) return false;
+        if (!domain || typeof domain !== 'string') return false;
 
-        // Fail closed if explicitly simulated or active DB error
+        // Fail closed if explicitly simulated outage
         if (this.enforceDbFailClosed) {
             this.lastDbError = new Error('Database connection unavailable (fail-closed simulated)');
             return false;
         }
 
-        // Attempt durable lookup from MongoDB ApprovedDomain model if connection is active
+        // Fail closed if MongoDB connection is not active
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            this.lastDbError = new Error('Database connection unavailable (fail-closed)');
+            return false;
+        }
+
+        const clean = extractCleanDomain(domain);
+        if (!clean) return false;
+
         try {
-            if (mongoose.connection && mongoose.connection.readyState === 1) {
-                const parents = getParentDomains(clean);
-                const doc = await ApprovedDomain.findOne({
-                    domain: { $in: [clean, ...parents] }
+            // 1. Check exact match in durable registry
+            const exactDoc = await ApprovedDomain.findOne({
+                domain: clean,
+                status: 'approved'
+            }).lean();
+
+            if (exactDoc) {
+                this.verifiedDomains.set(clean, {
+                    domain: clean,
+                    status: 'approved',
+                    includeSubdomains: Boolean(exactDoc.includeSubdomains),
+                    approvedBy: exactDoc.operatorEmail || String(exactDoc.operatorId || 'durable_record'),
+                    approvedAt: exactDoc.approvedAt,
+                    notes: exactDoc.approvalReason || exactDoc.notes
+                });
+                this.lastDbError = null;
+                return true;
+            }
+
+            // 2. Safe parent domain match above Public Suffix boundary
+            // ONLY if parent has includeSubdomains: true
+            const safeParents = getSafeParentDomains(clean);
+            if (safeParents.length > 0) {
+                const parentDoc = await ApprovedDomain.findOne({
+                    domain: { $in: safeParents },
+                    status: 'approved',
+                    includeSubdomains: true
                 }).lean();
 
-                if (doc) {
-                    this.verifiedDomains.set(clean, {
-                        domain: clean,
-                        status: doc.status,
-                        approvedBy: doc.operatorEmail || String(doc.operatorId || 'durable_record'),
-                        approvedAt: doc.approvedAt,
-                        notes: doc.approvalReason || doc.notes
-                    });
+                if (parentDoc) {
                     this.lastDbError = null;
-                    return doc.status === 'approved';
+                    return true;
                 }
             }
+
+            // Not found in durable registry -> not approved (NO in-memory fallback!)
+            this.lastDbError = null;
+            return false;
         } catch (dbErr) {
             console.warn(`[DomainGovernance:DB Error] Error checking domain ${clean}, failing closed:`, dbErr.message);
             this.lastDbError = dbErr;
             return false; // Fail-closed on DB error
         }
-
-        // Fall back to in-memory verified domains (for unit test stubs & synchronous cache)
-        return this.isDomainVerified(clean);
     }
 
     /**
      * Determines whether a domain is approved for automated fetching synchronously.
-     * Checks exact match or registered root domain match.
+     * Checks exact match or registered safe parent domain match with includeSubdomains.
      * Returns true ONLY if registered AND status === 'approved'.
      * 
      * @param {string} domain 
      * @returns {boolean}
      */
     isDomainVerified(domain) {
+        if (!domain || typeof domain !== 'string') return false;
         const clean = extractCleanDomain(domain);
         if (!clean) return false;
 
@@ -450,16 +709,20 @@ export class DomainGovernancePolicy {
             return false;
         }
 
-        // Exact match
+        // Exact match in memory
         if (this.verifiedDomains.has(clean)) {
             const entry = this.verifiedDomains.get(clean);
             return entry.status === 'approved';
         }
 
-        // Subdomain match (e.g. sub.tcpharyana.gov.in)
-        for (const [registeredDomain, entry] of this.verifiedDomains.entries()) {
-            if (clean.endsWith(`.${registeredDomain}`) && entry.status === 'approved') {
-                return true;
+        // Subdomain match: must have includeSubdomains: true and above PSL boundary
+        const safeParents = getSafeParentDomains(clean);
+        for (const parent of safeParents) {
+            if (this.verifiedDomains.has(parent)) {
+                const parentEntry = this.verifiedDomains.get(parent);
+                if (parentEntry.status === 'approved' && parentEntry.includeSubdomains === true) {
+                    return true;
+                }
             }
         }
 

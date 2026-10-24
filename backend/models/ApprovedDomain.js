@@ -6,6 +6,10 @@ const auditHistorySchema = new mongoose.Schema({
         enum: ['approved', 'revoked', 'pending_review'],
         required: true
     },
+    includeSubdomains: {
+        type: Boolean,
+        default: false
+    },
     changedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
@@ -42,6 +46,11 @@ const approvedDomainSchema = new mongoose.Schema({
         required: true,
         enum: ['approved', 'revoked', 'pending_review'],
         default: 'pending_review',
+        index: true
+    },
+    includeSubdomains: {
+        type: Boolean,
+        default: false,
         index: true
     },
     operatorId: {

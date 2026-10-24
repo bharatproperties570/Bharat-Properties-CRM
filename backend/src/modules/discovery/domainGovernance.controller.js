@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import ApprovedDomain from '../../../models/ApprovedDomain.js';
-import AuditLog from '../../../models/AuditLog.js';
 import { domainGovernancePolicy, extractCleanDomain } from '../../../services/discovery/SourceAuthorizationMatrix.js';
+import { validateDomainForApproval } from '../../../services/discovery/PublicSuffixList.js';
 
 /**
  * Approve a domain for automated web fetching.
@@ -10,68 +10,58 @@ import { domainGovernancePolicy, extractCleanDomain } from '../../../services/di
  */
 export const approveDomain = async (req, res) => {
     try {
-        const { domain, reason, notes } = req.body;
-        if (!domain || typeof domain !== 'string') {
-            return res.status(400).json({ success: false, message: 'Valid domain is required' });
+        const { domain, reason, notes, includeSubdomains } = req.body || {};
+
+        // 1. Validate domain syntax, reject IP literals and Public Suffixes
+        const validation = validateDomainForApproval(domain);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: validation.error || 'Invalid domain format'
+            });
+        }
+        const clean = validation.domain;
+
+        // 2. Mandatory non-empty reason
+        const reasonText = typeof reason === 'string' ? reason.trim() : '';
+        if (!reasonText) {
+            return res.status(400).json({
+                success: false,
+                message: 'Approval reason is required and cannot be empty'
+            });
         }
 
-        const clean = extractCleanDomain(domain);
-        if (!clean) {
-            return res.status(400).json({ success: false, message: 'Invalid domain format' });
-        }
-
-        // STRICT RBAC & Identity Enforcement:
+        // 3. STRICT RBAC & Identity Enforcement:
         // Extract operator identity strictly from authenticated req.user — disallow caller spoofing.
         const operatorId = req.user?._id || req.user?.id;
         const operatorEmail = req.user?.email;
         const operatorRole = req.user?.role?.name || req.user?.role || 'Admin';
 
         if (!operatorId || !operatorEmail) {
-            return res.status(401).json({ success: false, message: 'Authenticated operator identity required' });
+            return res.status(401).json({
+                success: false,
+                message: 'Authenticated operator identity required'
+            });
         }
 
-        const approvalReasonText = reason || notes || 'Operator approved domain';
-
-        // Check previous status for audit history
-        let previousStatus = 'unregistered';
-        if (mongoose.connection && mongoose.connection.readyState === 1) {
-            try {
-                const existing = await ApprovedDomain.findOne({ domain: clean }).lean();
-                if (existing) previousStatus = existing.status;
-            } catch {}
-        } else {
-            const existing = domainGovernancePolicy.getDomainRecord(clean);
-            if (existing) previousStatus = existing.status;
+        // 4. Fail-closed if database is disconnected
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return res.status(503).json({
+                success: false,
+                message: 'Database connection unavailable for durable domain approval'
+            });
         }
 
-        // Perform durable registration
+        // 5. Perform durable registration & audit logging atomically
         const record = await domainGovernancePolicy.registerDomainDurable({
             domain: clean,
             operatorId,
             operatorEmail,
             operatorRole,
-            reason: approvalReasonText,
-            notes
+            reason: reasonText,
+            notes: (notes || '').trim(),
+            includeSubdomains: Boolean(includeSubdomains)
         });
-
-        // Ensure durable AuditLog entry exists
-        try {
-            await AuditLog.create({
-                eventType: 'domain_approved',
-                actorId: operatorId,
-                actorEmail: operatorEmail,
-                targetType: 'domain',
-                targetName: clean,
-                description: `Operator ${operatorEmail} (${operatorRole}) approved domain '${clean}': ${approvalReasonText}`,
-                changes: {
-                    before: { status: previousStatus },
-                    after: { status: 'approved' }
-                },
-                metadata: { domain: clean, reason: approvalReasonText, operatorRole }
-            });
-        } catch (auditErr) {
-            console.warn('[DomainGovernanceController:AuditLog Error]:', auditErr.message);
-        }
 
         return res.status(200).json({
             success: true,
@@ -80,7 +70,11 @@ export const approveDomain = async (req, res) => {
         });
     } catch (error) {
         console.error('[DomainGovernanceController:Approve Error]:', error);
-        return res.status(500).json({ success: false, message: error.message });
+        const statusCode = error.message && error.message.includes('unavailable') ? 503 : 500;
+        return res.status(statusCode).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -91,62 +85,55 @@ export const approveDomain = async (req, res) => {
  */
 export const revokeDomain = async (req, res) => {
     try {
-        const { domain, reason } = req.body;
-        if (!domain || typeof domain !== 'string') {
-            return res.status(400).json({ success: false, message: 'Valid domain is required' });
+        const { domain, reason } = req.body || {};
+
+        // 1. Validate domain syntax
+        const validation = validateDomainForApproval(domain);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                message: validation.error || 'Invalid domain format'
+            });
+        }
+        const clean = validation.domain;
+
+        // 2. Mandatory non-empty reason
+        const reasonText = typeof reason === 'string' ? reason.trim() : '';
+        if (!reasonText) {
+            return res.status(400).json({
+                success: false,
+                message: 'Revocation reason is required and cannot be empty'
+            });
         }
 
-        const clean = extractCleanDomain(domain);
-        if (!clean) {
-            return res.status(400).json({ success: false, message: 'Invalid domain format' });
-        }
-
+        // 3. STRICT RBAC & Identity Enforcement
         const operatorId = req.user?._id || req.user?.id;
         const operatorEmail = req.user?.email;
         const operatorRole = req.user?.role?.name || req.user?.role || 'Admin';
 
         if (!operatorId || !operatorEmail) {
-            return res.status(401).json({ success: false, message: 'Authenticated operator identity required' });
+            return res.status(401).json({
+                success: false,
+                message: 'Authenticated operator identity required'
+            });
         }
 
-        const revocationReasonText = reason || 'Operator revoked domain approval';
-
-        let previousStatus = 'approved';
-        if (mongoose.connection && mongoose.connection.readyState === 1) {
-            try {
-                const existing = await ApprovedDomain.findOne({ domain: clean }).lean();
-                if (existing) previousStatus = existing.status;
-            } catch {}
-        } else {
-            const existing = domainGovernancePolicy.getDomainRecord(clean);
-            if (existing) previousStatus = existing.status;
+        // 4. Fail-closed if database is disconnected
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return res.status(503).json({
+                success: false,
+                message: 'Database connection unavailable for durable domain revocation'
+            });
         }
 
+        // 5. Perform durable revocation & audit logging atomically
         const record = await domainGovernancePolicy.revokeDomainDurable({
             domain: clean,
             operatorId,
             operatorEmail,
             operatorRole,
-            reason: revocationReasonText
+            reason: reasonText
         });
-
-        try {
-            await AuditLog.create({
-                eventType: 'domain_revoked',
-                actorId: operatorId,
-                actorEmail: operatorEmail,
-                targetType: 'domain',
-                targetName: clean,
-                description: `Operator ${operatorEmail} (${operatorRole}) revoked domain '${clean}': ${revocationReasonText}`,
-                changes: {
-                    before: { status: previousStatus },
-                    after: { status: 'revoked' }
-                },
-                metadata: { domain: clean, reason: revocationReasonText, operatorRole }
-            });
-        } catch (auditErr) {
-            console.warn('[DomainGovernanceController:AuditLog Error]:', auditErr.message);
-        }
 
         return res.status(200).json({
             success: true,
@@ -155,7 +142,11 @@ export const revokeDomain = async (req, res) => {
         });
     } catch (error) {
         console.error('[DomainGovernanceController:Revoke Error]:', error);
-        return res.status(500).json({ success: false, message: error.message });
+        const statusCode = error.message && error.message.includes('unavailable') ? 503 : 500;
+        return res.status(statusCode).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -166,19 +157,25 @@ export const revokeDomain = async (req, res) => {
  */
 export const listDomains = async (req, res) => {
     try {
-        let domains = [];
-        try {
-            domains = await ApprovedDomain.find().sort('-updatedAt').lean();
-        } catch (dbErr) {
-            domains = domainGovernancePolicy.listDomains();
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return res.status(503).json({
+                success: false,
+                message: 'Database connection unavailable'
+            });
         }
+
+        const domains = await ApprovedDomain.find().sort('-updatedAt').lean();
         return res.status(200).json({
             success: true,
             count: domains.length,
             data: domains
         });
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        console.error('[DomainGovernanceController:List Error]:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
@@ -189,24 +186,38 @@ export const listDomains = async (req, res) => {
  */
 export const getDomainDetails = async (req, res) => {
     try {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return res.status(503).json({
+                success: false,
+                message: 'Database connection unavailable'
+            });
+        }
+
         const clean = extractCleanDomain(req.params.domain);
         if (!clean) {
-            return res.status(400).json({ success: false, message: 'Invalid domain' });
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid domain'
+            });
         }
 
-        let record = null;
-        try {
-            record = await ApprovedDomain.findOne({ domain: clean }).lean();
-        } catch (dbErr) {
-            record = domainGovernancePolicy.getDomainRecord(clean);
-        }
-
+        const record = await ApprovedDomain.findOne({ domain: clean }).lean();
         if (!record) {
-            return res.status(404).json({ success: false, message: 'Domain record not found' });
+            return res.status(404).json({
+                success: false,
+                message: 'Domain record not found'
+            });
         }
 
-        return res.status(200).json({ success: true, data: record });
+        return res.status(200).json({
+            success: true,
+            data: record
+        });
     } catch (error) {
-        return res.status(500).json({ success: false, message: error.message });
+        console.error('[DomainGovernanceController:GetDetails Error]:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };

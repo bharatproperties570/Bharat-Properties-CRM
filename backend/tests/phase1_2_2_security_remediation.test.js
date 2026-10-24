@@ -26,12 +26,31 @@ import publicUrlConnector from '../services/intakeConnectors/PublicUrlConnector.
 import propertyListingConnector from '../services/intakeConnectors/PropertyListingConnector.js';
 import intakeQueue, { addToIntakeQueue } from '../services/intakeQueue/IntakeQueue.js';
 import Intake from '../models/Intake.js';
+import ApprovedDomain from '../models/ApprovedDomain.js';
 import ParsingRule from '../src/modules/parsing/parsingRule.model.js';
+import mongoose from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 // Prevent Mongoose buffering timeout
 ParsingRule.find = async () => [];
 
 test('--- PHASE 1.2.2: SECURITY REMEDIATION & FINAL AUTHORIZATION GATE SUITE ---', async (t) => {
+
+    let replSet;
+
+    t.before(async () => {
+        replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+        await mongoose.connect(replSet.getUri());
+    });
+
+    t.after(async () => {
+        if (mongoose.connection && mongoose.connection.readyState !== 0) {
+            await mongoose.disconnect();
+        }
+        if (replSet) {
+            await replSet.stop();
+        }
+    });
 
     authorizationGrantRegistry.clearAll();
     domainGovernancePolicy.reset();
@@ -337,6 +356,11 @@ test('--- PHASE 1.2.2: SECURITY REMEDIATION & FINAL AUTHORIZATION GATE SUITE ---
     });
 
     await t.test('2.5 Safe Bounded Redirects Block Redirects to Internal Metadata or Unauthorized Portals', async () => {
+        await ApprovedDomain.create({
+            domain: 'public-domain.com',
+            status: 'approved',
+            approvalReason: 'Approved for SSRF redirect test fixture'
+        });
         domainGovernancePolicy.registerDomain('public-domain.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         const originalDnsPromises = dns.promises.lookup;
