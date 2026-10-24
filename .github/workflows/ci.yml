@@ -48,7 +48,7 @@ jobs:
         run: npm ci
 
       - name: Install backend dependencies
-        run: cd backend && npm ci
+        run: cd backend && npm ci --legacy-peer-deps
 
       - name: Run Backend Test Suites (11 Suites / 92 Tests)
         run: npm run test:backend
