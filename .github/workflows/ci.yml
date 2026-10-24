@@ -18,6 +18,8 @@ jobs:
   test-backend:
     name: Backend Test Suite (Node.js 20)
     runs-on: ubuntu-latest
+    env:
+      MONGOMS_DISABLE_POSTINSTALL: '1'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
