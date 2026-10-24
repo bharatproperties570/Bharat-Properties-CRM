@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 import BaseConnector from './BaseConnector.js';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
 import { normalizeDiscoveryUrl, evaluateListing } from '../discovery/DiscoveryFilterEngine.js';
-import { classifySource, evaluateOperationAuthorization } from '../discovery/SourceAuthorizationMatrix.js';
+import { classifySource, evaluateOperationAuthorization, evaluateOperationAuthorizationAsync } from '../discovery/SourceAuthorizationMatrix.js';
 import { safeFetchHtml } from '../discovery/SafeUrlFetcher.js';
 
 class PublicUrlConnector extends BaseConnector {
@@ -15,7 +15,7 @@ class PublicUrlConnector extends BaseConnector {
         const { url, user_id, discovery_filters, search_metadata } = inputData;
         const canonicalUrl = normalizeDiscoveryUrl(url) || url;
         const sourceClassification = classifySource(canonicalUrl);
-        const authDecision = evaluateOperationAuthorization(canonicalUrl, 'automated_fetch');
+        const authDecision = await evaluateOperationAuthorizationAsync(canonicalUrl, 'automated_fetch');
         
         // 🛡️ Pre-flight Authorization Enforcement Gate (BEFORE NETWORK ACCESS)
         // If written permission or verified partner agreement is not present, block automated fetch

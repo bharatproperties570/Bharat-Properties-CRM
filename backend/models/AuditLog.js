@@ -23,6 +23,9 @@ const AuditLogSchema = new mongoose.Schema({
             'department_changed',
             'permission_granted',
             'permission_revoked',
+            'domain_approved',
+            'domain_revoked',
+            'domain_rejected',
             'data_scope_changed',
             'financial_permission_changed',
 
@@ -85,7 +88,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'other']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId

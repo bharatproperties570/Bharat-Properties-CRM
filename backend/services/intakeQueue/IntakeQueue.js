@@ -8,7 +8,7 @@ import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngi
 import NotificationEngine from '../NotificationEngine.js';
 import { tracer } from '../../src/config/otel.js';
 import { normalizeDiscoveryUrl } from '../discovery/DiscoveryFilterEngine.js';
-import { evaluateOperationAuthorization, SOURCE_TIERS } from '../discovery/SourceAuthorizationMatrix.js';
+import { evaluateOperationAuthorization, evaluateOperationAuthorizationAsync, SOURCE_TIERS } from '../discovery/SourceAuthorizationMatrix.js';
 import { validateDestinationSecurity } from '../discovery/SafeUrlFetcher.js';
 
 // ── Structured logger ──────────────────────────────────────────
@@ -58,7 +58,7 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
         }
 
         webCanonicalUrl = normalizeDiscoveryUrl(rawUrl) || rawUrl;
-        webAuthDecision = evaluateOperationAuthorization(rawUrl, 'automated_fetch');
+        webAuthDecision = await evaluateOperationAuthorizationAsync(rawUrl, 'automated_fetch');
         if (webAuthDecision.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
             return {
                 success: false,

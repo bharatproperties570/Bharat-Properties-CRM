@@ -5,6 +5,7 @@ import SourceAuthorizationMatrix, {
     SOURCE_TIERS,
     SOURCE_STATUS,
     authorizationGrantRegistry,
+    domainGovernancePolicy,
     classifySource,
     evaluateOperationAuthorization,
     isSourceAuthorized
@@ -62,6 +63,12 @@ test('--- PHASE 1.2.1: SOURCE AUTHORIZATION ENFORCEMENT & SAFE FETCHING SUITE --
         assert.equal(classified.defaultStatus, SOURCE_STATUS.AUTHORIZED);
         assert.equal(classified.requiresWrittenPermission, false);
 
+        // Before operator approval, unverified domain is blocked from automated fetch
+        const unverifiedDecision = evaluateOperationAuthorization(publicUrl, 'automated_fetch');
+        assert.equal(unverifiedDecision.allowed, false);
+
+        // When registered and approved under configured policy
+        domainGovernancePolicy.registerDomain('kurukshetrarealestate.in', { approvedBy: 'test_operator' });
         const authDecision = evaluateOperationAuthorization(publicUrl, 'automated_fetch');
         assert.equal(authDecision.allowed, true);
         assert.equal(authDecision.status, SOURCE_STATUS.AUTHORIZED);

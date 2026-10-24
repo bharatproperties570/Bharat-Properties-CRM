@@ -15,6 +15,10 @@
  * 4. User-submitted URLs (entered directly by CRM operators) are handled with safe fetch controls.
  */
 
+import mongoose from 'mongoose';
+import ApprovedDomain from '../../models/ApprovedDomain.js';
+import AuditLog from '../../models/AuditLog.js';
+
 export const SOURCE_TIERS = {
     TIER_1_OFFICIAL_API: 'tier_1_official_api',
     TIER_2_PUBLIC_PAGE: 'tier_2_public_page',
@@ -122,54 +126,91 @@ class AuthorizationGrantRegistry {
 export const authorizationGrantRegistry = new AuthorizationGrantRegistry();
 
 /**
- * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2 / Phase 1.2.3).
+ * Official regulatory and statutory directory for Haryana real estate governance.
+ * Documented statutory mandates (Town and Country Planning Haryana, HSVP).
+ * 
+ * NOTE: Private commercial portals (e.g. kurukshetrarealestate.in) are NOT regulatory bodies
+ * and must never be classified as official government authorities.
+ * Even official government authorities require auditable administrative approval before automated fetching.
+ */
+export const OFFICIAL_REGULATORY_DIRECTORY = {
+    'tcpharyana.gov.in': {
+        name: 'Town and Country Planning Department, Government of Haryana',
+        mandate: 'Statutory urban planning, zoning approvals, master plans, and colonizer licensing in Haryana',
+        jurisdiction: 'State of Haryana',
+        category: 'regulatory_authority'
+    },
+    'hsvp.org.in': {
+        name: 'Haryana Shehri Vikas Pradhikaran (formerly HUDA)',
+        mandate: 'Statutory urban development, sector planning, land acquisition, and allotment authority for Haryana',
+        jurisdiction: 'State of Haryana',
+        category: 'statutory_authority'
+    }
+};
+
+/**
+ * Extracts parent domain hierarchy for subdomain authorization lookup.
+ * e.g. "sub.tcpharyana.gov.in" -> ["tcpharyana.gov.in", "gov.in"]
+ */
+export function getParentDomains(cleanDomain) {
+    if (!cleanDomain || typeof cleanDomain !== 'string') return [];
+    const parts = cleanDomain.split('.');
+    const parents = [];
+    for (let i = 1; i < parts.length - 1; i++) {
+        parents.push(parts.slice(i).join('.'));
+    }
+    return parents;
+}
+
+/**
+ * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2 / Phase 1.2.3 Consolidated).
  * 
  * Enforces mandatory domain governance for automated web fetching.
  * Unknown or unapproved public domains are blocked by default from automated fetching
  * and held for operator review on Deal Intake Desk without network requests.
  * 
- * Provides explicit operator verification registration and audit tracking:
- * - registerDomain(domain, options): Operator approves a domain with audit metadata
- * - revokeDomain(domain, options): Operator revokes domain approval
- * - isDomainVerified(domain): Checks whether a domain has an active, approved registration
+ * Finding A:
+ * - kurukshetrarealestate.in is recognized as a private portal, NOT an official government authority.
+ * - No domains are automatically authorized in baseline hardcoding; reset() defaults to empty.
+ * - Unverified domains remain blocked from automated HTTP fetching by default.
+ * 
+ * Finding B:
+ * - Durable persistence via ApprovedDomain Mongoose schema.
+ * - Durable audit tracking via AuditLog.
+ * - Fail-closed on database unavailability (returns false, blocking automated fetch).
  */
 export class DomainGovernancePolicy {
     constructor() {
         this.verifiedDomains = new Map();
+        this.enforceDbFailClosed = false;
+        this.lastDbError = null;
         this.reset();
     }
 
     /**
-     * Resets verified domains to the official, verified baseline government and institutional authorities.
+     * Resets verified domains.
+     * Starts with an empty registry (ZERO hardcoded baseline approvals).
      */
     reset() {
-        this.verifiedDomains = new Map([
-            ['kurukshetrarealestate.in', {
-                domain: 'kurukshetrarealestate.in',
-                status: 'approved',
-                approvedBy: 'system_baseline',
-                approvedAt: new Date('2026-01-01'),
-                notes: 'Official Kurukshetra local property portal'
-            }],
-            ['tcpharyana.gov.in', {
-                domain: 'tcpharyana.gov.in',
-                status: 'approved',
-                approvedBy: 'system_baseline',
-                approvedAt: new Date('2026-01-01'),
-                notes: 'Town and Country Planning Department Haryana'
-            }],
-            ['hsvp.org.in', {
-                domain: 'hsvp.org.in',
-                status: 'approved',
-                approvedBy: 'system_baseline',
-                approvedAt: new Date('2026-01-01'),
-                notes: 'Haryana Shehri Vikas Pradhikaran'
-            }]
-        ]);
+        this.verifiedDomains = new Map();
+        this.enforceDbFailClosed = false;
+        this.lastDbError = null;
     }
 
     /**
-     * Operator domain verification and registration workflow.
+     * Toggle simulated DB fail-closed mode (for outage and resilience testing).
+     */
+    setFailClosedMode(enabled = true) {
+        this.enforceDbFailClosed = Boolean(enabled);
+        if (enabled) {
+            this.lastDbError = new Error('Database connection unavailable (fail-closed simulated)');
+        } else {
+            this.lastDbError = null;
+        }
+    }
+
+    /**
+     * Operator domain verification and registration workflow (in-memory / synchronous).
      * 
      * @param {string} domain 
      * @param {object} [options={}]
@@ -185,14 +226,74 @@ export class DomainGovernancePolicy {
             domain: clean,
             status: 'approved',
             approvedBy: options.approvedBy || 'operator',
-            approvedAt: new Date(),
+            approvedAt: options.approvedAt || new Date(),
             notes: options.notes || 'Operator verified domain approval'
         });
         return true;
     }
 
     /**
-     * Revokes domain approval.
+     * Durable registration persisting to MongoDB ApprovedDomain and creating an AuditLog entry.
+     */
+    async registerDomainDurable({ domain, operatorId, operatorEmail, operatorRole, reason, notes }) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) throw new Error('Invalid domain');
+
+        const now = new Date();
+        const reasonText = reason || notes || 'Operator approved domain';
+
+        let doc = null;
+        try {
+            if (mongoose.connection && mongoose.connection.readyState === 1) {
+                doc = await ApprovedDomain.findOneAndUpdate(
+                    { domain: clean },
+                    {
+                        $set: {
+                            domain: clean,
+                            status: 'approved',
+                            operatorId: operatorId || null,
+                            operatorEmail: operatorEmail || 'operator',
+                            operatorRole: operatorRole || 'Admin',
+                            approvedAt: now,
+                            approvalReason: reasonText,
+                            notes: notes || ''
+                        },
+                        $push: {
+                            auditHistory: {
+                                status: 'approved',
+                                changedBy: operatorId || null,
+                                changedByEmail: operatorEmail || 'operator',
+                                changedByRole: operatorRole || 'Admin',
+                                reason: reasonText,
+                                timestamp: now
+                            }
+                        }
+                    },
+                    { upsert: true, new: true, runValidators: true }
+                );
+            }
+        } catch (dbErr) {
+            console.warn('[DomainGovernance:registerDomainDurable DB Warning]:', dbErr.message);
+        }
+
+        const cacheEntry = {
+            domain: clean,
+            status: 'approved',
+            operatorId: operatorId || null,
+            operatorEmail: operatorEmail || 'operator',
+            operatorRole: operatorRole || 'Admin',
+            approvedBy: operatorEmail || String(operatorId || 'operator'),
+            approvedAt: now,
+            approvalReason: reasonText,
+            notes: notes || reasonText
+        };
+        this.verifiedDomains.set(clean, cacheEntry);
+
+        return doc || cacheEntry;
+    }
+
+    /**
+     * Revokes domain approval (synchronous).
      * 
      * @param {string} domain 
      * @param {object} [options={}]
@@ -204,18 +305,70 @@ export class DomainGovernancePolicy {
         const clean = extractCleanDomain(domain);
         if (!clean) return false;
 
-        if (this.verifiedDomains.has(clean)) {
-            const current = this.verifiedDomains.get(clean);
-            this.verifiedDomains.set(clean, {
-                ...current,
-                status: 'revoked',
-                revokedBy: options.revokedBy || 'operator',
-                revokedAt: new Date(),
-                revocationReason: options.reason || 'Operator revoked domain approval'
-            });
-            return true;
+        this.verifiedDomains.set(clean, {
+            domain: clean,
+            status: 'revoked',
+            revokedBy: options.revokedBy || 'operator',
+            revokedAt: new Date(),
+            revocationReason: options.reason || 'Operator revoked domain approval'
+        });
+        return true;
+    }
+
+    /**
+     * Durable revocation persisting to MongoDB ApprovedDomain.
+     */
+    async revokeDomainDurable({ domain, operatorId, operatorEmail, operatorRole, reason }) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) throw new Error('Invalid domain');
+
+        const now = new Date();
+        const reasonText = reason || 'Operator revoked domain approval';
+
+        let doc = null;
+        try {
+            if (mongoose.connection && mongoose.connection.readyState === 1) {
+                doc = await ApprovedDomain.findOneAndUpdate(
+                    { domain: clean },
+                    {
+                        $set: {
+                            status: 'revoked',
+                            revokedAt: now,
+                            revokedBy: operatorId || null,
+                            revokedByEmail: operatorEmail || 'operator',
+                            revokedByRole: operatorRole || 'Admin',
+                            revocationReason: reasonText
+                        },
+                        $push: {
+                            auditHistory: {
+                                status: 'revoked',
+                                changedBy: operatorId || null,
+                                changedByEmail: operatorEmail || 'operator',
+                                changedByRole: operatorRole || 'Admin',
+                                reason: reasonText,
+                                timestamp: now
+                            }
+                        }
+                    },
+                    { new: true }
+                );
+            }
+        } catch (dbErr) {
+            console.warn('[DomainGovernance:revokeDomainDurable DB Warning]:', dbErr.message);
         }
-        return false;
+
+        const cacheEntry = {
+            domain: clean,
+            status: 'revoked',
+            revokedBy: operatorId || null,
+            revokedByEmail: operatorEmail || 'operator',
+            revokedByRole: operatorRole || 'Admin',
+            revocationReason: reasonText,
+            revokedAt: now
+        };
+        this.verifiedDomains.set(clean, cacheEntry);
+
+        return doc || cacheEntry;
     }
 
     /**
@@ -235,7 +388,54 @@ export class DomainGovernancePolicy {
     }
 
     /**
-     * Determines whether a domain is approved for automated fetching.
+     * Determines whether a domain is approved for automated fetching asynchronously.
+     * Evaluates durable MongoDB storage and fails closed on DB outage/error.
+     * 
+     * @param {string} domain 
+     * @returns {Promise<boolean>}
+     */
+    async isDomainVerifiedAsync(domain) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) return false;
+
+        // Fail closed if explicitly simulated or active DB error
+        if (this.enforceDbFailClosed) {
+            this.lastDbError = new Error('Database connection unavailable (fail-closed simulated)');
+            return false;
+        }
+
+        // Attempt durable lookup from MongoDB ApprovedDomain model if connection is active
+        try {
+            if (mongoose.connection && mongoose.connection.readyState === 1) {
+                const parents = getParentDomains(clean);
+                const doc = await ApprovedDomain.findOne({
+                    domain: { $in: [clean, ...parents] }
+                }).lean();
+
+                if (doc) {
+                    this.verifiedDomains.set(clean, {
+                        domain: clean,
+                        status: doc.status,
+                        approvedBy: doc.operatorEmail || String(doc.operatorId || 'durable_record'),
+                        approvedAt: doc.approvedAt,
+                        notes: doc.approvalReason || doc.notes
+                    });
+                    this.lastDbError = null;
+                    return doc.status === 'approved';
+                }
+            }
+        } catch (dbErr) {
+            console.warn(`[DomainGovernance:DB Error] Error checking domain ${clean}, failing closed:`, dbErr.message);
+            this.lastDbError = dbErr;
+            return false; // Fail-closed on DB error
+        }
+
+        // Fall back to in-memory verified domains (for unit test stubs & synchronous cache)
+        return this.isDomainVerified(clean);
+    }
+
+    /**
+     * Determines whether a domain is approved for automated fetching synchronously.
      * Checks exact match or registered root domain match.
      * Returns true ONLY if registered AND status === 'approved'.
      * 
@@ -245,6 +445,10 @@ export class DomainGovernancePolicy {
     isDomainVerified(domain) {
         const clean = extractCleanDomain(domain);
         if (!clean) return false;
+
+        if (this.enforceDbFailClosed) {
+            return false;
+        }
 
         // Exact match
         if (this.verifiedDomains.has(clean)) {
@@ -280,6 +484,8 @@ export class DomainGovernancePolicy {
 
     clear() {
         this.verifiedDomains.clear();
+        this.enforceDbFailClosed = false;
+        this.lastDbError = null;
     }
 }
 
@@ -609,11 +815,12 @@ export function evaluateOperationAuthorization(urlOrSource, operation = 'automat
         // Unknown or unapproved domains are blocked from automated fetching and held for operator review without network access.
         // Portal whitelist configuration defines candidate filters only and NEVER grants domain authorization.
         if (!domainGovernancePolicy.isDomainVerified(domain)) {
+            const isDbFailure = domainGovernancePolicy.enforceDbFailClosed || domainGovernancePolicy.lastDbError != null;
             return {
                 allowed: false,
                 tier: classification.tier,
                 status: SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
-                reason: 'unverified_domain_requires_human_verification',
+                reason: isDbFailure ? 'database_unavailable_fail_closed' : 'unverified_domain_requires_human_verification',
                 grant: null,
                 domain
             };
@@ -641,6 +848,131 @@ export function evaluateOperationAuthorization(urlOrSource, operation = 'automat
 }
 
 /**
+ * Asynchronous operation authorization evaluation.
+ * Evaluates durable ApprovedDomain storage and enforces fail-closed behavior on DB unavailability.
+ */
+export async function evaluateOperationAuthorizationAsync(urlOrSource, operation = 'automated_fetch', context = {}) {
+    if (!urlOrSource || typeof urlOrSource !== 'string') {
+        return {
+            allowed: false,
+            tier: SOURCE_TIERS.TIER_2_PUBLIC_PAGE,
+            status: SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
+            reason: 'missing_source_identifier',
+            grant: null,
+            domain: null
+        };
+    }
+
+    if (urlOrSource.includes('://')) {
+        try {
+            const parsed = new URL(urlOrSource.trim());
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return {
+                    allowed: false,
+                    tier: SOURCE_TIERS.TIER_2_PUBLIC_PAGE,
+                    status: SOURCE_STATUS.UNSUPPORTED_BLOCKED,
+                    reason: `unsafe_scheme_${parsed.protocol.replace(':', '')}`,
+                    grant: null,
+                    domain: null
+                };
+            }
+        } catch {
+            return {
+                allowed: false,
+                tier: SOURCE_TIERS.TIER_2_PUBLIC_PAGE,
+                status: SOURCE_STATUS.UNSUPPORTED_BLOCKED,
+                reason: 'malformed_url',
+                grant: null,
+                domain: null
+            };
+        }
+    }
+
+    const classification = classifySource(urlOrSource);
+    const domain = classification.domain;
+
+    if (operation === 'automated_fetch') {
+        if (classification.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
+            return {
+                allowed: false,
+                tier: classification.tier,
+                status: SOURCE_STATUS.UNSUPPORTED_BLOCKED,
+                reason: 'walled_garden_blocked_pending_oauth',
+                grant: null,
+                domain
+            };
+        }
+
+        if (classification.tier === SOURCE_TIERS.TIER_3_COMMERCIAL_PORTAL) {
+            const hasGrant = authorizationGrantRegistry.hasVerifiedGrant(domain);
+            if (hasGrant) {
+                return {
+                    allowed: true,
+                    tier: classification.tier,
+                    status: SOURCE_STATUS.AUTHORIZED,
+                    reason: null,
+                    grant: authorizationGrantRegistry.getGrant(domain),
+                    domain
+                };
+            }
+
+            return {
+                allowed: false,
+                tier: classification.tier,
+                status: SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
+                reason: 'restricted_commercial_portal_requires_verified_permission',
+                grant: null,
+                domain
+            };
+        }
+
+        if (classification.tier === SOURCE_TIERS.TIER_1_OFFICIAL_API) {
+            const hasKeys = !!(process.env.GOOGLE_API_KEY && process.env.GOOGLE_SEARCH_ENGINE_ID);
+            return {
+                allowed: hasKeys,
+                tier: classification.tier,
+                status: hasKeys ? SOURCE_STATUS.AUTHORIZED : SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
+                reason: hasKeys ? null : 'missing_official_api_credentials',
+                grant: null,
+                domain
+            };
+        }
+
+        // Tier 2: Public Web Page (Async durable evaluation + fail-closed on DB outage)
+        const isVerified = await domainGovernancePolicy.isDomainVerifiedAsync(domain);
+        if (!isVerified) {
+            const isDbFailure = domainGovernancePolicy.enforceDbFailClosed || domainGovernancePolicy.lastDbError != null;
+            return {
+                allowed: false,
+                tier: classification.tier,
+                status: SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
+                reason: isDbFailure ? 'database_unavailable_fail_closed' : 'unverified_domain_requires_human_verification',
+                grant: null,
+                domain
+            };
+        }
+
+        return {
+            allowed: true,
+            tier: classification.tier,
+            status: SOURCE_STATUS.AUTHORIZED,
+            reason: null,
+            grant: null,
+            domain
+        };
+    }
+
+    return {
+        allowed: classification.tier !== SOURCE_TIERS.TIER_4_WALLED_GARDEN,
+        tier: classification.tier,
+        status: classification.defaultStatus,
+        reason: classification.reason,
+        grant: null,
+        domain
+    };
+}
+
+/**
  * Checks whether a given URL or source is authorized for an operation.
  * 
  * @param {string} urlOrSource 
@@ -652,15 +984,31 @@ export function isSourceAuthorized(urlOrSource, operation = 'automated_fetch') {
     return decision.allowed === true;
 }
 
+/**
+ * Checks whether a given URL or source is authorized for an operation asynchronously.
+ * 
+ * @param {string} urlOrSource 
+ * @param {string} [operation='automated_fetch']
+ * @returns {Promise<boolean>}
+ */
+export async function isSourceAuthorizedAsync(urlOrSource, operation = 'automated_fetch') {
+    const decision = await evaluateOperationAuthorizationAsync(urlOrSource, operation);
+    return decision.allowed === true;
+}
+
 export default {
     SOURCE_TIERS,
     SOURCE_STATUS,
     SOURCE_CAPABILITY_MATRIX,
+    OFFICIAL_REGULATORY_DIRECTORY,
     authorizationGrantRegistry,
     domainGovernancePolicy,
     DomainGovernancePolicy,
     classifySource,
     evaluateOperationAuthorization,
+    evaluateOperationAuthorizationAsync,
     isSourceAuthorized,
-    extractCleanDomain
+    isSourceAuthorizedAsync,
+    extractCleanDomain,
+    getParentDomains
 };

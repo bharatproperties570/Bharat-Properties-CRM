@@ -3,7 +3,7 @@ import net from 'net';
 import dns from 'dns';
 import http from 'http';
 import https from 'https';
-import { evaluateOperationAuthorization, SOURCE_TIERS } from './SourceAuthorizationMatrix.js';
+import { evaluateOperationAuthorization, evaluateOperationAuthorizationAsync, SOURCE_TIERS } from './SourceAuthorizationMatrix.js';
 
 export class AuthorizationError extends Error {
     constructor(message, details = {}) {
@@ -289,7 +289,7 @@ export async function safeFetchHtml(url, options = {}) {
         const secInfo = await validateDestinationSecurity(currentUrl);
 
         // Step 2: Pre-flight Authorization Enforcement (BEFORE NETWORK CALL)
-        const authDecision = evaluateOperationAuthorization(currentUrl, 'automated_fetch');
+        const authDecision = await evaluateOperationAuthorizationAsync(currentUrl, 'automated_fetch');
         if (!authDecision.allowed) {
             throw new AuthorizationError(
                 `Automated fetch blocked by source governance: ${authDecision.reason}`,

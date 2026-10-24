@@ -282,6 +282,8 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             data: mockVagueHtml
         });
 
+        domainGovernancePolicy.registerDomain('kurukshetrarealestate.in', { approvedBy: 'test_fixture' });
+
         try {
             const inputData = {
                 url: 'https://kurukshetrarealestate.in/prime-land',
