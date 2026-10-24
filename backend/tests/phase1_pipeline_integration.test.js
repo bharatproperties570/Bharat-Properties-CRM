@@ -291,4 +291,71 @@ test('--- PHASE 1: END-TO-END PIPELINE & FIXTURE INTEGRATION SUITE ---', async (
             (await import('axios')).default.get = originalGet;
         }
     });
+
+    await t.test('Pipeline Stage 8: Controller Pre-Persistence Rejection Gate', async () => {
+        const { createConfig, updateConfig } = await import('../src/modules/discovery/discovery.controller.js');
+
+        // Test createConfig rejection
+        let statusCode = null;
+        let responseJson = null;
+
+        const mockReqCreate = {
+            body: {
+                name: '', // Empty name (invalid)
+                keywords: [] // Missing keywords (invalid)
+            }
+        };
+
+        const mockResCreate = {
+            status(code) {
+                statusCode = code;
+                return {
+                    json(data) {
+                        responseJson = data;
+                        return data;
+                    }
+                };
+            }
+        };
+
+        await createConfig(mockReqCreate, mockResCreate);
+
+        assert.equal(statusCode, 400, 'Invalid discovery config payload must return 400 Bad Request');
+        assert.equal(responseJson.success, false);
+        assert.ok(Array.isArray(responseJson.errors));
+        assert.ok(responseJson.errors.length >= 2);
+        assert.ok(responseJson.errors.some(e => e.includes('Configuration name is required')));
+
+        // Test updateConfig rejection
+        statusCode = null;
+        responseJson = null;
+
+        const mockReqUpdate = {
+            params: { id: 'cfg_12345' },
+            body: {
+                name: 'Valid Name',
+                keywords: ['valid keyword'],
+                price_min: 50000000,
+                price_max: 10000000 // Inverted price range (invalid)
+            }
+        };
+
+        const mockResUpdate = {
+            status(code) {
+                statusCode = code;
+                return {
+                    json(data) {
+                        responseJson = data;
+                        return data;
+                    }
+                };
+            }
+        };
+
+        await updateConfig(mockReqUpdate, mockResUpdate);
+
+        assert.equal(statusCode, 400, 'Invalid update payload must return 400 Bad Request');
+        assert.equal(responseJson.success, false);
+        assert.ok(responseJson.errors.some(e => e.includes('cannot be less than price_min')));
+    });
 });
