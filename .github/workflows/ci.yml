@@ -35,7 +35,7 @@ jobs:
         run: |
           cd backend
           OUT=$(npm ci 2>&1) || {
-            CLEAN_OUT=$(echo "$OUT" | tail -n 15 | tr '\n' ' ')
+            CLEAN_OUT=$(echo "$OUT" | head -n 10 | tr '\n' ' ')
             echo "::error title=NPM_OUTPUT::$CLEAN_OUT"
             echo "$OUT"
             exit 1
