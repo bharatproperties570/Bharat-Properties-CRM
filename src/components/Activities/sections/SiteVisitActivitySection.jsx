@@ -199,8 +199,8 @@ const SiteVisitActivitySection = ({
     handleChange, 
     errors, 
     activityMasterFields,
-    projects,
-    rowUnits,
+    projects = [],
+    rowUnits = {},
     fetchUnits,
     updatePropertyRow,
     addPropertyRow,
@@ -327,7 +327,7 @@ const SiteVisitActivitySection = ({
             </div>
 
             {formData.visitedProperties.map((row, index) => {
-                const selectedProject = projects.find(p => p.name === row.project || p._id === row.project);
+                const selectedProject = (projects || []).find(p => p.name === row.project || p._id === row.project);
                 const blocks = selectedProject?.blocks || [];
                 const units = rowUnits[index] || [];
 
