@@ -34,7 +34,7 @@ jobs:
       - name: Install backend dependencies (Deterministic)
         run: |
           cd backend
-          npm ci
+          npm ci --verbose || (echo "=== NPM ERROR LOG ===" && cat ~/.npm/_logs/*.log && exit 1)
 
       - name: Run Phase 1 & 1.1 Discovery Engine Tests
         run: |
