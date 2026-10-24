@@ -38,6 +38,31 @@ async function assertEffects(eventId, expectedEffects, notExpectedEffects = []) 
     }
 }
 
+const dispatchDomainEventThroughQueue = (jobData) => {
+    return new Promise((resolve, reject) => {
+        domainEventQueue.add('event', jobData).then((addedJob) => {
+            const onCompleted = (j) => {
+                if (j.id === addedJob.id) {
+                    cleanup();
+                    resolve({ success: true, jobId: j.id });
+                }
+            };
+            const onFailed = (j, err) => {
+                if (j.id === addedJob.id) {
+                    cleanup();
+                    reject(err);
+                }
+            };
+            const cleanup = () => {
+                domainEventWorker.removeListener('completed', onCompleted);
+                domainEventWorker.removeListener('failed', onFailed);
+            };
+            domainEventWorker.on('completed', onCompleted);
+            domainEventWorker.on('failed', onFailed);
+        }).catch(reject);
+    });
+};
+
 async function runTests() {
     let summary = { total: 0, passed: 0, failed: 0, limited: 0 };
     const runTest = async (id, name, testFn) => {
@@ -178,78 +203,116 @@ async function runTests() {
             // Legacy behavior fires it if status === completed, which we preserved.
         });
 
-        await runTest('C8-AU-05', 'ActivityUpdated EntityType Normalization', async () => {
-            const actId = new mongoose.Types.ObjectId();
-            const leadId = new mongoose.Types.ObjectId();
+        await runTest('C8-AU-05', 'ActivityUpdated EntityType Normalization & Production Capability Boundary', async () => {
+            const { ServerAuthorityProof, AuthorityProofIssuer } = await import('../utils/ServerAuthorityProof.js');
 
-            // 1. Lowercase 'lead' should trigger intent enrichment
-            const resLower = await processDomainEvent({
-                data: {
-                    eventId: uuidv4(),
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: actId,
-                    payload: { entityType: 'lead', entityId: leadId }
-                }
+            // 1. Lowercase 'lead' through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadLower = await Lead.create({ firstName: 'LowerLead', mobile: '9999990001' });
+            const actLower = await Activity.create({ type: 'Call', subject: 'Lower Test', entityType: 'lead', entityId: leadLower._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actLower._id,
+                payload: { entityType: 'lead', entityId: leadLower._id }
             });
-            if (!resLower || resLower.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
-                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: 'lead'");
+            const checkLower = await Lead.findById(leadLower._id).select('+enrichmentState.claimTokenHash');
+            if (checkLower.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for entityType: 'lead'");
+            }
+            if (!checkLower.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for entityType: 'lead'");
             }
 
-            // 2. Titlecase 'Lead' should trigger intent enrichment
-            const resTitle = await processDomainEvent({
-                data: {
-                    eventId: uuidv4(),
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: actId,
-                    payload: { entityType: 'Lead', entityId: leadId }
-                }
+            // 2. Titlecase 'Lead' through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadTitle = await Lead.create({ firstName: 'TitleLead', mobile: '9999990002' });
+            const actTitle = await Activity.create({ type: 'Call', subject: 'Title Test', entityType: 'Lead', entityId: leadTitle._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actTitle._id,
+                payload: { entityType: 'Lead', entityId: leadTitle._id }
             });
-            if (!resTitle || resTitle.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
-                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: 'Lead'");
+            const checkTitle = await Lead.findById(leadTitle._id).select('+enrichmentState.claimTokenHash');
+            if (checkTitle.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for entityType: 'Lead'");
+            }
+            if (!checkTitle.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for entityType: 'Lead'");
             }
 
-            // 3. Uppercase 'LEAD' with whitespace should trigger intent enrichment
-            const resUpper = await processDomainEvent({
-                data: {
-                    eventId: uuidv4(),
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: actId,
-                    payload: { entityType: ' LEAD ', entityId: leadId }
-                }
+            // 3. Uppercase 'LEAD' with whitespace through production domainEventQueue -> domainEventWorker -> domainEventIssuer capability
+            const leadUpper = await Lead.create({ firstName: 'UpperLead', mobile: '9999990003' });
+            const actUpper = await Activity.create({ type: 'Call', subject: 'Upper Test', entityType: 'Lead', entityId: leadUpper._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actUpper._id,
+                payload: { entityType: ' LEAD ', entityId: leadUpper._id }
             });
-            if (!resUpper || resUpper.action !== 'REQUEST_SYSTEM_ENRICHMENT') {
-                throw new Error("Expected REQUEST_SYSTEM_ENRICHMENT for entityType: ' LEAD '");
+            const checkUpper = await Lead.findById(leadUpper._id).select('+enrichmentState.claimTokenHash');
+            if (checkUpper.enrichmentState?.status !== 'REQUESTED') {
+                throw new Error("Expected Lead to transition to REQUESTED via capability for entityType: ' LEAD '");
+            }
+            if (!checkUpper.enrichmentState?.claimTokenHash) {
+                throw new Error("Expected Lead to have claimTokenHash minted by capability for entityType: ' LEAD '");
             }
 
-            // 4. Non-lead entityType (e.g. 'Deal') must NOT trigger intent enrichment
-            const resDeal = await processDomainEvent({
-                data: {
-                    eventId: uuidv4(),
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: actId,
-                    payload: { entityType: 'Deal', entityId: leadId }
-                }
+            // 4. Non-lead entityType (e.g. 'Deal') through production path must NOT request enrichment
+            const leadDeal = await Lead.create({ firstName: 'DealLead', mobile: '9999990004' });
+            const actDeal = await Activity.create({ type: 'Call', subject: 'Deal Test', entityType: 'Deal', entityId: leadDeal._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actDeal._id,
+                payload: { entityType: 'Deal', entityId: leadDeal._id }
             });
-            if (resDeal && resDeal.action === 'REQUEST_SYSTEM_ENRICHMENT') {
-                throw new Error("Did NOT expect REQUEST_SYSTEM_ENRICHMENT for entityType: 'Deal'");
+            const checkDeal = await Lead.findById(leadDeal._id);
+            if (checkDeal.enrichmentState?.status === 'REQUESTED') {
+                throw new Error("Did NOT expect Lead to transition to REQUESTED for entityType: 'Deal'");
             }
 
-            // 5. Missing or null entityType must NOT trigger intent enrichment
-            const resNull = await processDomainEvent({
-                data: {
-                    eventId: uuidv4(),
-                    eventType: 'ActivityUpdated',
-                    aggregateType: 'Activity',
-                    aggregateId: actId,
-                    payload: { entityType: null, entityId: leadId }
-                }
+            // 5. Missing or null entityType through production path must NOT request enrichment
+            const leadNull = await Lead.create({ firstName: 'NullLead', mobile: '9999990005' });
+            const actNull = await Activity.create({ type: 'Call', subject: 'Null Test', entityType: 'Lead', entityId: leadNull._id, dueDate: new Date() });
+            await dispatchDomainEventThroughQueue({
+                eventId: uuidv4(),
+                eventType: 'ActivityUpdated',
+                aggregateType: 'Activity',
+                aggregateId: actNull._id,
+                payload: { entityType: null, entityId: leadNull._id }
             });
-            if (resNull && resNull.action === 'REQUEST_SYSTEM_ENRICHMENT') {
-                throw new Error("Did NOT expect REQUEST_SYSTEM_ENRICHMENT for entityType: null");
+            const checkNull = await Lead.findById(leadNull._id);
+            if (checkNull.enrichmentState?.status === 'REQUESTED') {
+                throw new Error("Did NOT expect Lead to transition to REQUESTED for entityType: null");
+            }
+
+            // 6. Security verification: Untrusted direct invocation cannot bypass capability boundary
+            let constructorBlocked = false;
+            try {
+                new ServerAuthorityProof('fake_secret', leadLower._id.toString(), 'fake_job');
+            } catch (err) {
+                if (err.message.includes('SECURITY_VIOLATION')) constructorBlocked = true;
+            }
+            if (!constructorBlocked) {
+                throw new Error("Expected direct ServerAuthorityProof constructor to throw SECURITY_VIOLATION");
+            }
+
+            let directResolveBlocked = false;
+            try {
+                await AuthorityProofIssuer.resolveSystemProof(leadLower._id.toString(), 'unauthorized_job', 'invalid_token');
+            } catch (err) {
+                if (err.message.includes('SECURITY_VIOLATION')) directResolveBlocked = true;
+            }
+            if (!directResolveBlocked) {
+                throw new Error("Expected direct resolveSystemProof with invalid token to throw SECURITY_VIOLATION");
+            }
+
+            if (typeof domainEventWorker.processFn !== 'undefined') {
+                throw new Error("domainEventWorker must not expose direct processFn execution method");
             }
         });
 
