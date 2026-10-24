@@ -34,12 +34,7 @@ jobs:
       - name: Install backend dependencies (Deterministic)
         run: |
           cd backend
-          OUT=$(npm ci 2>&1) || {
-            CLEAN_OUT=$(echo "$OUT" | head -n 10 | tr '\n' ' ')
-            echo "::error title=NPM_OUTPUT::$CLEAN_OUT"
-            echo "$OUT"
-            exit 1
-          }
+          npm ci --legacy-peer-deps
 
       - name: Run Phase 1 & 1.1 Discovery Engine Tests
         run: |
