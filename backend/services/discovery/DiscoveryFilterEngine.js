@@ -1,20 +1,37 @@
 import cron from 'node-cron';
 import { SUPPORTED_AREA_UNITS, SUPPORTED_SELLER_TYPES } from '../../models/DiscoveryConfig.js';
 
+export { SUPPORTED_AREA_UNITS, SUPPORTED_SELLER_TYPES };
+
 /**
  * ============================================================
- *  DISCOVERY FILTER & NORMALIZATION ENGINE (Phase 1)
+ *  DISCOVERY FILTER & NORMALIZATION ENGINE (Phase 1 / Phase 1.1)
  *  Deterministic evaluation, URL sanitization, and unit conversions
  * ============================================================
  */
 
-// Area unit conversion factors relative to square feet (sqft)
+/**
+ * Area unit conversion factors relative to square feet (sqft)
+ * 
+ * Standard Conversions:
+ * - 1 sqyd = 9 sqft (exact standard)
+ * - 1 acre = 4840 sqyd = 43560 sqft (exact international / Indian revenue standard)
+ * 
+ * Haryana HSVP / Urban Regional Standard:
+ * - 1 marla = 25 sqyd = 225 sqft
+ * - 1 kanal = 20 marlas = 500 sqyd = 4500 sqft
+ * 
+ * Regional Variance / Ambiguity:
+ * - Bigha: Has no universal conversion factor across Indian states (varies from
+ *   ~1000 sqyd in Punjab/parts of Haryana to 3025 sqyd in UP and 1600-2500 sqyd in Rajasthan).
+ *   Cross-unit conversions involving bigha are intentionally rejected to prevent sizing errors
+ *   and flagged as ambiguous_regional_unit_conversion for human review.
+ */
 const SQFT_FACTORS = {
     sqft: 1,
     sqyd: 9,          // 1 sqyd = 9 sqft
-    marla: 225,       // Standard Haryana/Punjab real estate: 1 marla = 25 sqyd = 225 sqft
-    kanal: 4500,      // 1 kanal = 20 marla = 500 sqyd = 4500 sqft
-    bigha: 9000,      // Regional Punjab/Haryana standard: 4 kanal = 1000 sqyd = 9000 sqft
+    marla: 225,       // Haryana HSVP/Urban standard: 1 marla = 25 sqyd = 225 sqft
+    kanal: 4500,      // Haryana HSVP/Urban standard: 1 kanal = 20 marla = 500 sqyd = 4500 sqft
     acre: 43560       // 1 acre = 4840 sqyd = 8 kanal = 43560 sqft
 };
 
@@ -60,6 +77,11 @@ export function normalizeDiscoveryUrl(rawUrl) {
     try {
         const parsed = new URL(rawUrl.trim());
         
+        // Security: Strict scheme check - only http and https protocols are valid
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return null;
+        }
+
         // Lowercase protocol and host
         parsed.protocol = parsed.protocol.toLowerCase();
         parsed.hostname = parsed.hostname.toLowerCase();
@@ -100,26 +122,29 @@ export function normalizeDiscoveryUrl(rawUrl) {
  * @returns {{ allowed: boolean, domain: string|null, reason: string|null }}
  */
 export function isPortalAllowed(url, portalWhitelist) {
-    if (!Array.isArray(portalWhitelist) || portalWhitelist.length === 0) {
-        let hostname = null;
-        if (url) {
-            try { 
-                hostname = new URL(url).hostname.toLowerCase(); 
-            } catch (err) {
-                hostname = null;
-            }
+    let hostname = null;
+    if (url) {
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (err) {
+            return { allowed: false, domain: null, reason: 'malformed_url' };
         }
+
+        // Security: Only http: and https: protocols are permitted
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return { allowed: false, domain: null, reason: 'invalid_scheme' };
+        }
+
+        hostname = parsed.hostname.toLowerCase();
+    }
+
+    // If no whitelist is configured, portal filtering is disabled
+    if (!Array.isArray(portalWhitelist) || portalWhitelist.length === 0) {
         return { allowed: true, domain: hostname, reason: null };
     }
 
     if (!url) return { allowed: false, domain: null, reason: 'missing_url' };
-    
-    let hostname;
-    try {
-        hostname = new URL(url).hostname.toLowerCase();
-    } catch (err) {
-        return { allowed: false, domain: null, reason: 'malformed_url' };
-    }
 
     const cleanedWhitelist = portalWhitelist
         .map(d => (d || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
@@ -129,6 +154,8 @@ export function isPortalAllowed(url, portalWhitelist) {
         return { allowed: true, domain: hostname, reason: null };
     }
 
+    // Exact match or subdomain match (e.g. www.99acres.com matches 99acres.com)
+    // Prevents lookalike domains like 99acres.com.attacker.com or fake99acres.com
     const matched = cleanedWhitelist.some(domain => {
         return hostname === domain || hostname.endsWith('.' + domain);
     });
@@ -161,6 +188,12 @@ export function convertArea(value, fromUnit, toUnit) {
     if (!canonicalFrom || !canonicalTo) return null;
     if (canonicalFrom === canonicalTo) return value;
 
+    // Regional ambiguity: Bigha has no universal conversion across states.
+    // Cross-unit conversion involving bigha is rejected to prevent inaccurate sizing.
+    if (canonicalFrom === 'bigha' || canonicalTo === 'bigha') {
+        return null;
+    }
+
     const fromFactor = SQFT_FACTORS[canonicalFrom];
     const toFactor = SQFT_FACTORS[canonicalTo];
 
@@ -180,35 +213,63 @@ export function convertArea(value, fromUnit, toUnit) {
  */
 export function parsePriceToNumber(rawPrice) {
     if (rawPrice === null || rawPrice === undefined) return null;
-    if (typeof rawPrice === 'number') return rawPrice >= 0 ? rawPrice : null;
+    if (typeof rawPrice === 'number') {
+        return rawPrice >= 0 && !isNaN(rawPrice) && isFinite(rawPrice) ? rawPrice : null;
+    }
     
-    const str = String(rawPrice).trim().replace(/,/g, '');
+    const str = String(rawPrice).trim();
     if (!str) return null;
 
+    // Reject negative numbers or explicit non-price indicators
+    if (str.startsWith('-') || /\b(negotiable|on request|call for price)\b/i.test(str)) {
+        return null;
+    }
+
+    // Reject multiple decimal dots (e.g. 1.2.3)
+    if (str.split('.').length > 2) {
+        return null;
+    }
+
+    const cleanStr = str.replace(/,/g, '');
+
     // Matches e.g. 1.5 Cr, 1.50 Crore, 85 Lac, 85 Lakhs, 50k
-    const crMatch = str.match(/([\d.]+)\s*(?:cr|crore|crores)\b/i);
+    const crMatch = cleanStr.match(/(?:(?:rs\.?|inr|₹)\s*)?([\d.]+)\s*(?:cr|crore|crores)\b/i);
     if (crMatch) {
         const val = parseFloat(crMatch[1]);
         return isNaN(val) ? null : Math.round(val * 10000000);
     }
 
-    const lacMatch = str.match(/([\d.]+)\s*(?:lac|lacs|lakh|lakhs)\b/i);
+    const lacMatch = cleanStr.match(/(?:(?:rs\.?|inr|₹)\s*)?([\d.]+)\s*(?:lac|lacs|lakh|lakhs)\b/i);
     if (lacMatch) {
         const val = parseFloat(lacMatch[1]);
         return isNaN(val) ? null : Math.round(val * 100000);
     }
 
-    const kMatch = str.match(/([\d.]+)\s*(?:k|thousand)\b/i);
+    const kMatch = cleanStr.match(/(?:(?:rs\.?|inr|₹)\s*)?([\d.]+)\s*(?:k|thousand|thousands)\b/i);
     if (kMatch) {
         const val = parseFloat(kMatch[1]);
         return isNaN(val) ? null : Math.round(val * 1000);
     }
 
-    // Direct plain digits
-    const digitsMatch = str.match(/\b\d+(\.\d+)?\b/);
-    if (digitsMatch) {
-        const val = parseFloat(digitsMatch[0]);
-        return isNaN(val) ? null : val;
+    // Direct currency prefix match: e.g. ₹ 45,000, Rs. 1,50,000, INR 2500000
+    const currMatch = cleanStr.match(/(?:rs\.?|inr|₹)\s*(\d+(?:\.\d+)?)\b/i);
+    if (currMatch) {
+        const val = parseFloat(currMatch[1]);
+        return isNaN(val) ? null : Math.round(val);
+    }
+
+    // Pure number string with optional 'price:' prefix (e.g. "45000", "price: 1500000")
+    // Rejects bare numbers embedded in prose (like "Call 9876543210", "Sector 8", "Plot 120")
+    const pureNumMatch = cleanStr.match(/^(?:price\s*:?\s*)?(\d+(?:\.\d+)?)$/i);
+    if (pureNumMatch) {
+        const digits = pureNumMatch[1];
+        // Indian mobile numbers (10 digits starting with 6, 7, 8, 9) without currency/denomination
+        // are contact numbers, not prices!
+        if (/^[6-9]\d{9}$/.test(digits)) {
+            return null;
+        }
+        const val = parseFloat(digits);
+        return isNaN(val) ? null : Math.round(val);
     }
 
     return null;
@@ -239,7 +300,8 @@ export function parseSizeAndUnit(rawSize) {
 
     const value = parseFloat(match[1]);
     const rawUnit = match[2].trim().toLowerCase();
-    const canonicalUnit = UNIT_ALIASES[rawUnit] || rawUnit;
+    const cleanUnit = rawUnit.replace(/\.+$/, '');
+    const canonicalUnit = UNIT_ALIASES[rawUnit] || UNIT_ALIASES[cleanUnit] || rawUnit;
 
     return isNaN(value) ? null : { value, unit: canonicalUnit };
 }
@@ -340,6 +402,21 @@ export function evaluateSizeFilter(extractedSize, sizeMin, sizeMax, targetUnit) 
             };
         }
 
+        // Handle regionally ambiguous units like bigha
+        if (parsedSize.unit === 'bigha' || targetUnit === 'bigha') {
+            if (parsedSize.unit !== targetUnit) {
+                return {
+                    passed: null,
+                    extracted: parsedSize.value,
+                    unit: parsedSize.unit,
+                    reason: 'ambiguous_regional_unit_conversion',
+                    isMissingData: true,
+                    fromUnit: parsedSize.unit,
+                    expectedUnit: targetUnit
+                };
+            }
+        }
+
         const converted = convertArea(parsedSize.value, parsedSize.unit, targetUnit);
         if (converted === null) {
             return {
@@ -398,8 +475,15 @@ export function evaluateSellerTypeFilter(sellerIntent, textContent, allowedSelle
     const combined = `${sellerIntent || ''} ${textContent || ''}`.toLowerCase();
 
     // Check for explicit signals
-    const hasOwnerSignals = /\b(direct owner|by owner|individual owner|no brokerage|dealers excuse|dealers please excuse)\b/i.test(combined);
-    const hasBrokerSignals = /\b(broker|dealer|agent|consultant|commission|channel partner|multiple options|consultancy)\b/i.test(combined);
+    const hasOwnerSignals = /\b(direct owner|by owner|individual owner|no brokerage|dealers excuse|dealers please excuse|brokers excuse|brokers please excuse)\b/i.test(combined);
+
+    // Strip exclusion phrases so negative instructions (e.g. "dealers please excuse", "no brokers")
+    // do not falsely trigger affirmative broker detection.
+    const sanitizedForBrokerCheck = combined
+        .replace(/\b(dealers?|brokers?|agents?|channel partners?)\s+(?:please\s+)?(?:excuse|stay away|do not call|don't call)\b/gi, ' ')
+        .replace(/\bno\s+(?:dealers?|brokers?|agents?|brokerage|commission)\b/gi, ' ');
+
+    const hasBrokerSignals = /\b(broker|dealer|agent|consultant|commission|channel partner|multiple options|consultancy)\b/i.test(sanitizedForBrokerCheck);
     const hasBuilderSignals = /\b(builder floor|developer|pre-launch|launching soon|promoter|official booking)\b/i.test(combined);
 
     let detectedType = null;

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import ParsingRule from '../src/modules/parsing/parsingRule.model.js';
-import { normalizeDiscoveryUrl } from '../services/discovery/DiscoveryFilterEngine.js';
+import { normalizeDiscoveryUrl, validateDiscoveryConfigPayload } from '../services/discovery/DiscoveryFilterEngine.js';
 import publicUrlConnector from '../services/intakeConnectors/PublicUrlConnector.js';
 
 // Prevent Mongoose buffering timeout by providing in-memory stub for test runner
@@ -11,18 +11,26 @@ ParsingRule.find = async () => [];
 test('--- PHASE 1: END-TO-END PIPELINE & FIXTURE INTEGRATION SUITE ---', async (t) => {
 
     await t.test('Pipeline Stage 1: URL Normalization & Deduplication Gate', () => {
-        const rawUrlWithTracking = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345?utm_source=google&utm_medium=cpc&utm_campaign=brand_search&gclid=EAIaIQobChMI123&ref=share_btn';
+        const urlGoogleAd = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345?utm_source=google&utm_medium=cpc&utm_campaign=brand_search&gclid=EAIaIQobChMI123&ref=share_btn';
+        const urlFacebookAd = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345?utm_source=facebook&utm_medium=paid&fbclid=IwAR234xyz';
+        const urlTrailingSlash = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345/';
         const expectedCanonical = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345';
 
-        const normalized = normalizeDiscoveryUrl(rawUrlWithTracking);
-        assert.equal(normalized, expectedCanonical, 'Tracking parameters must be stripped');
+        const norm1 = normalizeDiscoveryUrl(urlGoogleAd);
+        const norm2 = normalizeDiscoveryUrl(urlFacebookAd);
+        const norm3 = normalizeDiscoveryUrl(urlTrailingSlash);
 
-        const hash1 = publicUrlConnector.generateDuplicateHash(normalized);
-        const hash2 = publicUrlConnector.generateDuplicateHash(rawUrlWithTracking);
-        const hash3 = publicUrlConnector.generateDuplicateHash(expectedCanonical);
+        assert.equal(norm1, expectedCanonical, 'Google tracking parameters must be stripped');
+        assert.equal(norm2, expectedCanonical, 'Facebook tracking parameters must be stripped');
+        assert.equal(norm3, expectedCanonical, 'Trailing slash must be normalized');
 
-        // Hashing the normalized URL guarantees deduplication across different campaigns
-        assert.equal(hash1, hash3);
+        const hash1 = publicUrlConnector.generateDuplicateHash(norm1);
+        const hash2 = publicUrlConnector.generateDuplicateHash(norm2);
+        const hash3 = publicUrlConnector.generateDuplicateHash(norm3);
+
+        // Hashing the normalized URLs guarantees deduplication across different campaigns
+        assert.equal(hash1, hash2, 'Hash of Google campaign and Facebook campaign must be identical');
+        assert.equal(hash2, hash3, 'Hash of trailing slash variant must match canonical hash');
     });
 
     await t.test('Pipeline Stage 2: Connector Filter Evaluation on HTML Fixture (Matched Criteria)', async () => {
@@ -183,6 +191,102 @@ test('--- PHASE 1: END-TO-END PIPELINE & FIXTURE INTEGRATION SUITE ---', async (
                 },
                 /URL returned status 404/
             );
+        } finally {
+            (await import('axios')).default.get = originalGet;
+        }
+    });
+
+    await t.test('Pipeline Stage 6: API Boundary & Validation Layer Gate', () => {
+        // Valid payload
+        const validPayload = {
+            name: 'Kurukshetra Plots Phase 1',
+            keywords: ['plots in kurukshetra', 'land for sale sector 8'],
+            location_filters: ['Sector 8', 'Sector 7'],
+            property_types: ['plot', 'residential'],
+            schedule_cron: '0 */6 * * *',
+            price_min: 5000000,
+            price_max: 20000000,
+            size_min: 150,
+            size_max: 500,
+            size_unit: 'sqyd',
+            seller_types: ['owner', 'builder'],
+            portal_whitelist: ['https://99acres.com', 'magicbricks.com/'],
+            freshness_days: 30
+        };
+
+        const validRes = validateDiscoveryConfigPayload(validPayload);
+        assert.equal(validRes.valid, true);
+        assert.equal(validRes.errors.length, 0);
+        assert.deepEqual(validRes.cleanPayload.portal_whitelist, ['99acres.com', 'magicbricks.com']);
+
+        // Invalid payload: inverted prices, negative sizes, invalid units, invalid cron
+        const invalidPayload = {
+            name: '', // Empty name
+            keywords: [], // No keywords
+            schedule_cron: 'invalid-cron-format',
+            price_min: 25000000,
+            price_max: 10000000, // max < min
+            size_min: -50, // negative size
+            size_unit: 'hectares_not_supported',
+            seller_types: ['owner', 'unauthorized_broker_type'],
+            portal_whitelist: ['not_a_domain'],
+            freshness_days: 0 // < 1
+        };
+
+        const invalidRes = validateDiscoveryConfigPayload(invalidPayload);
+        assert.equal(invalidRes.valid, false);
+        assert.ok(invalidRes.errors.some(e => e.includes('Configuration name is required')));
+        assert.ok(invalidRes.errors.some(e => e.includes('At least one search keyword is required')));
+        assert.ok(invalidRes.errors.some(e => e.includes('Invalid cron expression')));
+        assert.ok(invalidRes.errors.some(e => e.includes('price_max (10000000) cannot be less than price_min (25000000)')));
+        assert.ok(invalidRes.errors.some(e => e.includes('size_min must be a non-negative number')));
+        assert.ok(invalidRes.errors.some(e => e.includes('Unsupported size_unit')));
+        assert.ok(invalidRes.errors.some(e => e.includes('Unsupported seller_type')));
+        assert.ok(invalidRes.errors.some(e => e.includes('Malformed portal domain')));
+        assert.ok(invalidRes.errors.some(e => e.includes('freshness_days must be an integer between 1 and 365')));
+    });
+
+    await t.test('Pipeline Stage 7: Regional Unit Ambiguity (Bigha to Sqyd) in Connector', async () => {
+        const mockHtmlBigha = `
+        <!DOCTYPE html>
+        <html>
+        <head><title>Agricultural Land for Sale</title></head>
+        <body>
+            <h1>Agricultural Land in Haryana</h1>
+            <div class="price">Price: 1.20 Cr</div>
+            <div class="size">Size: 4 bigha</div>
+            <p>Direct owner selling land. Clean registry.</p>
+        </body>
+        </html>
+        `;
+
+        const originalGet = (await import('axios')).default.get;
+        (await import('axios')).default.get = async (url) => {
+            return { status: 200, statusText: 'OK', data: mockHtmlBigha };
+        };
+
+        try {
+            const discoveryFilters = {
+                price_min: 5000000,
+                price_max: 20000000,
+                size_min: 1000,
+                size_max: 5000,
+                size_unit: 'sqyd' // Target is sqyd, listing is bigha -> Regional Ambiguity!
+            };
+
+            const inputData = {
+                url: 'https://www.99acres.com/bigha-land-haryana',
+                user_id: 'test_admin_id',
+                discovery_filters: discoveryFilters
+            };
+
+            const result = await publicUrlConnector.process(inputData);
+
+            // Bigha cannot be cross-converted automatically -> must NOT be accepted or rejected, but flagged unverified
+            assert.equal(result.verification_status, 'unverified', 'Regional ambiguous unit must require human review');
+            assert.equal(result.extracted_entities.filter_evaluation.passed, null);
+            assert.equal(result.extracted_entities.filter_evaluation.checks.size.reason, 'ambiguous_regional_unit_conversion');
+            assert.ok(result.verification_notes.some(n => n.includes('[Filter Notice] Missing listing data for: size')));
         } finally {
             (await import('axios')).default.get = originalGet;
         }

@@ -5,7 +5,8 @@
     "main": "src/server.js",
     "scripts": {
         "start": "node src/server.js",
-        "dev": "nodemon src/server.js"
+        "dev": "nodemon src/server.js",
+        "test": "node --test tests/discovery_area_units.test.js tests/discovery_price_url_seller.test.js tests/phase1_deal_discovery.test.js tests/phase1_pipeline_integration.test.js"
     },
     "dependencies": {
         "@opentelemetry/api": "^1.9.1",
