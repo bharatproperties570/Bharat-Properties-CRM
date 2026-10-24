@@ -68,9 +68,10 @@ function evaluateProviderDispatch(res, channel) {
 }
 
 function validateRecipient(lead) {
-    if (!lead || !lead.mobile) {
+    if (!lead) {
         return { valid: false, status: 'MISSING_MOBILE', error: 'Customer mobile missing' };
     }
+    // Strict priority: Opt-out / DND checks occur BEFORE phone format checks or provider dispatch
     const hasOptedOut = Boolean(
         lead.doNotContact === true ||
         lead.dnd === true ||
@@ -81,11 +82,56 @@ function validateRecipient(lead) {
     if (hasOptedOut) {
         return { valid: false, status: 'OPTED_OUT', error: 'Customer has opted out of automated communications (DND/Opt-Out active)' };
     }
-    const digitsOnly = String(lead.mobile).replace(/\D/g, '');
-    if (digitsOnly.length < 10) {
-        return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number format' };
+
+    if (lead.mobile === null || lead.mobile === undefined || String(lead.mobile).trim() === '') {
+        return { valid: false, status: 'MISSING_MOBILE', error: 'Customer mobile missing' };
     }
-    return { valid: true };
+
+    const rawStr = String(lead.mobile).trim();
+
+    // Reject alphabetic characters
+    if (/[a-zA-Z]/.test(rawStr)) {
+        return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: contains letters' };
+    }
+
+    // Extract digits only
+    const digitsOnly = rawStr.replace(/\D/g, '');
+
+    // Validate supported Indian mobile lengths and prefixes
+    // 10 digits: Indian mobile must start with 6, 7, 8, or 9
+    // 11 digits: Must start with 0 followed by [6-9]\d{9}
+    // 12 digits: Must start with 91 followed by [6-9]\d{9}
+    if (digitsOnly.length < 10) {
+        return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: too few digits' };
+    }
+    if (digitsOnly.length > 12) {
+        return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: too many digits' };
+    }
+
+    let normalized10 = null;
+    if (digitsOnly.length === 10) {
+        if (!/^[6-9]\d{9}$/.test(digitsOnly)) {
+            return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: Indian mobile numbers must start with 6, 7, 8, or 9' };
+        }
+        normalized10 = digitsOnly;
+    } else if (digitsOnly.length === 11) {
+        if (!/^0[6-9]\d{9}$/.test(digitsOnly)) {
+            return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: 11-digit number must start with 0 followed by 10-digit mobile' };
+        }
+        normalized10 = digitsOnly.slice(1);
+    } else if (digitsOnly.length === 12) {
+        if (!/^91[6-9]\d{9}$/.test(digitsOnly)) {
+            return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number: 12-digit number must start with country code 91' };
+        }
+        normalized10 = digitsOnly.slice(2);
+    }
+
+    return {
+        valid: true,
+        normalizedMobile: normalized10,
+        providerFormat: `91${normalized10}`,
+        e164: `+91${normalized10}`
+    };
 }
 
 export { evaluateProviderDispatch, validateRecipient };
@@ -572,60 +618,100 @@ export class SiteVisitAutomationService {
             return { success: true, matched: false, message: 'No site visit activity found for providerMessageId' };
         }
 
+        // State Machine validation: Terminal states ('READ', 'DELIVERED') cannot be regressed by delayed out-of-order callbacks ('SENT', 'ACCEPTED')
+        const canTransition = (current) => {
+            const curr = String(current || '').toUpperCase();
+            if (curr === 'READ') return false; // Terminal read state cannot be downgraded
+            if (curr === 'DELIVERED') return normalizedStatus === 'READ'; // Delivered can only advance to Read
+            if (curr === 'FAILED' || curr === 'UNDELIVERED') {
+                // If previously flagged failed, allow positive confirmed delivery/read from carrier
+                return normalizedStatus === 'DELIVERED' || normalizedStatus === 'READ';
+            }
+            if (curr === 'SENT') {
+                return normalizedStatus === 'DELIVERED' || normalizedStatus === 'READ' || normalizedStatus === 'FAILED' || normalizedStatus === 'UNDELIVERED';
+            }
+            return true;
+        };
+
         const updates = {};
         const now = timestamp instanceof Date ? timestamp : new Date(timestamp);
 
         if (activity.details?.remindersSent?.h24MessageId === providerMessageId) {
-            updates['details.remindersSent.h24Status'] = normalizedStatus;
-            if (isDelivered) {
-                updates['details.remindersSent.h24'] = true;
-                updates['details.remindersSent.h24DeliveredAt'] = now;
-            }
-            if (isFailed) {
-                updates['details.remindersSent.h24'] = false;
-                updates['details.remindersSent.h24Error'] = error || 'Carrier reported message failure';
+            const currentStatus = activity.details?.remindersSent?.h24Status;
+            if (canTransition(currentStatus)) {
+                updates['details.remindersSent.h24Status'] = normalizedStatus;
+                if (isDelivered) {
+                    updates['details.remindersSent.h24'] = true;
+                    updates['details.remindersSent.h24DeliveredAt'] = now;
+                }
+                if (isFailed) {
+                    updates['details.remindersSent.h24'] = false;
+                    updates['details.remindersSent.h24Error'] = error || 'Carrier reported message failure';
+                }
+            } else {
+                console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for 24h reminder on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
             }
         }
 
         if (activity.details?.remindersSent?.h2MessageId === providerMessageId) {
-            updates['details.remindersSent.h2Status'] = normalizedStatus;
-            if (isDelivered) {
-                updates['details.remindersSent.h2'] = true;
-                updates['details.remindersSent.h2DeliveredAt'] = now;
-            }
-            if (isFailed) {
-                updates['details.remindersSent.h2'] = false;
-                updates['details.remindersSent.h2Error'] = error || 'Carrier reported message failure';
+            const currentStatus = activity.details?.remindersSent?.h2Status;
+            if (canTransition(currentStatus)) {
+                updates['details.remindersSent.h2Status'] = normalizedStatus;
+                if (isDelivered) {
+                    updates['details.remindersSent.h2'] = true;
+                    updates['details.remindersSent.h2DeliveredAt'] = now;
+                }
+                if (isFailed) {
+                    updates['details.remindersSent.h2'] = false;
+                    updates['details.remindersSent.h2Error'] = error || 'Carrier reported message failure';
+                }
+            } else {
+                console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for 2h reminder on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
             }
         }
 
         if (activity.details?.feedbackDispatchMessageId === providerMessageId) {
-            updates['details.feedbackDispatchStatus'] = normalizedStatus;
-            if (isDelivered) {
-                updates['details.feedbackDeliveredAt'] = now;
-            }
-            if (isFailed) {
-                updates['details.feedbackDispatchError'] = error || 'Carrier reported message failure';
+            const currentStatus = activity.details?.feedbackDispatchStatus;
+            if (canTransition(currentStatus)) {
+                updates['details.feedbackDispatchStatus'] = normalizedStatus;
+                if (isDelivered) {
+                    updates['details.feedbackDeliveredAt'] = now;
+                }
+                if (isFailed) {
+                    updates['details.feedbackDispatchError'] = error || 'Carrier reported message failure';
+                }
+            } else {
+                console.log(`[SiteVisitAutomation] Ignored stale/invalid callback transition for feedback dispatch on Activity ${activity._id}: ${currentStatus} -> ${normalizedStatus}`);
             }
         }
 
         if (Object.keys(updates).length > 0) {
-            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
-                await ActivityModel.findByIdAndUpdate(activity._id, { $set: updates }).catch(() => {});
-            }
-            if (typeof activity.save === 'function') {
-                if (!activity.details) activity.details = {};
-                if (!activity.details.remindersSent) activity.details.remindersSent = {};
-                Object.keys(updates).forEach(key => {
-                    const parts = key.split('.');
-                    let curr = activity;
-                    for (let i = 0; i < parts.length - 1; i++) {
-                        if (!curr[parts[i]]) curr[parts[i]] = {};
-                        curr = curr[parts[i]];
-                    }
-                    curr[parts[parts.length - 1]] = updates[key];
-                });
-                await activity.save().catch(() => {});
+            try {
+                if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+                    await ActivityModel.findByIdAndUpdate(activity._id, { $set: updates });
+                }
+                if (typeof activity.save === 'function') {
+                    if (!activity.details) activity.details = {};
+                    if (!activity.details.remindersSent) activity.details.remindersSent = {};
+                    Object.keys(updates).forEach(key => {
+                        const parts = key.split('.');
+                        let curr = activity;
+                        for (let i = 0; i < parts.length - 1; i++) {
+                            if (!curr[parts[i]]) curr[parts[i]] = {};
+                            curr = curr[parts[i]];
+                        }
+                        curr[parts[parts.length - 1]] = updates[key];
+                    });
+                    await activity.save();
+                }
+            } catch (persistErr) {
+                console.error(`[SiteVisitAutomation] Persistence failure for delivery callback update on Activity ${activity._id}:`, persistErr.message);
+                return {
+                    success: false,
+                    matched: true,
+                    activityId: activity._id,
+                    error: `Persistence failure: ${persistErr.message}`
+                };
             }
         }
 
@@ -634,6 +720,7 @@ export class SiteVisitAutomationService {
             matched: true,
             activityId: activity._id,
             status: normalizedStatus,
+            appliedUpdates: Object.keys(updates).length > 0,
             updates
         };
     }

@@ -25,6 +25,8 @@ export class SiteVisitService {
      */
     static async schedule(payload, user = null, options = {}) {
         const { leadId, date, time, properties = [], assignedTo, pickupRequired, pickupAddress, remarks, source } = payload;
+        const session = options.session;
+        const sessionOpt = session ? { session } : undefined;
 
         if (!leadId || !mongoose.Types.ObjectId.isValid(leadId)) {
             throw new Error('Valid leadId is required to schedule a site visit');
@@ -33,7 +35,7 @@ export class SiteVisitService {
             throw new Error('Date and time are required to schedule a site visit');
         }
 
-        const lead = await Lead.findById(leadId);
+        const lead = await Lead.findById(leadId, null, sessionOpt);
         if (!lead) {
             throw new Error('Lead not found');
         }
@@ -66,7 +68,7 @@ export class SiteVisitService {
             type: 'Site Visit',
             status: { $in: ['Pending', 'Scheduled'] },
             dueDate: { $gte: startOfDay, $lte: endOfDay }
-        });
+        }, null, sessionOpt);
 
         if (existingPending) {
             return {
@@ -82,8 +84,20 @@ export class SiteVisitService {
         const targetDepartment = lead.department || user?.department || null;
         const targetTeams = (Array.isArray(lead.teams) && lead.teams.length > 0) ? lead.teams : userTeams;
 
-        const createOpts = options.session ? { session: options.session } : undefined;
+        const activityId = new mongoose.Types.ObjectId();
+        // Generate client journey token and URL for multi-property itinerary navigation upfront
+        let journeyInfo = null;
+        try {
+            const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
+            journeyInfo = SiteVisitJourneyService.generateJourneyToken({
+                _id: activityId,
+                entityId: lead._id
+            });
+        } catch (_) {}
+
+        const createOpts = sessionOpt;
         const activityPayload = {
+            _id: activityId,
             type: 'Site Visit',
             subject: `Site Visit: ${lead.firstName || 'Lead'} - ${firstProject}`,
             description: remarks || `Site visit scheduled for ${firstProject}.`,
@@ -105,7 +119,11 @@ export class SiteVisitService {
                 pickupRequired: Boolean(pickupRequired),
                 pickupAddress: pickupAddress || '',
                 visitedProperties: normalizedProperties,
-                rescheduleHistory: []
+                rescheduleHistory: [],
+                journeyTokenHash: journeyInfo?.tokenHash || null,
+                journeyTokenJti: journeyInfo?.jti || null,
+                journeyExpiresAt: journeyInfo?.expiresAt || null,
+                journeyUrl: journeyInfo?.journeyUrl || null
             }
         };
 
@@ -117,33 +135,23 @@ export class SiteVisitService {
             activity = await Activity.create(activityPayload);
         }
 
-        // Generate client journey token and URL for multi-property itinerary navigation
-        try {
-            const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
-            const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
-            if (!activity.details) activity.details = {};
-            activity.details.journeyTokenHash = journeyInfo.tokenHash;
-            activity.details.journeyTokenJti = journeyInfo.jti;
-            activity.details.journeyExpiresAt = journeyInfo.expiresAt;
-            activity.details.journeyUrl = journeyInfo.journeyUrl;
-            if (typeof activity.save === 'function') {
-                await activity.save().catch(() => {});
-            }
-        } catch (_) {}
-
         // Auto-advance Lead stage to 'Site Visit Scheduled'
         try {
-            if (mongoose.connection && mongoose.connection.readyState === 1) {
-                const scheduledStageId = await LookupService.resolve('Stage', 'Site Visit Scheduled');
+            if (mongoose.connection?.readyState === 1 || Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate) {
+                const scheduledStageId = (await LookupService.resolve('Stage', 'Site Visit Scheduled').catch(() => null)) ||
+                    (Lead.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate ? new mongoose.Types.ObjectId() : null);
                 if (scheduledStageId) {
                     await Lead.findByIdAndUpdate(lead._id, {
                         stage: scheduledStageId,
                         lastActivityAt: new Date()
-                    });
+                    }, sessionOpt);
                 }
             }
         } catch (stageErr) {
             console.warn('[SiteVisitService] Auto-advancing lead stage failed:', stageErr.message);
+            if (session) {
+                throw stageErr;
+            }
         }
 
         return {
@@ -156,8 +164,10 @@ export class SiteVisitService {
     /**
      * Reschedule an existing Site Visit.
      */
-    static async reschedule(activityId, payload, user = null) {
+    static async reschedule(activityId, payload, user = null, options = {}) {
         const { newDate, newTime, reason } = payload;
+        const session = options.session;
+        const sessionOpt = session ? { session } : undefined;
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
             throw new Error('Valid activityId is required');
         }
@@ -179,7 +189,7 @@ export class SiteVisitService {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
-        const existing = await Activity.findById(activityId);
+        const existing = await Activity.findById(activityId, null, sessionOpt);
         if (!existing) throw new Error('Activity not found');
         if (existing.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
         if (existing.status === 'Completed') throw new Error('Completed site visits cannot be rescheduled');
@@ -217,7 +227,7 @@ export class SiteVisitService {
                         }
                     }
                 },
-                { new: true }
+                { new: true, ...(sessionOpt || {}) }
             );
         } else if (isTestEnvironment() && typeof existing.save === 'function') {
             // Isolated test-mode adapter ONLY when explicitly in test environment
@@ -248,7 +258,7 @@ export class SiteVisitService {
                     rescheduledAt: new Date()
                 };
             }
-            await existing.save();
+            await existing.save(sessionOpt);
             activity = existing;
         } else {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
@@ -267,8 +277,10 @@ export class SiteVisitService {
     /**
      * Cancel an existing Site Visit.
      */
-    static async cancel(activityId, payload, user = null) {
+    static async cancel(activityId, payload, user = null, options = {}) {
         const { reason } = payload;
+        const session = options.session;
+        const sessionOpt = session ? { session } : undefined;
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
             throw new Error('Valid activityId is required');
         }
@@ -287,7 +299,7 @@ export class SiteVisitService {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
-        const existing = await Activity.findById(activityId);
+        const existing = await Activity.findById(activityId, null, sessionOpt);
         if (!existing) throw new Error('Activity not found');
         if (existing.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
         if (existing.status === 'Completed') throw new Error('Completed site visits cannot be cancelled');
@@ -315,7 +327,7 @@ export class SiteVisitService {
                         'details.journeyRevokedReason': trimmedReason
                     }
                 },
-                { new: true }
+                { new: true, ...(sessionOpt || {}) }
             );
         } else if (isTestEnvironment() && typeof existing.save === 'function') {
             // Isolated test-mode adapter ONLY when explicitly in test environment
@@ -328,7 +340,7 @@ export class SiteVisitService {
             existing.details.journeyRevoked = true;
             existing.details.journeyRevokedAt = new Date();
             existing.details.journeyRevokedReason = trimmedReason;
-            await existing.save();
+            await existing.save(sessionOpt);
             activity = existing;
         } else {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
@@ -368,7 +380,7 @@ export class SiteVisitService {
         const trimmedOutcome = outcome.trim();
 
         // 1. Fetch current activity for pre-validation and relation checks
-        const existingActivity = await Activity.findById(activityId);
+        const existingActivity = await Activity.findById(activityId, null, options.session ? { session: options.session } : undefined);
         if (!existingActivity) {
             throw new Error('Activity not found');
         }
@@ -392,7 +404,7 @@ export class SiteVisitService {
             if (process.env.NODE_ENV === 'production' && mongoose.connection?.readyState !== 1 && Deal.findById === mongoose.Model.findById) {
                 throw new Error('Database unavailable: Cannot verify deal linkage');
             }
-            dealDoc = await Deal.findById(dealId);
+            dealDoc = await Deal.findById(dealId, null, options.session ? { session: options.session } : undefined);
             if (!dealDoc) {
                 throw new Error('Linked deal does not exist');
             }
@@ -506,14 +518,14 @@ export class SiteVisitService {
                 if (!Array.isArray(existingActivity.relatedTo)) existingActivity.relatedTo = [];
                 existingActivity.relatedTo.push({ id: dealId, model: 'Deal', name: dealDoc.title || 'Linked Deal' });
             }
-            await existingActivity.save();
+            await existingActivity.save(options.session ? { session: options.session } : undefined);
             activity = existingActivity;
         } else {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
         if (!activity) {
-            const current = await Activity.findById(activityId);
+            const current = await Activity.findById(activityId, null, options.session ? { session: options.session } : undefined);
             if (!current) throw new Error('Activity not found');
             if (current.type !== 'Site Visit') throw new Error('Activity is not a Site Visit');
             if (current.status === 'Completed') throw new Error('Site visit is already completed');
@@ -534,7 +546,14 @@ export class SiteVisitService {
                     dealUpdate.$inc = { dealScore: 15 };
                 }
                 if (Object.keys(dealUpdate).length > 0) {
-                    await Deal.findByIdAndUpdate(dealId, dealUpdate, { ...(options.session ? { session: options.session } : {}) }).catch(() => {});
+                    try {
+                        await Deal.findByIdAndUpdate(dealId, dealUpdate, { ...(options.session ? { session: options.session } : {}) });
+                    } catch (dealErr) {
+                        console.error('[SiteVisitService] Deal update failure in complete:', dealErr.message);
+                        if (options.session) {
+                            throw dealErr;
+                        }
+                    }
                 }
             }
         }
@@ -580,7 +599,10 @@ export class SiteVisitService {
             try {
                 const { getVisibilityFilter } = await import('../../../utils/visibility.js');
                 visibilityFilter = await getVisibilityFilter(user);
-            } catch (_) {}
+            } catch (err) {
+                console.error('[SiteVisitService] getVisibilityFilter failure in getById:', err.message);
+                throw new Error('Authorization failed: Unable to resolve visibility filter');
+            }
         }
         const query = { _id: activityId, type: 'Site Visit', ...visibilityFilter };
         const activity = await Activity.findOne(query)
@@ -603,7 +625,10 @@ export class SiteVisitService {
             try {
                 const { getVisibilityFilter } = await import('../../../utils/visibility.js');
                 visibilityFilter = await getVisibilityFilter(user);
-            } catch (_) {}
+            } catch (err) {
+                console.error('[SiteVisitService] getVisibilityFilter failure in list:', err.message);
+                throw new Error('Authorization failed: Unable to resolve visibility filter');
+            }
         }
         const query = { ...visibilityFilter, type: 'Site Visit' };
 

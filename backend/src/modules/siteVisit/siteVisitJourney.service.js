@@ -76,7 +76,7 @@ export class SiteVisitJourneyService {
     /**
      * Decode, verify cryptographic signature, hash match, and revocation status of journey token.
      */
-    static async verifyJourneyToken(rawToken) {
+    static async verifyJourneyToken(rawToken, options = {}) {
         if (!rawToken || typeof rawToken !== 'string') {
             throw new Error('Journey token is required');
         }
@@ -104,7 +104,7 @@ export class SiteVisitJourneyService {
 
         let activity = null;
         if (typeof ActivityModel.findById === 'function') {
-            activity = await ActivityModel.findById(decoded.activityId);
+            activity = await ActivityModel.findById(decoded.activityId, null, options.session ? { session: options.session } : undefined);
         }
 
         if (!activity) {
@@ -420,7 +420,10 @@ export class SiteVisitJourneyService {
         const FeedbackFormModel = mongoose.models.FeedbackForm || FeedbackForm;
         const LeadModel = mongoose.models.Lead || Lead;
 
-        const activity = await ActivityModel.findById(activityId);
+        const session = options.session;
+        const sessionOpt = session ? { session } : undefined;
+
+        const activity = await ActivityModel.findById(activityId, null, sessionOpt);
         if (!activity) {
             const err = new Error('Activity not found');
             err.statusCode = 404;
@@ -472,7 +475,7 @@ export class SiteVisitJourneyService {
         if (property.status === 'FEEDBACK_SUBMITTED' || property.feedbackSubmissionId) {
             let existingSubmission = null;
             if (typeof FeedbackSubmissionModel.findOne === 'function' && (mongoose.connection?.readyState === 1 || FeedbackSubmissionModel.findOne !== mongoose.Model.findOne)) {
-                existingSubmission = await safeExecLean(FeedbackSubmissionModel.findOne({ idempotencyKey }));
+                existingSubmission = await safeExecLean(FeedbackSubmissionModel.findOne({ idempotencyKey }, null, sessionOpt));
             }
             return {
                 success: true,
@@ -485,9 +488,9 @@ export class SiteVisitJourneyService {
         // 3. Resolve Feedback Form
         let formDoc = null;
         if (typeof FeedbackFormModel.findOne === 'function' && (mongoose.connection?.readyState === 1 || FeedbackFormModel.findOne !== mongoose.Model.findOne)) {
-            formDoc = await safeExecLean(FeedbackFormModel.findOne({ slug: 'customer-experience-feedback-qx9z2', isActive: true }));
+            formDoc = await safeExecLean(FeedbackFormModel.findOne({ slug: 'customer-experience-feedback-qx9z2', isActive: true }, null, sessionOpt));
             if (!formDoc) {
-                formDoc = await safeExecLean(FeedbackFormModel.findOne({ isActive: true }));
+                formDoc = await safeExecLean(FeedbackFormModel.findOne({ isActive: true }, null, sessionOpt));
             }
         }
         const formId = formDoc?._id || new mongoose.Types.ObjectId();
@@ -604,9 +607,13 @@ export class SiteVisitJourneyService {
                     await LeadModel.findByIdAndUpdate(leadId, {
                         $inc: { intent_index: 10 },
                         $set: { lastFeedbackReceivedAt: new Date(), latestFeedbackRating: numRating }
-                    }).catch(() => {});
+                    }, sessionOpt);
                 }
-            } catch (_) {}
+            } catch (leadErr) {
+                if (session) {
+                    throw leadErr;
+                }
+            }
         }
 
         // Manager Escalation on Negative Rating (<= 2)
@@ -626,7 +633,7 @@ export class SiteVisitJourneyService {
         if (revisitRequested && activity.assignedTo) {
             try {
                 if (typeof ActivityModel.create === 'function') {
-                    await ActivityModel.create({
+                    const taskPayload = {
                         type: 'Task',
                         subject: `Follow-up: Revisit requested for ${property.project} - ${property.property || 'Unit'}`,
                         entityType: 'Lead',
@@ -643,9 +650,18 @@ export class SiteVisitJourneyService {
                             project: property.project,
                             property: property.property
                         }
-                    }).catch(() => {});
+                    };
+                    if (sessionOpt) {
+                        await ActivityModel.create([taskPayload], sessionOpt);
+                    } else {
+                        await ActivityModel.create(taskPayload);
+                    }
                 }
-            } catch (_) {}
+            } catch (taskErr) {
+                if (session) {
+                    throw taskErr;
+                }
+            }
         }
 
         // Overall Stage Advancement on Journey Completion

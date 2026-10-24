@@ -444,13 +444,20 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     try {
                         const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
                         if (SiteVisitAutomationService?.handleDeliveryStatusCallback) {
+                            const errDetail = status.errors && status.errors[0]
+                                ? `${status.errors[0].code || ''}: ${status.errors[0].title || status.errors[0].message || ''}`.trim()
+                                : null;
                             await SiteVisitAutomationService.handleDeliveryStatusCallback({
                                 providerMessageId: status.id,
                                 status: status.status,
-                                timestamp: new Date(Number(status.timestamp || 0) * 1000)
+                                timestamp: new Date(Number(status.timestamp || 0) * 1000),
+                                error: errDetail,
+                                channel: 'whatsapp'
                             });
                         }
-                    } catch (_) {}
+                    } catch (cbErr) {
+                        console.error('[WhatsApp Live Bot] Site visit status callback error:', cbErr.message);
+                    }
                 }
                 for (const change of extractCoexistenceChanges(req.body)) {
                     const waba_id = req.body.entry?.[0]?.id;

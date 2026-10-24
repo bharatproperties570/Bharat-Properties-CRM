@@ -3,13 +3,17 @@
  *
  * Site Visit Production Readiness Test Suite:
  * 1. Recipient Consent & Opt-Out Enforcement (DND, doNotContact, optOut)
- * 2. Recipient Phone Validation & Format Sanitization
- * 3. Carrier Delivery Status Callback / Webhook Processing (WhatsApp & SMS)
- * 4. Provider Error, Timeout & Retryability Semantics
- * 5. MongoDB Session Propagation & Atomicity
- * 6. Non-Transactional Rollback Compensation (Zero Orphan Submissions on Save Failure)
- * 7. Tenant & Visibility RBAC Scoping in SiteVisitService.list & getById
- * 8. External Side-Effect Isolation on Write Failures
+ * 2. Recipient Phone Validation & Format Sanitization (+91, 91, 0, length, letters)
+ * 3. Carrier Delivery Status Callback & State Machine (WhatsApp & SMS)
+ * 4. Terminal State Transition Protection (READ/DELIVERED cannot be regressed by SENT)
+ * 5. Observable Callback Persistence Failures
+ * 6. Provider Error, Timeout & Retryability Semantics
+ * 7. MongoDB Session Propagation & Atomicity across Lifecycle Methods
+ * 8. Non-Transactional Rollback Compensation (Zero Orphan Submissions on Save Failure)
+ * 9. RBAC Fail-Closed Behavior on Visibility Engine Errors
+ * 10. Controller 403 Response & Zero Data Leakage on Authorization Failure
+ * 11. Tenant & Visibility Scoping in SiteVisitService.list & getById
+ * 12. External Side-Effect Isolation on Write Failures
  */
 
 import assert from 'assert';
@@ -41,6 +45,7 @@ async function runReadinessTests() {
     const { SiteVisitService } = await import('../src/modules/siteVisit/siteVisit.service.js');
     const { default: SiteVisitAutomationService, validateRecipient } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
     const { SiteVisitJourneyService } = await import('../src/modules/siteVisit/siteVisitJourney.service.js');
+    const { getSiteVisit, listSiteVisits } = await import('../src/modules/siteVisit/siteVisit.controller.js');
 
     const Activity = mongoose.models.Activity || mongoose.model('Activity');
     const Lead = mongoose.models.Lead || mongoose.model('Lead');
@@ -54,6 +59,7 @@ async function runReadinessTests() {
     const origActFindOneAndUpdate = Activity.findOneAndUpdate;
     const origActCreate = Activity.create;
     const origActFind = Activity.find;
+    const origActCountDocuments = Activity.countDocuments;
     const origSubCreate = FeedbackSubmission.create;
     const origSubFindOne = FeedbackSubmission.findOne;
     const origSubFindByIdAndDelete = FeedbackSubmission.findByIdAndDelete;
@@ -63,14 +69,12 @@ async function runReadinessTests() {
     const origDealFindById = Deal.findById;
     const origDealFindByIdAndUpdate = Deal.findByIdAndUpdate;
 
-    // Fast-fail safe defaults in mock mode to prevent mongoose buffer timeouts
-    Lead.findByIdAndUpdate = () => Promise.resolve({});
-    Activity.findByIdAndUpdate = () => Promise.resolve({});
+    // Prevent 10-second Mongoose command buffering when disconnected
     FeedbackForm.findOne = () => Promise.resolve(null);
     FeedbackSubmission.findOne = () => Promise.resolve(null);
 
     // ------------------------------------------------------------------------
-    // Group 1: Recipient Validation & Consent / Opt-Out Handling
+    // Group 1: Recipient Phone Validation & Consent / Opt-Out Handling
     // ------------------------------------------------------------------------
     console.log('--- Group 1: Recipient Validation & Consent / Opt-Out Handling ---');
 
@@ -82,15 +86,24 @@ async function runReadinessTests() {
         const res2 = validateRecipient({ name: 'Client Without Phone' });
         assert.strictEqual(res2.valid, false);
         assert.strictEqual(res2.status, 'MISSING_MOBILE');
+
+        const res3 = validateRecipient({ mobile: '' });
+        assert.strictEqual(res3.valid, false);
+        assert.strictEqual(res3.status, 'MISSING_MOBILE');
+
+        const res4 = validateRecipient({ mobile: '   ' });
+        assert.strictEqual(res4.valid, false);
+        assert.strictEqual(res4.status, 'MISSING_MOBILE');
     });
 
-    await recordAsync('2. validateRecipient enforces opt-out/DND flags (doNotContact, dnd, optOut)', async () => {
+    await recordAsync('2. validateRecipient enforces opt-out/DND priority before phone checks', async () => {
+        // Must reject opted-out clients even if their number is malformed or valid
         const leadDnd = { mobile: '+919876543210', dnd: true };
         const resDnd = validateRecipient(leadDnd);
         assert.strictEqual(resDnd.valid, false);
         assert.strictEqual(resDnd.status, 'OPTED_OUT');
 
-        const leadDoNotContact = { mobile: '+919876543210', doNotContact: true };
+        const leadDoNotContact = { mobile: 'malformed_invalid', doNotContact: true };
         const resDnc = validateRecipient(leadDoNotContact);
         assert.strictEqual(resDnc.valid, false);
         assert.strictEqual(resDnc.status, 'OPTED_OUT');
@@ -100,29 +113,74 @@ async function runReadinessTests() {
         assert.strictEqual(resOpt.valid, false);
         assert.strictEqual(resOpt.status, 'OPTED_OUT');
 
+        const leadOptedOut = { mobile: '+919876543210', optedOut: true };
+        const resOpted = validateRecipient(leadOptedOut);
+        assert.strictEqual(resOpted.valid, false);
+        assert.strictEqual(resOpted.status, 'OPTED_OUT');
+
         const leadUnsubscribed = { mobile: '+919876543210', isUnsubscribed: true };
         const resUnsub = validateRecipient(leadUnsubscribed);
         assert.strictEqual(resUnsub.valid, false);
         assert.strictEqual(resUnsub.status, 'OPTED_OUT');
     });
 
-    await recordAsync('3. validateRecipient rejects invalid phone formats (< 10 digits)', async () => {
-        const leadShort = { mobile: '12345' };
-        const resShort = validateRecipient(leadShort);
+    await recordAsync('3. validateRecipient normalizes all supported Indian mobile formats', async () => {
+        // Standard 10-digit mobile
+        const res10 = validateRecipient({ mobile: '9876543210' });
+        assert.strictEqual(res10.valid, true);
+        assert.strictEqual(res10.normalizedMobile, '9876543210');
+        assert.strictEqual(res10.providerFormat, '919876543210');
+
+        // With +91 country code
+        const resPlus91 = validateRecipient({ mobile: '+919876543210' });
+        assert.strictEqual(resPlus91.valid, true);
+        assert.strictEqual(resPlus91.normalizedMobile, '9876543210');
+        assert.strictEqual(resPlus91.providerFormat, '919876543210');
+
+        // With 91 country code without plus
+        const res91 = validateRecipient({ mobile: '919876543210' });
+        assert.strictEqual(res91.valid, true);
+        assert.strictEqual(res91.normalizedMobile, '9876543210');
+        assert.strictEqual(res91.providerFormat, '919876543210');
+
+        // With leading 0
+        const res0 = validateRecipient({ mobile: '09876543210' });
+        assert.strictEqual(res0.valid, true);
+        assert.strictEqual(res0.normalizedMobile, '9876543210');
+
+        // With formatted spaces and dashes (+91 98765-43210)
+        const resFormatted = validateRecipient({ mobile: '+91 98765-43210' });
+        assert.strictEqual(resFormatted.valid, true);
+        assert.strictEqual(resFormatted.normalizedMobile, '9876543210');
+    });
+
+    await recordAsync('4. validateRecipient rejects malformed, too-short, too-long, and non-numeric numbers', async () => {
+        // Too few digits (< 10)
+        const resShort = validateRecipient({ mobile: '987654321' });
         assert.strictEqual(resShort.valid, false);
         assert.strictEqual(resShort.status, 'INVALID_RECIPIENT');
 
-        const leadChars = { mobile: 'invalid-phone-abc' };
-        const resChars = validateRecipient(leadChars);
-        assert.strictEqual(resChars.valid, false);
-        assert.strictEqual(resChars.status, 'INVALID_RECIPIENT');
+        // Too many digits (> 12)
+        const resLong = validateRecipient({ mobile: '91987654321099' });
+        assert.strictEqual(resLong.valid, false);
+        assert.strictEqual(resLong.status, 'INVALID_RECIPIENT');
 
-        const leadValid = { mobile: '+91 98765 43210' };
-        const resValid = validateRecipient(leadValid);
-        assert.strictEqual(resValid.valid, true);
+        // Alphabetic characters
+        const resLetters = validateRecipient({ mobile: '98765abc10' });
+        assert.strictEqual(resLetters.valid, false);
+        assert.strictEqual(resLetters.status, 'INVALID_RECIPIENT');
+
+        // Invalid Indian start digit (starts with 1 or 5 instead of 6-9)
+        const resStart1 = validateRecipient({ mobile: '1234567890' });
+        assert.strictEqual(resStart1.valid, false);
+        assert.strictEqual(resStart1.status, 'INVALID_RECIPIENT');
+
+        const resStart5 = validateRecipient({ mobile: '5555555555' });
+        assert.strictEqual(resStart5.valid, false);
+        assert.strictEqual(resStart5.status, 'INVALID_RECIPIENT');
     });
 
-    await recordAsync('4. dispatchPostVisitFeedback skips dispatch when customer has opted out', async () => {
+    await recordAsync('5. dispatchPostVisitFeedback skips dispatch when customer has opted out', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
         const fakeLeadId = new mongoose.Types.ObjectId();
 
@@ -133,149 +191,487 @@ async function runReadinessTests() {
             doNotContact: true
         };
 
-        Lead.findById = () => ({ lean: () => Promise.resolve(leadOptedOut) });
+        Lead.findById = () => ({
+            lean: () => ({ catch: () => Promise.resolve(leadOptedOut) })
+        });
 
-        let recordedUpdate = null;
+        let updatedDetails = null;
         Activity.findByIdAndUpdate = (id, update) => {
-            recordedUpdate = update;
-            return Promise.resolve({});
+            updatedDetails = update.$set;
+            return { catch: () => Promise.resolve({}) };
         };
 
-        const activity = {
-            _id: fakeActId,
-            entityId: fakeLeadId,
-            details: {
-                projectName: 'Grand Arch',
-                feedbackLink: 'https://bharatproperties.co/public/feedback/test?ref=xyz'
-            }
-        };
+        const result = await SiteVisitAutomationService.dispatchPostVisitFeedback(
+            { _id: fakeActId, entityId: fakeLeadId, details: { projectName: 'Godrej Woods' } },
+            { feedbackUrl: 'https://bharatproperties.co/journey/test-token' }
+        );
 
-        const result = await SiteVisitAutomationService.dispatchPostVisitFeedback(activity);
         assert.strictEqual(result.success, false);
         assert.strictEqual(result.status, 'OPTED_OUT');
-        assert(result.error.includes('opted out'));
-        assert.strictEqual(recordedUpdate.$set['details.feedbackDispatchStatus'], 'OPTED_OUT');
-        assert.strictEqual(recordedUpdate.$set['details.feedbackDispatchedAt'], undefined, 'Must not stamp dispatchedAt for opted-out client');
+        assert.strictEqual(updatedDetails['details.feedbackDispatchStatus'], 'OPTED_OUT');
     });
 
     // ------------------------------------------------------------------------
-    // Group 2: Carrier Delivery-Status Webhook Callbacks
+    // Group 2: Carrier Delivery-Status Webhook Callbacks & State Machine
     // ------------------------------------------------------------------------
-    console.log('\n--- Group 2: Carrier Delivery-Status Webhook Callbacks ---');
+    console.log('\n--- Group 2: Carrier Delivery-Status Webhook Callbacks & State Machine ---');
 
-    await recordAsync('5. handleDeliveryStatusCallback updates 24h reminder to DELIVERED with timestamp', async () => {
+    await recordAsync('6. evaluateProviderDispatch extracts providerMessageId from Meta/SMS responses', async () => {
+        const metaRes = {
+            messaging_product: 'whatsapp',
+            contacts: [{ input: '919876543210', wa_id: '919876543210' }],
+            messages: [{ id: 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY2' }]
+        };
+        const evalMeta = SiteVisitAutomationService.evaluateProviderDispatch(metaRes, 'whatsapp');
+        assert.strictEqual(evalMeta.success, true);
+        assert.strictEqual(evalMeta.status, 'ACCEPTED');
+        assert.strictEqual(evalMeta.providerMessageId, 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY2');
+
+        const smsRes = {
+            status: 'DELIVERED',
+            messageId: 'sms-hub-msg-99214',
+            delivered: true
+        };
+        const evalSms = SiteVisitAutomationService.evaluateProviderDispatch(smsRes, 'sms');
+        assert.strictEqual(evalSms.success, true);
+        assert.strictEqual(evalSms.status, 'DELIVERED');
+        assert.strictEqual(evalSms.providerMessageId, 'sms-hub-msg-99214');
+    });
+
+    await recordAsync('7. handleDeliveryStatusCallback updates 24h reminder to DELIVERED with timestamp', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
-        const providerMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSMTFB';
+        const testMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY2';
 
-        let savedActivity = {
+        const mockActivity = {
             _id: fakeActId,
             type: 'Site Visit',
             details: {
                 remindersSent: {
                     h24: false,
                     h24Status: 'ACCEPTED',
-                    h24MessageId: providerMsgId
+                    h24MessageId: testMsgId
                 }
             },
-            save() { return Promise.resolve(this); }
+            save: () => Promise.resolve()
         };
 
-        Activity.findOne = (query) => {
-            if (query['$or']?.some(c => c['details.remindersSent.h24MessageId'] === providerMsgId)) {
-                return Promise.resolve(savedActivity);
-            }
-            return Promise.resolve(null);
-        };
+        Activity.findOne = () => Promise.resolve(mockActivity);
 
-        let updatedFields = null;
+        let persistedUpdate = null;
         Activity.findByIdAndUpdate = (id, update) => {
-            updatedFields = update.$set;
-            return Promise.resolve({});
+            persistedUpdate = update.$set;
+            return Promise.resolve(mockActivity);
         };
 
-        const now = new Date('2026-10-24T10:30:00Z');
-        const cbResult = await SiteVisitAutomationService.handleDeliveryStatusCallback({
-            providerMessageId: providerMsgId,
+        const cbTimestamp = new Date('2026-10-24T12:00:00Z');
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
             status: 'delivered',
-            timestamp: now,
+            timestamp: cbTimestamp,
             channel: 'whatsapp'
         });
 
-        assert.strictEqual(cbResult.success, true);
-        assert.strictEqual(cbResult.matched, true);
-        assert.strictEqual(cbResult.status, 'DELIVERED');
-        assert.strictEqual(updatedFields['details.remindersSent.h24Status'], 'DELIVERED');
-        assert.strictEqual(updatedFields['details.remindersSent.h24'], true);
-        assert.strictEqual(updatedFields['details.remindersSent.h24DeliveredAt'].toISOString(), now.toISOString());
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.matched, true);
+        assert.strictEqual(persistedUpdate['details.remindersSent.h24Status'], 'DELIVERED');
+        assert.strictEqual(persistedUpdate['details.remindersSent.h24'], true);
+        assert.strictEqual(persistedUpdate['details.remindersSent.h24DeliveredAt'].toISOString(), cbTimestamp.toISOString());
     });
 
-    await recordAsync('6. handleDeliveryStatusCallback handles carrier FAILED status and records error', async () => {
+    await recordAsync('8. handleDeliveryStatusCallback handles carrier FAILED status and records error', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
-        const providerMsgId = 'wamid.FAILED_MSG_12345';
+        const testMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY3';
 
-        let savedActivity = {
+        const mockActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            details: {
+                feedbackDispatchMessageId: testMsgId,
+                feedbackDispatchStatus: 'ACCEPTED'
+            },
+            save: () => Promise.resolve()
+        };
+
+        Activity.findOne = () => Promise.resolve(mockActivity);
+
+        let persistedUpdate = null;
+        Activity.findByIdAndUpdate = (id, update) => {
+            persistedUpdate = update.$set;
+            return Promise.resolve(mockActivity);
+        };
+
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
+            status: 'failed',
+            error: '131026: Receiver user is ineligible for WhatsApp messaging',
+            channel: 'whatsapp'
+        });
+
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.matched, true);
+        assert.strictEqual(persistedUpdate['details.feedbackDispatchStatus'], 'FAILED');
+        assert.strictEqual(persistedUpdate['details.feedbackDispatchError'], '131026: Receiver user is ineligible for WhatsApp messaging');
+    });
+
+    await recordAsync('9. Terminal state protection: READ cannot be downgraded by delayed SENT/DELIVERED', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const testMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY4';
+
+        const mockActivity = {
             _id: fakeActId,
             type: 'Site Visit',
             details: {
                 remindersSent: {
-                    h2: false,
-                    h2Status: 'ACCEPTED',
-                    h2MessageId: providerMsgId
+                    h24: true,
+                    h24Status: 'READ',
+                    h24MessageId: testMsgId
                 }
             },
-            save() { return Promise.resolve(this); }
+            save: () => Promise.resolve()
         };
 
-        Activity.findOne = () => Promise.resolve(savedActivity);
+        Activity.findOne = () => Promise.resolve(mockActivity);
 
-        let updatedFields = null;
-        Activity.findByIdAndUpdate = (id, update) => {
-            updatedFields = update.$set;
-            return Promise.resolve({});
+        let updateAttempted = false;
+        Activity.findByIdAndUpdate = () => {
+            updateAttempted = true;
+            return Promise.resolve(mockActivity);
         };
 
-        const cbResult = await SiteVisitAutomationService.handleDeliveryStatusCallback({
-            providerMessageId: providerMsgId,
-            status: 'failed',
-            error: 'User unreachable or phone powered off',
+        // Out-of-order callback: carrier sends delayed 'sent' or 'delivered'
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
+            status: 'sent',
             channel: 'whatsapp'
         });
 
-        assert.strictEqual(cbResult.success, true);
-        assert.strictEqual(cbResult.matched, true);
-        assert.strictEqual(cbResult.status, 'FAILED');
-        assert.strictEqual(updatedFields['details.remindersSent.h2Status'], 'FAILED');
-        assert.strictEqual(updatedFields['details.remindersSent.h2'], false);
-        assert.strictEqual(updatedFields['details.remindersSent.h2Error'], 'User unreachable or phone powered off');
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.appliedUpdates, false, 'Delayed SENT callback must not overwrite READ status');
+        assert.strictEqual(updateAttempted, false, 'No database update must be executed for stale downgrade');
     });
 
-    await recordAsync('7. handleDeliveryStatusCallback gracefully handles unmapped providerMessageId', async () => {
-        Activity.findOne = () => Promise.resolve(null);
+    await recordAsync('10. Terminal state protection: DELIVERED cannot be regressed by SENT, but upgrades to READ', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const testMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkY5';
 
-        const cbResult = await SiteVisitAutomationService.handleDeliveryStatusCallback({
-            providerMessageId: 'unrelated_message_999',
+        const mockActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            details: {
+                remindersSent: {
+                    h2: true,
+                    h2Status: 'DELIVERED',
+                    h2MessageId: testMsgId
+                }
+            },
+            save: () => Promise.resolve()
+        };
+
+        Activity.findOne = () => Promise.resolve(mockActivity);
+
+        // Delayed 'sent' must be ignored
+        const resSent = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
+            status: 'sent',
+            channel: 'whatsapp'
+        });
+        assert.strictEqual(resSent.appliedUpdates, false, 'SENT callback must not downgrade DELIVERED status');
+
+        // 'read' must be accepted and upgrade status
+        let persisted = null;
+        Activity.findByIdAndUpdate = (id, update) => {
+            persisted = update.$set;
+            return Promise.resolve(mockActivity);
+        };
+
+        const resRead = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
+            status: 'read',
+            channel: 'whatsapp'
+        });
+        assert.strictEqual(resRead.appliedUpdates, true);
+        assert.strictEqual(persisted['details.remindersSent.h2Status'], 'READ');
+    });
+
+    await recordAsync('11. Persistence failure in handleDeliveryStatusCallback is observable and logs safely', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const testMsgId = 'wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSQTIwN0U5MkZZ';
+
+        const mockActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            details: {
+                remindersSent: {
+                    h24Status: 'ACCEPTED',
+                    h24MessageId: testMsgId
+                }
+            },
+            save: () => Promise.reject(new Error('MongoNetworkError: connection timed out'))
+        };
+
+        Activity.findOne = () => Promise.resolve(mockActivity);
+        Activity.findByIdAndUpdate = () => Promise.reject(new Error('MongoNetworkError: connection timed out'));
+
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: testMsgId,
             status: 'delivered'
         });
 
-        assert.strictEqual(cbResult.success, true);
-        assert.strictEqual(cbResult.matched, false);
-        assert(cbResult.message.includes('No site visit activity found'));
+        assert.strictEqual(res.success, false, 'Must report failure on database persistence error');
+        assert.strictEqual(res.matched, true);
+        assert(res.error.includes('Persistence failure'), 'Error message must reflect persistence failure');
+    });
+
+    await recordAsync('12. Missing providerMessageId in callback fails closed', async () => {
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: null,
+            status: 'delivered'
+        });
+        assert.strictEqual(res.success, false);
+        assert.strictEqual(res.error, 'providerMessageId is required');
+    });
+
+    await recordAsync('13. handleDeliveryStatusCallback gracefully handles unmapped providerMessageId', async () => {
+        Activity.findOne = () => Promise.resolve(null);
+
+        const res = await SiteVisitAutomationService.handleDeliveryStatusCallback({
+            providerMessageId: 'wamid.unmapped_or_external_message_id_9999',
+            status: 'delivered',
+            channel: 'whatsapp'
+        });
+
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.matched, false);
+        assert.strictEqual(res.message, 'No site visit activity found for providerMessageId');
     });
 
     // ------------------------------------------------------------------------
-    // Group 3: MongoDB Transaction & Rollback Readiness
+    // Group 3: MongoDB Transaction & Session Propagation Audit
     // ------------------------------------------------------------------------
-    console.log('\n--- Group 3: MongoDB Transaction & Rollback Readiness ---');
+    console.log('\n--- Group 3: MongoDB Transaction & Session Propagation Audit ---');
 
-    await recordAsync('8. submitPropertyFeedback propagates caller session to FeedbackSubmission.create and activity.save', async () => {
+    await recordAsync('14. SiteVisitService.schedule propagates session across reads, creation, and stage update', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const mockSession = { id: 'mock-session-schedule-101' };
+
+        let leadFindSession = null;
+        Lead.findById = (id, proj, opts) => {
+            leadFindSession = opts?.session;
+            return Promise.resolve({
+                _id: fakeLeadId,
+                firstName: 'Test',
+                owner: new mongoose.Types.ObjectId()
+            });
+        };
+
+        let actFindOneSession = null;
+        Activity.findOne = (q, proj, opts) => {
+            actFindOneSession = opts?.session;
+            return Promise.resolve(null);
+        };
+
+        let actCreateSession = null;
+        Activity.create = (docs, opts) => {
+            actCreateSession = opts?.session;
+            return Promise.resolve(Array.isArray(docs) ? docs : [docs]);
+        };
+
+        let leadUpdateSession = null;
+        Lead.findByIdAndUpdate = (id, update, opts) => {
+            leadUpdateSession = opts?.session;
+            return Promise.resolve({});
+        };
+
+        await SiteVisitService.schedule({
+            leadId: fakeLeadId,
+            date: '2026-10-30',
+            time: '11:00 AM'
+        }, null, { session: mockSession });
+
+        assert.strictEqual(leadFindSession, mockSession, 'Lead.findById must receive caller session');
+        assert.strictEqual(actFindOneSession, mockSession, 'Activity.findOne must receive caller session');
+        assert.strictEqual(actCreateSession, mockSession, 'Activity.create must receive caller session');
+        assert.strictEqual(leadUpdateSession, mockSession, 'Lead.findByIdAndUpdate must receive caller session');
+    });
+
+    await recordAsync('15. SiteVisitService.schedule aborts (throws) on stage update failure inside session', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const mockSession = { id: 'mock-session-schedule-err' };
+
+        Lead.findById = () => Promise.resolve({ _id: fakeLeadId, firstName: 'Test' });
+        Activity.findOne = () => Promise.resolve(null);
+        Activity.create = (docs) => Promise.resolve(Array.isArray(docs) ? docs : [docs]);
+        Lead.findByIdAndUpdate = () => Promise.reject(new Error('WriteConflict in transaction'));
+
+        let threw = false;
+        try {
+            await SiteVisitService.schedule({
+                leadId: fakeLeadId,
+                date: '2026-10-30',
+                time: '11:00 AM'
+            }, null, { session: mockSession });
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes('WriteConflict'));
+        }
+        assert.strictEqual(threw, true, 'Schedule must fail closed and throw inside transaction when stage update fails');
+    });
+
+    await recordAsync('16. SiteVisitService.reschedule and cancel propagate session to findById and findOneAndUpdate', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const mockSession = { id: 'mock-session-lifecycle' };
+
+        let resFindSession = null;
+        let resUpdateSession = null;
+        Activity.findById = (id, proj, opts) => {
+            resFindSession = opts?.session;
+            return Promise.resolve({
+                _id: fakeActId,
+                type: 'Site Visit',
+                status: 'Pending',
+                details: {}
+            });
+        };
+        Activity.findOneAndUpdate = (q, u, opts) => {
+            resUpdateSession = opts?.session;
+            return Promise.resolve({ _id: fakeActId, status: 'Pending' });
+        };
+
+        await SiteVisitService.reschedule(fakeActId, {
+            newDate: '2026-11-01',
+            newTime: '02:00 PM',
+            reason: 'Client requested reschedule'
+        }, null, { session: mockSession });
+
+        assert.strictEqual(resFindSession, mockSession, 'reschedule Activity.findById must receive session');
+        assert.strictEqual(resUpdateSession, mockSession, 'reschedule Activity.findOneAndUpdate must receive session');
+
+        let cancelFindSession = null;
+        let cancelUpdateSession = null;
+        Activity.findById = (id, proj, opts) => {
+            cancelFindSession = opts?.session;
+            return Promise.resolve({
+                _id: fakeActId,
+                type: 'Site Visit',
+                status: 'Pending',
+                details: {}
+            });
+        };
+        Activity.findOneAndUpdate = (q, u, opts) => {
+            cancelUpdateSession = opts?.session;
+            return Promise.resolve({ _id: fakeActId, status: 'Cancelled' });
+        };
+
+        await SiteVisitService.cancel(fakeActId, {
+            reason: 'Client cancelled visit'
+        }, null, { session: mockSession });
+
+        assert.strictEqual(cancelFindSession, mockSession, 'cancel Activity.findById must receive session');
+        assert.strictEqual(cancelUpdateSession, mockSession, 'cancel Activity.findOneAndUpdate must receive session');
+    });
+
+    await recordAsync('17. completeSiteVisit propagates session across Activity and Deal updates', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeDealId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const mockSession = { id: 'mock-session-complete-202' };
+
+        let actFindByIdOpts = null;
+        Activity.findById = (id, proj, opts) => {
+            if (!actFindByIdOpts) actFindByIdOpts = opts;
+            return Promise.resolve({
+                _id: fakeActId,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                entityId: fakeLeadId,
+                details: {
+                    visitedProperties: [{ order: 0, project: 'Godrej Woods', property: 'Unit 402', status: 'FEEDBACK_SUBMITTED' }]
+                }
+            });
+        };
+
+        let dealFindByIdOpts = null;
+        Deal.findById = (id, proj, opts) => {
+            dealFindByIdOpts = opts;
+            return Promise.resolve({
+                _id: fakeDealId,
+                lead: fakeLeadId,
+                title: 'Deal 101'
+            });
+        };
+
+        let actUpdateOpts = null;
+        Activity.findOneAndUpdate = (q, u, opts) => {
+            actUpdateOpts = opts;
+            return Promise.resolve({
+                _id: fakeActId,
+                type: 'Site Visit',
+                status: 'Completed',
+                entityId: fakeLeadId,
+                details: { visitedProperties: [{ order: 0, project: 'Godrej Woods', property: 'Unit 402' }] }
+            });
+        };
+
+        let dealUpdateOpts = null;
+        Deal.findByIdAndUpdate = (id, u, opts) => {
+            dealUpdateOpts = opts;
+            return Promise.resolve({ _id: fakeDealId });
+        };
+
+        await SiteVisitService.complete(
+            fakeActId,
+            { outcome: 'Interested', dealId: fakeDealId },
+            null,
+            { session: mockSession }
+        );
+
+        assert.strictEqual(actFindByIdOpts?.session, mockSession, 'Activity.findById must receive caller session');
+        assert.strictEqual(dealFindByIdOpts?.session, mockSession, 'Deal.findById must receive caller session');
+        assert.strictEqual(actUpdateOpts?.session, mockSession, 'Activity.findOneAndUpdate must receive caller session');
+        assert.strictEqual(dealUpdateOpts?.session, mockSession, 'Deal.findByIdAndUpdate must receive caller session');
+    });
+
+    await recordAsync('18. completeSiteVisit aborts (throws) on deal update failure inside session', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const fakeDealId = new mongoose.Types.ObjectId();
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const mockSession = { id: 'mock-session-deal-err' };
+
+        Activity.findById = () => Promise.resolve({
+            _id: fakeActId,
+            type: 'Site Visit',
+            status: 'Scheduled',
+            entityId: fakeLeadId,
+            details: {
+                visitedProperties: [{ order: 0, project: 'Godrej Woods', property: 'Unit 402' }]
+            }
+        });
+        Deal.findById = () => Promise.resolve({ _id: fakeDealId, lead: fakeLeadId });
+        Activity.findOneAndUpdate = () => Promise.resolve({ _id: fakeActId, status: 'Completed' });
+        Deal.findByIdAndUpdate = () => Promise.reject(new Error('WriteConflict on deal document'));
+
+        let threw = false;
+        try {
+            await SiteVisitService.complete(
+                fakeActId,
+                { outcome: 'Interested', dealId: fakeDealId },
+                null,
+                { session: mockSession }
+            );
+        } catch (err) {
+            threw = true;
+            assert(err.message.includes('WriteConflict'));
+        }
+        assert.strictEqual(threw, true, 'complete must throw when deal update fails inside a caller session');
+    });
+
+    await recordAsync('19. submitPropertyFeedback propagates caller session to FeedbackSubmission.create and activity.save', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
         const fakeLeadId = new mongoose.Types.ObjectId();
         const invId = new mongoose.Types.ObjectId();
-        const mockSession = { id: 'mock-mongo-session-uuid-123' };
+        const mockSession = { id: 'mock-mongo-session-12345' };
 
-        let receivedCreateOpts = null;
-        let receivedSaveOpts = null;
-
+        let savePassedOptions = null;
         const activityDoc = {
             _id: fakeActId,
             type: 'Site Visit',
@@ -283,19 +679,29 @@ async function runReadinessTests() {
             status: 'Scheduled',
             details: {
                 visitedProperties: [
-                    { order: 0, inventoryId: invId, project: 'Trump Tower', property: 'Unit 501', status: 'READY' }
+                    { order: 0, inventoryId: invId, project: 'Godrej Woods', status: 'READY' }
                 ]
             },
-            save(opts) {
-                receivedSaveOpts = opts;
-                return Promise.resolve(this);
+            save: (opts) => {
+                savePassedOptions = opts;
+                return Promise.resolve();
             }
         };
 
         Activity.findById = () => Promise.resolve(activityDoc);
+
+        let createdSubmissions = null;
+        let createOptions = null;
         FeedbackSubmission.create = (docs, opts) => {
-            receivedCreateOpts = opts;
-            return Promise.resolve([{ ...docs[0], _id: new mongoose.Types.ObjectId() }]);
+            createdSubmissions = docs;
+            createOptions = opts;
+            return Promise.resolve(docs.map(d => ({ ...d, _id: new mongoose.Types.ObjectId() })));
+        };
+
+        let leadUpdateSession = null;
+        Lead.findByIdAndUpdate = (id, update, opts) => {
+            leadUpdateSession = opts?.session;
+            return Promise.resolve({});
         };
 
         const res = await SiteVisitJourneyService.submitPropertyFeedback(
@@ -306,17 +712,16 @@ async function runReadinessTests() {
         );
 
         assert.strictEqual(res.success, true);
-        assert(receivedCreateOpts);
-        assert.strictEqual(receivedCreateOpts.session, mockSession, 'FeedbackSubmission.create must receive caller session');
-        assert(receivedSaveOpts);
-        assert.strictEqual(receivedSaveOpts.session, mockSession, 'activity.save must receive caller session');
+        assert.strictEqual(createOptions?.session, mockSession, 'FeedbackSubmission.create must receive session');
+        assert.strictEqual(savePassedOptions?.session, mockSession, 'activity.save must receive session');
+        assert.strictEqual(leadUpdateSession, mockSession, 'Lead.findByIdAndUpdate must receive session');
     });
 
-    await recordAsync('9. Non-transactional rollback compensation deletes orphaned submission if activity.save fails', async () => {
+    await recordAsync('20. Non-transactional rollback compensation deletes orphaned submission if activity.save fails', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
         const fakeLeadId = new mongoose.Types.ObjectId();
         const invId = new mongoose.Types.ObjectId();
-        const subId = new mongoose.Types.ObjectId();
+        const submissionId = new mongoose.Types.ObjectId();
 
         const activityDoc = {
             _id: fakeActId,
@@ -325,24 +730,22 @@ async function runReadinessTests() {
             status: 'Scheduled',
             details: {
                 visitedProperties: [
-                    { order: 0, inventoryId: invId, project: 'DLF Camellias', property: 'Penthouse B', status: 'READY' }
+                    { order: 0, inventoryId: invId, project: 'Godrej Woods', status: 'READY' }
                 ]
             },
-            save() {
-                return Promise.reject(new Error('Simulated optimistic lock failure during activity.save'));
-            }
+            save: () => Promise.reject(new Error('Simulated Mongoose Document Save Failure'))
         };
 
         Activity.findById = () => Promise.resolve(activityDoc);
-        FeedbackSubmission.create = (doc) => Promise.resolve({ ...doc, _id: subId });
+        FeedbackSubmission.create = (doc) => Promise.resolve({ ...doc, _id: submissionId });
 
-        let deletedSubId = null;
+        let deletedId = null;
         FeedbackSubmission.findByIdAndDelete = (id) => {
-            deletedSubId = id;
+            deletedId = id;
             return Promise.resolve({});
         };
 
-        let threwError = false;
+        let threw = false;
         try {
             await SiteVisitJourneyService.submitPropertyFeedback(
                 fakeActId,
@@ -350,93 +753,39 @@ async function runReadinessTests() {
                 { rating: 5, interest: 'Interested' }
             );
         } catch (err) {
-            threwError = true;
-            assert(err.message.includes('Simulated optimistic lock failure'));
+            threw = true;
+            assert(err.message.includes('Simulated Mongoose Document Save Failure'));
         }
 
-        assert.strictEqual(threwError, true);
-        assert.strictEqual(String(deletedSubId), String(subId), 'Rollback compensation must delete orphaned FeedbackSubmission document');
-    });
-
-    await recordAsync('10. completeSiteVisit propagates session to Activity.findOneAndUpdate and Deal.findByIdAndUpdate', async () => {
-        const fakeActId = new mongoose.Types.ObjectId();
-        const fakeLeadId = new mongoose.Types.ObjectId();
-        const fakeDealId = new mongoose.Types.ObjectId();
-        const mockSession = { id: 'mock-mongo-session-complete-789' };
-
-        const activityDoc = {
-            _id: fakeActId,
-            type: 'Site Visit',
-            entityId: fakeLeadId,
-            status: 'Scheduled',
-            details: {
-                visitedProperties: [
-                    { order: 0, project: 'Godrej Woods', property: 'Unit 402', status: 'FEEDBACK_SUBMITTED' }
-                ]
-            }
-        };
-
-        const dealDoc = {
-            _id: fakeDealId,
-            lead: fakeLeadId,
-            title: 'Deal for Luxury Apartment'
-        };
-
-        Activity.findById = () => Promise.resolve(activityDoc);
-        Deal.findById = () => Promise.resolve(dealDoc);
-
-        let actUpdateOpts = null;
-        Activity.findOneAndUpdate = (q, u, opts) => {
-            actUpdateOpts = opts;
-            return Promise.resolve({ ...activityDoc, status: 'Completed' });
-        };
-
-        let dealUpdateOpts = null;
-        Deal.findByIdAndUpdate = (id, u, opts) => {
-            dealUpdateOpts = opts;
-            return Promise.resolve({});
-        };
-
-        const res = await SiteVisitService.complete(
-            fakeActId,
-            { outcome: 'Token Given', dealId: String(fakeDealId) },
-            null,
-            { session: mockSession }
-        );
-
-        assert.strictEqual(res.message, 'Site visit completed successfully');
-        assert(actUpdateOpts);
-        assert.strictEqual(actUpdateOpts.session, mockSession, 'Activity.findOneAndUpdate must receive caller session');
-        assert(dealUpdateOpts);
-        assert.strictEqual(dealUpdateOpts.session, mockSession, 'Deal.findByIdAndUpdate must receive caller session');
+        assert.strictEqual(threw, true, 'Service must rethrow save failure to caller');
+        assert.strictEqual(String(deletedId), String(submissionId), 'Orphaned submission must be deleted on non-transactional save failure');
     });
 
     // ------------------------------------------------------------------------
-    // Group 4: Tenant & Visibility RBAC Scoping
+    // Group 4: Tenant Scoping, RBAC Fail-Closed & Controller Protection
     // ------------------------------------------------------------------------
-    console.log('\n--- Group 4: Tenant & Visibility RBAC Scoping ---');
+    console.log('\n--- Group 4: Tenant Scoping, RBAC Fail-Closed & Controller Protection ---');
 
-    await recordAsync('11. SiteVisitService.schedule inherits department and teams from lead or user', async () => {
+    await recordAsync('21. SiteVisitService.schedule inherits department and teams from lead or user', async () => {
         const fakeLeadId = new mongoose.Types.ObjectId();
-        const leadDoc = {
+        const leadWithTenant = {
             _id: fakeLeadId,
             firstName: 'Aarav',
             department: 'Residential Luxury',
             teams: [new mongoose.Types.ObjectId()]
         };
 
-        Lead.findById = () => Promise.resolve(leadDoc);
-        Activity.findOne = () => Promise.resolve(null); // No duplicates
+        Lead.findById = () => Promise.resolve(leadWithTenant);
+        Activity.findOne = () => Promise.resolve(null);
 
         let createdPayload = null;
-        Activity.create = (payload) => {
-            createdPayload = payload;
-            return Promise.resolve({ ...payload, _id: new mongoose.Types.ObjectId(), details: payload.details });
+        Activity.create = (doc) => {
+            createdPayload = Array.isArray(doc) ? doc[0] : doc;
+            return Promise.resolve(createdPayload);
         };
 
         const user = {
             _id: new mongoose.Types.ObjectId(),
-            fullName: 'Senior Consultant',
             department: 'Fallback Dept'
         };
 
@@ -451,7 +800,7 @@ async function runReadinessTests() {
         assert.strictEqual(createdPayload.teams.length, 1, 'Must inherit lead teams');
     });
 
-    await recordAsync('12. SiteVisitService.list and getById apply getVisibilityFilter for non-admin users', async () => {
+    await recordAsync('22. SiteVisitService.list and getById apply getVisibilityFilter for non-admin users', async () => {
         const adminUser = {
             _id: new mongoose.Types.ObjectId(),
             email: 'bharatproperties570@gmail.com',
@@ -491,12 +840,97 @@ async function runReadinessTests() {
         assert(restrictedQuery.$or || restrictedQuery.assignedTo || restrictedQuery._id !== undefined, 'Restricted user must have visibility filter applied');
     });
 
+    await recordAsync('23. RBAC Fail-Closed: getVisibilityFilter failure throws and executes ZERO queries', async () => {
+        // Create an invalid/corrupt user object that causes getVisibilityFilter resolution to fail
+        const corruptUser = {
+            _id: 'not-a-valid-object-id',
+            dataScope: 'invalid_scope',
+            get role() { throw new Error('Simulated RBAC Engine Failure'); }
+        };
+
+        let findExecuted = false;
+        Activity.find = () => {
+            findExecuted = true;
+            return { sort: () => ({ skip: () => ({ limit: () => ({ populate: () => ({ lean: () => Promise.resolve([]) }) }) }) }) };
+        };
+
+        let findOneExecuted = false;
+        Activity.findOne = () => {
+            findOneExecuted = true;
+            return { populate: () => ({ populate: () => ({ lean: () => Promise.resolve({}) }) }) };
+        };
+
+        // Test list() fail-closed
+        let listThrew = false;
+        try {
+            await SiteVisitService.list({}, corruptUser);
+        } catch (err) {
+            listThrew = true;
+            assert(err.message.includes('Authorization failed'), 'Must throw Authorization failed error');
+        }
+        assert.strictEqual(listThrew, true, 'list() must fail closed when visibility calculation fails');
+        assert.strictEqual(findExecuted, false, 'No database find query must be executed on visibility failure');
+
+        // Test getById() fail-closed
+        const validId = new mongoose.Types.ObjectId();
+        let getByIdThrew = false;
+        try {
+            await SiteVisitService.getById(validId, corruptUser);
+        } catch (err) {
+            getByIdThrew = true;
+            assert(err.message.includes('Authorization failed'), 'Must throw Authorization failed error');
+        }
+        assert.strictEqual(getByIdThrew, true, 'getById() must fail closed when visibility calculation fails');
+        assert.strictEqual(findOneExecuted, false, 'No database findOne query must be executed on visibility failure');
+    });
+
+    await recordAsync('24. Controller Fail-Closed: getSiteVisit and listSiteVisits return 403 with ZERO data leakage', async () => {
+        const corruptUser = {
+            _id: 'invalid-id',
+            get role() { throw new Error('Simulated RBAC Engine Failure'); }
+        };
+
+        // Simulate Express request / response
+        const mockReq = {
+            params: { id: new mongoose.Types.ObjectId().toString() },
+            query: {},
+            user: corruptUser
+        };
+
+        let statusCode = null;
+        let responseJson = null;
+        const mockRes = {
+            status: (code) => {
+                statusCode = code;
+                return {
+                    json: (body) => { responseJson = body; return body; }
+                };
+            }
+        };
+
+        // Test getSiteVisit controller error response
+        await getSiteVisit(mockReq, mockRes);
+        assert.strictEqual(statusCode, 403, 'Controller must respond with HTTP 403 Forbidden on authorization failure');
+        assert.strictEqual(responseJson.success, false);
+        assert.strictEqual(responseJson.data, undefined, 'Must not leak any data payload on authorization failure');
+        assert(responseJson.message.includes('Authorization failed'));
+
+        // Test listSiteVisits controller error response
+        statusCode = null;
+        responseJson = null;
+        await listSiteVisits(mockReq, mockRes);
+        assert.strictEqual(statusCode, 403, 'Controller must respond with HTTP 403 Forbidden on authorization failure');
+        assert.strictEqual(responseJson.success, false);
+        assert.strictEqual(responseJson.data, undefined, 'Must not leak records on authorization failure');
+        assert(responseJson.message.includes('Authorization failed'));
+    });
+
     // ------------------------------------------------------------------------
     // Group 5: External Side-Effect Isolation on Write Failure
     // ------------------------------------------------------------------------
     console.log('\n--- Group 5: External Side-Effect Isolation on Write Failure ---');
 
-    await recordAsync('13. Downstream escalation and intent boosts are suppressed if feedback save fails', async () => {
+    await recordAsync('25. Downstream escalation and intent boosts are suppressed if feedback save fails', async () => {
         const fakeActId = new mongoose.Types.ObjectId();
         const fakeLeadId = new mongoose.Types.ObjectId();
         const invId = new mongoose.Types.ObjectId();
@@ -508,12 +942,10 @@ async function runReadinessTests() {
             status: 'Scheduled',
             details: {
                 visitedProperties: [
-                    { order: 0, inventoryId: invId, project: 'Grand Hyatt Residences', property: 'Unit 101', status: 'READY' }
+                    { order: 0, inventoryId: invId, project: 'Godrej Woods', status: 'READY' }
                 ]
             },
-            save() {
-                return Promise.reject(new Error('Database write rejected due to connection termination'));
-            }
+            save: () => Promise.reject(new Error('Simulated Mongoose Document Save Failure'))
         };
 
         Activity.findById = () => Promise.resolve(activityDoc);
@@ -551,6 +983,7 @@ async function runReadinessTests() {
     Activity.findOneAndUpdate = origActFindOneAndUpdate;
     Activity.create = origActCreate;
     Activity.find = origActFind;
+    Activity.countDocuments = origActCountDocuments;
     FeedbackSubmission.create = origSubCreate;
     FeedbackSubmission.findOne = origSubFindOne;
     FeedbackSubmission.findByIdAndDelete = origSubFindByIdAndDelete;

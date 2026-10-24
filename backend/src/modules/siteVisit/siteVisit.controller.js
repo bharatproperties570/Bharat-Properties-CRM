@@ -83,7 +83,7 @@ export const getSiteVisit = async (req, res) => {
             data: activity
         });
     } catch (err) {
-        const status = err.message.includes('not found') ? 404 : 400;
+        const status = err.message.includes('Authorization failed') ? 403 : (err.message.includes('not found') ? 404 : 400);
         return res.status(status).json({
             success: false,
             message: err.message
@@ -100,7 +100,8 @@ export const listSiteVisits = async (req, res) => {
             pagination: result.pagination
         });
     } catch (err) {
-        return res.status(400).json({
+        const status = err.message.includes('Authorization failed') ? 403 : 400;
+        return res.status(status).json({
             success: false,
             message: err.message
         });
