@@ -193,8 +193,8 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
             const aiAssistantResult = intakeAIAssistantEngine.analyze(intake);
             intake.ai_assistant = aiAssistantResult;
 
-            // 7. Finalize Status
-            intake.status = 'Processed'; // Overriding base processing status, but preserving verification_status
+            // 7. Finalize Status (Preserve verification status, mark rejected as Needs Review)
+            intake.status = intake.verification_status === 'rejected' ? 'Needs Review' : 'Processed';
             intake.createdBy = userId;
             
             await intake.save();

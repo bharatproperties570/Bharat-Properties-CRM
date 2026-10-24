@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import DiscoveryConfig from '../../models/DiscoveryConfig.js';
 import Intake from '../../models/Intake.js';
 import { addToIntakeQueue } from '../intakeQueue/IntakeQueue.js';
+import { normalizeDiscoveryUrl, isPortalAllowed } from './DiscoveryFilterEngine.js';
 
 class GoogleDiscoveryService {
     constructor() {
@@ -52,6 +53,69 @@ class GoogleDiscoveryService {
     }
 
     /**
+     * Helper to process, validate, normalize, and queue a discovered URL
+     * 
+     * @param {string} rawUrl 
+     * @param {object} config 
+     * @param {object} metadata Extra metadata from search result (snippet, dates, etc.)
+     * @returns {Promise<{ queued: boolean, reason?: string, url?: string }>}
+     */
+    async processAndQueueUrl(rawUrl, config, metadata = {}) {
+        const normalizedUrl = normalizeDiscoveryUrl(rawUrl);
+        if (!normalizedUrl) {
+            return { queued: false, reason: 'malformed_url' };
+        }
+
+        // 1. Portal Whitelist Enforcement
+        const portalCheck = isPortalAllowed(normalizedUrl, config.portal_whitelist);
+        if (!portalCheck.allowed) {
+            console.log(`[GoogleDiscovery] Excluded URL (${normalizedUrl}): ${portalCheck.reason} [domain: ${portalCheck.domain}]`);
+            return { queued: false, reason: portalCheck.reason, url: normalizedUrl };
+        }
+
+        // 2. Canonical Deduplication Check (normalized URL and raw URL)
+        const existingIntake = await Intake.findOne({ 
+            $or: [
+                { 'raw_source_data.url': normalizedUrl },
+                { 'raw_source_data.normalized_url': normalizedUrl },
+                { 'raw_source_data.raw_url': rawUrl }
+            ],
+            source_type: 'public_url' 
+        });
+
+        if (existingIntake) {
+            return { queued: false, reason: 'duplicate_already_ingested', url: normalizedUrl };
+        }
+
+        // 3. Queue to Unified Intake Engine
+        const intakePayload = {
+            url: normalizedUrl,
+            raw_url: rawUrl,
+            normalized_url: normalizedUrl,
+            source: `Google Discovery: ${config.name}`,
+            discovery_config_id: config._id,
+            discovery_filters: {
+                price_min: config.price_min,
+                price_max: config.price_max,
+                size_min: config.size_min,
+                size_max: config.size_max,
+                size_unit: config.size_unit,
+                seller_types: config.seller_types || [],
+                portal_whitelist: config.portal_whitelist || [],
+                freshness_days: config.freshness_days
+            },
+            search_metadata: {
+                title: metadata.title || null,
+                snippet: metadata.snippet || null,
+                publishedDate: metadata.publishedDate || null
+            }
+        };
+
+        const result = await addToIntakeQueue('public_url', intakePayload, null);
+        return { queued: result?.success || false, url: normalizedUrl };
+    }
+
+    /**
      * Execute a discovery run for a specific config
      * @param {String} configId 
      */
@@ -79,8 +143,8 @@ class GoogleDiscoveryService {
 
             // Generate search queries
             for (const keyword of config.keywords) {
-                for (const location of (config.location_filters.length > 0 ? config.location_filters : [''])) {
-                    for (const propType of (config.property_types.length > 0 ? config.property_types : [''])) {
+                for (const location of (config.location_filters?.length > 0 ? config.location_filters : [''])) {
+                    for (const propType of (config.property_types?.length > 0 ? config.property_types : [''])) {
                         
                         const queryParts = [keyword, location, propType].filter(Boolean);
                         const query = queryParts.join(' ');
@@ -98,19 +162,21 @@ class GoogleDiscoveryService {
 
                                 const items = res.data.items || [];
                                 
-                                // Process URLs
+                                // Process URLs with Phase 1 filter and normalization
                                 for (const item of items) {
-                                    const url = item.link;
-                                    
-                                    // Deduplication Check
-                                    const existingIntake = await Intake.findOne({ 
-                                        'raw_source_data.url': url,
-                                        source_type: 'public_url' 
+                                    const metaPublishedDate = 
+                                        item.pagemap?.metatags?.[0]?.['article:published_time'] || 
+                                        item.pagemap?.metatags?.[0]?.['og:updated_time'] || 
+                                        null;
+
+                                    const queueRes = await this.processAndQueueUrl(item.link, config, {
+                                        title: item.title,
+                                        snippet: item.snippet,
+                                        publishedDate: metaPublishedDate
                                     });
 
-                                    if (!existingIntake) {
-                                        console.log(`[GoogleDiscovery] New URL discovered via API: ${url}`);
-                                        await addToIntakeQueue('public_url', { url: url }, null);
+                                    if (queueRes.queued) {
+                                        console.log(`[GoogleDiscovery] New URL discovered via API: ${queueRes.url}`);
                                         totalDiscoveredInRun++;
                                     }
                                 }
@@ -124,16 +190,15 @@ class GoogleDiscoveryService {
                                 if (organicQueryCount < maxOrganicQueries) {
                                     organicQueryCount++;
                                     try {
-                                        const fallbackUrls = await this.scrapeGoogleSearchFallback(query);
-                                        for (const url of fallbackUrls) {
-                                            const existingIntake = await Intake.findOne({ 
-                                                'raw_source_data.url': url,
-                                                source_type: 'public_url' 
+                                        const fallbackUrls = await this.scrapeGoogleSearchFallback(query, config.portal_whitelist);
+                                        for (const item of fallbackUrls) {
+                                            const queueRes = await this.processAndQueueUrl(item.url, config, {
+                                                title: item.title,
+                                                publishedDate: null
                                             });
 
-                                            if (!existingIntake) {
-                                                console.log(`[GoogleDiscovery] [Fallback] New URL discovered: ${url}`);
-                                                await addToIntakeQueue('public_url', { url: url }, null);
+                                            if (queueRes.queued) {
+                                                console.log(`[GoogleDiscovery] [Fallback] New URL discovered: ${queueRes.url}`);
                                                 totalDiscoveredInRun++;
                                             }
                                         }
@@ -151,16 +216,15 @@ class GoogleDiscoveryService {
                             if (organicQueryCount < maxOrganicQueries) {
                                 organicQueryCount++;
                                 try {
-                                    const fallbackUrls = await this.scrapeGoogleSearchFallback(query);
-                                    for (const url of fallbackUrls) {
-                                        const existingIntake = await Intake.findOne({ 
-                                            'raw_source_data.url': url,
-                                            source_type: 'public_url' 
+                                    const fallbackUrls = await this.scrapeGoogleSearchFallback(query, config.portal_whitelist);
+                                    for (const item of fallbackUrls) {
+                                        const queueRes = await this.processAndQueueUrl(item.url, config, {
+                                            title: item.title,
+                                            publishedDate: null
                                         });
 
-                                        if (!existingIntake) {
-                                            console.log(`[GoogleDiscovery] [Organic] New URL discovered: ${url}`);
-                                            await addToIntakeQueue('public_url', { url: url }, null);
+                                        if (queueRes.queued) {
+                                            console.log(`[GoogleDiscovery] [Organic] New URL discovered: ${queueRes.url}`);
                                             totalDiscoveredInRun++;
                                         }
                                     }
@@ -197,10 +261,12 @@ class GoogleDiscoveryService {
 
     /**
      * Fallback organic search results scraper (No API key or billing required!)
+     * 
      * @param {String} query 
-     * @returns {Array} List of URLs
+     * @param {Array} portalWhitelist 
+     * @returns {Array<{ url: string, title?: string }>} List of discovery items
      */
-    async scrapeGoogleSearchFallback(query) {
+    async scrapeGoogleSearchFallback(query, portalWhitelist = []) {
         try {
             const cheerio = await import('cheerio');
             const axios = await import('axios');
@@ -216,11 +282,22 @@ class GoogleDiscoveryService {
             });
 
             const $ = cheerio.load(response.data);
-            const urls = [];
+            const items = [];
+
+            // Disallow internal search engine domains
+            const isInternalDomain = (u) => {
+                const lower = u.toLowerCase();
+                return lower.includes('yahoo.com') ||
+                    lower.includes('yimg.com') ||
+                    lower.includes('uservoice.com') ||
+                    lower.includes('google.com') ||
+                    lower.includes('bing.com');
+            };
 
             // Universal redirect link resolver for Yahoo search pages
             $('a').each((index, element) => {
                 let href = $(element).attr('href');
+                let title = $(element).text()?.trim() || '';
                 if (!href) return;
 
                 if (href.includes('r.search.yahoo.com') && href.includes('/RU=')) {
@@ -228,27 +305,33 @@ class GoogleDiscoveryService {
                         const rawTarget = href.split('/RU=')[1].split('/')[0];
                         const decoded = decodeURIComponent(rawTarget);
                         
-                        if (decoded.startsWith('http') && 
-                            !decoded.includes('yahoo.com') && 
-                            !decoded.includes('yimg.com') && 
-                            !decoded.includes('uservoice.com') && 
-                            !decoded.includes('google.com') && 
-                            !decoded.includes('youtube.com') && 
-                            !decoded.includes('facebook.com') && 
-                            !decoded.includes('instagram.com') &&
-                            !decoded.includes('twitter.com') &&
-                            !decoded.includes('linkedin.com')) {
-                            urls.push(decoded.trim());
+                        if (decoded.startsWith('http') && !isInternalDomain(decoded)) {
+                            items.push({ url: decoded.trim(), title });
                         }
-                    } catch (err) {
+                    } catch {
                         // ignore and proceed
                     }
                 }
             });
 
-            const uniqueUrls = [...new Set(urls)].slice(0, 10);
-            console.log(`[GoogleDiscovery] [Resilient Scraper] Found ${uniqueUrls.length} organic links for query: "${query}"`);
-            return uniqueUrls;
+            // Deduplicate by normalized URL and enforce portal whitelist
+            const seen = new Set();
+            const uniqueItems = [];
+            for (const item of items) {
+                const norm = normalizeDiscoveryUrl(item.url);
+                if (norm && !seen.has(norm)) {
+                    if (Array.isArray(portalWhitelist) && portalWhitelist.length > 0) {
+                        const check = isPortalAllowed(norm, portalWhitelist);
+                        if (!check.allowed) continue;
+                    }
+                    seen.add(norm);
+                    uniqueItems.push({ url: norm, title: item.title });
+                    if (uniqueItems.length >= 10) break;
+                }
+            }
+
+            console.log(`[GoogleDiscovery] [Resilient Scraper] Found ${uniqueItems.length} organic links for query: "${query}"`);
+            return uniqueItems;
         } catch (err) {
             console.error(`[GoogleDiscovery] Resilient search scraping error:`, err.message);
             return [];
