@@ -67,11 +67,35 @@ function evaluateProviderDispatch(res, channel) {
     };
 }
 
-export { evaluateProviderDispatch };
+function validateRecipient(lead) {
+    if (!lead || !lead.mobile) {
+        return { valid: false, status: 'MISSING_MOBILE', error: 'Customer mobile missing' };
+    }
+    const hasOptedOut = Boolean(
+        lead.doNotContact === true ||
+        lead.dnd === true ||
+        lead.optOut === true ||
+        lead.optedOut === true ||
+        lead.isUnsubscribed === true
+    );
+    if (hasOptedOut) {
+        return { valid: false, status: 'OPTED_OUT', error: 'Customer has opted out of automated communications (DND/Opt-Out active)' };
+    }
+    const digitsOnly = String(lead.mobile).replace(/\D/g, '');
+    if (digitsOnly.length < 10) {
+        return { valid: false, status: 'INVALID_RECIPIENT', error: 'Invalid recipient mobile phone number format' };
+    }
+    return { valid: true };
+}
+
+export { evaluateProviderDispatch, validateRecipient };
 
 export class SiteVisitAutomationService {
     static evaluateProviderDispatch(res, channel) {
         return evaluateProviderDispatch(res, channel);
+    }
+    static validateRecipient(lead) {
+        return validateRecipient(lead);
     }
     /**
      * Dispatch 24-hour reminders for upcoming site visits.
@@ -129,7 +153,11 @@ export class SiteVisitAutomationService {
             let deliveryResult = { success: false, status: 'UNCONFIGURED', channel: 'none', error: 'No messaging providers configured' };
 
             // Real Provider Dispatch to Customer
-            if (lead?.mobile) {
+            const recipientCheck = validateRecipient(lead);
+            if (!recipientCheck.valid) {
+                deliveryResult = { success: false, status: recipientCheck.status, channel: 'none', error: recipientCheck.error };
+                console.log(`[SiteVisitAutomation] 24h Reminder skipped for Activity ${visit._id}: ${recipientCheck.error}`);
+            } else {
                 const message = `Namaste ${lead.name || lead.firstName || 'Client'}, this is a reminder for your upcoming site visit to ${projectName} tomorrow at ${visitTime}. Property Advisor: ${agentName}. Team Bharat Properties.`;
 
                 try {
@@ -148,8 +176,6 @@ export class SiteVisitAutomationService {
 
                 const maskedPhone = lead.mobile.replace(/(\+\d{2})\d+(\d{4})/, '$1******$2');
                 console.log(`[SiteVisitAutomation] 24h Reminder dispatched for Activity ${visit._id} to ${maskedPhone} (Status: ${deliveryResult.status})`);
-            } else {
-                deliveryResult = { success: false, status: 'MISSING_MOBILE', channel: 'none', error: 'Customer mobile missing' };
             }
 
             // Only mark h24 = true if real provider accepted or confirmed delivery!
@@ -267,7 +293,11 @@ export class SiteVisitAutomationService {
             let deliveryResult = { success: false, status: 'UNCONFIGURED', channel: 'none', error: 'No messaging providers configured' };
 
             // Real Provider Dispatch to Customer
-            if (lead?.mobile) {
+            const recipientCheck = validateRecipient(lead);
+            if (!recipientCheck.valid) {
+                deliveryResult = { success: false, status: recipientCheck.status, channel: 'none', error: recipientCheck.error };
+                console.log(`[SiteVisitAutomation] 2h Reminder skipped for Activity ${visit._id}: ${recipientCheck.error}`);
+            } else {
                 const message = `Namaste ${lead.name || lead.firstName || 'Client'}, your site visit at ${projectName} begins in approximately 2 hours (${visitTime}). For assistance on arrival, call ${agentPhone}. Team Bharat Properties.`;
 
                 try {
@@ -286,8 +316,6 @@ export class SiteVisitAutomationService {
 
                 const maskedPhone = lead.mobile.replace(/(\+\d{2})\d+(\d{4})/, '$1******$2');
                 console.log(`[SiteVisitAutomation] 2h Reminder dispatched for Activity ${visit._id} to ${maskedPhone} (Status: ${deliveryResult.status})`);
-            } else {
-                deliveryResult = { success: false, status: 'MISSING_MOBILE', channel: 'none', error: 'Customer mobile missing' };
             }
 
             // Only mark h2 = true if real provider accepted or confirmed delivery!
@@ -384,7 +412,11 @@ export class SiteVisitAutomationService {
 
         let dispatchResult = { success: false, status: 'UNCONFIGURED', channel: 'none', error: 'No messaging providers configured' };
 
-        if (lead?.mobile) {
+        const recipientCheck = validateRecipient(lead);
+        if (!recipientCheck.valid) {
+            dispatchResult = { success: false, status: recipientCheck.status, channel: 'none', error: recipientCheck.error };
+            console.log(`[SiteVisitAutomation] Post-visit feedback dispatch skipped for Activity ${activity._id}: ${recipientCheck.error}`);
+        } else {
             const message = `Namaste ${lead.name || lead.firstName || 'Client'}, thank you for visiting ${projectName} with Bharat Properties. Please share your valuable experience here: ${feedbackUrl}`;
 
             try {
@@ -400,8 +432,6 @@ export class SiteVisitAutomationService {
             } catch (err) {
                 dispatchResult = { success: false, status: 'FAILED', channel: 'unknown', error: err.message };
             }
-        } else {
-            dispatchResult = { success: false, status: 'MISSING_MOBILE', channel: 'none', error: 'Customer contact details missing' };
         }
 
         const isAcceptedOrDelivered = dispatchResult.success === true && (dispatchResult.status === 'ACCEPTED' || dispatchResult.status === 'DELIVERED');
@@ -509,6 +539,102 @@ export class SiteVisitAutomationService {
             success: true,
             escalated: true,
             escalationTaskId: escalationTask ? escalationTask[0]?._id : null
+        };
+    }
+
+    /**
+     * Process carrier delivery receipts and status webhooks (Meta WhatsApp / Twilio / SMS).
+     */
+    static async handleDeliveryStatusCallback({ providerMessageId, status, timestamp = new Date(), error = null, channel = 'whatsapp' }) {
+        if (!providerMessageId) {
+            return { success: false, matched: false, error: 'providerMessageId is required' };
+        }
+        const ActivityModel = mongoose.models.Activity || Activity;
+        const normalizedStatus = String(status || '').toUpperCase(); // 'DELIVERED', 'READ', 'FAILED', 'UNDELIVERED', 'SENT'
+        const isDelivered = normalizedStatus === 'DELIVERED' || normalizedStatus === 'READ';
+        const isFailed = normalizedStatus === 'FAILED' || normalizedStatus === 'UNDELIVERED';
+
+        const query = {
+            type: 'Site Visit',
+            $or: [
+                { 'details.remindersSent.h24MessageId': providerMessageId },
+                { 'details.remindersSent.h2MessageId': providerMessageId },
+                { 'details.feedbackDispatchMessageId': providerMessageId }
+            ]
+        };
+
+        let activity = null;
+        if (typeof ActivityModel.findOne === 'function') {
+            activity = await ActivityModel.findOne(query);
+        }
+
+        if (!activity) {
+            return { success: true, matched: false, message: 'No site visit activity found for providerMessageId' };
+        }
+
+        const updates = {};
+        const now = timestamp instanceof Date ? timestamp : new Date(timestamp);
+
+        if (activity.details?.remindersSent?.h24MessageId === providerMessageId) {
+            updates['details.remindersSent.h24Status'] = normalizedStatus;
+            if (isDelivered) {
+                updates['details.remindersSent.h24'] = true;
+                updates['details.remindersSent.h24DeliveredAt'] = now;
+            }
+            if (isFailed) {
+                updates['details.remindersSent.h24'] = false;
+                updates['details.remindersSent.h24Error'] = error || 'Carrier reported message failure';
+            }
+        }
+
+        if (activity.details?.remindersSent?.h2MessageId === providerMessageId) {
+            updates['details.remindersSent.h2Status'] = normalizedStatus;
+            if (isDelivered) {
+                updates['details.remindersSent.h2'] = true;
+                updates['details.remindersSent.h2DeliveredAt'] = now;
+            }
+            if (isFailed) {
+                updates['details.remindersSent.h2'] = false;
+                updates['details.remindersSent.h2Error'] = error || 'Carrier reported message failure';
+            }
+        }
+
+        if (activity.details?.feedbackDispatchMessageId === providerMessageId) {
+            updates['details.feedbackDispatchStatus'] = normalizedStatus;
+            if (isDelivered) {
+                updates['details.feedbackDeliveredAt'] = now;
+            }
+            if (isFailed) {
+                updates['details.feedbackDispatchError'] = error || 'Carrier reported message failure';
+            }
+        }
+
+        if (Object.keys(updates).length > 0) {
+            if (typeof ActivityModel.findByIdAndUpdate === 'function') {
+                await ActivityModel.findByIdAndUpdate(activity._id, { $set: updates }).catch(() => {});
+            }
+            if (typeof activity.save === 'function') {
+                if (!activity.details) activity.details = {};
+                if (!activity.details.remindersSent) activity.details.remindersSent = {};
+                Object.keys(updates).forEach(key => {
+                    const parts = key.split('.');
+                    let curr = activity;
+                    for (let i = 0; i < parts.length - 1; i++) {
+                        if (!curr[parts[i]]) curr[parts[i]] = {};
+                        curr = curr[parts[i]];
+                    }
+                    curr[parts[parts.length - 1]] = updates[key];
+                });
+                await activity.save().catch(() => {});
+            }
+        }
+
+        return {
+            success: true,
+            matched: true,
+            activityId: activity._id,
+            status: normalizedStatus,
+            updates
         };
     }
 }

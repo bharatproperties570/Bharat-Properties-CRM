@@ -6,7 +6,7 @@
     "scripts": {
         "start": "node src/server.js",
         "dev": "nodemon src/server.js",
-        "test": "node tests/test_sitevisit_journey.js && node tests/test_sitevisit_security_delivery.js && node tests/test_sitevisit_domain.js && node tests/test_sitevisit_contracts.js && node tests/test_sitevisit_automation.js && node tests/test_e2e_sitevisit_marketing.js && node tests/test_feedback_closed_loop.js && node tests/test_marketing_attribution.js && node tests/test_deal_attribution.js && node tests/test_analytics_aggregation.js && node tests/test_p0_security.js"
+        "test": "node tests/test_sitevisit_journey.js && node tests/test_sitevisit_security_delivery.js && node tests/test_sitevisit_domain.js && node tests/test_sitevisit_contracts.js && node tests/test_sitevisit_automation.js && node tests/test_e2e_sitevisit_marketing.js && node tests/test_feedback_closed_loop.js && node tests/test_marketing_attribution.js && node tests/test_deal_attribution.js && node tests/test_analytics_aggregation.js && node tests/test_p0_security.js && node tests/test_sitevisit_readiness_delivery_tx.js"
     },
     "dependencies": {
         "@opentelemetry/api": "^1.9.1",

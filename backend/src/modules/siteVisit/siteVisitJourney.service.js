@@ -188,7 +188,7 @@ export class SiteVisitJourneyService {
         if (activity.assignedTo) {
             try {
                 const UserModel = mongoose.models.User;
-                if (UserModel && typeof UserModel.findById === 'function') {
+                if (UserModel && typeof UserModel.findById === 'function' && (mongoose.connection?.readyState === 1 || UserModel.findById !== mongoose.Model.findById)) {
                     const agent = await UserModel.findById(activity.assignedTo).select('fullName name mobile').lean().catch(() => null);
                     if (agent) {
                         salesperson = {
@@ -204,9 +204,11 @@ export class SiteVisitJourneyService {
         let clientName = 'Valued Client';
         if (activity.entityId) {
             try {
-                const leadDoc = await LeadModel.findById(activity.entityId).select('name firstName lastName').lean().catch(() => null);
-                if (leadDoc) {
-                    clientName = leadDoc.name || `${leadDoc.firstName || ''} ${leadDoc.lastName || ''}`.trim() || clientName;
+                if (typeof LeadModel.findById === 'function' && (mongoose.connection?.readyState === 1 || LeadModel.findById !== mongoose.Model.findById)) {
+                    const leadDoc = await LeadModel.findById(activity.entityId).select('name firstName lastName').lean().catch(() => null);
+                    if (leadDoc) {
+                        clientName = leadDoc.name || `${leadDoc.firstName || ''} ${leadDoc.lastName || ''}`.trim() || clientName;
+                    }
                 }
             } catch (_) {}
         }
@@ -237,7 +239,7 @@ export class SiteVisitJourneyService {
             .filter(id => id && mongoose.Types.ObjectId.isValid(id));
 
         const inventoryMap = new Map();
-        if (inventoryIds.length > 0 && typeof InventoryModel.find === 'function') {
+        if (inventoryIds.length > 0 && typeof InventoryModel.find === 'function' && (mongoose.connection?.readyState === 1 || InventoryModel.find !== mongoose.Model.find)) {
             try {
                 const inventories = await InventoryModel.find({ _id: { $in: inventoryIds } })
                     .select('projectName project block unitNo unitNumber category size price totalCost allInclusivePrice facing direction roadWidth latitude longitude geoPoint inventoryImages city sector address')
@@ -469,7 +471,7 @@ export class SiteVisitJourneyService {
         // 2. Idempotency Check: Return existing submission if already submitted
         if (property.status === 'FEEDBACK_SUBMITTED' || property.feedbackSubmissionId) {
             let existingSubmission = null;
-            if (typeof FeedbackSubmissionModel.findOne === 'function') {
+            if (typeof FeedbackSubmissionModel.findOne === 'function' && (mongoose.connection?.readyState === 1 || FeedbackSubmissionModel.findOne !== mongoose.Model.findOne)) {
                 existingSubmission = await safeExecLean(FeedbackSubmissionModel.findOne({ idempotencyKey }));
             }
             return {
@@ -482,7 +484,7 @@ export class SiteVisitJourneyService {
 
         // 3. Resolve Feedback Form
         let formDoc = null;
-        if (typeof FeedbackFormModel.findOne === 'function') {
+        if (typeof FeedbackFormModel.findOne === 'function' && (mongoose.connection?.readyState === 1 || FeedbackFormModel.findOne !== mongoose.Model.findOne)) {
             formDoc = await safeExecLean(FeedbackFormModel.findOne({ slug: 'customer-experience-feedback-qx9z2', isActive: true }));
             if (!formDoc) {
                 formDoc = await safeExecLean(FeedbackFormModel.findOne({ isActive: true }));
@@ -492,28 +494,35 @@ export class SiteVisitJourneyService {
 
         // 4. Persist FeedbackSubmission
         let submission = null;
+        const submissionPayload = {
+            form: formId,
+            lead: activity.entityId || null,
+            activity: activity._id,
+            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+            department: activity.department,
+            teams: activity.teams,
+            rating: numRating,
+            idempotencyKey,
+            responses: {
+                overallRating: numRating,
+                interest: interest || 'Interested',
+                comments: comments || '',
+                rejectionReason: rejectionReason || '',
+                revisitRequested: Boolean(revisitRequested),
+                expectedPrice: expectedPrice ? Number(expectedPrice) : null,
+                project: property.project,
+                unit: property.property
+            },
+            sourceMeta: options.sourceMeta || {}
+        };
+
         try {
-            submission = await FeedbackSubmissionModel.create({
-                form: formId,
-                lead: activity.entityId || null,
-                activity: activity._id,
-                inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-                department: activity.department,
-                teams: activity.teams,
-                rating: numRating,
-                idempotencyKey,
-                responses: {
-                    overallRating: numRating,
-                    interest: interest || 'Interested',
-                    comments: comments || '',
-                    rejectionReason: rejectionReason || '',
-                    revisitRequested: Boolean(revisitRequested),
-                    expectedPrice: expectedPrice ? Number(expectedPrice) : null,
-                    project: property.project,
-                    unit: property.property
-                },
-                sourceMeta: options.sourceMeta || {}
-            });
+            if (options.session) {
+                const created = await FeedbackSubmissionModel.create([submissionPayload], { session: options.session });
+                submission = Array.isArray(created) ? created[0] : created;
+            } else {
+                submission = await FeedbackSubmissionModel.create(submissionPayload);
+            }
         } catch (createErr) {
             if (createErr.code === 11000) {
                 // Duplicate submission race winner
@@ -570,8 +579,19 @@ export class SiteVisitJourneyService {
             activity.tags.push('High-Satisfaction');
         }
 
-        if (typeof activity.save === 'function') {
-            await activity.save();
+        try {
+            if (typeof activity.save === 'function') {
+                const saveOpts = options.session ? { session: options.session } : undefined;
+                await activity.save(saveOpts);
+            }
+        } catch (saveErr) {
+            // Rollback compensation in non-transactional mode
+            if (!options.session && submission?._id && typeof FeedbackSubmissionModel.findByIdAndDelete === 'function') {
+                try {
+                    await FeedbackSubmissionModel.findByIdAndDelete(submission._id);
+                } catch (_) {}
+            }
+            throw saveErr;
         }
 
         // 7. Downstream Automations (Executed strictly once on accepted submission)
@@ -580,7 +600,7 @@ export class SiteVisitJourneyService {
         // Intent Score Boost on Positive Rating (>= 4)
         if (numRating >= 4 && leadId && mongoose.Types.ObjectId.isValid(leadId)) {
             try {
-                if (typeof LeadModel.findByIdAndUpdate === 'function') {
+                if (typeof LeadModel.findByIdAndUpdate === 'function' && (mongoose.connection?.readyState === 1 || LeadModel.findByIdAndUpdate !== mongoose.Model.findByIdAndUpdate)) {
                     await LeadModel.findByIdAndUpdate(leadId, {
                         $inc: { intent_index: 10 },
                         $set: { lastFeedbackReceivedAt: new Date(), latestFeedbackRating: numRating }

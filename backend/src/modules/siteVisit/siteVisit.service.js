@@ -23,7 +23,7 @@ export class SiteVisitService {
     /**
      * Schedule a new Site Visit for a Lead.
      */
-    static async schedule(payload, user = null) {
+    static async schedule(payload, user = null, options = {}) {
         const { leadId, date, time, properties = [], assignedTo, pickupRequired, pickupAddress, remarks, source } = payload;
 
         if (!leadId || !mongoose.Types.ObjectId.isValid(leadId)) {
@@ -78,14 +78,20 @@ export class SiteVisitService {
 
         const performerName = user?.fullName || user?.name || 'CRM Consultant';
         const targetAssignee = assignedTo || lead.owner || user?._id || user?.id || null;
+        const userTeams = Array.isArray(user?.teams) ? user.teams : (user?.team ? [user.team] : []);
+        const targetDepartment = lead.department || user?.department || null;
+        const targetTeams = (Array.isArray(lead.teams) && lead.teams.length > 0) ? lead.teams : userTeams;
 
-        const activity = await Activity.create({
+        const createOpts = options.session ? { session: options.session } : undefined;
+        const activityPayload = {
             type: 'Site Visit',
             subject: `Site Visit: ${lead.firstName || 'Lead'} - ${firstProject}`,
             description: remarks || `Site visit scheduled for ${firstProject}.`,
             status: 'Pending',
             entityType: 'Lead',
             entityId: lead._id,
+            department: targetDepartment,
+            teams: targetTeams,
             dueDate: visitDate,
             dueTime: time,
             priority: payload.priority || 'High',
@@ -101,7 +107,15 @@ export class SiteVisitService {
                 visitedProperties: normalizedProperties,
                 rescheduleHistory: []
             }
-        });
+        };
+
+        let activity = null;
+        if (createOpts) {
+            const created = await Activity.create([activityPayload], createOpts);
+            activity = Array.isArray(created) ? created[0] : created;
+        } else {
+            activity = await Activity.create(activityPayload);
+        }
 
         // Generate client journey token and URL for multi-property itinerary navigation
         try {
@@ -334,7 +348,7 @@ export class SiteVisitService {
     /**
      * Complete a Site Visit with outcomes and generate a customer feedback link.
      */
-    static async complete(activityId, payload, user = null) {
+    static async complete(activityId, payload, user = null, options = {}) {
         const { outcome, visitedProperties, dealId, completionNotes, clientRating } = payload;
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
             throw new Error('Valid activityId is required');
@@ -467,8 +481,9 @@ export class SiteVisitService {
         }
 
         let activity = null;
+        const queryOpts = { new: true, ...(options.session ? { session: options.session } : {}) };
         if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
-            activity = await Activity.findOneAndUpdate(casQuery, updateOps, { new: true });
+            activity = await Activity.findOneAndUpdate(casQuery, updateOps, queryOpts);
         } else if (isTestEnvironment() && typeof existingActivity.save === 'function') {
             // Isolated test-mode adapter ONLY when explicitly in test environment
             existingActivity.status = 'Completed';
@@ -519,7 +534,7 @@ export class SiteVisitService {
                     dealUpdate.$inc = { dealScore: 15 };
                 }
                 if (Object.keys(dealUpdate).length > 0) {
-                    await Deal.findByIdAndUpdate(dealId, dealUpdate).catch(() => {});
+                    await Deal.findByIdAndUpdate(dealId, dealUpdate, { ...(options.session ? { session: options.session } : {}) }).catch(() => {});
                 }
             }
         }
@@ -556,11 +571,19 @@ export class SiteVisitService {
     /**
      * Get site visit details by ID.
      */
-    static async getById(activityId) {
+    static async getById(activityId, user = null) {
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
             throw new Error('Valid activityId is required');
         }
-        const activity = await Activity.findOne({ _id: activityId, type: 'Site Visit' })
+        let visibilityFilter = {};
+        if (user) {
+            try {
+                const { getVisibilityFilter } = await import('../../../utils/visibility.js');
+                visibilityFilter = await getVisibilityFilter(user);
+            } catch (_) {}
+        }
+        const query = { _id: activityId, type: 'Site Visit', ...visibilityFilter };
+        const activity = await Activity.findOne(query)
             .populate('assignedTo', 'fullName name email mobile phone')
             .populate('createdBy', 'fullName name')
             .lean();
@@ -574,8 +597,15 @@ export class SiteVisitService {
     /**
      * List site visits with enterprise filters.
      */
-    static async list(filters = {}) {
-        const query = { type: 'Site Visit' };
+    static async list(filters = {}, user = null) {
+        let visibilityFilter = {};
+        if (user) {
+            try {
+                const { getVisibilityFilter } = await import('../../../utils/visibility.js');
+                visibilityFilter = await getVisibilityFilter(user);
+            } catch (_) {}
+        }
+        const query = { ...visibilityFilter, type: 'Site Visit' };
 
         if (filters.status) {
             query.status = filters.status;

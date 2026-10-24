@@ -11,7 +11,7 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives || true",
     "preview": "vite preview",
     "test:frontend": "vitest run",
-    "test:backend": "node backend/tests/test_sitevisit_journey.js && node backend/tests/test_sitevisit_security_delivery.js && node backend/tests/test_sitevisit_domain.js && node backend/tests/test_sitevisit_contracts.js && node backend/tests/test_sitevisit_automation.js && node backend/tests/test_e2e_sitevisit_marketing.js && node backend/tests/test_feedback_closed_loop.js && node backend/tests/test_marketing_attribution.js && node backend/tests/test_deal_attribution.js && node backend/tests/test_analytics_aggregation.js && node backend/tests/test_p0_security.js",
+    "test:backend": "node backend/tests/test_sitevisit_journey.js && node backend/tests/test_sitevisit_security_delivery.js && node backend/tests/test_sitevisit_domain.js && node backend/tests/test_sitevisit_contracts.js && node backend/tests/test_sitevisit_automation.js && node backend/tests/test_e2e_sitevisit_marketing.js && node backend/tests/test_feedback_closed_loop.js && node backend/tests/test_marketing_attribution.js && node backend/tests/test_deal_attribution.js && node backend/tests/test_analytics_aggregation.js && node backend/tests/test_p0_security.js && node backend/tests/test_sitevisit_readiness_delivery_tx.js",
     "test": "npm run test:backend && npm run test:frontend"
   },
   "dependencies": {

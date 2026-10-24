@@ -50,7 +50,7 @@ jobs:
       - name: Install backend dependencies
         run: cd backend && npm ci --legacy-peer-deps
 
-      - name: Run Backend Test Suites (11 Suites / 92 Tests)
+      - name: Run Backend Test Suites (12 Suites / 105 Tests)
         run: npm run test:backend
 
       - name: Run Frontend Component Tests (Vitest)

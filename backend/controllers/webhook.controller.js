@@ -439,6 +439,18 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         status: status.status,
                         phone: status.recipient_id
                     });
+
+                    // Site Visit Marketing delivery status callback
+                    try {
+                        const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
+                        if (SiteVisitAutomationService?.handleDeliveryStatusCallback) {
+                            await SiteVisitAutomationService.handleDeliveryStatusCallback({
+                                providerMessageId: status.id,
+                                status: status.status,
+                                timestamp: new Date(Number(status.timestamp || 0) * 1000)
+                            });
+                        }
+                    } catch (_) {}
                 }
                 for (const change of extractCoexistenceChanges(req.body)) {
                     const waba_id = req.body.entry?.[0]?.id;

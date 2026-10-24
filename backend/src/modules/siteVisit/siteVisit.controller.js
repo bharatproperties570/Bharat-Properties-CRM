@@ -77,7 +77,7 @@ export const completeSiteVisit = async (req, res) => {
 export const getSiteVisit = async (req, res) => {
     try {
         const { id } = req.params;
-        const activity = await SiteVisitService.getById(id);
+        const activity = await SiteVisitService.getById(id, req.user);
         return res.status(200).json({
             success: true,
             data: activity
@@ -93,7 +93,7 @@ export const getSiteVisit = async (req, res) => {
 
 export const listSiteVisits = async (req, res) => {
     try {
-        const result = await SiteVisitService.list(req.query);
+        const result = await SiteVisitService.list(req.query, req.user);
         return res.status(200).json({
             success: true,
             data: result.items,
