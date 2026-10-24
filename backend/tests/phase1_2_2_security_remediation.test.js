@@ -337,6 +337,7 @@ test('--- PHASE 1.2.2: SECURITY REMEDIATION & FINAL AUTHORIZATION GATE SUITE ---
     });
 
     await t.test('2.5 Safe Bounded Redirects Block Redirects to Internal Metadata or Unauthorized Portals', async () => {
+        domainGovernancePolicy.registerDomain('public-domain.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         const originalDnsPromises = dns.promises.lookup;
 

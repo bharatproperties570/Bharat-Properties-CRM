@@ -320,6 +320,9 @@ test('--- PHASE 1.2.1: SOURCE AUTHORIZATION ENFORCEMENT & SAFE FETCHING SUITE --
     });
 
     await t.test('10. Safe Bounded Redirects: Redirects to Internal/Private Addresses Are Blocked', async () => {
+        const { domainGovernancePolicy } = await import('../services/discovery/SourceAuthorizationMatrix.js');
+        domainGovernancePolicy.registerDomain('innocent-looking-site.com', { approvedBy: 'test_fixture' });
+
         const originalAxiosGet = (await import('axios')).default.get;
         const dns = await import('dns');
         const originalLookup = dns.promises.lookup;

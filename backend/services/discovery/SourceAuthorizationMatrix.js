@@ -122,42 +122,160 @@ class AuthorizationGrantRegistry {
 export const authorizationGrantRegistry = new AuthorizationGrantRegistry();
 
 /**
- * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2).
+ * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2 / Phase 1.2.3).
  * 
- * Prevents unverified blanket crawling of unknown domains.
- * Provides explicit domain verification tracking for public web sources.
+ * Enforces mandatory domain governance for automated web fetching.
+ * Unknown or unapproved public domains are blocked by default from automated fetching
+ * and held for operator review on Deal Intake Desk without network requests.
+ * 
+ * Provides explicit operator verification registration and audit tracking:
+ * - registerDomain(domain, options): Operator approves a domain with audit metadata
+ * - revokeDomain(domain, options): Operator revokes domain approval
+ * - isDomainVerified(domain): Checks whether a domain has an active, approved registration
  */
-class DomainGovernancePolicy {
+export class DomainGovernancePolicy {
     constructor() {
-        this.verifiedDomains = new Set([
-            'kurukshetrarealestate.in',
-            'tcpharyana.gov.in',
-            'hsvp.org.in'
+        this.verifiedDomains = new Map();
+        this.reset();
+    }
+
+    /**
+     * Resets verified domains to the official, verified baseline government and institutional authorities.
+     */
+    reset() {
+        this.verifiedDomains = new Map([
+            ['kurukshetrarealestate.in', {
+                domain: 'kurukshetrarealestate.in',
+                status: 'approved',
+                approvedBy: 'system_baseline',
+                approvedAt: new Date('2026-01-01'),
+                notes: 'Official Kurukshetra local property portal'
+            }],
+            ['tcpharyana.gov.in', {
+                domain: 'tcpharyana.gov.in',
+                status: 'approved',
+                approvedBy: 'system_baseline',
+                approvedAt: new Date('2026-01-01'),
+                notes: 'Town and Country Planning Department Haryana'
+            }],
+            ['hsvp.org.in', {
+                domain: 'hsvp.org.in',
+                status: 'approved',
+                approvedBy: 'system_baseline',
+                approvedAt: new Date('2026-01-01'),
+                notes: 'Haryana Shehri Vikas Pradhikaran'
+            }]
         ]);
     }
 
-    addVerifiedDomain(domain) {
+    /**
+     * Operator domain verification and registration workflow.
+     * 
+     * @param {string} domain 
+     * @param {object} [options={}]
+     * @param {string} [options.approvedBy='operator']
+     * @param {string} [options.notes='']
+     * @returns {boolean} True if successfully registered
+     */
+    registerDomain(domain, options = {}) {
         const clean = extractCleanDomain(domain);
-        if (clean) this.verifiedDomains.add(clean);
+        if (!clean) return false;
+
+        this.verifiedDomains.set(clean, {
+            domain: clean,
+            status: 'approved',
+            approvedBy: options.approvedBy || 'operator',
+            approvedAt: new Date(),
+            notes: options.notes || 'Operator verified domain approval'
+        });
+        return true;
     }
 
+    /**
+     * Revokes domain approval.
+     * 
+     * @param {string} domain 
+     * @param {object} [options={}]
+     * @param {string} [options.revokedBy='operator']
+     * @param {string} [options.reason='']
+     * @returns {boolean} True if successfully revoked
+     */
+    revokeDomain(domain, options = {}) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) return false;
+
+        if (this.verifiedDomains.has(clean)) {
+            const current = this.verifiedDomains.get(clean);
+            this.verifiedDomains.set(clean, {
+                ...current,
+                status: 'revoked',
+                revokedBy: options.revokedBy || 'operator',
+                revokedAt: new Date(),
+                revocationReason: options.reason || 'Operator revoked domain approval'
+            });
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Compatibility alias for registerDomain
+     */
+    addVerifiedDomain(domain, options = {}) {
+        return this.registerDomain(domain, options);
+    }
+
+    /**
+     * Compatibility alias: removes domain completely
+     */
     removeVerifiedDomain(domain) {
         const clean = extractCleanDomain(domain);
-        if (clean) this.verifiedDomains.delete(clean);
+        if (!clean) return false;
+        return this.verifiedDomains.delete(clean);
     }
 
+    /**
+     * Determines whether a domain is approved for automated fetching.
+     * Checks exact match or registered root domain match.
+     * Returns true ONLY if registered AND status === 'approved'.
+     * 
+     * @param {string} domain 
+     * @returns {boolean}
+     */
     isDomainVerified(domain) {
         const clean = extractCleanDomain(domain);
         if (!clean) return false;
-        return this.verifiedDomains.has(clean);
+
+        // Exact match
+        if (this.verifiedDomains.has(clean)) {
+            const entry = this.verifiedDomains.get(clean);
+            return entry.status === 'approved';
+        }
+
+        // Subdomain match (e.g. sub.tcpharyana.gov.in)
+        for (const [registeredDomain, entry] of this.verifiedDomains.entries()) {
+            if (clean.endsWith(`.${registeredDomain}`) && entry.status === 'approved') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    reset() {
-        this.verifiedDomains = new Set([
-            'kurukshetrarealestate.in',
-            'tcpharyana.gov.in',
-            'hsvp.org.in'
-        ]);
+    /**
+     * Retrieves domain registration metadata.
+     */
+    getDomainRecord(domain) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) return null;
+        return this.verifiedDomains.get(clean) || null;
+    }
+
+    /**
+     * Lists all registered domains and their governance status.
+     */
+    listDomains() {
+        return Array.from(this.verifiedDomains.values());
     }
 
     clear() {
@@ -487,8 +605,10 @@ export function evaluateOperationAuthorization(urlOrSource, operation = 'automat
         }
 
         // Tier 2: Public Web Page
-        // Check conservative domain verification policy for automated discovery runs
-        if (context.requireDomainVerification === true && !domainGovernancePolicy.isDomainVerified(domain)) {
+        // Secure-by-default (Phase 1.2.3): Automated HTTP fetching of Tier 2 domains requires explicit domain approval.
+        // Unknown or unapproved domains are blocked from automated fetching and held for operator review without network access.
+        // Portal whitelist configuration defines candidate filters only and NEVER grants domain authorization.
+        if (!domainGovernancePolicy.isDomainVerified(domain)) {
             return {
                 allowed: false,
                 tier: classification.tier,
@@ -537,6 +657,8 @@ export default {
     SOURCE_STATUS,
     SOURCE_CAPABILITY_MATRIX,
     authorizationGrantRegistry,
+    domainGovernancePolicy,
+    DomainGovernancePolicy,
     classifySource,
     evaluateOperationAuthorization,
     isSourceAuthorized,

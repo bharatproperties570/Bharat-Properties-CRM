@@ -48,15 +48,18 @@ export function generateNormalizedDealHash(text) {
 }
 
 export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
-    // 🛡️ Phase 1.2.1: Pre-flight Scheme, SSRF & Governance Gate for Web Intake
+    // 🛡️ Phase 1.2.1 / 1.2.3: Pre-flight Scheme, SSRF & Governance Gate for Web Intake
+    let webAuthDecision = null;
+    let webCanonicalUrl = null;
     if (sourceType === 'public_url' || sourceType === 'property_listing') {
         const rawUrl = rawData?.url || rawData?.normalized_url;
         if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
             return { success: false, duplicate: false, reason: 'missing_or_invalid_url' };
         }
 
-        const authDecision = evaluateOperationAuthorization(rawUrl, 'automated_fetch');
-        if (authDecision.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
+        webCanonicalUrl = normalizeDiscoveryUrl(rawUrl) || rawUrl;
+        webAuthDecision = evaluateOperationAuthorization(rawUrl, 'automated_fetch');
+        if (webAuthDecision.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
             return {
                 success: false,
                 duplicate: false,
@@ -65,12 +68,12 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
             };
         }
 
-        if (authDecision.reason && authDecision.reason.startsWith('unsafe_scheme_')) {
+        if (webAuthDecision.reason && webAuthDecision.reason.startsWith('unsafe_scheme_')) {
             return {
                 success: false,
                 duplicate: false,
-                reason: authDecision.reason,
-                message: `Unsafe URL scheme rejected: ${authDecision.reason}`
+                reason: webAuthDecision.reason,
+                message: `Unsafe URL scheme rejected: ${webAuthDecision.reason}`
             };
         }
 
@@ -181,6 +184,53 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
         }
     }
 
+    // 🛡️ Phase 1.2.3: Queue Admission Domain Governance Gate
+    // If the web URL is not authorized for automated fetching (unapproved Tier 2 or unpermitted Tier 3),
+    // preserve the candidate document in MongoDB for Deal Intake Desk operator review,
+    // but DO NOT dispatch an automated network fetch job to BullMQ/Worker.
+    if ((sourceType === 'public_url' || sourceType === 'property_listing') && webAuthDecision && !webAuthDecision.allowed) {
+        const canonicalUrl = webCanonicalUrl || normalizeDiscoveryUrl(rawData.url || rawData.normalized_url) || rawData.url;
+        const title = rawData.search_metadata?.title || rawData.title || canonicalUrl;
+        const nowIso = new Date().toISOString();
+
+        const heldIntake = new Intake({
+            source: rawData.source || 'Online Discovery',
+            source_type: sourceType,
+            status: 'Needs Review',
+            verification_status: 'unverified',
+            title: title.substring(0, 100),
+            description: `[Automated Fetch Blocked] Candidate URL requires domain governance verification: ${webAuthDecision.reason}. Preserved for authorized human review on Deal Intake Desk.`,
+            duplicate_hash: dealHash || undefined,
+            raw_source_data: {
+                ...rawData,
+                url: canonicalUrl,
+                raw_url: rawData.url,
+                normalized_url: canonicalUrl,
+                originalTitle: title,
+                source_tier: webAuthDecision.tier,
+                authorization_status: webAuthDecision.status,
+                fetch_blocked: true,
+                fetch_block_reason: webAuthDecision.reason,
+                discovery_timestamp: rawData.discovery_timestamp || rawData.search_metadata?.discoveredAt || nowIso,
+                extraction_timestamp: nowIso,
+                published_date: rawData.search_metadata?.publishedDate || rawData.published_date || null
+            },
+            verification_notes: [
+                `[Queue Admission Governance Gate] Automated fetch blocked: ${webAuthDecision.reason}. Preserved for operator triage.`
+            ],
+            createdBy: userId
+        });
+
+        await heldIntake.save();
+        return {
+            success: true,
+            heldForReview: true,
+            fetchBlocked: true,
+            reason: webAuthDecision.reason,
+            intakeId: heldIntake._id
+        };
+    }
+
     // 1. Create a "Queued" record in MongoDB with duplicate_hash pre-populated
     const intakeRecord = new Intake({
         source: rawData.source || 'Other',
@@ -264,8 +314,8 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
             const aiAssistantResult = intakeAIAssistantEngine.analyze(intake);
             intake.ai_assistant = aiAssistantResult;
 
-            // 7. Finalize Status (Preserve verification status, mark rejected as Needs Review)
-            intake.status = intake.verification_status === 'rejected' ? 'Needs Review' : 'Processed';
+            // 7. Finalize Status (Preserve verification status, mark rejected or fetch-blocked as Needs Review)
+            intake.status = (intake.verification_status === 'rejected' || intake.raw_source_data?.fetch_blocked) ? 'Needs Review' : 'Processed';
             intake.createdBy = userId;
             
             await intake.save();

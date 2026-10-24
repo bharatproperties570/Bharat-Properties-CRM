@@ -117,7 +117,14 @@ class GoogleDiscoveryService {
         };
 
         const result = await addToIntakeQueue('public_url', intakePayload, null);
-        return { queued: result?.success || false, url: normalizedUrl };
+        return { 
+            queued: result?.success || false, 
+            heldForReview: result?.heldForReview || false,
+            fetchBlocked: result?.fetchBlocked || false,
+            reason: result?.reason || null,
+            intakeId: result?.intakeId || null,
+            url: normalizedUrl 
+        };
     }
 
     /**

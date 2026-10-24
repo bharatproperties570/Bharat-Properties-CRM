@@ -8,7 +8,8 @@ import SourceAuthorizationMatrix, {
     SOURCE_STATUS,
     classifySource,
     isSourceAuthorized,
-    extractCleanDomain
+    extractCleanDomain,
+    domainGovernancePolicy
 } from '../services/discovery/SourceAuthorizationMatrix.js';
 
 import {
@@ -205,6 +206,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         </html>
         `;
 
+        domainGovernancePolicy.registerDomain('realestateportal.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         (await import('axios')).default.get = async () => ({
             status: 200,
@@ -329,6 +331,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         </html>
         `;
 
+        domainGovernancePolicy.registerDomain('realestateportal.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
         (await import('axios')).default.get = async () => ({
             status: 200,

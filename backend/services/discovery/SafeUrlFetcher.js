@@ -285,7 +285,10 @@ export async function safeFetchHtml(url, options = {}) {
     let redirectsRemaining = maxRedirects;
 
     while (true) {
-        // Step 1: Pre-flight Authorization Enforcement (BEFORE NETWORK CALL)
+        // Step 1: SSRF & Destination IP Security Gate (Pre-flight DNS & IP validation)
+        const secInfo = await validateDestinationSecurity(currentUrl);
+
+        // Step 2: Pre-flight Authorization Enforcement (BEFORE NETWORK CALL)
         const authDecision = evaluateOperationAuthorization(currentUrl, 'automated_fetch');
         if (!authDecision.allowed) {
             throw new AuthorizationError(
@@ -293,9 +296,6 @@ export async function safeFetchHtml(url, options = {}) {
                 authDecision
             );
         }
-
-        // Step 2: SSRF & Destination IP Security Gate (Pre-flight DNS validation)
-        const secInfo = await validateDestinationSecurity(currentUrl);
 
         // Step 3: Create connection-pinned agent to eliminate DNS-rebinding / TOCTOU gap
         let parsedUrl;
@@ -322,6 +322,7 @@ export async function safeFetchHtml(url, options = {}) {
             },
             timeout,
             maxRedirects: 0,
+            proxy: false, // Ensure outbound connection cannot bypass destination-IP safeguards via proxy configuration
             httpAgent: agent,
             httpsAgent: agent,
             validateStatus: (status) => (status >= 200 && status < 400)
