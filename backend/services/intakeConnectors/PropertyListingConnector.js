@@ -1,9 +1,9 @@
 import BaseConnector from './BaseConnector.js';
 import * as cheerio from 'cheerio';
-import axios from 'axios';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
 import { normalizeDiscoveryUrl, evaluateListing } from '../discovery/DiscoveryFilterEngine.js';
-import { classifySource } from '../discovery/SourceAuthorizationMatrix.js';
+import { classifySource, evaluateOperationAuthorization } from '../discovery/SourceAuthorizationMatrix.js';
+import { safeFetchHtml } from '../discovery/SafeUrlFetcher.js';
 
 class PropertyListingConnector extends BaseConnector {
     constructor() {
@@ -15,16 +15,61 @@ class PropertyListingConnector extends BaseConnector {
         const { url, user_id, discovery_filters, search_metadata } = inputData;
         const canonicalUrl = normalizeDiscoveryUrl(url) || url;
         const sourceClassification = classifySource(canonicalUrl);
+        const authDecision = evaluateOperationAuthorization(canonicalUrl, 'automated_fetch');
         
-        // Fetch URL content
-        const response = await axios.get(canonicalUrl, {
+        // 🛡️ Pre-flight Authorization Enforcement Gate (BEFORE NETWORK ACCESS)
+        if (!authDecision.allowed) {
+            const verificationNotes = [
+                `[Source Governance Blocked] Automated HTTP fetch blocked: ${authDecision.reason}. Preserved for authorized human review.`
+            ];
+            const title = search_metadata?.title || 'Property Listing';
+            const normalized = {
+                title: title.substring(0, 100),
+                description: `[Automated Fetch Blocked] Automated page fetch blocked by source governance policy: ${authDecision.reason}. Preserved for authorized human review on Deal Intake Desk.`,
+                location: '',
+                sector: '',
+                property_type: '',
+                size: '',
+                price: '',
+                contact_numbers: [],
+                seller_intent: 'unknown',
+                extracted_entities: {
+                    search_metadata: search_metadata || null,
+                    governance_decision: authDecision
+                },
+                verification_status: 'unverified',
+                verification_notes: verificationNotes,
+                source_confidence: 10,
+                tenantId: inputData.tenantId || null,
+                raw_source_data: { 
+                    url: canonicalUrl, 
+                    raw_url: url,
+                    normalized_url: canonicalUrl,
+                    originalTitle: title,
+                    source_tier: sourceClassification.tier,
+                    authorization_status: authDecision.status,
+                    fetch_blocked: true,
+                    fetch_block_reason: authDecision.reason,
+                    discovery_timestamp: inputData.discovery_timestamp || search_metadata?.discoveredAt || new Date().toISOString(),
+                    extraction_timestamp: new Date().toISOString(),
+                    published_date: search_metadata?.publishedDate || null,
+                    search_metadata: search_metadata || null
+                }
+            };
+
+            const finalData = this.validateAndClean(normalized);
+            const hash = this.generateDuplicateHash(canonicalUrl);
+            return { ...finalData, duplicate_hash: hash, createdBy: user_id };
+        }
+
+        // Fetch URL content securely via SafeUrlFetcher (SSRF + Safe Redirects)
+        const response = await safeFetchHtml(canonicalUrl, {
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9'
             },
-            timeout: 15000,
-            validateStatus: () => true
+            timeout: 15000
         });
 
         if (response.status >= 400) {
@@ -102,7 +147,7 @@ class PropertyListingConnector extends BaseConnector {
                 originalTitle: title, 
                 scrapedPrice: price,
                 source_tier: sourceClassification.tier,
-                authorization_status: sourceClassification.status,
+                authorization_status: authDecision.status,
                 discovery_timestamp: inputData.discovery_timestamp || search_metadata?.discoveredAt || new Date().toISOString(),
                 extraction_timestamp: new Date().toISOString(),
                 published_date: search_metadata?.publishedDate || null,

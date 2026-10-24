@@ -8,6 +8,8 @@ import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngi
 import NotificationEngine from '../NotificationEngine.js';
 import { tracer } from '../../src/config/otel.js';
 import { normalizeDiscoveryUrl } from '../discovery/DiscoveryFilterEngine.js';
+import { evaluateOperationAuthorization, SOURCE_TIERS } from '../discovery/SourceAuthorizationMatrix.js';
+import { validateDestinationSecurity } from '../discovery/SafeUrlFetcher.js';
 
 // ── Structured logger ──────────────────────────────────────────
 const log = {
@@ -46,6 +48,45 @@ export function generateNormalizedDealHash(text) {
 }
 
 export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
+    // 🛡️ Phase 1.2.1: Pre-flight Scheme, SSRF & Governance Gate for Web Intake
+    if (sourceType === 'public_url' || sourceType === 'property_listing') {
+        const rawUrl = rawData?.url || rawData?.normalized_url;
+        if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
+            return { success: false, duplicate: false, reason: 'missing_or_invalid_url' };
+        }
+
+        const authDecision = evaluateOperationAuthorization(rawUrl, 'automated_fetch');
+        if (authDecision.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: 'walled_garden_blocked_pending_oauth',
+                message: 'Walled garden social platforms are unsupported for automated intake.'
+            };
+        }
+
+        if (authDecision.reason && authDecision.reason.startsWith('unsafe_scheme_')) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: authDecision.reason,
+                message: `Unsafe URL scheme rejected: ${authDecision.reason}`
+            };
+        }
+
+        // SSRF Destination Validation (Blocks loopback, private IP, link-local, cloud metadata)
+        try {
+            await validateDestinationSecurity(rawUrl);
+        } catch (ssrfErr) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: 'ssrf_destination_blocked',
+                message: ssrfErr.message
+            };
+        }
+    }
+
     // 🛡️ Pillar 4: Exact WhatsApp Message ID Deduplication Guard
     if (rawData?.messageId) {
         try {

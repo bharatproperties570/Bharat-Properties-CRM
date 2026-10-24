@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
+import dns from 'node:dns';
 
 import SourceAuthorizationMatrix, {
     SOURCE_TIERS,
@@ -53,9 +54,9 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         for (const portalUrl of portals) {
             const check = classifySource(portalUrl);
             assert.equal(check.tier, SOURCE_TIERS.TIER_3_COMMERCIAL_PORTAL);
-            assert.equal(check.status, SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED);
-            assert.equal(check.requiresPermission, true);
-            assert.equal(isSourceAuthorized(portalUrl), true, 'Portals are authorized for supervised evaluation');
+            assert.equal(check.defaultStatus, SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED);
+            assert.equal(check.requiresWrittenPermission, true);
+            assert.equal(isSourceAuthorized(portalUrl), false, 'Portals without grant must not be authorized for automated fetch');
         }
 
         // Tier 4: Walled Gardens & Private Communities (Strictly Blocked)
@@ -184,6 +185,13 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
     });
 
     await t.test('4. Comprehensive Provenance Tracking in Connectors', async () => {
+        const { authorizationGrantRegistry } = await import('../services/discovery/SourceAuthorizationMatrix.js');
+        authorizationGrantRegistry.registerGrant({
+            domain: '99acres.com',
+            grantType: 'syndication_partner',
+            status: 'verified'
+        });
+
         const mockHtml = `
         <!DOCTYPE html>
         <html>
@@ -227,7 +235,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             // Verify provenance fields in raw_source_data
             assert.ok(result.raw_source_data, 'raw_source_data must exist');
             assert.equal(result.raw_source_data.source_tier, SOURCE_TIERS.TIER_3_COMMERCIAL_PORTAL);
-            assert.equal(result.raw_source_data.authorization_status, SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED);
+            assert.equal(result.raw_source_data.authorization_status, SOURCE_STATUS.AUTHORIZED);
             assert.equal(result.raw_source_data.url, 'https://www.99acres.com/sector-7-plot-75lac');
             assert.equal(result.raw_source_data.raw_url, inputData.url);
             assert.equal(result.raw_source_data.published_date, '2026-10-20T10:00:00Z');
@@ -240,6 +248,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             assert.equal(result.verification_status, 'unverified');
         } finally {
             (await import('axios')).default.get = originalAxiosGet;
+            authorizationGrantRegistry.clearAll();
         }
     });
 
@@ -257,6 +266,14 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         `;
 
         const originalAxiosGet = (await import('axios')).default.get;
+        const dns = await import('dns');
+        const originalLookup = dns.promises.lookup;
+        dns.promises.lookup = async (host, opts) => {
+            if (host === 'kurukshetrarealestate.in') {
+                return [{ address: '93.184.216.34', family: 4 }];
+            }
+            return originalLookup(host, opts);
+        };
         (await import('axios')).default.get = async () => ({
             status: 200,
             statusText: 'OK',
@@ -293,6 +310,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             assert.ok(result.verification_notes.some(n => n.includes('[Filter Notice]')));
         } finally {
             (await import('axios')).default.get = originalAxiosGet;
+            dns.promises.lookup = originalLookup;
         }
     });
 
@@ -381,7 +399,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         assert.notEqual(defaultStatus, 'verified', 'Automated web listing must never be pre-verified without human review');
     });
 
-    await t.test('9. Google Custom Search API Quota Exhaustion (HTTP 429) & Resilient Fallback', async () => {
+    await t.test('9. Google Custom Search API Quota Exhaustion (HTTP 429) & Safe Non-Scraping Termination', async () => {
         const googleDiscoveryService = (await import('../services/discovery/GoogleDiscoveryService.js')).default;
         const DiscoveryConfig = (await import('../models/DiscoveryConfig.js')).default;
 
@@ -407,7 +425,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             DiscoveryConfig.findById = async () => mockConfig;
             Intake.findOne = async () => null;
 
-            // Mock fallback scraper to record invocation
+            // Fallback should NOT be triggered without approved provider
             googleDiscoveryService.scrapeGoogleSearchFallback = async () => {
                 fallbackTriggered = true;
                 return [{ url: 'https://example.com/organic-listing-1', title: 'Organic Listing' }];
@@ -418,6 +436,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             // Force API mode with dummy keys
             process.env.GOOGLE_API_KEY = 'mock_key';
             process.env.GOOGLE_SEARCH_ENGINE_ID = 'mock_cx';
+            delete process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER;
 
             // Mock google custom search to throw 429
             const { google } = await import('googleapis');
@@ -434,12 +453,21 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             });
 
             try {
+                // Scenario A: Without approved fallback provider, unapproved scraping is blocked
                 const result = await googleDiscoveryService.runDiscovery('mock_cfg_id_429');
-                assert.equal(result.success, true);
-                assert.equal(fallbackTriggered, true, 'Fallback scraper must be invoked upon 429 quota exhaustion');
-                assert.equal(result.discovered, 1);
+                assert.equal(result.success, false);
+                assert.equal(result.reason, 'google_api_quota_exhausted');
+                assert.equal(fallbackTriggered, false, 'Unapproved search engine scraping must NOT occur on quota exhaustion');
+                assert.equal(mockConfig.last_run_status, 'failed');
+
+                // Scenario B: With explicit approved provider, authorized fallback executes
+                process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER = 'approved_partner_feed';
+                const resultWithApproved = await googleDiscoveryService.runDiscovery('mock_cfg_id_429');
+                assert.equal(resultWithApproved.success, true);
+                assert.equal(fallbackTriggered, true, 'Approved provider is invoked when explicitly configured');
             } finally {
                 google.customsearch = originalCustomsearch;
+                delete process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER;
             }
         } finally {
             DiscoveryConfig.findById = originalFindById;
@@ -448,6 +476,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             googleDiscoveryService.processAndQueueUrl = originalProcessAndQueue;
             delete process.env.GOOGLE_API_KEY;
             delete process.env.GOOGLE_SEARCH_ENGINE_ID;
+            delete process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER;
         }
     });
 });

@@ -4,11 +4,18 @@ import assert from 'node:assert/strict';
 import ParsingRule from '../src/modules/parsing/parsingRule.model.js';
 import { normalizeDiscoveryUrl, validateDiscoveryConfigPayload } from '../services/discovery/DiscoveryFilterEngine.js';
 import publicUrlConnector from '../services/intakeConnectors/PublicUrlConnector.js';
+import { authorizationGrantRegistry } from '../services/discovery/SourceAuthorizationMatrix.js';
 
 // Prevent Mongoose buffering timeout by providing in-memory stub for test runner
 ParsingRule.find = async () => [];
 
 test('--- PHASE 1: END-TO-END PIPELINE & FIXTURE INTEGRATION SUITE ---', async (t) => {
+    // Register verified grant for 99acres fixture testing
+    authorizationGrantRegistry.registerGrant({
+        domain: '99acres.com',
+        grantType: 'syndication_partner',
+        status: 'verified'
+    });
 
     await t.test('Pipeline Stage 1: URL Normalization & Deduplication Gate', () => {
         const urlGoogleAd = 'https://www.99acres.com/property-in-sector-8-kurukshetra-spid-X12345?utm_source=google&utm_medium=cpc&utm_campaign=brand_search&gclid=EAIaIQobChMI123&ref=share_btn';
@@ -358,4 +365,6 @@ test('--- PHASE 1: END-TO-END PIPELINE & FIXTURE INTEGRATION SUITE ---', async (
         assert.equal(responseJson.success, false);
         assert.ok(responseJson.errors.some(e => e.includes('cannot be less than price_min')));
     });
+
+    authorizationGrantRegistry.clearAll();
 });

@@ -121,6 +121,17 @@ class GoogleDiscoveryService {
     }
 
     /**
+     * Checks whether an alternative fallback search provider is explicitly configured and approved.
+     * 
+     * @returns {boolean}
+     */
+    isFallbackProviderApproved() {
+        const approvedProvider = (process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER || '').trim().toLowerCase();
+        // Fallback is only allowed if explicitly configured to an approved compliant provider
+        return approvedProvider === 'approved_partner_feed' || approvedProvider === 'authorized_crawler';
+    }
+
+    /**
      * Execute a discovery run for a specific config
      * @param {String} configId 
      */
@@ -137,8 +148,14 @@ class GoogleDiscoveryService {
             const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
             const useApi = !!(apiKey && searchEngineId);
-            if (!useApi) {
-                console.log("[GoogleDiscovery] Missing Google API key or Search Engine ID in .env. Falling back to organic HTML Scraper mode directly!");
+            const fallbackApproved = this.isFallbackProviderApproved();
+
+            if (!useApi && !fallbackApproved) {
+                console.warn("[GoogleDiscovery] Google Custom Search API credentials not configured and no approved alternate search provider is configured. Stopping discovery run safely.");
+                config.last_run_status = 'failed';
+                config.last_run_at = new Date();
+                await config.save();
+                return { success: false, reason: 'google_api_unconfigured_no_approved_fallback', discovered: 0 };
             }
 
             const customsearch = google.customsearch('v1');
@@ -192,9 +209,24 @@ class GoogleDiscoveryService {
                             } catch (apiErr) {
                                 const isQuotaExceeded = apiErr.status === 429 || apiErr.code === 429 || /429|quota|rate limit/i.test(apiErr.message);
                                 if (isQuotaExceeded) {
-                                    console.warn(`[GoogleDiscovery] Google Custom Search API quota exhausted (HTTP 429). Falling back to organic HTML Scraper...`);
+                                    console.warn(`[GoogleDiscovery] Google Custom Search API quota exhausted (HTTP 429).`);
                                 } else {
-                                    console.warn(`[GoogleDiscovery] Google Custom Search API failed for query '${query}' (${apiErr.message}). Falling back to organic HTML Scraper...`);
+                                    console.warn(`[GoogleDiscovery] Google Custom Search API error: ${apiErr.message}`);
+                                }
+
+                                // 🛡️ Quota Fallback Governance:
+                                // Do not silently scrape an unapproved search engine upon Google quota failure!
+                                if (!fallbackApproved) {
+                                    console.warn(`[GoogleDiscovery] No approved alternate search provider configured. Stopping discovery query safely without unapproved scraping.`);
+                                    config.urls_discovered_count += totalDiscoveredInRun;
+                                    config.last_run_at = new Date();
+                                    config.last_run_status = 'failed';
+                                    await config.save();
+                                    return { 
+                                        success: false, 
+                                        reason: isQuotaExceeded ? 'google_api_quota_exhausted' : 'google_api_error', 
+                                        discovered: totalDiscoveredInRun 
+                                    };
                                 }
                                 
                                 if (organicQueryCount < maxOrganicQueries) {
@@ -212,17 +244,14 @@ class GoogleDiscoveryService {
                                                 totalDiscoveredInRun++;
                                             }
                                         }
-                                        // Wait 3 seconds between organic queries to protect IP reputation
                                         await new Promise(resolve => setTimeout(resolve, 3000));
                                     } catch (fallbackErr) {
                                         console.error(`[GoogleDiscovery] Fallback search also failed:`, fallbackErr.message);
                                     }
-                                } else {
-                                    console.log(`[GoogleDiscovery] [Organic Max Limit] Skipping organic scraper fallback for '${query}' to prevent search engine rate-limiting.`);
                                 }
                             }
-                        } else {
-                            // Direct HTML Scraper Mode
+                        } else if (fallbackApproved) {
+                            // Direct Fallback Mode (Only if explicitly approved)
                             if (organicQueryCount < maxOrganicQueries) {
                                 organicQueryCount++;
                                 try {
@@ -238,13 +267,10 @@ class GoogleDiscoveryService {
                                             totalDiscoveredInRun++;
                                         }
                                     }
-                                    // Wait 3 seconds between organic queries to protect IP reputation
                                     await new Promise(resolve => setTimeout(resolve, 3000));
                                 } catch (scrErr) {
-                                    console.error(`[GoogleDiscovery] Organic search failed for query '${query}':`, scrErr.message);
+                                    console.error(`[GoogleDiscovery] Fallback search failed:`, scrErr.message);
                                 }
-                            } else {
-                                console.log(`[GoogleDiscovery] [Organic Max Limit] Skipping organic search for '${query}' to prevent search engine rate-limiting.`);
                             }
                         }
                     }
@@ -260,7 +286,7 @@ class GoogleDiscoveryService {
             return { success: true, discovered: totalDiscoveredInRun };
 
         } catch (error) {
-            console.error(`[GoogleDiscovery] Job failed for config ${configId}:`, error);
+            console.error(`[GoogleDiscovery] Job failed for config ${configId}:`, error.message);
             await DiscoveryConfig.findByIdAndUpdate(configId, {
                 last_run_at: new Date(),
                 last_run_status: 'failed'
@@ -270,13 +296,17 @@ class GoogleDiscoveryService {
     }
 
     /**
-     * Fallback organic search results scraper (No API key or billing required!)
+     * Fallback search results provider (Requires explicit administrative approval)
      * 
      * @param {String} query 
      * @param {Array} portalWhitelist 
-     * @returns {Array<{ url: string, title?: string }>} List of discovery items
+     * @returns {Promise<Array<{ url: string, title?: string }>>} List of discovery items
      */
     async scrapeGoogleSearchFallback(query, portalWhitelist = []) {
+        if (!this.isFallbackProviderApproved()) {
+            console.warn("[GoogleDiscovery] Fallback search provider is not approved. Aborting unapproved external query.");
+            return [];
+        }
         try {
             const cheerio = await import('cheerio');
             const axios = await import('axios');
