@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const FeedbackSubmissionSchema = new mongoose.Schema({
     form: { type: mongoose.Schema.Types.ObjectId, ref: 'FeedbackForm', required: true },
     lead: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' }, // Optional: link to existing lead
-    activity: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', index: true }, // Link to Site Visit activity
+    activity: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' }, // Link to Site Visit activity
     inventory: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }, // 🌟 NEW: Link to inventory
     department: { type: String, index: true }, 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
@@ -16,5 +16,9 @@ const FeedbackSubmissionSchema = new mongoose.Schema({
         referrer: String
     }
 }, { timestamps: true });
+
+// Query optimization indexes (non-unique to support multi-property itineraries under one activity):
+FeedbackSubmissionSchema.index({ activity: 1 });
+FeedbackSubmissionSchema.index({ activity: 1, inventory: 1 });
 
 export default mongoose.model("FeedbackSubmission", FeedbackSubmissionSchema);

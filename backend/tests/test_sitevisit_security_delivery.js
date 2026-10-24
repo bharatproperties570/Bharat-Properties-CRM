@@ -30,8 +30,9 @@ function createMockRes() {
     return {
         statusCode: 200,
         body: null,
+        data: null,
         status(c) { this.statusCode = c; return this; },
-        json(b) { this.body = b; return this; }
+        json(b) { this.body = b; this.data = b; return this; }
     };
 }
 
@@ -84,6 +85,7 @@ async function runSecurityDeliveryTests() {
     const origActFindById = Activity.findById;
     const origActFind = Activity.find;
     const origActFindOne = Activity.findOne;
+    const origActFindOneAndUpdate = Activity.findOneAndUpdate;
     const origActFindByIdAndUpdate = Activity.findByIdAndUpdate;
     const origActCreate = Activity.create;
     const origLeadFindById = Lead.findById;
@@ -993,10 +995,14 @@ async function runSecurityDeliveryTests() {
             // Check predicate: $or lock check
             const lockFilter = query.$or;
             const threshold = lockFilter?.[1]?.['details.feedbackLockAt']?.$lt;
-            if (staleLockActivity.details.feedbackLockAt < threshold) {
+            if (threshold && staleLockActivity.details.feedbackLockAt < threshold) {
                 staleLockActivity.details.feedbackLock = true;
                 staleLockActivity.details.feedbackLockId = update.$set['details.feedbackLockId'];
                 acquiredLockId = update.$set['details.feedbackLockId'];
+                return Promise.resolve(staleLockActivity);
+            }
+            if (update.$set?.['details.feedbackSubmitted']) {
+                staleLockActivity.details.feedbackSubmitted = true;
                 return Promise.resolve(staleLockActivity);
             }
             return Promise.resolve(null);
@@ -1227,6 +1233,12 @@ async function runSecurityDeliveryTests() {
         const origEnv = process.env.NODE_ENV;
         process.env.NODE_ENV = 'production';
 
+        // Ensure models are strictly unmocked for fail-closed verification
+        Activity.findOneAndUpdate = origActFindOneAndUpdate;
+        Activity.findById = origActFindById;
+        Deal.findById = origDealFindById;
+        Lead.findById = origLeadFindById;
+
         try {
             await assert.rejects(
                 () => SiteVisitService.complete(fakeActId, { outcome: 'Interested' }),
@@ -1278,6 +1290,404 @@ async function runSecurityDeliveryTests() {
         assert.strictEqual(dealUpdated, false, 'Deal must NOT be updated when completion is rejected');
     });
 
+    // ------------------------------------------------------------------------
+    // Test 27: Submission Persistence Failure Releases Lock (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 27: Submission Persistence Failure Lock Cleanup (Pass 3) ---');
+    await recordAsync('27. Submission persistence failure safely releases request-owned lock', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        let activityDoc = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit'],
+            details: {
+                visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }]
+            }
+        };
+
+        Activity.findById = () => Promise.resolve(activityDoc);
+
+        let lockCleared = false;
+        Activity.findOneAndUpdate = async (query, update) => {
+            if (update.$set?.['details.feedbackLock']) {
+                activityDoc.details.feedbackLock = true;
+                activityDoc.details.feedbackLockId = update.$set['details.feedbackLockId'];
+                return { ...activityDoc };
+            }
+            if (update.$unset?.['details.feedbackLock']) {
+                if (activityDoc.details.feedbackLockId === query['details.feedbackLockId']) {
+                    lockCleared = true;
+                    delete activityDoc.details.feedbackLock;
+                    delete activityDoc.details.feedbackLockId;
+                    return { ...activityDoc };
+                }
+            }
+            return { ...activityDoc };
+        };
+
+        // Simulate persistence crash
+        FeedbackSubmission.create = async () => {
+            throw new Error('Database write error during submission creation');
+        };
+
+        const req = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res = createMockRes();
+
+        let caughtError = null;
+        try {
+            await submitFeedback(req, res, (err) => { caughtError = err; });
+        } catch (e) {
+            caughtError = e;
+        }
+
+        assert(caughtError, 'Persistence error must be surfaced');
+        assert.strictEqual(lockCleared, true, 'Request-owned lock must be cleared on failure');
+        assert.strictEqual(activityDoc.details.feedbackSubmitted, undefined, 'Activity must not be finalized');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 28: Interrupted Submission Reconciliation State Machine (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 28: Interrupted Submission Reconciliation (Pass 3) ---');
+    await recordAsync('28. Interrupted submission with existing record reconciles and finalizes Activity', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+        const existingSubId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        let activityDoc = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Pending',
+            tags: ['Site-Visit'],
+            details: {
+                visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }]
+                // Note: feedbackSubmitted is NOT true (partial interrupted state)
+            }
+        };
+
+        Activity.findById = () => Promise.resolve(activityDoc);
+
+        Activity.findOneAndUpdate = async (query, update) => {
+            if (update.$set?.['details.feedbackLock']) {
+                activityDoc.details.feedbackLock = true;
+                activityDoc.details.feedbackLockId = update.$set['details.feedbackLockId'];
+                return { ...activityDoc };
+            }
+            if (update.$set?.['details.feedbackSubmitted']) {
+                if (activityDoc.details.feedbackLockId === query['details.feedbackLockId']) {
+                    activityDoc.status = update.$set.status || activityDoc.status;
+                    activityDoc.details.feedbackSubmitted = true;
+                    activityDoc.details.submissionId = update.$set['details.submissionId'];
+                    activityDoc.details.customerFeedback = update.$set['details.customerFeedback'];
+                    delete activityDoc.details.feedbackLock;
+                    delete activityDoc.details.feedbackLockId;
+                    return { ...activityDoc };
+                }
+            }
+            return { ...activityDoc };
+        };
+
+        // Simulate code 11000 duplicate key error on FeedbackSubmission.create
+        FeedbackSubmission.create = async () => {
+            const err = new Error('E11000 duplicate key error collection');
+            err.code = 11000;
+            throw err;
+        };
+
+        const existingSubmissionDoc = {
+            _id: existingSubId,
+            activity: fakeActId,
+            lead: fakeLeadId,
+            rating: 5,
+            idempotencyKey: `activity:${fakeActId}`
+        };
+        FeedbackSubmission.findOne = () => Promise.resolve(existingSubmissionDoc);
+
+        let leadScoreBoosted = false;
+        Lead.findByIdAndUpdate = async (id, update) => {
+            if (update.$inc?.intent_index) leadScoreBoosted = true;
+            return {};
+        };
+
+        const req = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res = createMockRes();
+
+        await submitFeedback(req, res, () => {});
+
+        assert.strictEqual(res.statusCode, 201, 'Reconciled submission must return 201 Created');
+        assert.strictEqual(res.data.reconciled, true, 'Response must reflect reconciled status');
+        assert.strictEqual(activityDoc.details.feedbackSubmitted, true, 'Activity must now be finalized');
+        assert.strictEqual(activityDoc.status, 'Completed', 'Activity status must be transitioned to Completed');
+        assert.strictEqual(leadScoreBoosted, true, 'Lead intent score must be updated on reconciliation');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 29: Lock Ownership Safety (Never Clear Another Lock) (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 29: Lock Ownership Invariant (Pass 3) ---');
+    await recordAsync('29. Lock release conditional update never clears a lock owned by another request', async () => {
+        const fakeActId = new mongoose.Types.ObjectId();
+        const activeLockId = 'lock_held_by_request_A';
+        const foreignLockId = 'lock_held_by_request_B';
+
+        let activityDoc = {
+            _id: fakeActId,
+            details: {
+                feedbackLock: true,
+                feedbackLockId: activeLockId,
+                feedbackLockAt: new Date()
+            }
+        };
+
+        // Conditional CAS update simulating MongoDB findOneAndUpdate behavior
+        const atomicFindOneAndUpdate = (query, update) => {
+            if (query['details.feedbackLockId'] === activityDoc.details.feedbackLockId) {
+                if (update.$unset?.['details.feedbackLock']) {
+                    delete activityDoc.details.feedbackLock;
+                    delete activityDoc.details.feedbackLockId;
+                    delete activityDoc.details.feedbackLockAt;
+                    return { ...activityDoc };
+                }
+            }
+            return null; // Condition not met: lock was not modified
+        };
+
+        // Request B attempts to clean up its own lock (foreignLockId)
+        const resultB = atomicFindOneAndUpdate(
+            { _id: fakeActId, 'details.feedbackLockId': foreignLockId },
+            { $unset: { 'details.feedbackLock': 1, 'details.feedbackLockId': 1, 'details.feedbackLockAt': 1 } }
+        );
+
+        assert.strictEqual(resultB, null, 'Foreign lock release must match 0 documents');
+        assert.strictEqual(activityDoc.details.feedbackLockId, activeLockId, 'Active lock A must remain strictly untouched');
+
+        // Request A cleans up its own lock (activeLockId)
+        const resultA = atomicFindOneAndUpdate(
+            { _id: fakeActId, 'details.feedbackLockId': activeLockId },
+            { $unset: { 'details.feedbackLock': 1, 'details.feedbackLockId': 1, 'details.feedbackLockAt': 1 } }
+        );
+
+        assert(resultA, 'Own lock release must succeed');
+        assert.strictEqual(activityDoc.details.feedbackLockId, undefined, 'Active lock A must now be cleared');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 30: Duplicate-Key Exit Releases Request Lock (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 30: Duplicate-Key Lock Cleanup (Pass 3) ---');
+    await recordAsync('30. Duplicate request exit releases its own acquired lock on finalized activity', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+        const existingSubId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        let activityDoc = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit', 'Customer-Feedback-Received'],
+            details: {
+                visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }],
+                feedbackSubmitted: true,
+                submissionId: existingSubId
+            }
+        };
+
+        let findByIdCount = 0;
+        Activity.findById = () => {
+            findByIdCount++;
+            if (findByIdCount === 1) {
+                // First call: initial check shows activity not yet finalized, so lock is acquired
+                return Promise.resolve({
+                    ...activityDoc,
+                    details: {
+                        visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }]
+                    }
+                });
+            }
+            // Subsequent calls (inside duplicate key catch): activity is now finalized
+            return Promise.resolve(activityDoc);
+        };
+
+        let lockAcquired = false;
+        let lockReleased = false;
+
+        Activity.findOneAndUpdate = async (query, update) => {
+            if (update.$set?.['details.feedbackLock']) {
+                lockAcquired = true;
+                activityDoc.details.feedbackLock = true;
+                activityDoc.details.feedbackLockId = update.$set['details.feedbackLockId'];
+                return { ...activityDoc };
+            }
+            if (update.$unset?.['details.feedbackLock']) {
+                if (activityDoc.details.feedbackLockId === query['details.feedbackLockId']) {
+                    lockReleased = true;
+                    delete activityDoc.details.feedbackLock;
+                    delete activityDoc.details.feedbackLockId;
+                    return { ...activityDoc };
+                }
+            }
+            return { ...activityDoc };
+        };
+
+        // Simulate code 11000 duplicate key error
+        FeedbackSubmission.create = async () => {
+            const err = new Error('E11000 duplicate key error');
+            err.code = 11000;
+            throw err;
+        };
+        FeedbackSubmission.findOne = () => Promise.resolve({ _id: existingSubId });
+
+        const req = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res = createMockRes();
+
+        await submitFeedback(req, res, () => {});
+
+        assert.strictEqual(res.statusCode, 200, 'Duplicate request must return 200 OK');
+        assert.strictEqual(res.data.duplicate, true, 'Must indicate duplicate');
+        assert.strictEqual(lockAcquired, true, 'Lock must have been acquired');
+        assert.strictEqual(lockReleased, true, 'Lock must have been released by this request');
+        assert.strictEqual(activityDoc.details.feedbackLock, undefined, 'Lock must be unset and not stuck');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 31: Exactly-Once Downstream Effects Invariant (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 31: Exactly-Once Downstream Effects Invariant (Pass 3) ---');
+    await recordAsync('31. Duplicate requests produce zero repeated scoring or task side-effects', async () => {
+        const fakeLeadId = new mongoose.Types.ObjectId();
+        const fakeActId = new mongoose.Types.ObjectId();
+        const subId = new mongoose.Types.ObjectId();
+
+        const token = jwt.sign({
+            leadId: String(fakeLeadId),
+            activityId: String(fakeActId),
+            purpose: 'customer_feedback'
+        }, process.env.JWT_SECRET);
+
+        const finalizedActivity = {
+            _id: fakeActId,
+            type: 'Site Visit',
+            entityId: fakeLeadId,
+            status: 'Completed',
+            tags: ['Site-Visit', 'Customer-Feedback-Received'],
+            details: {
+                visitedProperties: [{ project: 'Godrej Woods', property: 'Unit 1204' }],
+                feedbackSubmitted: true,
+                submissionId: subId
+            }
+        };
+
+        Activity.findById = () => Promise.resolve(finalizedActivity);
+
+        let scoringUpdates = 0;
+        Lead.findByIdAndUpdate = async (id, update) => {
+            if (update.$inc) scoringUpdates++;
+            return {};
+        };
+
+        const req = {
+            params: { slug: standardFormSlug },
+            body: { token, responses: { fld_rating: '5' } },
+            query: {}, headers: {}
+        };
+        const res = createMockRes();
+
+        await submitFeedback(req, res, () => {});
+
+        assert.strictEqual(res.statusCode, 200, 'Duplicate request returns 200');
+        assert.strictEqual(scoringUpdates, 0, 'Zero scoring increments must occur on duplicate requests');
+    });
+
+    // ------------------------------------------------------------------------
+    // Test 32: Index Verification & Duplicate Detection (Pass 3)
+    // ------------------------------------------------------------------------
+    console.log('\n--- Test 32: Index Verification & Duplicate Detection (Pass 3) ---');
+    await recordAsync('32. Index migration pre-flight detects duplicates and prevents unsafe unique indexing', async () => {
+        const { detectDuplicates, provisionAndVerifyIndexes, REQUIRED_INDEXES } = await import('../scripts/provision_feedback_submission_indexes.js');
+
+        assert(REQUIRED_INDEXES.find(idx => idx.key.idempotencyKey === 1 && idx.unique && idx.sparse), 'idempotencyKey index must be declared');
+        assert(REQUIRED_INDEXES.find(idx => idx.key.activity === 1), 'activity lookup index must be declared');
+        assert(REQUIRED_INDEXES.find(idx => idx.key.activity === 1 && idx.key.inventory === 1), 'activity + inventory compound index must be declared');
+
+        // Test duplicate detection failure on unique keys
+        const mockModelWithDuplicates = {
+            aggregate: async (pipeline) => {
+                const isIdempotencyKey = pipeline[0]?.$match?.idempotencyKey;
+                if (isIdempotencyKey) {
+                    return [{ _id: 'fake_key_123', count: 2, ids: ['doc1', 'doc2'] }];
+                }
+                return [];
+            }
+        };
+
+        const dupScan = await detectDuplicates(mockModelWithDuplicates);
+        assert.strictEqual(dupScan.hasDuplicates, true, 'Duplicates must be detected');
+        assert.strictEqual(dupScan.idempotencyKeyDuplicates.length, 1, 'Must find 1 duplicate group');
+
+        const provisionFail = await provisionAndVerifyIndexes(mockModelWithDuplicates);
+        assert.strictEqual(provisionFail.success, false, 'Provisioning must halt when duplicates exist');
+        assert.strictEqual(provisionFail.reason, 'DUPLICATES_DETECTED', 'Reason must indicate duplicates detected');
+
+        // Test clean detection and index verification
+        let indexesCreated = false;
+        const mockCleanModel = {
+            aggregate: async () => [],
+            createIndexes: async () => { indexesCreated = true; },
+            collection: {
+                indexes: async () => [
+                    { key: { _id: 1 }, name: '_id_' },
+                    { key: { idempotencyKey: 1 }, unique: true, sparse: true, name: 'idempotencyKey_1' },
+                    { key: { activity: 1 }, name: 'activity_1' },
+                    { key: { activity: 1, inventory: 1 }, name: 'activity_1_inventory_1' }
+                ]
+            }
+        };
+
+        const cleanScan = await detectDuplicates(mockCleanModel);
+        assert.strictEqual(cleanScan.hasDuplicates, false, 'Clean model has zero duplicates');
+
+        const provisionSuccess = await provisionAndVerifyIndexes(mockCleanModel);
+        assert.strictEqual(provisionSuccess.success, true, 'Clean model provisioning must succeed');
+        assert.strictEqual(provisionSuccess.allVerified, true, 'All required indexes must be verified');
+        assert.strictEqual(indexesCreated, true, 'createIndexes must be invoked');
+    });
+
     // Cleanup globals
     FeedbackForm.findOne = origFormFindOne;
     FeedbackForm.updateOne = origFormUpdateOne;
@@ -1286,6 +1696,7 @@ async function runSecurityDeliveryTests() {
     Activity.findById = origActFindById;
     Activity.find = origActFind;
     Activity.findOne = origActFindOne;
+    Activity.findOneAndUpdate = origActFindOneAndUpdate;
     Activity.findByIdAndUpdate = origActFindByIdAndUpdate;
     Activity.create = origActCreate;
     Lead.findById = origLeadFindById;

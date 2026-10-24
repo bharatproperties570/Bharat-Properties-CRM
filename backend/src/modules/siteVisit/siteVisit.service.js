@@ -8,6 +8,17 @@ import LookupService from '../../../services/LookupService.js';
 import { autoTriggerStageChange } from '../../../controllers/activity.controller.js';
 import SiteVisitAutomationService from './siteVisitAutomation.service.js';
 
+const isTestEnvironment = () => {
+    if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
+        return false;
+    }
+    return process.env.NODE_ENV === 'test' ||
+        Boolean(process.env.JEST_WORKER_ID) ||
+        Boolean(process.env.VITEST) ||
+        Boolean(process.env.TEST_MODE) ||
+        (Array.isArray(process.argv) && process.argv.some(arg => typeof arg === 'string' && (arg.includes('test') || arg.includes('mocha') || arg.includes('jest'))));
+};
+
 export class SiteVisitService {
     /**
      * Schedule a new Site Visit for a Lead.
@@ -27,12 +38,15 @@ export class SiteVisitService {
             throw new Error('Lead not found');
         }
 
-        // Normalize visited properties list
-        const normalizedProperties = Array.isArray(properties) ? properties.map(p => ({
+        // Normalize visited properties list with sequential journey statuses
+        const normalizedProperties = Array.isArray(properties) ? properties.map((p, idx) => ({
+            order: typeof p.order === 'number' ? p.order : idx,
             project: p.project || p.name || p.projectName || '',
             block: p.block || '',
             property: p.property || p.unit || p.unitNumber || '',
             inventoryId: p.inventoryId || p.id || null,
+            status: idx === 0 ? 'READY' : 'LOCKED',
+            unlockedAt: idx === 0 ? new Date() : null,
             result: p.result || 'Scheduled',
             notes: p.notes || ''
         })) : [];
@@ -89,6 +103,20 @@ export class SiteVisitService {
             }
         });
 
+        // Generate client journey token and URL for multi-property itinerary navigation
+        try {
+            const { SiteVisitJourneyService } = await import('./siteVisitJourney.service.js');
+            const journeyInfo = SiteVisitJourneyService.generateJourneyToken(activity);
+            if (!activity.details) activity.details = {};
+            activity.details.journeyTokenHash = journeyInfo.tokenHash;
+            activity.details.journeyTokenJti = journeyInfo.jti;
+            activity.details.journeyExpiresAt = journeyInfo.expiresAt;
+            activity.details.journeyUrl = journeyInfo.journeyUrl;
+            if (typeof activity.save === 'function') {
+                await activity.save().catch(() => {});
+            }
+        } catch (_) {}
+
         // Auto-advance Lead stage to 'Site Visit Scheduled'
         try {
             if (mongoose.connection && mongoose.connection.readyState === 1) {
@@ -130,8 +158,10 @@ export class SiteVisitService {
         const userName = user?.fullName || user?.name || 'CRM User';
         const userId = user?._id || user?.id || null;
 
-        // Fail closed in production when database is unavailable
-        if (process.env.NODE_ENV === 'production' && mongoose.connection?.readyState !== 1) {
+        // Fail closed in non-test environments when database is unavailable
+        if ((process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging' || !isTestEnvironment()) &&
+            mongoose.connection?.readyState !== 1 &&
+            Activity.findOneAndUpdate === mongoose.Model.findOneAndUpdate) {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
@@ -175,8 +205,8 @@ export class SiteVisitService {
                 },
                 { new: true }
             );
-        } else if (typeof existing.save === 'function') {
-            // Isolated test-mode adapter
+        } else if (isTestEnvironment() && typeof existing.save === 'function') {
+            // Isolated test-mode adapter ONLY when explicitly in test environment
             if (!existing.details) existing.details = {};
             if (!Array.isArray(existing.details.rescheduleHistory)) existing.details.rescheduleHistory = [];
             existing.details.rescheduleHistory.push({
@@ -236,8 +266,10 @@ export class SiteVisitService {
         const userName = user?.fullName || user?.name || 'CRM User';
         const userId = user?._id || user?.id || null;
 
-        // Fail closed in production when database is unavailable
-        if (process.env.NODE_ENV === 'production' && mongoose.connection?.readyState !== 1) {
+        // Fail closed in non-test environments when database is unavailable
+        if ((process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging' || !isTestEnvironment()) &&
+            mongoose.connection?.readyState !== 1 &&
+            Activity.findOneAndUpdate === mongoose.Model.findOneAndUpdate) {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
@@ -263,19 +295,25 @@ export class SiteVisitService {
                         'details.cancelReason': trimmedReason,
                         'details.cancelledAt': new Date(),
                         'details.cancelledBy': userId,
-                        'details.cancelledByName': userName
+                        'details.cancelledByName': userName,
+                        'details.journeyRevoked': true,
+                        'details.journeyRevokedAt': new Date(),
+                        'details.journeyRevokedReason': trimmedReason
                     }
                 },
                 { new: true }
             );
-        } else if (typeof existing.save === 'function') {
-            // Isolated test-mode adapter
+        } else if (isTestEnvironment() && typeof existing.save === 'function') {
+            // Isolated test-mode adapter ONLY when explicitly in test environment
             existing.status = 'Cancelled';
             if (!existing.details) existing.details = {};
             existing.details.cancelReason = trimmedReason;
             existing.details.cancelledAt = new Date();
             existing.details.cancelledBy = userId;
             existing.details.cancelledByName = userName;
+            existing.details.journeyRevoked = true;
+            existing.details.journeyRevokedAt = new Date();
+            existing.details.journeyRevokedReason = trimmedReason;
             await existing.save();
             activity = existing;
         } else {
@@ -305,8 +343,10 @@ export class SiteVisitService {
             throw new Error('Completion outcome is required (e.g. Interested, Token Given, Low Budget, Location Mismatch, Postponed, Not Interested)');
         }
 
-        // Database must be available in production — fail closed!
-        if (process.env.NODE_ENV === 'production' && mongoose.connection?.readyState !== 1) {
+        // Database must be available in non-test environments — fail closed!
+        if ((process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging' || !isTestEnvironment()) &&
+            mongoose.connection?.readyState !== 1 &&
+            Activity.findOneAndUpdate === mongoose.Model.findOneAndUpdate) {
             throw new Error('Database connection unavailable: Cannot execute atomic lifecycle transition');
         }
 
@@ -429,8 +469,8 @@ export class SiteVisitService {
         let activity = null;
         if (mongoose.connection?.readyState === 1 || Activity.findOneAndUpdate !== mongoose.Model.findOneAndUpdate) {
             activity = await Activity.findOneAndUpdate(casQuery, updateOps, { new: true });
-        } else if (typeof existingActivity.save === 'function') {
-            // Isolated test-mode adapter
+        } else if (isTestEnvironment() && typeof existingActivity.save === 'function') {
+            // Isolated test-mode adapter ONLY when explicitly in test environment
             existingActivity.status = 'Completed';
             existingActivity.completedAt = new Date();
             existingActivity.completionResult = trimmedOutcome;

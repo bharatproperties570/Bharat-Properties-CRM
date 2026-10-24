@@ -1,5 +1,198 @@
 import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
+import toast from 'react-hot-toast';
+
+const JourneyProgressTracker = ({ formData, isDark }) => {
+    const journeyUrl = formData.details?.journeyUrl || (formData.details?.journeyToken ? `${window.location.origin}/journey/${formData.details.journeyToken}` : null);
+    const visited = Array.isArray(formData.visitedProperties) ? formData.visitedProperties : [];
+
+    const handleCopy = () => {
+        if (!journeyUrl) return;
+        navigator.clipboard.writeText(journeyUrl);
+        toast.success('Client Journey link copied to clipboard!');
+    };
+
+    const handleWhatsApp = () => {
+        if (!journeyUrl) return;
+        const msg = encodeURIComponent(`Hello! Here is your personalized Site Visit Itinerary & Navigation link: ${journeyUrl}`);
+        window.open(`https://wa.me/?text=${msg}`, '_blank');
+    };
+
+    if (!journeyUrl && visited.length === 0) return null;
+
+    return (
+        <div style={{
+            marginTop: '16px',
+            marginBottom: '16px',
+            padding: '16px',
+            background: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
+            border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0',
+            borderRadius: '12px'
+        }}>
+            {/* Header & Link Share Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-route" style={{ color: '#0284c7', fontSize: '1rem' }}></i>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                        Client Mobile Journey Tracker
+                    </span>
+                </div>
+
+                {journeyUrl && (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={handleCopy}
+                            style={{
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(2, 132, 199, 0.3)',
+                                background: 'rgba(2, 132, 199, 0.1)',
+                                color: '#0284c7',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px'
+                            }}
+                        >
+                            <i className="far fa-copy"></i> Copy Link
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleWhatsApp}
+                            style={{
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(37, 211, 102, 0.4)',
+                                background: 'rgba(37, 211, 102, 0.12)',
+                                color: '#16a34a',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px'
+                            }}
+                        >
+                            <i className="fab fa-whatsapp"></i> WhatsApp
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Property Status Stepper */}
+            {visited.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                    {visited.map((prop, idx) => {
+                        const status = prop.status || 'READY';
+                        const isSubmitted = status === 'FEEDBACK_SUBMITTED' || Boolean(prop.clientRating);
+                        const isNavigated = status === 'NAVIGATED';
+                        const isLocked = status === 'LOCKED';
+
+                        return (
+                            <div key={idx} style={{
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                background: isDark ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid #edf2f7',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <div style={{ flex: 1.5 }}>
+                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>
+                                        STOP {idx + 1}
+                                    </div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? '#f8fafc' : '#1e293b' }}>
+                                        {prop.project || 'Project'} {prop.property ? `- ${prop.property}` : ''}
+                                    </div>
+                                </div>
+
+                                <div style={{ textAlign: 'right' }}>
+                                    {isSubmitted && (
+                                        <div>
+                                            <span style={{
+                                                background: 'rgba(16, 185, 129, 0.1)',
+                                                color: '#10b981',
+                                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                                borderRadius: '6px',
+                                                padding: '2px 8px',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 700
+                                            }}>
+                                                ⭐ {prop.clientRating || 5}/5 Received
+                                            </span>
+                                            {prop.clientInterest && (
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+                                                    {prop.clientInterest}
+                                                </div>
+                                            )}
+                                            {prop.revisitRequested && (
+                                                <span style={{
+                                                    fontSize: '0.65rem',
+                                                    color: '#f59e0b',
+                                                    fontWeight: 600,
+                                                    marginLeft: '4px'
+                                                }}>
+                                                    • Revisit Requested
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {isNavigated && !isSubmitted && (
+                                        <span style={{
+                                            background: 'rgba(2, 132, 199, 0.1)',
+                                            color: '#0284c7',
+                                            border: '1px solid rgba(2, 132, 199, 0.3)',
+                                            borderRadius: '6px',
+                                            padding: '2px 8px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700
+                                        }}>
+                                            🧭 Navigating
+                                        </span>
+                                    )}
+
+                                    {!isSubmitted && !isNavigated && !isLocked && (
+                                        <span style={{
+                                            background: 'rgba(217, 119, 6, 0.1)',
+                                            color: '#d97706',
+                                            border: '1px solid rgba(217, 119, 6, 0.3)',
+                                            borderRadius: '6px',
+                                            padding: '2px 8px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700
+                                        }}>
+                                            🟢 Ready to Visit
+                                        </span>
+                                    )}
+
+                                    {isLocked && (
+                                        <span style={{
+                                            background: 'rgba(100, 116, 139, 0.1)',
+                                            color: '#64748b',
+                                            border: '1px solid rgba(100, 116, 139, 0.2)',
+                                            borderRadius: '6px',
+                                            padding: '2px 8px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700
+                                        }}>
+                                            🔒 Locked
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const SiteVisitActivitySection = ({ 
     formData, 
@@ -24,7 +217,9 @@ const SiteVisitActivitySection = ({
     // --- RESULTS VIEW RENDERING (Right Side) ---
     if (view === 'results') {
         return (
-            <ActivityCard background="#f0fdf4" borderColor="#bcf0da" style={{ marginBottom: '16px' }}>
+            <>
+                <JourneyProgressTracker formData={formData} isDark={isDark} />
+                <ActivityCard background="#f0fdf4" borderColor="#bcf0da" style={{ marginBottom: '16px' }}>
                 <SectionTitle icon="fas fa-check-circle" color="#047857">Completion Details</SectionTitle>
                 
                 {/* 1. Overall Status first */}
@@ -100,12 +295,15 @@ const SiteVisitActivitySection = ({
                     </div>
                 )}
             </ActivityCard>
+            </>
         );
     }
 
     // --- SELECTION VIEW RENDERING (Left Side) ---
     return (
-        <ActivityCard background="#ecfdf5" borderColor="#a7f3d0" style={{ marginBottom: '16px' }}>
+        <>
+            <JourneyProgressTracker formData={formData} isDark={isDark} />
+            <ActivityCard background="#ecfdf5" borderColor="#a7f3d0" style={{ marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <SectionTitle icon="fas fa-map-marked-alt" color="#047857">Site Visit Properties</SectionTitle>
                 <button
@@ -284,6 +482,7 @@ const SiteVisitActivitySection = ({
                 );
             })()}
         </ActivityCard>
+        </>
     );
 };
 
