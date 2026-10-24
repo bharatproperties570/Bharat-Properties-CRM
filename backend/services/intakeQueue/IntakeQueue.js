@@ -7,6 +7,7 @@ import aiVerificationEngine from '../intakeVerification/AIVerificationEngine.js'
 import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngine.js';
 import NotificationEngine from '../NotificationEngine.js';
 import { tracer } from '../../src/config/otel.js';
+import { normalizeDiscoveryUrl } from '../discovery/DiscoveryFilterEngine.js';
 
 // ── Structured logger ──────────────────────────────────────────
 const log = {
@@ -107,6 +108,35 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
         const existing = await Intake.findOne({ duplicate_hash: dealHash });
         if (existing) {
             return { success: false, duplicate: true, message: 'Duplicate intake detected', intakeId: existing._id };
+        }
+    }
+
+    // 🛡️ Phase 1.2: URL Ingestion Deduplication Guard (public_url & property_listing)
+    if (!dealHash && (sourceType === 'public_url' || sourceType === 'property_listing') && (rawData?.url || rawData?.normalized_url)) {
+        const canonicalUrl = normalizeDiscoveryUrl(rawData.url || rawData.normalized_url) || rawData.url;
+        const tempConnector = connectorRegistry.getConnector(sourceType);
+        dealHash = tempConnector.generateDuplicateHash(canonicalUrl);
+
+        try {
+            const existingUrlIntake = await Intake.findOne({
+                $or: [
+                    { duplicate_hash: dealHash },
+                    { 'raw_source_data.url': canonicalUrl },
+                    { 'raw_source_data.normalized_url': canonicalUrl },
+                    { 'raw_source_data.raw_url': rawData.url }
+                ]
+            });
+
+            if (existingUrlIntake) {
+                return {
+                    success: false,
+                    duplicate: true,
+                    reason: 'duplicate_url_already_queued_or_processed',
+                    intakeId: existingUrlIntake._id
+                };
+            }
+        } catch (urlDedupErr) {
+            console.warn('[IntakeQueue:URL Dedup Error]:', urlDedupErr.message);
         }
     }
 

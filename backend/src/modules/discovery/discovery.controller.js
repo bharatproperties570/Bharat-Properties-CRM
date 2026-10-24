@@ -37,7 +37,7 @@ export const createConfig = async (req, res) => {
 
 export const updateConfig = async (req, res) => {
     try {
-        const validation = validateDiscoveryConfigPayload(req.body);
+        const validation = validateDiscoveryConfigPayload(req.body, { isPartial: true });
         if (!validation.valid) {
             return res.status(400).json({ 
                 success: false, 
@@ -48,7 +48,7 @@ export const updateConfig = async (req, res) => {
 
         const config = await DiscoveryConfig.findByIdAndUpdate(
             req.params.id, 
-            validation.cleanPayload, 
+            { $set: validation.cleanPayload }, 
             { new: true, runValidators: true }
         );
         if (!config) return res.status(404).json({ success: false, message: 'Config not found' });

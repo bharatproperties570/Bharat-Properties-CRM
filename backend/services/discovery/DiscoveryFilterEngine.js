@@ -625,41 +625,62 @@ export function evaluateListing(listingData = {}, config = {}) {
 
 /**
  * Validates DiscoveryConfig input payload.
+ * Supports full creation validation (default) and partial updates (isPartial: true)
+ * to prevent partial updates from silently erasing existing filter configurations.
  * 
  * @param {object} payload 
+ * @param {object} [options={}]
+ * @param {boolean} [options.isPartial=false] - When true, only validates provided fields without defaulting missing fields.
  * @returns {{ valid: boolean, errors: string[], cleanPayload: object }}
  */
-export function validateDiscoveryConfigPayload(payload = {}) {
+export function validateDiscoveryConfigPayload(payload = {}, options = {}) {
+    const isPartial = Boolean(options.isPartial);
     const errors = [];
     const clean = {};
 
     // 1. Name
-    if (!payload.name || typeof payload.name !== 'string' || !payload.name.trim()) {
+    if (payload.name !== undefined) {
+        if (!payload.name || typeof payload.name !== 'string' || !payload.name.trim()) {
+            errors.push("Configuration name is required");
+        } else {
+            clean.name = payload.name.trim();
+        }
+    } else if (!isPartial) {
         errors.push("Configuration name is required");
-    } else {
-        clean.name = payload.name.trim();
     }
 
     // 2. Keywords
-    if (!Array.isArray(payload.keywords) || payload.keywords.length === 0) {
-        errors.push("At least one search keyword is required");
-    } else {
-        const cleanedKeywords = payload.keywords.map(k => String(k).trim()).filter(Boolean);
-        if (cleanedKeywords.length === 0) {
-            errors.push("At least one non-empty search keyword is required");
+    if (payload.keywords !== undefined) {
+        if (!Array.isArray(payload.keywords) || payload.keywords.length === 0) {
+            errors.push("At least one search keyword is required");
         } else {
-            clean.keywords = cleanedKeywords;
+            const cleanedKeywords = payload.keywords.map(k => String(k).trim()).filter(Boolean);
+            if (cleanedKeywords.length === 0) {
+                errors.push("At least one non-empty search keyword is required");
+            } else {
+                clean.keywords = cleanedKeywords;
+            }
         }
+    } else if (!isPartial) {
+        errors.push("At least one search keyword is required");
     }
 
     // 3. Location Filters & Property Types
-    clean.location_filters = Array.isArray(payload.location_filters)
-        ? payload.location_filters.map(l => String(l).trim()).filter(Boolean)
-        : [];
+    if (payload.location_filters !== undefined) {
+        clean.location_filters = Array.isArray(payload.location_filters)
+            ? payload.location_filters.map(l => String(l).trim()).filter(Boolean)
+            : [];
+    } else if (!isPartial) {
+        clean.location_filters = [];
+    }
 
-    clean.property_types = Array.isArray(payload.property_types)
-        ? payload.property_types.map(t => String(t).trim()).filter(Boolean)
-        : [];
+    if (payload.property_types !== undefined) {
+        clean.property_types = Array.isArray(payload.property_types)
+            ? payload.property_types.map(t => String(t).trim()).filter(Boolean)
+            : [];
+    } else if (!isPartial) {
+        clean.property_types = [];
+    }
 
     // 4. Cron Schedule
     if (payload.schedule_cron !== undefined) {
@@ -668,123 +689,165 @@ export function validateDiscoveryConfigPayload(payload = {}) {
         } else {
             clean.schedule_cron = payload.schedule_cron.trim();
         }
-    } else {
+    } else if (!isPartial) {
         clean.schedule_cron = '0 0 * * *';
     }
 
     // 5. Active toggle
-    clean.is_active = payload.is_active !== undefined ? Boolean(payload.is_active) : true;
+    if (payload.is_active !== undefined) {
+        clean.is_active = Boolean(payload.is_active);
+    } else if (!isPartial) {
+        clean.is_active = true;
+    }
 
     // 6. Price Range Validation
-    if (payload.price_min !== undefined && payload.price_min !== null && payload.price_min !== '') {
-        const pMin = Number(payload.price_min);
-        if (isNaN(pMin) || pMin < 0) {
-            errors.push("price_min must be a non-negative number");
+    if (payload.price_min !== undefined) {
+        if (payload.price_min !== null && payload.price_min !== '') {
+            const pMin = Number(payload.price_min);
+            if (isNaN(pMin) || pMin < 0) {
+                errors.push("price_min must be a non-negative number");
+            } else {
+                clean.price_min = pMin;
+            }
         } else {
-            clean.price_min = pMin;
+            clean.price_min = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.price_min = null;
     }
 
-    if (payload.price_max !== undefined && payload.price_max !== null && payload.price_max !== '') {
-        const pMax = Number(payload.price_max);
-        if (isNaN(pMax) || pMax < 0) {
-            errors.push("price_max must be a non-negative number");
+    if (payload.price_max !== undefined) {
+        if (payload.price_max !== null && payload.price_max !== '') {
+            const pMax = Number(payload.price_max);
+            if (isNaN(pMax) || pMax < 0) {
+                errors.push("price_max must be a non-negative number");
+            } else {
+                clean.price_max = pMax;
+            }
         } else {
-            clean.price_max = pMax;
+            clean.price_max = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.price_max = null;
     }
 
-    if (clean.price_min !== null && clean.price_max !== null && clean.price_max < clean.price_min) {
-        errors.push(`price_max (${clean.price_max}) cannot be less than price_min (${clean.price_min})`);
+    // Cross-validate price range if both are present in clean
+    const checkPMin = clean.price_min !== undefined ? clean.price_min : null;
+    const checkPMax = clean.price_max !== undefined ? clean.price_max : null;
+    if (checkPMin !== null && checkPMax !== null && checkPMax < checkPMin) {
+        errors.push(`price_max (${checkPMax}) cannot be less than price_min (${checkPMin})`);
     }
 
     // 7. Size Range Validation
-    if (payload.size_min !== undefined && payload.size_min !== null && payload.size_min !== '') {
-        const sMin = Number(payload.size_min);
-        if (isNaN(sMin) || sMin < 0) {
-            errors.push("size_min must be a non-negative number");
+    if (payload.size_min !== undefined) {
+        if (payload.size_min !== null && payload.size_min !== '') {
+            const sMin = Number(payload.size_min);
+            if (isNaN(sMin) || sMin < 0) {
+                errors.push("size_min must be a non-negative number");
+            } else {
+                clean.size_min = sMin;
+            }
         } else {
-            clean.size_min = sMin;
+            clean.size_min = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.size_min = null;
     }
 
-    if (payload.size_max !== undefined && payload.size_max !== null && payload.size_max !== '') {
-        const sMax = Number(payload.size_max);
-        if (isNaN(sMax) || sMax < 0) {
-            errors.push("size_max must be a non-negative number");
+    if (payload.size_max !== undefined) {
+        if (payload.size_max !== null && payload.size_max !== '') {
+            const sMax = Number(payload.size_max);
+            if (isNaN(sMax) || sMax < 0) {
+                errors.push("size_max must be a non-negative number");
+            } else {
+                clean.size_max = sMax;
+            }
         } else {
-            clean.size_max = sMax;
+            clean.size_max = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.size_max = null;
     }
 
-    if (clean.size_min !== null && clean.size_max !== null && clean.size_max < clean.size_min) {
-        errors.push(`size_max (${clean.size_max}) cannot be less than size_min (${clean.size_min})`);
+    // Cross-validate size range if both are present in clean
+    const checkSMin = clean.size_min !== undefined ? clean.size_min : null;
+    const checkSMax = clean.size_max !== undefined ? clean.size_max : null;
+    if (checkSMin !== null && checkSMax !== null && checkSMax < checkSMin) {
+        errors.push(`size_max (${checkSMax}) cannot be less than size_min (${checkSMin})`);
     }
 
     // 8. Size Unit Validation
-    if (payload.size_unit !== undefined && payload.size_unit !== null && payload.size_unit !== '') {
-        const unit = String(payload.size_unit).trim().toLowerCase();
-        if (!SUPPORTED_AREA_UNITS.includes(unit)) {
-            errors.push(`Unsupported size_unit "${unit}". Supported units: ${SUPPORTED_AREA_UNITS.join(', ')}`);
+    if (payload.size_unit !== undefined) {
+        if (payload.size_unit !== null && payload.size_unit !== '') {
+            const unit = String(payload.size_unit).trim().toLowerCase();
+            if (!SUPPORTED_AREA_UNITS.includes(unit)) {
+                errors.push(`Unsupported size_unit "${unit}". Supported units: ${SUPPORTED_AREA_UNITS.join(', ')}`);
+            } else {
+                clean.size_unit = unit;
+            }
         } else {
-            clean.size_unit = unit;
+            clean.size_unit = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.size_unit = null;
     }
 
     // 9. Seller Types Validation
-    if (Array.isArray(payload.seller_types)) {
-        const validTypes = [];
-        for (const st of payload.seller_types) {
-            const cleanSt = String(st).trim().toLowerCase();
-            if (!SUPPORTED_SELLER_TYPES.includes(cleanSt)) {
-                errors.push(`Unsupported seller_type "${cleanSt}". Supported types: ${SUPPORTED_SELLER_TYPES.join(', ')}`);
-            } else if (!validTypes.includes(cleanSt)) {
-                validTypes.push(cleanSt);
+    if (payload.seller_types !== undefined) {
+        if (Array.isArray(payload.seller_types)) {
+            const validTypes = [];
+            for (const st of payload.seller_types) {
+                const cleanSt = String(st).trim().toLowerCase();
+                if (!SUPPORTED_SELLER_TYPES.includes(cleanSt)) {
+                    errors.push(`Unsupported seller_type "${cleanSt}". Supported types: ${SUPPORTED_SELLER_TYPES.join(', ')}`);
+                } else if (!validTypes.includes(cleanSt)) {
+                    validTypes.push(cleanSt);
+                }
             }
+            clean.seller_types = validTypes;
+        } else {
+            clean.seller_types = [];
         }
-        clean.seller_types = validTypes;
-    } else {
+    } else if (!isPartial) {
         clean.seller_types = [];
     }
 
     // 10. Portal Whitelist Validation
-    if (Array.isArray(payload.portal_whitelist)) {
-        const cleanedPortals = [];
-        for (const raw of payload.portal_whitelist) {
-            const domain = String(raw).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-            if (domain && !cleanedPortals.includes(domain)) {
-                // Basic hostname format check
-                if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
-                    errors.push(`Malformed portal domain in whitelist: "${raw}"`);
-                } else {
-                    cleanedPortals.push(domain);
+    if (payload.portal_whitelist !== undefined) {
+        if (Array.isArray(payload.portal_whitelist)) {
+            const cleanedPortals = [];
+            for (const raw of payload.portal_whitelist) {
+                const domain = String(raw).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+                if (domain && !cleanedPortals.includes(domain)) {
+                    // Basic hostname format check
+                    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
+                        errors.push(`Malformed portal domain in whitelist: "${raw}"`);
+                    } else {
+                        cleanedPortals.push(domain);
+                    }
                 }
             }
+            clean.portal_whitelist = cleanedPortals;
+        } else {
+            clean.portal_whitelist = [];
         }
-        clean.portal_whitelist = cleanedPortals;
-    } else {
+    } else if (!isPartial) {
         clean.portal_whitelist = [];
     }
 
     // 11. Freshness Days Validation
-    if (payload.freshness_days !== undefined && payload.freshness_days !== null && payload.freshness_days !== '') {
-        const days = Number(payload.freshness_days);
-        if (!Number.isInteger(days) || days < 1 || days > 365) {
-            errors.push("freshness_days must be an integer between 1 and 365");
+    if (payload.freshness_days !== undefined) {
+        if (payload.freshness_days !== null && payload.freshness_days !== '') {
+            const days = Number(payload.freshness_days);
+            if (!Number.isInteger(days) || days < 1 || days > 365) {
+                errors.push("freshness_days must be an integer between 1 and 365");
+            } else {
+                clean.freshness_days = days;
+            }
         } else {
-            clean.freshness_days = days;
+            clean.freshness_days = null;
         }
-    } else {
+    } else if (!isPartial) {
         clean.freshness_days = null;
     }
 

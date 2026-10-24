@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
 import { normalizeDiscoveryUrl, evaluateListing } from '../discovery/DiscoveryFilterEngine.js';
+import { classifySource } from '../discovery/SourceAuthorizationMatrix.js';
 
 class PropertyListingConnector extends BaseConnector {
     constructor() {
@@ -13,11 +14,16 @@ class PropertyListingConnector extends BaseConnector {
     async process(inputData) {
         const { url, user_id, discovery_filters, search_metadata } = inputData;
         const canonicalUrl = normalizeDiscoveryUrl(url) || url;
+        const sourceClassification = classifySource(canonicalUrl);
         
         // Fetch URL content
         const response = await axios.get(canonicalUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-            timeout: 10000,
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            timeout: 15000,
             validateStatus: () => true
         });
 
@@ -48,7 +54,7 @@ class PropertyListingConnector extends BaseConnector {
         let verificationStatus = 'unverified';
         let filterEvaluation = null;
 
-        // Phase 1: Apply Discovery Filters if configured
+        // Phase 1 / 1.2: Apply Discovery Filters if configured
         if (discovery_filters) {
             filterEvaluation = evaluateListing({
                 url: canonicalUrl,
@@ -92,8 +98,14 @@ class PropertyListingConnector extends BaseConnector {
             raw_source_data: { 
                 url: canonicalUrl, 
                 raw_url: url,
+                normalized_url: canonicalUrl,
                 originalTitle: title, 
                 scrapedPrice: price,
+                source_tier: sourceClassification.tier,
+                authorization_status: sourceClassification.status,
+                discovery_timestamp: inputData.discovery_timestamp || search_metadata?.discoveredAt || new Date().toISOString(),
+                extraction_timestamp: new Date().toISOString(),
+                published_date: search_metadata?.publishedDate || null,
                 search_metadata: search_metadata || null,
                 filter_evaluation: filterEvaluation
             }

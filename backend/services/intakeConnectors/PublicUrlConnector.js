@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import BaseConnector from './BaseConnector.js';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
 import { normalizeDiscoveryUrl, evaluateListing } from '../discovery/DiscoveryFilterEngine.js';
+import { classifySource } from '../discovery/SourceAuthorizationMatrix.js';
 
 class PublicUrlConnector extends BaseConnector {
     constructor() {
@@ -13,6 +14,7 @@ class PublicUrlConnector extends BaseConnector {
     async process(inputData) {
         const { url, user_id, discovery_filters, search_metadata } = inputData;
         const canonicalUrl = normalizeDiscoveryUrl(url) || url;
+        const sourceClassification = classifySource(canonicalUrl);
         
         // Fetch URL content
         const response = await axios.get(canonicalUrl, {
@@ -46,7 +48,7 @@ class PublicUrlConnector extends BaseConnector {
         const resolvedPrice = extracted.specs?.price || extracted.budget || extracted.price || '';
         const resolvedSize = extracted.specs?.size || extracted.size || '';
 
-        // Phase 1: Apply Discovery Filters if configured
+        // Phase 1 / 1.2: Apply Discovery Filters if configured
         if (discovery_filters) {
             filterEvaluation = evaluateListing({
                 url: canonicalUrl,
@@ -90,7 +92,13 @@ class PublicUrlConnector extends BaseConnector {
             raw_source_data: { 
                 url: canonicalUrl, 
                 raw_url: url,
+                normalized_url: canonicalUrl,
                 originalTitle: title,
+                source_tier: sourceClassification.tier,
+                authorization_status: sourceClassification.status,
+                discovery_timestamp: inputData.discovery_timestamp || search_metadata?.discoveredAt || new Date().toISOString(),
+                extraction_timestamp: new Date().toISOString(),
+                published_date: search_metadata?.publishedDate || null,
                 search_metadata: search_metadata || null,
                 filter_evaluation: filterEvaluation
             }

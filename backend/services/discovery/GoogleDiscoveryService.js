@@ -88,12 +88,14 @@ class GoogleDiscoveryService {
         }
 
         // 3. Queue to Unified Intake Engine
+        const nowIso = new Date().toISOString();
         const intakePayload = {
             url: normalizedUrl,
             raw_url: rawUrl,
             normalized_url: normalizedUrl,
             source: `Google Discovery: ${config.name}`,
             discovery_config_id: config._id,
+            discovery_timestamp: nowIso,
             discovery_filters: {
                 price_min: config.price_min,
                 price_max: config.price_max,
@@ -107,7 +109,10 @@ class GoogleDiscoveryService {
             search_metadata: {
                 title: metadata.title || null,
                 snippet: metadata.snippet || null,
-                publishedDate: metadata.publishedDate || null
+                publishedDate: metadata.publishedDate || null,
+                discoveredAt: nowIso,
+                query: metadata.query || null,
+                source_mode: metadata.source_mode || 'api'
             }
         };
 
@@ -185,7 +190,12 @@ class GoogleDiscoveryService {
                                 await new Promise(resolve => setTimeout(resolve, 1000));
 
                             } catch (apiErr) {
-                                console.warn(`[GoogleDiscovery] Google Custom Search API failed for query '${query}' (${apiErr.message}). Falling back to organic HTML Scraper...`);
+                                const isQuotaExceeded = apiErr.status === 429 || apiErr.code === 429 || /429|quota|rate limit/i.test(apiErr.message);
+                                if (isQuotaExceeded) {
+                                    console.warn(`[GoogleDiscovery] Google Custom Search API quota exhausted (HTTP 429). Falling back to organic HTML Scraper...`);
+                                } else {
+                                    console.warn(`[GoogleDiscovery] Google Custom Search API failed for query '${query}' (${apiErr.message}). Falling back to organic HTML Scraper...`);
+                                }
                                 
                                 if (organicQueryCount < maxOrganicQueries) {
                                     organicQueryCount++;
