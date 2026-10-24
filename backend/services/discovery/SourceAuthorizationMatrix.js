@@ -1,8 +1,18 @@
 /**
  * ==============================================================================
- *  SOURCE AUTHORIZATION & CAPABILITY INVENTORY (Phase 1.2 / 1.2.1)
+ *  SOURCE AUTHORIZATION & CAPABILITY INVENTORY (Phase 1.2 / 1.2.1 / 1.2.2)
  *  Enterprise governance, access control, rate limiting, and capability matrix
  * ==============================================================================
+ * 
+ * LEGAL AND COMPLIANCE NOTICE:
+ * Technical accessibility, lack of HTTP 403/401 errors, absence of robots.txt
+ * restrictions, or public search index visibility does NOT constitute legal permission,
+ * license, or authorization to scrape, aggregate, or redistribute property data.
+ * Bharat Properties CRM enforces strict authorization gates and human review workflows:
+ * 1. Tier 3 commercial portals strictly require an active, verified permission grant.
+ * 2. Portal whitelist settings define candidate discovery filters ONLY and NEVER grant authorization.
+ * 3. Unknown domains in automated discovery are subject to domain verification governance.
+ * 4. User-submitted URLs (entered directly by CRM operators) are handled with safe fetch controls.
  */
 
 export const SOURCE_TIERS = {
@@ -110,6 +120,52 @@ class AuthorizationGrantRegistry {
 }
 
 export const authorizationGrantRegistry = new AuthorizationGrantRegistry();
+
+/**
+ * Domain Governance Policy for Public and Unknown Domains (Phase 1.2.2).
+ * 
+ * Prevents unverified blanket crawling of unknown domains.
+ * Provides explicit domain verification tracking for public web sources.
+ */
+class DomainGovernancePolicy {
+    constructor() {
+        this.verifiedDomains = new Set([
+            'kurukshetrarealestate.in',
+            'tcpharyana.gov.in',
+            'hsvp.org.in'
+        ]);
+    }
+
+    addVerifiedDomain(domain) {
+        const clean = extractCleanDomain(domain);
+        if (clean) this.verifiedDomains.add(clean);
+    }
+
+    removeVerifiedDomain(domain) {
+        const clean = extractCleanDomain(domain);
+        if (clean) this.verifiedDomains.delete(clean);
+    }
+
+    isDomainVerified(domain) {
+        const clean = extractCleanDomain(domain);
+        if (!clean) return false;
+        return this.verifiedDomains.has(clean);
+    }
+
+    reset() {
+        this.verifiedDomains = new Set([
+            'kurukshetrarealestate.in',
+            'tcpharyana.gov.in',
+            'hsvp.org.in'
+        ]);
+    }
+
+    clear() {
+        this.verifiedDomains.clear();
+    }
+}
+
+export const domainGovernancePolicy = new DomainGovernancePolicy();
 
 /**
  * Master Source Authorization & Capability Matrix
@@ -431,6 +487,18 @@ export function evaluateOperationAuthorization(urlOrSource, operation = 'automat
         }
 
         // Tier 2: Public Web Page
+        // Check conservative domain verification policy for automated discovery runs
+        if (context.requireDomainVerification === true && !domainGovernancePolicy.isDomainVerified(domain)) {
+            return {
+                allowed: false,
+                tier: classification.tier,
+                status: SOURCE_STATUS.RESTRICTED_PERMISSION_REQUIRED,
+                reason: 'unverified_domain_requires_human_verification',
+                grant: null,
+                domain
+            };
+        }
+
         return {
             allowed: true,
             tier: classification.tier,

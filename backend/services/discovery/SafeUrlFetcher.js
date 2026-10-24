@@ -1,6 +1,8 @@
 import axios from 'axios';
 import net from 'net';
 import dns from 'dns';
+import http from 'http';
+import https from 'https';
 import { evaluateOperationAuthorization, SOURCE_TIERS } from './SourceAuthorizationMatrix.js';
 
 export class AuthorizationError extends Error {
@@ -158,7 +160,8 @@ export async function validateDestinationSecurity(rawUrl) {
         if (isPrivateOrInternalIp(hostname)) {
             throw new SSRFSecurityError(`Access to private or internal IP address is blocked: ${hostname}`);
         }
-        return { valid: true, hostname, resolvedIps: [hostname] };
+        const fam = net.isIP(hostname);
+        return { valid: true, hostname, resolvedIps: [hostname], pinnedIp: hostname, family: fam };
     }
 
     // 4. DNS Resolution & Rebinding Defense
@@ -175,7 +178,9 @@ export async function validateDestinationSecurity(rawUrl) {
             }
         }
 
-        return { valid: true, hostname, resolvedIps };
+        const primaryIp = resolvedIps[0];
+        const fam = net.isIPv4(primaryIp) ? 4 : 6;
+        return { valid: true, hostname, resolvedIps, pinnedIp: primaryIp, family: fam };
     } catch (err) {
         if (err instanceof SSRFSecurityError) throw err;
         throw new SSRFSecurityError(`DNS resolution failed for "${hostname}": ${err.message}`);
@@ -183,8 +188,86 @@ export async function validateDestinationSecurity(rawUrl) {
 }
 
 /**
+ * Creates an HTTP/HTTPS agent that pins socket connections to the validated IP.
+ * The custom lookup validates that:
+ * 1. The requested hostname matches the validated target hostname.
+ * 2. DNS resolution at socket connection time does not resolve to private/internal IPs (DNS rebinding defense).
+ * 3. The socket connects strictly to the validated, pinned IP address.
+ * 4. Correct TLS certificate validation, SNI, and HTTP Host header behavior are preserved.
+ *
+ * @param {string} protocol 'http:' or 'https:'
+ * @param {string} targetHostname The canonical target hostname
+ * @param {string} pinnedIp The pre-validated public IP address
+ * @param {number} family 4 or 6
+ * @returns {http.Agent | https.Agent}
+ */
+export function createPinnedAgent(protocol, targetHostname, pinnedIp, family = 4) {
+    const isHttps = protocol === 'https:';
+    const AgentClass = isHttps ? https.Agent : http.Agent;
+
+    return new AgentClass({
+        keepAlive: false,
+        maxSockets: 1,
+        servername: targetHostname,
+        lookup: (hostname, options, callback) => {
+            const cleanHost = (hostname || '').toLowerCase();
+            const cleanTarget = (targetHostname || '').toLowerCase();
+
+            if (cleanHost !== cleanTarget) {
+                return callback(new SSRFSecurityError(`Hostname mismatch in connection: expected "${cleanTarget}", got "${cleanHost}"`));
+            }
+
+            if (isPrivateOrInternalIp(pinnedIp)) {
+                return callback(new SSRFSecurityError(`Connection to private or internal IP "${pinnedIp}" is strictly forbidden`));
+            }
+
+            // If target is an IP literal, return pinned IP directly
+            if (net.isIP(cleanHost)) {
+                if (options && options.all) {
+                    return callback(null, [{ address: pinnedIp, family }]);
+                }
+                return callback(null, pinnedIp, family);
+            }
+
+            // Perform live connection-time DNS resolution to ensure DNS has not re-bound to a private/internal IP
+            dns.lookup(cleanHost, { all: true }, (err, addresses) => {
+                if (err) {
+                    return callback(new SSRFSecurityError(`DNS lookup failed at connection time for "${cleanHost}": ${err.message}`));
+                }
+
+                if (!addresses || addresses.length === 0) {
+                    return callback(new SSRFSecurityError(`DNS returned no addresses at connection time for "${cleanHost}"`));
+                }
+
+                // Check EVERY connection-time address
+                for (const addr of addresses) {
+                    if (isPrivateOrInternalIp(addr.address)) {
+                        return callback(new SSRFSecurityError(
+                            `DNS rebinding detected: "${cleanHost}" resolved to forbidden private/internal IP "${addr.address}" at connection time`
+                        ));
+                    }
+                }
+
+                const addressList = addresses.map(a => a.address);
+                if (!addressList.includes(pinnedIp)) {
+                    return callback(new SSRFSecurityError(
+                        `DNS answer changed between validation (${pinnedIp}) and connection (${addressList.join(', ')}) for "${cleanHost}" (DNS rebinding detected)`
+                    ));
+                }
+
+                // Connect using pinned IP
+                if (options && options.all) {
+                    return callback(null, [{ address: pinnedIp, family }]);
+                }
+                return callback(null, pinnedIp, family);
+            });
+        }
+    });
+}
+
+/**
  * Executes an HTTP fetch with pre-flight authorization enforcement,
- * SSRF IP validation, and safe bounded redirect handling.
+ * SSRF IP validation, connection-pinned agents, and safe bounded redirect handling.
  * 
  * @param {string} url 
  * @param {object} [options={}]
@@ -211,10 +294,25 @@ export async function safeFetchHtml(url, options = {}) {
             );
         }
 
-        // Step 2: SSRF & Destination IP Security Gate
-        await validateDestinationSecurity(currentUrl);
+        // Step 2: SSRF & Destination IP Security Gate (Pre-flight DNS validation)
+        const secInfo = await validateDestinationSecurity(currentUrl);
 
-        // Step 3: Execute HTTP request with maxRedirects: 0 to manually inspect redirects
+        // Step 3: Create connection-pinned agent to eliminate DNS-rebinding / TOCTOU gap
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(currentUrl);
+        } catch {
+            throw new SSRFSecurityError(`Malformed URL: ${currentUrl}`);
+        }
+
+        const agent = createPinnedAgent(
+            parsedUrl.protocol,
+            secInfo.hostname,
+            secInfo.pinnedIp,
+            secInfo.family
+        );
+
+        // Step 4: Execute HTTP request with maxRedirects: 0 to manually inspect redirects
         const response = await axios.get(currentUrl, {
             headers: {
                 'User-Agent': userAgent,
@@ -224,10 +322,12 @@ export async function safeFetchHtml(url, options = {}) {
             },
             timeout,
             maxRedirects: 0,
+            httpAgent: agent,
+            httpsAgent: agent,
             validateStatus: (status) => (status >= 200 && status < 400)
         });
 
-        // Step 4: Handle Redirects Safely (301, 302, 303, 307, 308)
+        // Step 5: Handle Redirects Safely (301, 302, 303, 307, 308)
         if (response.status >= 300 && response.status < 400) {
             const redirectLocation = response.headers.location;
             if (!redirectLocation) {
@@ -265,6 +365,7 @@ export async function safeFetchHtml(url, options = {}) {
 export default {
     safeFetchHtml,
     validateDestinationSecurity,
+    createPinnedAgent,
     isPrivateOrInternalIp,
     AuthorizationError,
     SSRFSecurityError

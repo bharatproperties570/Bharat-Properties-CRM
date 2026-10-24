@@ -122,13 +122,13 @@ class GoogleDiscoveryService {
 
     /**
      * Checks whether an alternative fallback search provider is explicitly configured and approved.
+     * Currently, no secondary automated search provider adapter is authorized or implemented.
+     * Environment flags without a documented, verified adapter will NOT trigger external requests.
      * 
      * @returns {boolean}
      */
     isFallbackProviderApproved() {
-        const approvedProvider = (process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER || '').trim().toLowerCase();
-        // Fallback is only allowed if explicitly configured to an approved compliant provider
-        return approvedProvider === 'approved_partner_feed' || approvedProvider === 'authorized_crawler';
+        return false;
     }
 
     /**
@@ -147,21 +147,16 @@ class GoogleDiscoveryService {
             const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
             const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
-            const useApi = !!(apiKey && searchEngineId);
-            const fallbackApproved = this.isFallbackProviderApproved();
-
-            if (!useApi && !fallbackApproved) {
-                console.warn("[GoogleDiscovery] Google Custom Search API credentials not configured and no approved alternate search provider is configured. Stopping discovery run safely.");
+            if (!apiKey || !searchEngineId) {
+                console.warn("[GoogleDiscovery] Google Custom Search API credentials not configured. Halting discovery run safely.");
                 config.last_run_status = 'failed';
                 config.last_run_at = new Date();
                 await config.save();
-                return { success: false, reason: 'google_api_unconfigured_no_approved_fallback', discovered: 0 };
+                return { success: false, reason: 'google_api_unconfigured', discovered: 0 };
             }
 
             const customsearch = google.customsearch('v1');
             let totalDiscoveredInRun = 0;
-            let organicQueryCount = 0;
-            const maxOrganicQueries = 5;
 
             // Generate search queries
             for (const keyword of config.keywords) {
@@ -173,105 +168,59 @@ class GoogleDiscoveryService {
                         
                         if (!query.trim()) continue;
 
-                        if (useApi) {
-                            try {
-                                const res = await customsearch.cse.list({
-                                    cx: searchEngineId,
-                                    q: query,
-                                    auth: apiKey,
-                                    num: 10 // Max per page
+                        try {
+                            const res = await customsearch.cse.list({
+                                cx: searchEngineId,
+                                q: query,
+                                auth: apiKey,
+                                num: 10 // Max per page
+                            });
+
+                            const items = res.data.items || [];
+                            
+                            // Process URLs with Phase 1 filter and normalization
+                            for (const item of items) {
+                                const metaPublishedDate = 
+                                    item.pagemap?.metatags?.[0]?.['article:published_time'] || 
+                                    item.pagemap?.metatags?.[0]?.['og:updated_time'] || 
+                                    null;
+
+                                const queueRes = await this.processAndQueueUrl(item.link, config, {
+                                    title: item.title,
+                                    snippet: item.snippet,
+                                    publishedDate: metaPublishedDate
                                 });
 
-                                const items = res.data.items || [];
-                                
-                                // Process URLs with Phase 1 filter and normalization
-                                for (const item of items) {
-                                    const metaPublishedDate = 
-                                        item.pagemap?.metatags?.[0]?.['article:published_time'] || 
-                                        item.pagemap?.metatags?.[0]?.['og:updated_time'] || 
-                                        null;
-
-                                    const queueRes = await this.processAndQueueUrl(item.link, config, {
-                                        title: item.title,
-                                        snippet: item.snippet,
-                                        publishedDate: metaPublishedDate
-                                    });
-
-                                    if (queueRes.queued) {
-                                        console.log(`[GoogleDiscovery] New URL discovered via API: ${queueRes.url}`);
-                                        totalDiscoveredInRun++;
-                                    }
-                                }
-
-                                // Rate limit handling
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                            } catch (apiErr) {
-                                const isQuotaExceeded = apiErr.status === 429 || apiErr.code === 429 || /429|quota|rate limit/i.test(apiErr.message);
-                                if (isQuotaExceeded) {
-                                    console.warn(`[GoogleDiscovery] Google Custom Search API quota exhausted (HTTP 429).`);
-                                } else {
-                                    console.warn(`[GoogleDiscovery] Google Custom Search API error: ${apiErr.message}`);
-                                }
-
-                                // 🛡️ Quota Fallback Governance:
-                                // Do not silently scrape an unapproved search engine upon Google quota failure!
-                                if (!fallbackApproved) {
-                                    console.warn(`[GoogleDiscovery] No approved alternate search provider configured. Stopping discovery query safely without unapproved scraping.`);
-                                    config.urls_discovered_count += totalDiscoveredInRun;
-                                    config.last_run_at = new Date();
-                                    config.last_run_status = 'failed';
-                                    await config.save();
-                                    return { 
-                                        success: false, 
-                                        reason: isQuotaExceeded ? 'google_api_quota_exhausted' : 'google_api_error', 
-                                        discovered: totalDiscoveredInRun 
-                                    };
-                                }
-                                
-                                if (organicQueryCount < maxOrganicQueries) {
-                                    organicQueryCount++;
-                                    try {
-                                        const fallbackUrls = await this.scrapeGoogleSearchFallback(query, config.portal_whitelist);
-                                        for (const item of fallbackUrls) {
-                                            const queueRes = await this.processAndQueueUrl(item.url, config, {
-                                                title: item.title,
-                                                publishedDate: null
-                                            });
-
-                                            if (queueRes.queued) {
-                                                console.log(`[GoogleDiscovery] [Fallback] New URL discovered: ${queueRes.url}`);
-                                                totalDiscoveredInRun++;
-                                            }
-                                        }
-                                        await new Promise(resolve => setTimeout(resolve, 3000));
-                                    } catch (fallbackErr) {
-                                        console.error(`[GoogleDiscovery] Fallback search also failed:`, fallbackErr.message);
-                                    }
+                                if (queueRes.queued) {
+                                    console.log(`[GoogleDiscovery] New URL discovered via API: ${queueRes.url}`);
+                                    totalDiscoveredInRun++;
                                 }
                             }
-                        } else if (fallbackApproved) {
-                            // Direct Fallback Mode (Only if explicitly approved)
-                            if (organicQueryCount < maxOrganicQueries) {
-                                organicQueryCount++;
-                                try {
-                                    const fallbackUrls = await this.scrapeGoogleSearchFallback(query, config.portal_whitelist);
-                                    for (const item of fallbackUrls) {
-                                        const queueRes = await this.processAndQueueUrl(item.url, config, {
-                                            title: item.title,
-                                            publishedDate: null
-                                        });
 
-                                        if (queueRes.queued) {
-                                            console.log(`[GoogleDiscovery] [Organic] New URL discovered: ${queueRes.url}`);
-                                            totalDiscoveredInRun++;
-                                        }
-                                    }
-                                    await new Promise(resolve => setTimeout(resolve, 3000));
-                                } catch (scrErr) {
-                                    console.error(`[GoogleDiscovery] Fallback search failed:`, scrErr.message);
-                                }
+                            // Rate limit handling
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        } catch (apiErr) {
+                            const isQuotaExceeded = apiErr.status === 429 || apiErr.code === 429 || /429|quota|rate limit/i.test(apiErr.message);
+                            if (isQuotaExceeded) {
+                                console.warn(`[GoogleDiscovery] Google Custom Search API quota exhausted (HTTP 429).`);
+                            } else {
+                                console.warn(`[GoogleDiscovery] Google Custom Search API error: ${apiErr.message}`);
                             }
+
+                            // 🛡️ Quota Fallback Governance:
+                            // Never make secondary external search requests or scrape alternate search engines.
+                            // Halts safely and records clear status.
+                            console.warn(`[GoogleDiscovery] Stopping discovery query safely without unapproved scraping.`);
+                            config.urls_discovered_count += totalDiscoveredInRun;
+                            config.last_run_at = new Date();
+                            config.last_run_status = 'failed';
+                            await config.save();
+                            return { 
+                                success: false, 
+                                reason: isQuotaExceeded ? 'google_api_quota_exhausted' : 'google_api_error', 
+                                discovered: totalDiscoveredInRun 
+                            };
                         }
                     }
                 }
@@ -296,86 +245,16 @@ class GoogleDiscoveryService {
     }
 
     /**
-     * Fallback search results provider (Requires explicit administrative approval)
+     * Decommissioned fallback search scraper.
+     * Scraping Yahoo or other unauthorized search engines is strictly disabled for legal compliance and security.
      * 
      * @param {String} query 
      * @param {Array} portalWhitelist 
-     * @returns {Promise<Array<{ url: string, title?: string }>>} List of discovery items
+     * @returns {Promise<Array<{ url: string, title?: string }>>} Empty array (no external requests)
      */
     async scrapeGoogleSearchFallback(query, portalWhitelist = []) {
-        if (!this.isFallbackProviderApproved()) {
-            console.warn("[GoogleDiscovery] Fallback search provider is not approved. Aborting unapproved external query.");
-            return [];
-        }
-        try {
-            const cheerio = await import('cheerio');
-            const axios = await import('axios');
-            
-            const searchUrl = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
-            const response = await axios.default.get(searchUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5'
-                },
-                timeout: 10000
-            });
-
-            const $ = cheerio.load(response.data);
-            const items = [];
-
-            // Disallow internal search engine domains
-            const isInternalDomain = (u) => {
-                const lower = u.toLowerCase();
-                return lower.includes('yahoo.com') ||
-                    lower.includes('yimg.com') ||
-                    lower.includes('uservoice.com') ||
-                    lower.includes('google.com') ||
-                    lower.includes('bing.com');
-            };
-
-            // Universal redirect link resolver for Yahoo search pages
-            $('a').each((index, element) => {
-                let href = $(element).attr('href');
-                let title = $(element).text()?.trim() || '';
-                if (!href) return;
-
-                if (href.includes('r.search.yahoo.com') && href.includes('/RU=')) {
-                    try {
-                        const rawTarget = href.split('/RU=')[1].split('/')[0];
-                        const decoded = decodeURIComponent(rawTarget);
-                        
-                        if (decoded.startsWith('http') && !isInternalDomain(decoded)) {
-                            items.push({ url: decoded.trim(), title });
-                        }
-                    } catch {
-                        // ignore and proceed
-                    }
-                }
-            });
-
-            // Deduplicate by normalized URL and enforce portal whitelist
-            const seen = new Set();
-            const uniqueItems = [];
-            for (const item of items) {
-                const norm = normalizeDiscoveryUrl(item.url);
-                if (norm && !seen.has(norm)) {
-                    if (Array.isArray(portalWhitelist) && portalWhitelist.length > 0) {
-                        const check = isPortalAllowed(norm, portalWhitelist);
-                        if (!check.allowed) continue;
-                    }
-                    seen.add(norm);
-                    uniqueItems.push({ url: norm, title: item.title });
-                    if (uniqueItems.length >= 10) break;
-                }
-            }
-
-            console.log(`[GoogleDiscovery] [Resilient Scraper] Found ${uniqueItems.length} organic links for query: "${query}"`);
-            return uniqueItems;
-        } catch (err) {
-            console.error(`[GoogleDiscovery] Resilient search scraping error:`, err.message);
-            return [];
-        }
+        console.warn("[GoogleDiscovery] External search fallback is disabled for compliance. No unapproved search requests will be made.");
+        return [];
     }
 }
 

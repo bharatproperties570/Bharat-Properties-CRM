@@ -460,11 +460,12 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
                 assert.equal(fallbackTriggered, false, 'Unapproved search engine scraping must NOT occur on quota exhaustion');
                 assert.equal(mockConfig.last_run_status, 'failed');
 
-                // Scenario B: With explicit approved provider, authorized fallback executes
+                // Scenario B: Environment flag without a real implemented adapter must NOT trigger unapproved external requests
                 process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER = 'approved_partner_feed';
                 const resultWithApproved = await googleDiscoveryService.runDiscovery('mock_cfg_id_429');
-                assert.equal(resultWithApproved.success, true);
-                assert.equal(fallbackTriggered, true, 'Approved provider is invoked when explicitly configured');
+                assert.equal(resultWithApproved.success, false);
+                assert.equal(resultWithApproved.reason, 'google_api_quota_exhausted');
+                assert.equal(fallbackTriggered, false, 'Unapproved fallback scraping must NOT be triggered by misleading env flags');
             } finally {
                 google.customsearch = originalCustomsearch;
                 delete process.env.DISCOVERY_APPROVED_FALLBACK_PROVIDER;
