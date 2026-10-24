@@ -243,14 +243,14 @@ async function runTest() {
         // T16: Best-effort Audit Failure Survival in computeAndSave()
         const originalLogEntityUpdate = AuditLog.logEntityUpdate;
         try {
-            const leadT16 = new Lead({ 
+            const leadT16 = new Lead({
                 firstName: 'Best', lastName: 'Effort', mobile: '1122334455', email: 't16@test.com',
-                requirement: '3BHK', timeline: 'immediate', budgetMin: 15000000 
+                requirement: '3BHK', timeline: 'immediate', budgetMin: 15000000
             });
             await leadT16.save();
             const initialLead = await Lead.findById(leadT16._id).lean();
             assert(initialLead.leadScore === undefined || initialLead.leadScore === 0, "T16: Lead score should initially be 0 or undefined");
-            
+
             let mockCalled = false;
             AuditLog.logEntityUpdate = async () => {
                 mockCalled = true;
@@ -258,15 +258,15 @@ async function runTest() {
             };
 
             const result = await LeadScoringService.computeAndSave(leadT16._id, { triggeredBy: 'system' });
-            
+
             assert(mockCalled, "T16: AuditLog.logEntityUpdate was not called");
-            
+
             const updatedLeadT16 = await Lead.findById(leadT16._id).lean();
             assert(updatedLeadT16.leadScore > 0, "T16: Lead score was NOT updated - best-effort policy violated!");
             assert(updatedLeadT16.leadScore === result.score, "T16: Persisted score does not match computed result");
-            
-        } catch(err) { 
-            failures.push("T16 Error: " + err.message); 
+
+        } catch(err) {
+            failures.push("T16 Error: " + err.message);
         } finally {
             AuditLog.logEntityUpdate = originalLogEntityUpdate;
         }

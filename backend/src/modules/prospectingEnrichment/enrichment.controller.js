@@ -117,12 +117,12 @@ export const runEnrichment = async (req, res, next) => {
         const { withMongoTransaction } = await import('../../../utils/withMongoTransaction.js');
         const { DomainEventPublisher } = await import('../../../utils/DomainEventPublisher.js');
         const Lead = (await import('../../../models/Lead.js')).default;
-        
+
         // Read state and OCC version marker BEFORE transaction
         const existingLead = await Lead.findById(leadId).lean();
         const currentStatus = existingLead?.enrichmentState?.status;
         const currentV = existingLead?.__v || 0;
-        
+
         if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED') {
             return res.status(409).json({
                 success: false,
@@ -134,20 +134,20 @@ export const runEnrichment = async (req, res, next) => {
             // Atomic OCC-based transition inside transaction
             // Binds __v to prevent concurrent request retries from succeeding
             const result = await Lead.updateOne(
-                { 
-                    _id: leadId, 
+                {
+                    _id: leadId,
                     "enrichmentState.status": { $in: ["COMPLETED", "NONE", "FAILED", null] },
                     __v: currentV
-                }, 
-                { 
+                },
+                {
                     $set: { "enrichmentState.status": "NONE" },
                     $inc: { __v: 1 }
-                }, 
+                },
                 { session }
             );
 
             if (result.matchedCount === 0) {
-                // If 0, either another manual enrichment won the race, 
+                // If 0, either another manual enrichment won the race,
                 // or a concurrent Lead update occurred. Fail safely.
                 throw new Error("Concurrency conflict: Lead enrichment state changed before atomic transition.");
             }
