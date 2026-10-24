@@ -32,21 +32,66 @@ const validateContext = (targetId, executionContext, requiredActor = 'SYSTEM') =
 
 // Pure calculation functions
 export const calculateIntentIndexPure = async (lead) => {
+    const ProspectEnrichmentRule = (await import('../../models/ProspectEnrichmentRule.js')).default;
     const formulaRule = await ProspectEnrichmentRule.findOne({ type: 'FORMULA', isActive: true });
-    let scores = { requirementDepth: 0, timelineUrgency: 0, budgetClarity: 0, contactReadiness: 0, responseSpeed: 0 };
-    if (lead.requirement) scores.requirementDepth += 5;
-    if (lead.propertyType?.length > 0) scores.requirementDepth += 5;
-    if (lead.location) scores.requirementDepth += 5;
-    if (lead.timeToClose) {
-        const t = lead.timeToClose.toLowerCase();
-        if (t.includes('immediate') || t.includes('1 month')) scores.timelineUrgency = 25;
-        else if (t.includes('3 month')) scores.timelineUrgency = 15;
+    const weights = formulaRule?.config || {
+        requirementDepth: 25,
+        timelineUrgency: 25,
+        budgetClarity: 20,
+        contactReadiness: 20,
+        responseSpeed: 10
+    };
+
+    let scores = {
+        requirementDepth: 0,
+        timelineUrgency: 0,
+        budgetClarity: 0,
+        contactReadiness: 0,
+        responseSpeed: 0
+    };
+
+    // 1. Requirement Depth
+    let reqRaw = 0;
+    if (lead.requirement) reqRaw += 5;
+    if (lead.propertyType?.length > 0) reqRaw += 5;
+    if (lead.location) reqRaw += 5;
+    if (lead.projectName?.length > 0) reqRaw += 5;
+    if (lead.description?.length > 50) reqRaw += 5;
+    scores.requirementDepth = (reqRaw / 25) * weights.requirementDepth;
+
+    // 2. Timeline Urgency
+    const timeline = lead.timeline?.toLowerCase() || '';
+    if (timeline.includes('immediate') || timeline.includes('urgent') || timeline.includes('this month')) {
+        scores.timelineUrgency = weights.timelineUrgency;
+    } else if (timeline.includes('1-3 months')) {
+        scores.timelineUrgency = weights.timelineUrgency * 0.6;
+    } else if (timeline.includes('3-6 months')) {
+        scores.timelineUrgency = weights.timelineUrgency * 0.3;
     }
-    if (lead.budgetMin && lead.budgetMax) scores.budgetClarity = 20;
-    else if (lead.budgetMin || lead.budgetMax) scores.budgetClarity = 10;
-    if (lead.isContacted) scores.contactReadiness = 10;
-    const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
-    return Math.min(100, totalScore);
+
+    // 3. Budget Clarity
+    if (lead.budgetMin || lead.budgetMax) {
+        scores.budgetClarity = weights.budgetClarity;
+    } else if (lead.budget) {
+        scores.budgetClarity = weights.budgetClarity * 0.7;
+    }
+
+    // 4. Contact Readiness
+    if (lead.isContacted) {
+        scores.contactReadiness = weights.contactReadiness * 0.5;
+    }
+
+    // 5. Response Speed
+    const hasEmail = !!lead.email;
+    const hasPhone = !!lead.mobile;
+    if (hasEmail && hasPhone) {
+        scores.responseSpeed = weights.responseSpeed;
+    } else if (hasPhone) {
+        scores.responseSpeed = weights.responseSpeed * 0.6;
+    }
+
+    const formulaScore = Math.min(100, Math.round(Object.values(scores).reduce((a, b) => a + b, 0)));
+    return formulaScore;
 };
 
 export const scanKeywordsPure = async (lead, currentFormulaScore) => {
@@ -148,7 +193,7 @@ export const calculateIntentIndex = async (leadId, executionContext = null) => {
     const lead = await Lead.findById(leadId).lean();
     if (!lead) return 0;
     const formulaScore = await calculateIntentIndexPure(lead);
-    const updated = await Lead.findOneAndUpdate(predicate, { enrichment_formula_score: formulaScore }, { new: true, runValidators: true, strict: true });
+    const updated = await Lead.findOneAndUpdate(predicate, { enrichment_formula_score: formulaScore, enrichment_last_run: new Date() }, { new: true, runValidators: true, strict: true });
     if (!updated) throw new Error("SECURITY_VIOLATION: Mutation rejected (superseded or state mismatch)");
     return formulaScore;
 };
@@ -231,6 +276,7 @@ export const runFullLeadEnrichment = async (leadId, executionContext = null) => 
 
         const updatePayload = {
             enrichment_formula_score: formulaScore,
+            enrichment_last_run: new Date(),
             intent_tags: newTags,
             role_type: roleType,
             intent_index: finalIntentIndex,
