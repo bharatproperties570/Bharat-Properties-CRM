@@ -34,9 +34,10 @@ jobs:
       - name: Install backend dependencies (Deterministic)
         run: |
           cd backend
-          npm ci || {
-            ERR=$(grep "npm ERR!" ~/.npm/_logs/*.log | head -n 5)
-            echo "::error title=NPM_CI_ERROR::$ERR"
+          OUT=$(npm ci 2>&1) || {
+            CLEAN_OUT=$(echo "$OUT" | tail -n 15 | tr '\n' ' ')
+            echo "::error title=NPM_OUTPUT::$CLEAN_OUT"
+            echo "$OUT"
             exit 1
           }
 
