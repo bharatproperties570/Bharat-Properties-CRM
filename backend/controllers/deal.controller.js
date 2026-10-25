@@ -2569,15 +2569,24 @@ export const bulkDeleteDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
 
-        // Reset inventory status for all deals being deleted
-        const deals = await Deal.find({ _id: { $in: ids } }).select('inventoryId');
-        const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
-        if (inventoryIds.length > 0) {
-            await Inventory.updateMany({ _id: { $in: inventoryIds } }, { status: 'Available' });
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+        // Reset inventory status for all deals being deleted strictly within tenant scope
+        const deals = await Deal.find({ _id: { $in: ids }, ...tenantFilter }).select('_id inventoryId');
+        const allowedIds = deals.map(d => d._id);
+
+        if (allowedIds.length === 0) {
+            return res.json({ success: true, message: "0 deals deleted" });
         }
 
-        await Deal.deleteMany({ _id: { $in: ids } });
-        res.json({ success: true, message: `${ids.length} deals deleted successfully` });
+        const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
+        if (inventoryIds.length > 0) {
+            await Inventory.updateMany({ _id: { $in: inventoryIds }, ...tenantFilter }, { status: 'Available' });
+        }
+
+        await Deal.deleteMany({ _id: { $in: allowedIds }, ...tenantFilter });
+        res.json({ success: true, message: `${allowedIds.length} deals deleted successfully` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -2590,6 +2599,7 @@ export const importDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data format" });
         }
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
         const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
 
         const results = [];
@@ -2603,11 +2613,13 @@ export const importDeals = async (req, res) => {
                 const dealData = { ...item };
                 if (item.latitude || item.lat) dealData.latitude = item.latitude || item.lat;
                 if (item.longitude || item.lng) dealData.longitude = item.longitude || item.lng;
+                if (rawTenantId) dealData.tenantId = rawTenantId;
 
                 const input = {
                     source: 'Import',
                     idempotencyKey: `import_${req.headers['x-correlation-id'] || Date.now()}_row_${i}`,
                     correlationId: req.headers['x-correlation-id'] || 'import',
+                    tenantId: rawTenantId || null,
                     dealData,
                     linkage: {
                         inventoryId: item.inventoryId,
@@ -2624,7 +2636,8 @@ export const importDeals = async (req, res) => {
                     triggerAiMatch: false,
                     triggerMarketing: false,
                     triggerDocumentSync: false,
-                    triggerDiscovery: false
+                    triggerDiscovery: false,
+                    tenantId: rawTenantId || null
                 };
 
                 const resObj = await createStandardizedDeal(input, options);

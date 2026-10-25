@@ -1763,19 +1763,21 @@ export const getLeadById = async (req, res, next) => {
 export const bulkDeleteLeads = async (req, res, next) => {
     try {
         const { ids, deleteContacts } = req.body;
-        const leadIds = ids;
-        const leadIdsStr = ids.map(id => String(id));
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, message: "Invalid IDs provided" });
+        }
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
         if (deleteContacts === true) {
-            const leads = await Lead.find({ _id: { $in: ids } });
+            const leads = await Lead.find({ _id: { $in: ids }, ...tenantFilter });
             const mobiles = leads.map(l => l.mobile).filter(Boolean);
             if (mobiles.length > 0) {
                 // CASCADING DELETE BANNED: Contacts are independent identities.
-                // await Contact.deleteMany({ 'phones.number': { $in: mobiles } });
             }
         }
 
-        await Lead.softDeleteMany({ _id: { $in: ids } }, { userId: req.user?._id });
+        await Lead.softDeleteMany({ _id: { $in: ids }, ...tenantFilter }, { userId: req.user?._id });
         res.status(200).json({ success: true, message: "Deleted" });
     } catch (error) {
         next(error);
@@ -1788,6 +1790,9 @@ export const importLeads = async (req, res, next) => {
         if (!data || !Array.isArray(data)) {
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
+
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
         const bulkOps = [];
         const processedData = [];
@@ -1823,6 +1828,10 @@ export const importLeads = async (req, res, next) => {
                     locCountry: item.locCountry || item.country || 'India',
                     searchLocation: item.searchLocation || '',
                 };
+
+                if (rawTenantId) {
+                    leadEntry.tenantId = rawTenantId;
+                }
 
                 let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
 
@@ -1891,7 +1900,7 @@ export const importLeads = async (req, res, next) => {
                     if (updateDuplicates) {
                         bulkOps.push({
                             updateOne: {
-                                filter: { mobile: item.mobile },
+                                filter: { mobile: item.mobile, ...tenantFilter },
                                 update: { $set: leadEntry },
                                 upsert: true
                             }
@@ -1928,7 +1937,7 @@ export const importLeads = async (req, res, next) => {
             let dataToInsert = processedData;
             if (!updateDuplicates) {
                 const mobiles = processedData.map(d => d.mobile).filter(Boolean);
-                const existing = await Lead.find({ mobile: { $in: mobiles } }, 'mobile').lean();
+                const existing = await Lead.find({ mobile: { $in: mobiles }, ...tenantFilter }, 'mobile').lean();
                 const existingMobiles = new Set(existing.map(e => e.mobile));
                 dataToInsert = processedData.filter(d => !existingMobiles.has(d.mobile));
             }
@@ -1960,7 +1969,9 @@ export const checkDuplicatesImport = async (req, res, next) => {
     try {
         const { mobiles } = req.body;
         if (!mobiles || !Array.isArray(mobiles)) return res.status(400).json({ success: false, message: "Invalid mobile numbers" });
-        const duplicates = await Lead.find({ mobile: { $in: mobiles } }, 'mobile firstName lastName').lean();
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+        const duplicates = await Lead.find({ mobile: { $in: mobiles }, ...tenantFilter }, 'mobile firstName lastName').lean();
         res.status(200).json({ success: true, duplicates: duplicates.map(d => d.mobile) });
     } catch (error) {
         next(error);

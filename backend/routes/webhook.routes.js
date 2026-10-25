@@ -14,6 +14,7 @@ import {
     facebookLeadVerify,
     facebookLeadWebhook
 } from '../controllers/webhook.controller.js';
+import { verifyWebhookAttribution } from '../middleware/webhookAttribution.middleware.js';
 
 const router = express.Router();
 import fs from 'fs';
@@ -28,14 +29,14 @@ router.use((req, res, next) => {
 });
 
 // ── Public endpoints (called by landing pages / external services) ─────────────
-router.post('/lead',             captureLeadWebhook);        // Lead capture from campaigns
+router.post('/lead',             verifyWebhookAttribution({ requireTimestamp: false }), captureLeadWebhook);        // Lead capture from campaigns
 router.post('/whatsapp-reply',   whatsAppReplyWebhook);      // Gupshup reply callback
 router.get('/whatsapp-live-bot',  whatsAppLiveBotVerify);    // Live AI WhatsApp Meta Webhook Verification
 router.post('/whatsapp-live-bot', whatsAppLiveBotWebhook);   // Live AI WhatsApp Meta Incoming Messages
 router.post('/website-chat',     websiteLiveBotWebhook);     // Public Website Live Chat API
 router.post('/exotel-callback',  exotelCallback);            // Exotel call status callback
 router.get('/facebook-lead',     facebookLeadVerify);        // Facebook Lead ads webhook verification
-router.post('/facebook-lead',    facebookLeadWebhook);       // Facebook Lead ads inbound webhook
+router.post('/facebook-lead',    verifyWebhookAttribution({ requireTimestamp: false }), facebookLeadWebhook);       // Facebook Lead ads inbound webhook
 
 // ── Internal endpoint (called from Marketing Suite UI, auth applied globally) ──
 router.post('/campaign/launch',  launchCampaignManual);      // Manual campaign trigger
