@@ -101,7 +101,9 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
                     // Recompute leadScore & dealHealthScore
                     try {
-                        await computeScore(lead._id, { triggeredBy: 'cron_sla' });
+                        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                        const contract = AuthorityProofIssuer.issueSystemContract('cron_sla');
+                        await computeScore(lead._id, { triggeredBy: 'cron_sla' }, { systemAuthorityContract: contract });
                     } catch (err) {
                         console.error(`[Cron Worker] Scoring failed for ${lead._id}:`, err.message);
                     }

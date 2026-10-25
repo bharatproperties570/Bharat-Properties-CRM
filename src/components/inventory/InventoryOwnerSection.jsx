@@ -82,11 +82,15 @@ const InventoryOwnerSection = ({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '20px' }}>
                         <div style={{ display: 'flex', gap: '12px' }}>
                             <div style={{ width: '48px', height: '48px', background: '#fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', color: '#3b82f6', fontWeight: 700 }}>
-                                {selectedContactToLink.name.charAt(0)}
+                                {((selectedContactToLink.fullName || selectedContactToLink.name || `${selectedContactToLink.firstName || ''} ${selectedContactToLink.lastName || ''}`).trim() || 'O').charAt(0).toUpperCase()}
                             </div>
                             <div>
-                                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>{selectedContactToLink.name}</h4>
-                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>{selectedContactToLink.mobile}</p>
+                                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
+                                    {(selectedContactToLink.fullName || selectedContactToLink.name || `${selectedContactToLink.firstName || ''} ${selectedContactToLink.lastName || ''}`).trim() || 'Contact'}
+                                </h4>
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                                    {selectedContactToLink.phones?.[0]?.number || selectedContactToLink.mobile || 'No mobile'}
+                                </p>
                             </div>
                         </div>
                         <button type="button" onClick={() => setSelectedContactToLink(null)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}>
@@ -172,12 +176,14 @@ const InventoryOwnerSection = ({
                         <div key={idx} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ width: '40px', height: '40px', background: owner.role === 'Property Owner' ? '#eff6ff' : '#fefce8', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: owner.role === 'Property Owner' ? '#3b82f6' : '#ca8a04', fontWeight: 700 }}>
-                                    {owner.name?.charAt(0) || 'O'}
+                                    {((owner.fullName || owner.name || `${owner.firstName || ''} ${owner.lastName || ''}`).trim() || 'O').charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>{owner.name}</div>
+                                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>
+                                        {(owner.fullName || owner.name || `${owner.firstName || ''} ${owner.lastName || ''}`).trim() || 'Owner'}
+                                    </div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                        {owner.role === 'Property Owner' ? 'Owner' : `Associate (${typeof owner.relationship === 'object' ? (owner.relationship?.lookup_value || owner.relationship?.name || '') : (owner.relationship || '')})`} • {owner.mobile}
+                                        {owner.role === 'Property Owner' ? 'Owner' : `Associate (${typeof owner.relationship === 'object' ? (owner.relationship?.lookup_value || owner.relationship?.name || '') : (owner.relationship || '')})`} • {owner.phones?.[0]?.number || owner.mobile || 'No phone'}
                                     </div>
                                 </div>
                             </div>

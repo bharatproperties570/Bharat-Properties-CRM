@@ -439,8 +439,45 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
  * @param {string} [options.triggeredBy] - 'activity'|'manual'|'cron'|'import'
  * @returns {Promise<{leadId, score, activityScore, temperature, intent}>}
  */
-export const computeAndSave = async (leadId, options = {}) => {
-    const { triggeredBy = 'system' } = options;
+export const computeAndSave = async (leadId, options = {}, authContext = null, txContext = {}) => {
+    const { triggeredBy } = options;
+
+    if (!triggeredBy) {
+        throw new Error("SECURITY_VIOLATION: Missing required triggeredBy authorization mode");
+    }
+
+    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
+        if (!authContext || !authContext.authorizationProof) {
+            throw new Error("SECURITY_VIOLATION: SYSTEM_ENRICHMENT requires executionContext with authorizationProof");
+        }
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        if (!AuthorityProofIssuer.verify(authContext.authorizationProof)) {
+            throw new Error("SECURITY_VIOLATION: Invalid or forged authorizationProof");
+        }
+        const proof = authContext.authorizationProof;
+        if (proof.actorType !== 'SYSTEM') {
+            throw new Error("SECURITY_VIOLATION: SYSTEM_ENRICHMENT proof actorType must be SYSTEM");
+        }
+        if (proof.targetId !== leadId.toString()) {
+            throw new Error("SECURITY_VIOLATION: Proof targetId mismatch");
+        }
+    } else if (triggeredBy === 'HUMAN' || triggeredBy === 'UI') {
+        const user = authContext?.user;
+        const userId = user?._id || authContext?.userId;
+        if (!userId) {
+            throw new Error("SECURITY_VIOLATION: HUMAN/UI mode requires authenticated user context");
+        }
+    } else if (triggeredBy === 'manual') {
+        throw new Error("SECURITY_VIOLATION: 'manual' is no longer a valid authorization mode bypass");
+    } else if (['system', 'activity', 'activity_created', 'activity_completion', 'bulk_recalc', 'cron', 'cron_sla', 'import', 'lead_created', 'lead_updated', 'OTHER_SYSTEM_AUTOMATION'].includes(triggeredBy)) {
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        const contract = authContext?.systemAuthorityContract;
+        if (!contract || !AuthorityProofIssuer.verifySystemContract(contract, triggeredBy)) {
+            throw new Error(`SECURITY_VIOLATION: ${triggeredBy} requires valid systemAuthorityContract`);
+        }
+    } else {
+        throw new Error("SECURITY_VIOLATION: Unrecognized or unauthorized trigger: " + triggeredBy);
+    }
 
     // Load lead with populated stage for multiplier resolution
     const lead = await Lead.findById(leadId)
@@ -475,17 +512,33 @@ export const computeAndSave = async (leadId, options = {}) => {
     const prevScore = lead.leadScore || 0;
 
     // Persist to MongoDB
-    await Lead.findByIdAndUpdate(leadId, {
+    const updatePayload = {
         leadScore:      result.total,
         activityScore:  result.activityScore,
         scoreBreakdown: result.breakdown,
         dealHealthScore: dealHealth.score,
         dealHealthStatus: dealHealth.status
-    });
+    };
+
+    const session = txContext.session || null;
+    if (triggeredBy === 'SYSTEM_ENRICHMENT') {
+        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+        const predicate = AuthorityProofIssuer.getMutationPredicate(authContext.authorizationProof);
+        const updated = await Lead.findOneAndUpdate(predicate, { $set: updatePayload }, { new: true, session });
+        if (!updated) {
+            throw new Error("SECURITY_VIOLATION: LeadScoringService mutation rejected (superseded or state mismatch)");
+        }
+    } else {
+        const updated = await Lead.findOneAndUpdate({ _id: leadId }, { $set: updatePayload }, { new: true, session });
+        if (!updated) {
+            throw new Error(`LeadScoringService: Lead ${leadId} not found or concurrent deletion`);
+        }
+    }
 
     // Audit if score changed significantly (±5 points)
     if (Math.abs(prevScore - result.total) >= 5) {
         try {
+            // [R5 UPDATE] Piped options (including session and optional correlationId)
             await AuditLog.logEntityUpdate(
                 'score_changed',
                 'lead',
@@ -493,13 +546,17 @@ export const computeAndSave = async (leadId, options = {}) => {
                 `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
                 null,
                 { before: prevScore, after: result.total },
-                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`
+                `Score recalculated [${triggeredBy}]: ${result.breakdown.rawBeforeMultiplier} × ${result.breakdown.stageMultiplier} = ${result.total}`,
+                { session, correlationId: authContext?.correlationId }
             );
 
             // [PHASE 5 FIX]: Notify the Automation Engine so Score-driven Triggers can execute
-            const eventBus = (await import('../../services/EventBus.js')).default;
-            const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
-            eventBus.emit('LEAD_UPDATED', updatedLead);
+            // Do NOT emit directly if running inside a transaction, to prevent pre-commit side effects.
+            if (!session) {
+                const eventBus = (await import('../../services/EventBus.js')).default;
+                const updatedLead = await Lead.findById(leadId).lean(); // Fetch the fully updated lead
+                eventBus.emit('LEAD_UPDATED', updatedLead);
+            }
             
         } catch (_) { /* Non-critical — don't let audit failure break scoring */ }
     }
@@ -520,13 +577,15 @@ export const computeAndSave = async (leadId, options = {}) => {
  * Used for bulk migrations or after scoring config changes.
  */
 export const bulkRecompute = async (filter = {}, options = {}) => {
+    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+    const systemContract = AuthorityProofIssuer.issueSystemContract('bulk_recalc');
     const leads = await Lead.find(filter).select('_id').lean();
     let updated = 0;
     let failed = 0;
 
     for (const lead of leads) {
         try {
-            await computeAndSave(lead._id, { triggeredBy: 'bulk_recalc', ...options });
+            await computeAndSave(lead._id, { triggeredBy: 'bulk_recalc', ...options }, { systemAuthorityContract: systemContract });
             updated++;
         } catch (err) {
             console.error(`[LeadScoringService] Bulk failed for ${lead._id}:`, err.message);

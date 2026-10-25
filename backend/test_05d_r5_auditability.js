@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import LeadScoringService from './src/services/LeadScoringService.js';
+import Lead from './models/Lead.js';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 let replset;
@@ -237,6 +239,157 @@ async function runTest() {
             assert(dbDeep.changes.after.child.child.child.level === 4, "T15: Depth 4 missing");
             assert(dbDeep.changes.after.child.child.child.child === '[MAX_DEPTH_EXCEEDED]', "T15: Max depth limit missing or at wrong level");
         } catch(err) { failures.push("T15 Error: " + err.message); }
+
+        // T16: Best-effort Audit Failure Survival in computeAndSave()
+        const originalLogEntityUpdate = AuditLog.logEntityUpdate;
+        try {
+            const leadT16 = new Lead({
+                firstName: 'Best', lastName: 'Effort', mobile: '1122334455', email: 't16@test.com',
+                requirement: '3BHK', timeline: 'immediate', budgetMin: 15000000
+            });
+            await leadT16.save();
+            const initialLead = await Lead.findById(leadT16._id).lean();
+            assert(initialLead.leadScore === undefined || initialLead.leadScore === 0, "T16: Lead score should initially be 0 or undefined");
+
+            let mockCalled = false;
+            AuditLog.logEntityUpdate = async () => {
+                mockCalled = true;
+                throw new Error('Simulated Audit Failure');
+            };
+
+            const { AuthorityProofIssuer } = await import('./utils/ServerAuthorityProof.js');
+            const systemContract = AuthorityProofIssuer.issueSystemContract('system');
+            const result = await LeadScoringService.computeAndSave(leadT16._id, { triggeredBy: 'system' }, { systemAuthorityContract: systemContract });
+
+            assert(mockCalled, "T16: AuditLog.logEntityUpdate was not called");
+
+            const updatedLeadT16 = await Lead.findById(leadT16._id).lean();
+            assert(updatedLeadT16.leadScore > 0, "T16: Lead score was NOT updated - best-effort policy violated!");
+            assert(updatedLeadT16.leadScore === result.score, "T16: Persisted score does not match computed result");
+
+        } catch(err) {
+            failures.push("T16 Error: " + err.message);
+        } finally {
+            AuditLog.logEntityUpdate = originalLogEntityUpdate;
+        }
+
+        // === T17 to T21: Timestamp Persistence and OCC ===
+        const crypto = (await import('crypto')).default;
+        const { AuthorityProofIssuer } = await import('./utils/ServerAuthorityProof.js');
+        const { calculateIntentIndex, runFullLeadEnrichment } = await import('./src/utils/enrichmentEngine.js');
+        const unifiedAIService = (await import('./services/UnifiedAIService.js')).default;
+        const OutboxEvent = (await import('./models/OutboxEvent.js')).default;
+
+        async function setupAuthorizedLead() {
+            const lead = new Lead({ firstName: 'AuthTest', mobile: '5551234567' });
+            await lead.save();
+            const claimToken = crypto.randomBytes(32).toString('hex');
+            const claimTokenHash = crypto.createHash('sha256').update(claimToken).digest('hex');
+            await Lead.updateOne({ _id: lead._id }, {
+                $set: {
+                    "enrichmentState.status": "REQUESTED",
+                    "enrichmentState.claimTokenHash": claimTokenHash
+                }
+            });
+            const proof = await AuthorityProofIssuer.resolveSystemProof(lead._id, 'test_job', claimToken);
+            await Lead.updateOne({ _id: lead._id }, { $set: { "enrichmentState.status": "RUNNING" } });
+            return { leadId: lead._id, executionContext: { authorizationProof: proof } };
+        }
+
+        // T17: calculateIntentIndex
+        try {
+            const { leadId, executionContext } = await setupAuthorizedLead();
+            await calculateIntentIndex(leadId, executionContext);
+            const dbLead = await Lead.findById(leadId).lean();
+            assert(dbLead.enrichment_formula_score >= 0, "T17: formula score missing");
+            assert(dbLead.enrichment_last_run instanceof Date, "T17: enrichment_last_run not persisted as Date");
+        } catch (e) { failures.push("T17 Error: " + e.message); }
+
+        // T18: runFullLeadEnrichment with stubbed AI
+        const origGenerate = unifiedAIService.generate;
+        try {
+            unifiedAIService.generate = async () => JSON.stringify({ summary: "Stub", probability: 90 });
+            const { leadId, executionContext } = await setupAuthorizedLead();
+            const res = await runFullLeadEnrichment(leadId, executionContext);
+            assert(res.success !== false, "T18: runFullLeadEnrichment failed: " + res.error);
+            const dbLead = await Lead.findById(leadId).lean();
+            assert(dbLead.enrichment_formula_score >= 0, "T18: formula score missing");
+            assert(dbLead.enrichment_last_run instanceof Date, "T18: enrichment_last_run not persisted as Date");
+        } catch (e) { failures.push("T18 Error: " + e.message); }
+        finally { unifiedAIService.generate = origGenerate; }
+
+        // T19: Failure behavior (No false timestamp update)
+        try {
+            unifiedAIService.generate = async () => { throw new Error("AI Timeout"); };
+            const { leadId, executionContext } = await setupAuthorizedLead();
+            let threw = false;
+            try {
+                const res = await runFullLeadEnrichment(leadId, executionContext);
+                if (res && res.success === false) threw = true;
+            } catch(err) { threw = true; }
+            assert(threw, "T19: Expected error not caught/returned");
+            const dbLead = await Lead.findById(leadId).lean();
+            assert(dbLead.enrichment_last_run === undefined, "T19: enrichment_last_run falsely updated on failure");
+
+            // Verify pre-existing timestamp is preserved untouched on failure
+            const priorTimestamp = new Date("2026-01-01T00:00:00.000Z");
+            const { leadId: leadId2, executionContext: ctx2 } = await setupAuthorizedLead();
+            await Lead.updateOne({ _id: leadId2 }, { $set: { enrichment_last_run: priorTimestamp } });
+            let threw2 = false;
+            try {
+                const res2 = await runFullLeadEnrichment(leadId2, ctx2);
+                if (res2 && res2.success === false) threw2 = true;
+            } catch(err) { threw2 = true; }
+            assert(threw2, "T19: Expected error not caught/returned for pre-existing timestamp");
+            const dbLead2 = await Lead.findById(leadId2).lean();
+            assert(dbLead2.enrichment_last_run && dbLead2.enrichment_last_run.getTime() === priorTimestamp.getTime(), "T19: Pre-existing enrichment_last_run altered on failure");
+        } catch (e) { failures.push("T19 Error: " + e.message); }
+        finally { unifiedAIService.generate = origGenerate; }
+
+        // T20: Transaction rollback
+        const origOutboxEventCreate = OutboxEvent.create.bind(OutboxEvent);
+        try {
+            unifiedAIService.generate = async () => JSON.stringify({ summary: "Stub", probability: 90 });
+            let failurePointReached = false;
+            OutboxEvent.create = async () => {
+                failurePointReached = true;
+                throw new Error("DB Crash during Tx");
+            };
+            const { leadId, executionContext } = await setupAuthorizedLead();
+            let threw = false;
+            try {
+                const res = await runFullLeadEnrichment(leadId, executionContext);
+                if (res && res.success === false) threw = true;
+            } catch(err) { threw = true; }
+            assert(threw, "T20: Expected Tx error not caught/returned");
+            assert(failurePointReached, "T20: Injected OutboxEvent failure point was not reached");
+            const dbLead = await Lead.findById(leadId).lean();
+            assert(dbLead.enrichment_last_run === undefined, "T20: enrichment_last_run not rolled back!");
+            assert(dbLead.enrichment_formula_score == null, "T20: enrichment_formula_score not rolled back!");
+        } catch (e) { failures.push("T20 Error: " + e.message); }
+        finally {
+            unifiedAIService.generate = origGenerate;
+            OutboxEvent.create = origOutboxEventCreate;
+        }
+
+        // T21: Invalid/stale proof
+        try {
+            const { leadId, executionContext } = await setupAuthorizedLead();
+            // Sabotage the status to make proof stale
+            await Lead.updateOne({ _id: leadId }, { $set: { "enrichmentState.status": "COMPLETED" } });
+            let threw = false;
+            try {
+                await calculateIntentIndex(leadId, executionContext);
+            } catch(err) {
+                threw = true;
+                assert(err.message.includes('SECURITY_VIOLATION'), "T21: Error wasn't SECURITY_VIOLATION");
+            }
+            assert(threw, "T21: Expected security violation not thrown");
+            const dbLead = await Lead.findById(leadId).lean();
+            assert(dbLead.enrichment_last_run === undefined, "T21: Lead incorrectly mutated despite stale proof");
+        } catch (e) { failures.push("T21 Error: " + e.message); }
+
+
 
     } finally {
         if (mongoose.connection.readyState !== 0) await mongoose.disconnect();

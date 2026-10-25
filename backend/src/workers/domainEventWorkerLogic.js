@@ -35,7 +35,11 @@ export const processDomainEventJob = async (job) => {
 
             await executeEffect(eventId, 'scoring', aggregateType, aggregateId, async () => {
                 const freshLead = await Lead.findById(aggregateId);
-                if (freshLead) await LeadScoringService.computeAndSave(freshLead._id);
+                if (freshLead) {
+                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                    const contract = AuthorityProofIssuer.issueSystemContract('lead_created');
+                    await LeadScoringService.computeAndSave(freshLead._id, { triggeredBy: 'lead_created' }, { systemAuthorityContract: contract });
+                }
             });
 
             await executeEffect(eventId, 'distribution', aggregateType, aggregateId, async () => {
@@ -341,7 +345,9 @@ export const processDomainEventJob = async (job) => {
                 });
                 await executeEffect(eventId, 'activity_scoring', aggregateType, aggregateId, async () => {
                     const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
-                    await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_created' });
+                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                    const contract = AuthorityProofIssuer.issueSystemContract('activity_created');
+                    await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_created' }, { systemAuthorityContract: contract });
                 });
             }
             await executeEffect(eventId, 'activity_notification', aggregateType, aggregateId, async () => {
@@ -454,7 +460,8 @@ export const processDomainEventJob = async (job) => {
 
                 case 'ActivityUpdated': {
             let intentEnrichment = false;
-            if (payload && payload.entityType === 'Lead' && payload.entityId) {
+            const normalizedEntityType = payload?.entityType ? String(payload.entityType).trim().toLowerCase() : null;
+            if (normalizedEntityType === 'lead' && payload.entityId) {
                 intentEnrichment = true;
             }
             if (payload.statusChanged && payload.newStatus?.toLowerCase() === 'completed') {
@@ -462,10 +469,12 @@ export const processDomainEventJob = async (job) => {
                     const { default: ActivityTriggerService } = await import('../services/ActivityTriggerService.js');
                     await ActivityTriggerService.executeActivityWhatsAppTriggers({ _id: aggregateId, ...payload }, { id: payload.actorId }, 'activity_completed');
                 });
-                if (payload.entityType?.toLowerCase() === 'lead' && payload.entityId) {
+                if (normalizedEntityType === 'lead' && payload.entityId) {
                     await executeEffect(eventId, 'activity_scoring_completed', aggregateType, aggregateId, async () => {
                         const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
-                        await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' });
+                        const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                        const contract = AuthorityProofIssuer.issueSystemContract('activity_completion');
+                        await LeadScoringService.computeAndSave(payload.entityId, { triggeredBy: 'activity_completion' }, { systemAuthorityContract: contract });
                     });
                 }
             }
@@ -645,7 +654,9 @@ export const processDomainEventJob = async (job) => {
                 key: 'scoring',
                 fn: async () => {
                     const { default: LeadScoringService } = await import('../services/LeadScoringService.js');
-                    await LeadScoringService.computeAndSave(aggregateId);
+                    const { AuthorityProofIssuer } = await import('../../utils/ServerAuthorityProof.js');
+                    const contract = AuthorityProofIssuer.issueSystemContract('lead_updated');
+                    await LeadScoringService.computeAndSave(aggregateId, { triggeredBy: 'lead_updated' }, { systemAuthorityContract: contract });
                 }
             });
 
