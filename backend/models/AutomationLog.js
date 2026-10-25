@@ -8,6 +8,9 @@ const AutomationLogSchema = new mongoose.Schema({
     status: { type: String, enum: ['success', 'failed', 'pending'], default: 'success' },
     details: mongoose.Schema.Types.Mixed, // Stores error messages or execution results
     idempotencyKey: { type: String, unique: true, sparse: true, index: true }, // Prevents duplicate execution
+    // E.3-C.1 Ownership Lease Fields
+    claimToken: { type: String },
+    leaseUntil: { type: Date },
     executedAt: { type: Date, default: Date.now },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' }
 });

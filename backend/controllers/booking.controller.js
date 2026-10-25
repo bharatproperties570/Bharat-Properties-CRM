@@ -4,6 +4,8 @@ import Activity from "../models/Activity.js";
 import AuditLog from "../models/AuditLog.js";
 import Lookup from "../models/Lookup.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { withMongoTransaction } from "../utils/withMongoTransaction.js";
+import OutboxEvent from "../models/OutboxEvent.js";
 
 /**
  * @section Enterprise Booking Controller
@@ -42,11 +44,15 @@ export const createBooking = async (req, res) => {
         }
 
         let bookingId;
-        const session = await mongoose.startSession();
-        
+        let savedBookingForOutbox = null; // captured inside txn for OutboxEvent payload
+
         try {
             let isIdempotentReturn = false;
-            await session.withTransaction(async () => {
+
+            // Phase D.1: Upgraded from raw session.withTransaction() to withMongoTransaction().
+            // Semantics preserved: same session propagation, same writes inside transaction.
+            // Adds: writeConcern:majority, 3-attempt transient error retry, session lifecycle management.
+            await withMongoTransaction(async (session) => {
                 const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
                 let idK = null;
                 const AutomationLog = mongoose.model('AutomationLog');
@@ -57,7 +63,7 @@ export const createBooking = async (req, res) => {
                     if (existingLog && existingLog.entityId) {
                         bookingId = existingLog.entityId;
                         isIdempotentReturn = true;
-                        return; 
+                        return;
                     }
                     try {
                         await AutomationLog.collection.insertOne({ idempotencyKey: idK, status: 'success', description: 'Booking Creation Idempotency Lock' }, { session });
@@ -69,10 +75,15 @@ export const createBooking = async (req, res) => {
                     }
                 }
 
-                const booking = new Booking(bookingData);
+                // Capture occurredAt before the business mutation — consistent timestamp
+                // within the transaction. Not the exact Mongo commit time (unavailable here).
+                const occurredAt = new Date();
+
                 const savedBookings = await Booking.create([bookingData], { session });
                 const savedBooking = savedBookings[0];
                 bookingId = savedBooking._id;
+                savedBookingForOutbox = savedBooking; // captured for OutboxEvent payload
+
                 if (idK) {
                     await AutomationLog.updateOne({ idempotencyKey: idK }, { $set: { entityId: bookingId } }, { session });
                 }
@@ -93,11 +104,11 @@ export const createBooking = async (req, res) => {
 
                 if (dealToUpdate) {
                     console.log(`[BOOKING_ENGINE] Syncing Deal ${dealToUpdate._id} to BOOKED status.`);
-                    
+
                     const updateOps = {
                         $set: {
-                            stage: 'Booked',
-                            status: 'Won',
+                            stage:     'Booked',
+                            status:    'Won',
                             bookingId: savedBooking._id
                         }
                     };
@@ -105,15 +116,15 @@ export const createBooking = async (req, res) => {
                     if (dealToUpdate.negotiationRounds) {
                         updateOps.$push = {
                             negotiationRounds: {
-                                round: (dealToUpdate.negotiationRounds.length + 1),
+                                round:      (dealToUpdate.negotiationRounds.length + 1),
                                 offerPrice: savedBooking.totalDealAmount,
-                                status: 'Accepted',
-                                date: new Date(),
-                                note: `Booking confirmed with Token: ₹${savedBooking.tokenAmount}`
+                                status:     'Accepted',
+                                date:       new Date(),
+                                note:       `Booking confirmed with Token: ₹${savedBooking.tokenAmount}`
                             }
                         };
                     }
-                    
+
                     await Deal.findByIdAndUpdate(dealToUpdate._id, updateOps, { session });
 
                     if (!savedBooking.dealId) {
@@ -126,16 +137,16 @@ export const createBooking = async (req, res) => {
                     console.log(`[BOOKING_ENGINE] Marking Inventory ${bookingData.property} as BOOKED.`);
                     const Inventory = mongoose.model('Inventory');
                     const Lookup = mongoose.model('Lookup');
-                    
+
                     // 1. Resolve 'Available' and 'Active' ObjectIds
                     const sourceLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: ['Available', 'Active'] } }).select('_id').lean().session(session);
                     const sourceIds = sourceLookups.map(l => l._id);
-                    
+
                     // 2. Resolve 'Booked' ObjectId
                     const targetLookups = await Lookup.find({ lookup_type: 'Status', lookup_value: 'Booked' }).select('_id').lean().session(session);
                     const targetStatusId = targetLookups.length > 0 ? targetLookups[0]._id : 'Booked';
 
-                    const invQuery = { 
+                    const invQuery = {
                         _id: bookingData.property,
                         $or: [
                             { status: null },
@@ -145,12 +156,12 @@ export const createBooking = async (req, res) => {
                     if (sourceIds.length > 0) {
                         invQuery.$or.push({ status: { $in: sourceIds } });
                     }
-                    
+
                     const updatedInv = await Inventory.findOneAndUpdate(
                         invQuery,
-                        { 
-                            $set: { 
-                                status: targetStatusId,
+                        {
+                            $set: {
+                                status:           targetStatusId,
                                 lastStatusUpdate: new Date()
                             }
                         },
@@ -165,30 +176,69 @@ export const createBooking = async (req, res) => {
                 // 📝 Record Activity
                 const Activity = mongoose.model('Activity');
                 await Activity.create([{
-                    type: 'Task',
-                    subject: `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
-                    entityType: savedBooking.dealId ? 'Deal' : 'Lead',
-                    entityId: savedBooking.dealId || savedBooking.lead,
-                    dueDate: new Date(),
-                    status: 'Completed',
+                    type:        'Task',
+                    subject:     `Property Booked: ${savedBooking.applicationNo || 'New Booking'}`,
+                    entityType:  savedBooking.dealId ? 'Deal' : 'Lead',
+                    entityId:    savedBooking.dealId || savedBooking.lead,
+                    dueDate:     new Date(),
+                    status:      'Completed',
                     description: `Booking confirmed for deal amount ₹${savedBooking.totalDealAmount} with token ₹${savedBooking.tokenAmount}.`,
-                    relatedTo: [{
-                        id: savedBooking.lead,
-                        model: 'Lead'
-                    }],
-                    createdBy: req.user?._id
+                    relatedTo:   [{ id: savedBooking.lead, model: 'Lead' }],
+                    createdBy:   req.user?._id
                 }], { session });
+
+                // ─── Phase D.1: OutboxEvent ──────────────────────────────────────────────
+                // Written INSIDE the same session as Booking.create.
+                // If the transaction aborts (e.g. INVENTORY_UNAVAILABLE), this write
+                // is also rolled back — ensuring no phantom BookingCreated events.
+                //
+                // companyId context: Booking.js schema has no companyId field.
+                // The authoritative org identity for this single-org system is
+                // req.user?.companyId — which is undefined/null throughout the
+                // system (User model has no companyId; single-org Bharat Properties).
+                // This is consistent with deal.companyId = undefined used in fireEvent.
+                // Payload explicitly omits: tokenAmount, totalDealAmount, paymentSchedule,
+                // commission amounts, payeeAccountDetails, bank reference numbers.
+                //
+                // Consumer idempotency contract (Phase E):
+                //   AutomationLog idempotencyKey = `outbox-{eventId}-{triggerId}-{actionId}`
+                //   NOT `outbox-{eventId}` — one event may fire multiple actions.
+                await OutboxEvent.create([{
+                    eventId:       crypto.randomUUID(),
+                    eventType:     'BookingCreated',
+                    occurredAt,
+                    entityType:    'Booking',
+                    entityId:      savedBooking._id,
+                    correlationId: req.headers['x-correlation-id'] || idK || null,
+                    actor:         req.user?._id || null,
+                    payload: {
+                        applicationNo: savedBooking.applicationNo || null,
+                        dealId:        savedBooking.dealId    || bookingData.dealId || null,
+                        property:      savedBooking.property  || bookingData.property || null,
+                        lead:          savedBooking.lead      || bookingData.lead || null,
+                        salesAgent:    savedBooking.salesAgent || bookingData.salesAgent || null,
+                        bookingDate:   savedBooking.bookingDate || occurredAt,
+                        status:        savedBooking.status  || 'Pending',
+                        type:          savedBooking.type    || 'Sale',
+                        companyId:     null,  // Phase D.2-R1 (D2-F05): explicit null — single-org system.
+                        // Booking schema has no companyId. User model has no companyId.
+                        // req.user?.companyId = undefined system-wide. Consistent with
+                        // DealCreated payload (deal.companyId || null = null) and
+                        // WorkflowEngine.fireEvent(companyId=undefined→Mongoose strips→matches all).
+                    }
+                }], { session });
+
+                console.log(`[BOOKING_ENGINE] OutboxEvent(BookingCreated) written inside transaction for booking ${savedBooking._id}`);
             });
+
         } catch (err) {
-            session.endSession();
-            // Map the transaction error to a 400 Bad Request if it's our inventory business rule
+            // withMongoTransaction owns session.endSession() — do NOT call it here.
+            // Re-map INVENTORY_UNAVAILABLE to 400 (business rule violation, not server error).
             if (err.message && err.message.includes('INVENTORY_UNAVAILABLE')) {
                 return res.status(400).json({ success: false, message: err.message });
             }
             throw err;
         }
-        
-        session.endSession();
 
         const populated = await Booking.findById(bookingId)
             .populate('property')
@@ -201,6 +251,7 @@ export const createBooking = async (req, res) => {
         res.status(400).json({ success: false, message: error.message });
     }
 };
+
 
 export const getBookings = async (req, res) => {
     try {

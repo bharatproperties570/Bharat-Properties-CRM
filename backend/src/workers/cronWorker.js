@@ -4,9 +4,12 @@ import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 import Activity from '../../models/Activity.js';
 import AuditLog from '../../models/AuditLog.js';
-import { notificationQueue } from '../queues/queueManager.js';
+import AutomationLog from '../../models/AutomationLog.js';
+import { notificationQueue, domainEventQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
+// Phase D.1: OutboxPublisher — transport-only, no automation execution
+import { publishPendingEvents } from '../../services/OutboxPublisher.js';
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -281,7 +284,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                                 await WorkflowEngine.executeAction(action, lead, trigger, companyId, false);
                             }
                             await AutomationLog.create({
-                                ruleType: 'TimeBasedTrigger',
+                                ruleType: 'Trigger', // STEP4: corrected from invalid 'TimeBasedTrigger'
                                 ruleId: trigger._id,
                                 targetEntityId: lead._id,
                                 targetModule: 'leads',
@@ -312,7 +315,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                                 await WorkflowEngine.executeAction(action, deal, trigger, companyId, false);
                             }
                             await AutomationLog.create({
-                                ruleType: 'TimeBasedTrigger',
+                                ruleType: 'Trigger', // STEP4: corrected from invalid 'TimeBasedTrigger'
                                 ruleId: trigger._id,
                                 targetEntityId: deal._id,
                                 targetModule: 'deals',
@@ -343,7 +346,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                                 await WorkflowEngine.executeAction(action, activity, trigger, companyId, false);
                             }
                             await AutomationLog.create({
-                                ruleType: 'TimeBasedTrigger',
+                                ruleType: 'Trigger', // STEP4: corrected from invalid 'TimeBasedTrigger'
                                 ruleId: trigger._id,
                                 targetEntityId: activity._id,
                                 targetModule: 'activities',
@@ -376,3 +379,35 @@ cronWorker.on('error', err => {
 });
 
 console.log('✅ Cron Worker Initialized');
+
+// ─── Phase D.1: OutboxPublisher polling loop ────────────────────────────────
+// Polls PENDING OutboxEvents every 10 seconds and forwards to domain-event-queue.
+//
+// TRANSPORT ONLY — does NOT execute automation, WorkflowEngine, or WhatsApp.
+//
+// Phase D: domain-event-queue has NO active consumer. Jobs accumulate.
+// Phase E: TriggerEvaluationConsumer will be attached after shadow-mode validation.
+// The existing WorkflowEngine.fireEvent('deals','deal_created') remains
+// the sole active execution path until the Phase E migration is complete.
+const OUTBOX_POLL_INTERVAL_MS = 10_000; // 10 seconds
+
+let _outboxPolling = false; // guard against overlapping runs
+
+const outboxPollInterval = setInterval(async () => {
+    if (_outboxPolling) return; // skip if previous run still active
+    _outboxPolling = true;
+    try {
+        // Guard: only run when Mongoose is connected
+        const mongoose = (await import('mongoose')).default;
+        if (mongoose.connection.readyState !== 1) return;
+
+        await publishPendingEvents(domainEventQueue, 50);
+    } catch (err) {
+        console.error('[OutboxPublisher] Poll error (non-fatal):', err.message);
+    } finally {
+        _outboxPolling = false;
+    }
+}, OUTBOX_POLL_INTERVAL_MS);
+
+// Clean up interval if process exits (prevents dangling interval in tests)
+outboxPollInterval.unref();

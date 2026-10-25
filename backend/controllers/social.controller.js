@@ -516,9 +516,8 @@ export const verifyWebhook = async (req, res) => {
         const challenge = hub.challenge  || req.query['hub.challenge'];
 
         const fs = await import('fs');
-        fs.appendFileSync('webhook_verify.log', `[${new Date().toISOString()}] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"\n`);
-
-        console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"`);
+        // SEC-STEP3: Removed plaintext token logging. Safe event only.
+        console.log(`[Webhook] VERIFY attempt | mode="${mode}" | ts=${new Date().toISOString()}`);
 
         if (mode === 'subscribe') {
             // Senior Professional: Always fetch current valid tokens from DB

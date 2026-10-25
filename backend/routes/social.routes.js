@@ -23,7 +23,7 @@ import {
     getSocialAnalytics,
     testSocialConnection
 } from '../controllers/social.controller.js';
-import { authenticate } from "../src/middlewares/auth.middleware.js";
+import { authenticate, authorize } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
 
@@ -31,12 +31,12 @@ const router = express.Router();
 router.get('/webhook',  verifyWebhook);
 router.post('/webhook', receiveWebhook);
 
-// ── WhatsApp (TEMPORARILY PUBLIC TO DEBUG 401) ──
-router.post('/whatsapp/config',    saveWhatsAppConfig);
-router.get('/whatsapp/templates',  getWhatsAppTemplates);
-
 // Apply authentication to all following routes
 router.use(authenticate);
+
+// ── WhatsApp configuration — requires authentication + admin role (SEC-02) ───
+router.post('/whatsapp/config',    authorize('admin', 'super admin'), saveWhatsAppConfig);
+router.get('/whatsapp/templates',  getWhatsAppTemplates);
 
 // ── Status ────────────────────────────────────────────────────────────────────
 router.get('/status',         getSocialStatus);

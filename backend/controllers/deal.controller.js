@@ -16,6 +16,7 @@ import { createNotification } from "./notification.controller.js";
 import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
 import { safeRedisCall } from "../src/config/redis.js";
 import { WorkflowEngine } from "../src/utils/WorkflowEngine.js";
+import OutboxEvent from "../models/OutboxEvent.js"; // Phase D.1
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
 
@@ -2105,6 +2106,12 @@ export const addDeal = async (req, res) => {
                 }
             }
 
+                // Phase D.2-R1 (D2-F01): Capture occurredAt BEFORE Deal.create so it
+                // represents business mutation initiation time, not OutboxEvent write time.
+                // Semantics: "wall-clock time when the business mutation was initiated
+                // within the transaction boundary." Matches Booking controller pattern.
+                const occurredAt = new Date();
+
                 const createdDeals = await Deal.create([sanitizedData], { session });
 
                 if (sanitizedData.inventoryId) {
@@ -2158,6 +2165,57 @@ export const addDeal = async (req, res) => {
                         timestamp: new Date()
                     }], { session });
                 }
+
+                // ─── Phase D.1: OutboxEvent ──────────────────────────────────────────────
+                // Written INSIDE the same session as Deal.create.
+                // If the transaction aborts (duplicate deal, inventory lock, etc.), this
+                // write is also rolled back — ensuring no phantom DealCreated events.
+                //
+                // occurredAt: wall-clock timestamp at transaction write time.
+                // Not the exact Mongo commit timestamp (unavailable inside the transaction).
+                //
+                // deal.companyId is undefined in this system — the Deal schema has no
+                // companyId field. The single-org Bharat Properties system passes undefined
+                // to Trigger.find({ companyId: undefined }) in fireEvent. This Outbox event
+                // preserves the same value: companyId in payload = deal.companyId = undefined.
+                //
+                // CRITICAL — fireEvent remains active (Phase E migration not yet done):
+                // WorkflowEngine.fireEvent('deals','deal_created',...) still fires below
+                // (post-transaction, outside this session). The Outbox provides durable
+                // transport for a future consumer ONLY. No dual automation execution exists
+                // in Phase D because domain-event-queue has NO consumer yet.
+                //
+                // Consumer idempotency contract (Phase E):
+                //   AutomationLog idempotencyKey = `outbox-{eventId}-{triggerId}-{actionId}`
+                //   NOT `outbox-{eventId}` alone — one event can fire multiple Trigger actions.
+                //
+                // Payload excludes: price, closedPrice, documents, partyStructure full objects,
+                // commission, token amounts, negotiationRounds, GPS coordinates, websiteMetadata,
+                // campaign toggles, sendMatchedDeal.
+                await OutboxEvent.create([{
+                    eventId:       crypto.randomUUID(),
+                    eventType:     'DealCreated',
+                    occurredAt,
+                    entityType:    'Deal',
+                    entityId:      deal._id,
+                    correlationId: req.headers['x-correlation-id'] || idK || req.headers['idempotency-key'] || null,
+                    actor:         req.user?._id || null,
+                    payload: {
+                        dealId:      deal.dealId      || null,
+                        stage:       deal.stage       || 'Open',
+                        projectName: deal.projectName || null,
+                        block:       deal.block       || null,
+                        unitNo:      deal.unitNo      || null,
+                        inventoryId: deal.inventoryId || null,
+                        assignedTo:  deal.assignedTo  || null,
+                        source:      deal.source      || null,
+                        dealType:    deal.dealType    || null,
+                        companyId:   deal.companyId   || null,  // undefined in single-org system
+                        createdAt:   deal.createdAt   || new Date()
+                    }
+                }], { session });
+
+                console.log(`[DealController] OutboxEvent(DealCreated) written inside transaction for deal ${deal._id}`);
             });
         } catch (err) {
             throw err;

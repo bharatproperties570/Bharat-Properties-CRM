@@ -27,17 +27,46 @@ export const distributionQueue = new Queue('distributionQueue', {
     }
 });
 
+/**
+ * Phase D.1 — Domain Event Queue
+ *
+ * Receives OutboxEvent publication from OutboxPublisher.
+ * Phase D: queue is defined and populated but has NO active consumer.
+ * Phase E: TriggerEvaluationConsumer will be attached as the sole consumer.
+ *
+ * At-least-once delivery: attempts=5 with exponential backoff.
+ * removeOnFail=false: retain failed jobs for inspection and debugging.
+ * jobId deduplication: OutboxPublisher sets jobId=eventId (UUID v4).
+ *
+ * IMPORTANT: Do NOT add a WorkflowEngine or automation consumer in Phase D.
+ * The existing WorkflowEngine.fireEvent('deals','deal_created',...) remains
+ * the active execution path until the Phase E shadow-mode migration.
+ */
+export const domainEventQueue = new Queue('domain-event-queue', {
+    ...queueOptions,
+    defaultJobOptions: {
+        attempts:         5,
+        backoff:          { type: 'exponential', delay: 15000 },
+        removeOnComplete: { count: 200 },
+        removeOnFail:     false   // retain for debugging + Phase E consumer analysis
+    }
+});
+
 // Prevent unhandled error crashes if Redis goes down
-enrichmentQueue.on('error',   () => { });
-notificationQueue.on('error', () => { });
-cronQueue.on('error',         () => { });
-googleSyncQueue.on('error',   () => { });
-marketingQueue.on('error',    (err) => {
+enrichmentQueue.on('error',    () => { });
+notificationQueue.on('error',  () => { });
+cronQueue.on('error',          () => { });
+googleSyncQueue.on('error',    () => { });
+marketingQueue.on('error',     (err) => {
     if (!err.message?.includes('ECONNREFUSED')) {
         console.warn('[MarketingQueue] Queue error:', err.message);
     }
 });
-distributionQueue.on('error', () => { });
+distributionQueue.on('error',  () => { });
+domainEventQueue.on('error',   (err) => {
+    if (!err.message?.includes('ECONNREFUSED')) {
+        console.warn('[DomainEventQueue] Queue error:', err.message);
+    }
+});
 
-console.log('✅ BullMQ Queues Initialized (enrichment, notification, cron, googleSync, marketing, distribution)');
-
+console.log('✅ BullMQ Queues Initialized (enrichment, notification, cron, googleSync, marketing, distribution, domain-event)');

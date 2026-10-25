@@ -695,7 +695,15 @@ export const getJobStatus = async (req, res) => {
 
 export const getMarketingContent = async (req, res) => {
     try {
-        const content = await MarketingContent.find(req.query).sort({ date: 1 }).populate('dealId', 'unitNo').lean();
+        // SEC-01: Whitelist allowed query keys to prevent NoSQL operator injection.
+        // Only scalar string values are permitted — object values (e.g. { $ne: ... }) are discarded.
+        const ALLOWED_QUERY_KEYS = ['dealId', 'status', 'type', 'author', 'date'];
+        const safeQuery = Object.fromEntries(
+            Object.entries(req.query)
+                .filter(([key]) => ALLOWED_QUERY_KEYS.includes(key))
+                .filter(([, val]) => typeof val === 'string')
+        );
+        const content = await MarketingContent.find(safeQuery).sort({ date: 1 }).populate('dealId', 'unitNo').lean();
         res.json({ success: true, data: content });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

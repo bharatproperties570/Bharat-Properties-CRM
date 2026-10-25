@@ -1,3 +1,63 @@
+/**
+ * @file AutomationEngine.js
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  RETIRED — PHASE B — 2026-09-30                                        ║
+ * ║  M0.10D Phase B Controlled Retirement                                   ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                          ║
+ * ║  WHY RETIRED                                                             ║
+ * ║  ──────────                                                              ║
+ * ║  This singleton was NEVER imported in server.js or any worker startup.   ║
+ * ║  Its constructor calls initializeListeners(), which registers EventBus   ║
+ * ║  handlers — but since the module was never imported, those handlers       ║
+ * ║  were never registered and no execution ever occurred in production.      ║
+ * ║                                                                          ║
+ * ║  M0.10B forensic audit confirmed: AutomationEngine is dead code.         ║
+ * ║  M0.10D Phase B dependency audit confirmed: zero external imports.        ║
+ * ║                                                                          ║
+ * ║  WHAT IT DID (DESIGN INTENT — NEVER EXECUTED)                            ║
+ * ║  ─────────────────────────────────────────────                            ║
+ * ║  Listened to EventBus (LEAD_CREATED, LEAD_UPDATED, DEAL_CREATED,         ║
+ * ║  DEAL_UPDATED, INVENTORY_CREATED, INVENTORY_UPDATED) and attempted to    ║
+ * ║  evaluate Trigger documents, but:                                         ║
+ * ║    - queried Trigger without companyId filter (CV-01)                    ║
+ * ║    - never wrote AutomationLog (no idempotency, no audit)                ║
+ * ║    - executeAction() was a stub (console.log only, no real dispatch)     ║
+ * ║                                                                          ║
+ * ║  CANONICAL REPLACEMENT                                                   ║
+ * ║  ──────────────────────                                                  ║
+ * ║  WorkflowEngine.fireEvent() is the active canonical workflow evaluation   ║
+ * ║  and action execution engine. It is called imperatively by controllers    ║
+ * ║  with full companyId scoping and AutomationLog idempotency.               ║
+ * ║                                                                          ║
+ * ║  FUTURE DIRECTION                                                        ║
+ * ║  ────────────────                                                        ║
+ * ║  The TriggerEvaluationConsumer (Phase E) will subscribe to the           ║
+ * ║  domain-event-queue (Outbox pattern) and replace the role this engine    ║
+ * ║  was designed for, with correct companyId scoping and durable delivery.  ║
+ * ║                                                                          ║
+ * ║  NOTE ON process-automation-event                                        ║
+ * ║  ──────────────────────────────                                          ║
+ * ║  AutomationEngine.processEvent() was the sole producer of               ║
+ * ║  'process-automation-event' BullMQ jobs. Since this engine was never     ║
+ * ║  initialized, no such jobs were ever enqueued via this path.             ║
+ * ║  The marketingWorker handler for this job name is preserved because      ║
+ * ║  it contains valid SequenceEngine logic that the future TriggerEvaluation ║
+ * ║  Consumer or Outbox Publisher may reactivate.                            ║
+ * ║                                                                          ║
+ * ║  DO NOT IMPORT THIS FILE.                                                ║
+ * ║  DO NOT INSTANTIATE AutomationEngine.                                    ║
+ * ║  DO NOT REGISTER EventBus listeners from this class.                    ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * Original source preserved below for archaeological reference only.
+ * This class is NOT executed at runtime.
+ */
+
+// ─── RETIRED SOURCE (archaeological reference only) ───────────────────────────
+
+/*
 import eventBus from './EventBus.js';
 import AutomatedAction from '../models/AutomatedAction.js';
 import Trigger from '../models/Trigger.js';
@@ -9,144 +69,14 @@ import { marketingQueue } from '../src/queues/marketingQueue.js';
 class AutomationEngine {
     constructor() {
         this.initializeListeners();
-        this.recursionGuard = new Map(); // entityId_event: { count, resetAt }
+        this.recursionGuard = new Map();
     }
 
-    checkRecursionGuard(entityId, eventName) {
-        const key = `${entityId}_${eventName}`;
-        const now = Date.now();
-        const record = this.recursionGuard.get(key) || { count: 0, resetAt: now + 5000 };
-
-        if (now > record.resetAt) {
-            record.count = 1;
-            record.resetAt = now + 5000;
-        } else {
-            record.count += 1;
-        }
-
-        this.recursionGuard.set(key, record);
-
-        if (record.count > 3) {
-            console.warn(`[AutomationEngine] 🛑 RECURSION GUARD BLOCKED event ${eventName} for entity ${entityId} (Fired ${record.count} times in 5s)`);
-            return true; // Blocked
-        }
-        return false; // Allowed
-    }
-
-    initializeListeners() {
-        // Core entity events
-        eventBus.on('LEAD_CREATED', (lead) => this.processEvent('LEAD_CREATED', lead, 'Lead'));
-        eventBus.on('LEAD_UPDATED', (lead) => this.processEvent('LEAD_UPDATED', lead, 'Lead'));
-        eventBus.on('DEAL_CREATED', (deal) => this.processEvent('DEAL_CREATED', deal, 'Deal'));
-        eventBus.on('DEAL_UPDATED', (deal) => this.processEvent('DEAL_UPDATED', deal, 'Deal'));
-        eventBus.on('INVENTORY_CREATED', (inv) => this.processEvent('INVENTORY_CREATED', inv, 'Inventory'));
-        eventBus.on('INVENTORY_UPDATED', (inv) => this.processEvent('INVENTORY_UPDATED', inv, 'Inventory'));
-    }
-
-    async processEvent(eventName, entity, entityType) {
-        try {
-            if (this.checkRecursionGuard(entity._id, eventName)) return;
-
-            console.log(`[AutomationEngine] Received ${eventName} for ${entityType} ${entity._id}`);
-
-            // Offload Sequence Evaluation to BullMQ background worker (non-blocking)
-            if (['Lead', 'Deal'].includes(entityType)) {
-                if (marketingQueue) {
-                    marketingQueue.add('process-automation-event', {
-                        eventName,
-                        entityId: entity._id,
-                        entityType
-                    }).catch(err => console.error('[AutomationEngine] Failed to enqueue event job:', err.message));
-                } else {
-                    // Fallback to async setImmediate if Redis is offline
-                    setImmediate(async () => {
-                        const moduleName = entityType.toLowerCase() + 's';
-                        if (eventName.endsWith('_UPDATED')) {
-                            await SequenceEngine.evaluateExitCriteria(entity, moduleName);
-                            await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
-                        } else if (eventName.endsWith('_CREATED')) {
-                            await SequenceEngine.evaluateAutoEnrollment(entity, moduleName, entity.companyId);
-                        }
-                    });
-                }
-            }
-            
-            // Map uppercase backend events to frontend trigger event names
-            const triggerEventMap = {
-                'LEAD_CREATED': 'lead_created',
-                'LEAD_UPDATED': 'lead_updated',
-                'DEAL_CREATED': 'deal_created',
-                'DEAL_UPDATED': 'deal_updated',
-                'INVENTORY_CREATED': 'inventory_created',
-                'INVENTORY_UPDATED': 'inventory_updated'
-            };
-
-            const mappedEvent = triggerEventMap[eventName] || eventName.toLowerCase();
-
-            // Find Triggers listening to this event
-            const activeTriggers = await Trigger.find({ 
-                event: mappedEvent,
-                isActive: true
-            }).sort({ priority: 1 });
-
-            if (activeTriggers.length === 0) {
-                console.log(`[AutomationEngine] No active triggers for ${mappedEvent}.`);
-                return;
-            }
-
-            console.log(`[AutomationEngine] Found ${activeTriggers.length} triggers for ${mappedEvent}. Evaluating...`);
-
-            for (const trigger of activeTriggers) {
-                // Condition evaluation (basic implementation)
-                let conditionsMet = true;
-                if (trigger.conditions && Object.keys(trigger.conditions).length > 0) {
-                    for (const [key, value] of Object.entries(trigger.conditions)) {
-                        if (entity[key] !== value) {
-                            conditionsMet = false;
-                            break;
-                        }
-                    }
-                }
-
-                if (!conditionsMet) {
-                    console.log(`[AutomationEngine] Trigger ${trigger.name} conditions not met.`);
-                    continue;
-                }
-
-                console.log(`[AutomationEngine] Trigger ${trigger.name} conditions MET. Executing actions...`);
-
-                // Execute Actions
-                for (const action of trigger.actions || []) {
-                    await this.executeAction(action, entity, entityType);
-                }
-            }
-
-        } catch (error) {
-            console.error(`[AutomationEngine] Error processing ${eventName}:`, error);
-        }
-    }
-
-    async executeAction(action, entity, entityType) {
-        try {
-            if (action.type === 'send_communication') {
-                console.log(`[AutomationEngine] Dispatching ${action.channel} to entity ${entity._id}`);
-                // In production, invoke dispatcher here.
-            } else if (action.type === 'fire_automated_action' || action.automatedActionId) {
-                const autoAction = await AutomatedAction.findById(action.automatedActionId);
-                if (autoAction && autoAction.isActive) {
-                    console.log(`[AutomationEngine] Executing Automated Action: ${autoAction.name}`);
-                    // Execute specific rules (e.g. update field)
-                }
-            } else {
-                console.log(`[AutomationEngine] Executing Action: ${action.type || 'Unknown'}`);
-            }
-        } catch (error) {
-            console.error(`[AutomationEngine] Action Execution Failed:`, error);
-        }
-    }
+    // ... [full original source available in git history at HEAD c73f464ef6c6] ...
 }
 
-// Global singleton instance
 const engine = new AutomationEngine();
-
 export default engine;
+*/
+
+// No live exports. Nothing is instantiated.

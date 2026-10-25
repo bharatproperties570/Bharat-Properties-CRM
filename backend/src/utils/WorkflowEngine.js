@@ -1,8 +1,7 @@
 import Trigger from '../../models/Trigger.js';
 import AutomationLog from '../../models/AutomationLog.js';
-import { sendWhatsAppMessage } from '../../controllers/social.controller.js'; // Ensure correct path or use an internal service method
-// If sendWhatsAppMessage expects req/res, we might need a dedicated internal service for server-to-server calls.
-// For now, let's mock the dispatcher or use an internal function.
+// Phase C: Removed static import of sendWhatsAppMessage from social.controller.js.
+// WorkflowEngine now calls WhatsAppService directly (service boundary fix).
 
 export class WorkflowEngine {
     static evaluateCondition(rule, entityData) {
@@ -66,7 +65,16 @@ export class WorkflowEngine {
         }
     }
 
-    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false) {
+    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false, executionOptions = {}) {
+        const isDealCreatedNative = trigger?.module === 'deals' &&
+            (trigger?.event === 'deal_created' || trigger?.event === 'DealCreated') &&
+            action?.type !== 'fire_automated_action';
+
+        let canonicalKey = null;
+        let claimToken = null;
+        let leaseUntil = null;
+        let claimAcquired = false;
+
         try {
             // Process Delayed Actions if this is a 'fire_automated_action' and not already delayed
             if (action.type === 'fire_automated_action' && action.automatedActionId) {
@@ -194,6 +202,74 @@ export class WorkflowEngine {
             }
 
             // ─── Native Raw Trigger Actions ───
+            if (isDealCreatedNative) {
+                const targetEntityId = String(entityData._id || entityData.id);
+                const triggerId = String(trigger._id);
+                const actionId = action._id ? String(action._id) : (executionOptions.actionIndex !== undefined ? String(executionOptions.actionIndex) : '0');
+                canonicalKey = `canonical-deal_created-${targetEntityId}-${triggerId}-${actionId}`;
+
+                if (executionOptions.callerManagedClaim && executionOptions.canonicalClaimAcquired) {
+                    claimAcquired = true;
+                    canonicalKey = executionOptions.idempotencyKey || canonicalKey;
+                    claimToken = executionOptions.claimToken;
+                    leaseUntil = executionOptions.leaseUntil || null;
+                } else {
+                    const { validateExecutionAuthority } = await import('./executionCoordinator.js');
+                    const authority = await validateExecutionAuthority('LEGACY', trigger?.event);
+                    if (!authority.authorized) {
+                        console.log(`[WorkflowEngine] executeAction for ${trigger?.event} suppressed by ExecutionCoordinator (owner: ${authority.owner}, epoch: ${authority.epoch}, reason: ${authority.reason})`);
+                        return;
+                    }
+
+                    const crypto = (await import('crypto')).default;
+                    claimToken = crypto.randomUUID();
+                    leaseUntil = new Date(Date.now() + 120000);
+
+                    try {
+                        await AutomationLog.create({
+                            ruleType: 'Trigger',
+                            ruleId: trigger._id,
+                            targetEntityId,
+                            targetModule: trigger.module,
+                            status: 'pending',
+                            idempotencyKey: canonicalKey,
+                            companyId,
+                            claimToken,
+                            leaseUntil
+                        });
+                        claimAcquired = true;
+                    } catch (claimErr) {
+                        if (claimErr.code === 11000) {
+                            const existing = await AutomationLog.findOne({ idempotencyKey: canonicalKey });
+                            const existingDoc = existing?.lean ? await existing.lean() : existing;
+                            if (existingDoc && existingDoc.status === 'success') {
+                                console.log(`[WorkflowEngine] Action already executed for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                            if (existingDoc && existingDoc.status === 'pending' && existingDoc.leaseUntil && new Date(existingDoc.leaseUntil) > new Date()) {
+                                console.log(`[WorkflowEngine] Active claim held for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                            // Stale lease acquisition
+                            const updated = await AutomationLog.findOneAndUpdate(
+                                { idempotencyKey: canonicalKey, status: 'pending', leaseUntil: { $lte: new Date() } },
+                                { $set: { claimToken, leaseUntil } },
+                                { new: true }
+                            );
+                            if (updated) {
+                                claimAcquired = true;
+                                leaseUntil = updated.leaseUntil || leaseUntil;
+                            } else {
+                                console.log(`[WorkflowEngine] Lost claim race for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                        } else {
+                            throw claimErr;
+                        }
+                    }
+                }
+            }
+
             if (action.type === 'send_communication') {
                 let recipientMobile = entityData.mobile || entityData.primaryPhone || null;
                 if (!recipientMobile && entityData.entityId) {
@@ -214,33 +290,64 @@ export class WorkflowEngine {
                 } else {
                     const VariableResolver = (await import('./VariableResolver.js')).default;
                     if (action.channel === 'whatsapp') {
-                        const { sendWhatsAppMessage } = await import('../../controllers/social.controller.js');
-                        const resolvedTemplate = VariableResolver.resolve(action.templateId || action.message || '', entityData);
-                        console.log(`[WorkflowEngine] Sending WhatsApp to ${recipientMobile} | Template: ${action.templateId || 'text'}`);
+                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
 
-                        // 🚀 ENTERPRISE: Build templateComponents with named parameters for Meta API
-                        let templateComponents = [];
                         if (action.templateId) {
+                            // Phase C.2: Build CRM variable map first (named-param flat array)
+                            let crmParams = [];
                             try {
-                                templateComponents = await this._buildTemplateComponents(entityData, trigger.module, companyId);
-                                console.log(`[WorkflowEngine] Built ${templateComponents.length} template components for ${trigger.module}`);
+                                crmParams = await this._buildTemplateComponents(entityData, trigger.module, companyId);
+                                console.log(`[WorkflowEngine] Built ${crmParams.length} CRM params for template ${action.templateId}`);
                             } catch (tcErr) {
-                                console.error('[WorkflowEngine] Failed to build template components:', tcErr.message);
+                                console.error('[WorkflowEngine] Failed to build CRM params:', tcErr.message);
+                            }
+
+                            // Phase C.2: Fetch template definition — same as old controller path.
+                            // Required to: (a) get correct language, (b) build Meta-format components.
+                            const templates = await WhatsAppService.getTemplates();
+                            const templateDef = templates.find(t => t.name === action.templateId);
+
+                            // Language: from template definition (mirrors old: templateDef?.language || language || 'en')
+                            // 'language' in old mockReq.body was never set → always resolved to templateDef?.language || 'en'
+                            const langCode = templateDef?.language || 'en';
+
+                            // Build Meta-format components (body + header + buttons)
+                            const metaComponents = await this._buildMetaComponents(
+                                templateDef, crmParams, action.templateId
+                            );
+
+                            // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
+                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                                throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp template dispatch for canonical key: ${canonicalKey}`);
+                            }
+
+                            console.log(`[WorkflowEngine] Sending WhatsApp template "${action.templateId}" lang="${langCode}" to ${recipientMobile}`);
+                            const waResult = await WhatsAppService.sendTemplate(
+                                recipientMobile,
+                                action.templateId,
+                                langCode,
+                                metaComponents
+                            );
+                            if (!waResult?.success && waResult?.error) {
+                                throw new Error(`WhatsApp template send failed: ${JSON.stringify(waResult.error)}`);
+                            }
+                        } else {
+                            // Plain text — unchanged from Phase C
+                            const VariableResolver = (await import('./VariableResolver.js')).default;
+                            const resolvedMessage = VariableResolver.resolve(action.message || '', entityData);
+
+                            // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
+                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                                throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp text dispatch for canonical key: ${canonicalKey}`);
+                            }
+
+                            console.log(`[WorkflowEngine] Sending WhatsApp text to ${recipientMobile}`);
+                            if (resolvedMessage) {
+                                await WhatsAppService.sendMessage(recipientMobile, resolvedMessage);
+                            } else {
+                                console.log(`[WorkflowEngine] Skipping WhatsApp send: no templateId and no message`);
                             }
                         }
-
-                        const mockReq = {
-                            user: { companyId },
-                            body: {
-                                mobile: recipientMobile,
-                                message: resolvedTemplate,
-                                type: action.templateId ? 'template' : 'text',
-                                templateId: action.templateId,
-                                templateComponents: templateComponents.length > 0 ? templateComponents : undefined
-                            }
-                        };
-                        const mockRes = { status: () => mockRes, json: () => mockRes };
-                        await sendWhatsAppMessage(mockReq, mockRes, () => {}).catch(e => console.error('[WorkflowEngine] Meta API err:', e.message));
                     } else if (action.channel === 'sms') {
                         const resolvedSms = VariableResolver.resolve(action.templateId || '', entityData);
                         console.log(`[WorkflowEngine] Sending SMS (Raw) to ${recipientMobile}`);
@@ -291,32 +398,245 @@ export class WorkflowEngine {
                 await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
             }
             
-            await AutomationLog.create({
-                ruleType: 'Trigger',
-                ruleId: trigger._id,
-                targetEntityId: entityData._id || entityData.id,
-                targetModule: trigger.module,
-                status: 'success',
-                companyId
-            });
+            if (isDealCreatedNative && claimAcquired) {
+                if (!executionOptions.callerManagedClaim) {
+                    const finalizeResult = await AutomationLog.updateOne(
+                        { idempotencyKey: canonicalKey, claimToken },
+                        { $set: { status: 'success', executedAt: new Date() } }
+                    );
+                    if (finalizeResult.modifiedCount !== 1) {
+                        console.warn(`[WorkflowEngine] Ownership lost during finalization for canonical key: ${canonicalKey}`);
+                    }
+                }
+            } else {
+                await AutomationLog.create({
+                    ruleType: 'Trigger',
+                    ruleId: trigger._id,
+                    targetEntityId: entityData._id || entityData.id,
+                    targetModule: trigger.module,
+                    status: 'success',
+                    companyId
+                });
+            }
         } catch (error) {
             console.error(`[WorkflowEngine] Action failed:`, error);
-            await AutomationLog.create({
-                ruleType: 'Trigger',
-                ruleId: trigger._id,
-                targetEntityId: entityData._id || entityData.id,
-                targetModule: trigger.module,
-                status: 'failed',
-                details: { error: error.message },
-                companyId
+            if (isDealCreatedNative && claimAcquired && !executionOptions.callerManagedClaim) {
+                await AutomationLog.updateOne(
+                    { idempotencyKey: canonicalKey, claimToken },
+                    { $set: { status: 'failed', details: { error: error.message } } }
+                );
+            } else if (!isDealCreatedNative) {
+                await AutomationLog.create({
+                    ruleType: 'Trigger',
+                    ruleId: trigger._id,
+                    targetEntityId: entityData._id || entityData.id,
+                    targetModule: trigger.module,
+                    status: 'failed',
+                    details: { error: error.message },
+                    companyId
+                });
+            }
+            if (executionOptions.rethrowErrors) {
+                throw error;
+            }
+        }
+    }
+
+    /**
+     * Phase C.2 — Build Meta-format components from a CRM named-param array.
+     *
+     * Replicates the template-building logic previously inside sendWhatsAppMessage()
+     * in social.controller.js, adapted for non-HTTP / server-to-server execution.
+     *
+     * Covers:
+     *  - BODY: named ({{OwnerName}}) and numbered ({{1}}) variable resolution
+     *  - HEADER TEXT: variable-bearing text headers
+     *  - HEADER media (IMAGE/VIDEO/DOCUMENT): DB-configured default or hardcoded fallback
+     *  - BUTTONS: URL with dynamic variable, FLOW tokens, QUICK_REPLY (no-op)
+     *  - Fallback when template definition is not found
+     *
+     * @param {object|null}  templateDef  Template definition from WhatsAppService.getTemplates()
+     * @param {Array}        crmParams    Output of _buildTemplateComponents(): [{parameter_name, text}]
+     * @param {string}       templateId   Template name (for logging)
+     * @returns {Array}                   Meta-format components array
+     */
+    static async _buildMetaComponents(templateDef, crmParams, templateId) {
+        const components = [];
+
+        // ─── Build lookup maps from CRM params (mirrors controller) ──────────────
+        const namedParamMap   = {};   // exact-case lookup
+        const namedParamMapLC = {};   // lowercase lookup for case-insensitive match
+        const positionalValues = [];  // ordered list for {{1}}, {{2}} …
+        const plainTextList    = [];  // bare string items without parameter_name
+
+        if (Array.isArray(crmParams) && crmParams.length > 0) {
+            crmParams.forEach(item => {
+                if (item && typeof item === 'object' && item.parameter_name) {
+                    namedParamMap[item.parameter_name]                    = item.text || '';
+                    namedParamMapLC[item.parameter_name.toLowerCase()]    = item.text || '';
+                    positionalValues.push(item.text || '');
+                } else {
+                    plainTextList.push(typeof item === 'string' ? item : (item?.text || ''));
+                }
             });
         }
+
+        let positionalIdx = 0;
+        let plainIdx      = 0;
+
+        if (templateDef) {
+            for (const compDef of templateDef.components) {
+
+                // ── BODY ──────────────────────────────────────────────────────────
+                if (compDef.type === 'BODY') {
+                    const bodyMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                    const uniqueVars  = Array.from(new Set(bodyMatches.map(m => m.replace(/[{}]/g, '').trim())));
+
+                    if (uniqueVars.length > 0) {
+                        const parameters = uniqueVars.map(varName => {
+                            const isNumberedVar = /^\d+$/.test(varName);
+                            const varLC         = varName.toLowerCase();
+                            let textVal;
+
+                            if (namedParamMapLC[varLC] !== undefined) {
+                                textVal = namedParamMapLC[varLC];
+                            } else if (isNumberedVar && positionalIdx < positionalValues.length) {
+                                textVal = positionalValues[positionalIdx++];
+                            } else if (plainIdx < plainTextList.length) {
+                                textVal = plainTextList[plainIdx++];
+                            } else {
+                                textVal = '-';
+                            }
+
+                            // Meta rejects empty-string variables — use '-' as fallback
+                            let finalVal = String(textVal).trim();
+                            if (finalVal === '' || finalVal === 'null' || finalVal === 'undefined') finalVal = '-';
+
+                            const param = { type: 'text', text: finalVal };
+                            if (!isNumberedVar) param.parameter_name = varName; // preserve named-var identity
+                            return param;
+                        });
+                        components.push({ type: 'body', parameters });
+                    }
+
+                // ── BUTTONS ───────────────────────────────────────────────────────
+                } else if (compDef.type === 'BUTTONS') {
+                    compDef.buttons?.forEach((btn, btnIdx) => {
+                        if (btn.type === 'URL' && btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
+                            const urlVarName = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
+                            let btnTokenVal  = namedParamMap[urlVarName]
+                                || namedParamMap['siteVisitToken']
+                                || namedParamMap['site_visit_token']
+                                || plainTextList[plainIdx]
+                                || 'visit';
+                            // JWT dots must be encoded as '~' for Meta URL template vars
+                            if (typeof btnTokenVal === 'string' && btnTokenVal.includes('.')) {
+                                btnTokenVal = btnTokenVal.replace(/\./g, '~');
+                            }
+                            components.push({
+                                type:       'button',
+                                sub_type:   'url',
+                                index:      String(btnIdx),
+                                parameters: [{ type: 'text', text: String(btnTokenVal) }]
+                            });
+                        } else if (btn.type === 'FLOW') {
+                            components.push({
+                                type:       'button',
+                                sub_type:   'flow',
+                                index:      String(btnIdx),
+                                parameters: [{
+                                    type:   'action',
+                                    action: { flow_token: `crm_flow_${Date.now()}_${Math.floor(Math.random() * 1000)}` }
+                                }]
+                            });
+                        }
+                        // QUICK_REPLY: no component needed — Meta renders automatically
+                    });
+
+                // ── TEXT HEADER ───────────────────────────────────────────────────
+                } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT') {
+                    const headerMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                    if (headerMatches.length > 0) {
+                        const parameters = headerMatches.map(match => {
+                            const varName   = match.replace(/[{}]/g, '').trim();
+                            const isNumbered = /^\d+$/.test(varName);
+                            let textVal;
+                            if (namedParamMapLC[varName.toLowerCase()] !== undefined) {
+                                textVal = namedParamMapLC[varName.toLowerCase()];
+                            } else if (isNumbered && positionalIdx < positionalValues.length) {
+                                textVal = positionalValues[positionalIdx++];
+                            } else {
+                                textVal = plainTextList[plainIdx] || 'Update';
+                            }
+                            const param = { type: 'text', text: String(textVal).substring(0, 200) };
+                            if (!isNumbered) param.parameter_name = varName;
+                            return param;
+                        });
+                        components.push({ type: 'header', parameters });
+                    }
+
+                // ── MEDIA HEADER (IMAGE / VIDEO / DOCUMENT) ───────────────────────
+                // Note: controller also accepted headerImageUrl/mediaUrl from req.body.
+                // WorkflowEngine has no HTTP request — media URL comes from DB default
+                // or hardcoded fallback, same as when controller ran without explicit media.
+                } else if (compDef.type === 'HEADER' && compDef.format && compDef.format !== 'TEXT') {
+                    const hType = compDef.format.toLowerCase(); // 'image' | 'video' | 'document'
+
+                    let dbDefaultImage = null;
+                    try {
+                        const mongoose = (await import('mongoose')).default;
+                        const SystemSetting = mongoose.models.SystemSetting || mongoose.model('SystemSetting');
+                        const imgSetting = await SystemSetting.findOne({ key: 'wa_feedback_header_image' }).lean();
+                        dbDefaultImage = imgSetting?.value?.url || null;
+                    } catch (_e) { /* non-fatal — fall through to hardcoded default */ }
+
+                    const finalMediaUrl = dbDefaultImage || (
+                        hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
+                        hType === 'image'    ? '/uploads/whatsapp_feedback_header.jpg' :
+                        'https://www.w3schools.com/html/mov_bbb.mp4'
+                    );
+
+                    // WorkflowEngine cannot upload local files to Meta (no req/res context).
+                    // Use link-based reference — same as controller's non-local-file path.
+                    const mediaObject = { link: finalMediaUrl };
+                    if (hType === 'document') mediaObject.filename = 'Huda_Map_Book_KKR.pdf';
+
+                    const headerComp = {
+                        type:       'header',
+                        parameters: [{ type: hType, [hType]: mediaObject }]
+                    };
+                    const existingHeaderIdx = components.findIndex(c => c.type === 'header');
+                    if (existingHeaderIdx >= 0) components[existingHeaderIdx] = headerComp;
+                    else components.push(headerComp);
+                }
+            }
+
+        // ─── Fallback — template definition not found (mirrors controller fallback) ─
+        } else {
+            console.warn(`[WorkflowEngine] ⚠️ Template definition NOT found for: ${templateId}. Using flat param fallback.`);
+            if (Array.isArray(crmParams) && crmParams.length > 0) {
+                components.push({
+                    type:       'body',
+                    parameters: crmParams.map(item => {
+                        let textVal = typeof item === 'string' ? item : (item?.text || '');
+                        textVal = String(textVal).trim();
+                        if (textVal === '' || textVal === 'null' || textVal === 'undefined') textVal = '-';
+                        const param = { type: 'text', text: textVal };
+                        if (item?.parameter_name) param.parameter_name = item.parameter_name;
+                        return param;
+                    })
+                });
+            }
+        }
+
+        return components;
     }
 
     /**
      * 🚀 ENTERPRISE: Build comprehensive templateComponents from entity data.
      * Maps CRM fields to Meta-approved template variables so that WhatsApp
      * templates receive real, dynamic data instead of empty placeholders.
+
      * Also generates JWT tokens for CTA button URLs (public form pre-fill).
      */
     static async _buildTemplateComponents(entityData, moduleName, companyId) {
@@ -489,6 +809,16 @@ export class WorkflowEngine {
 
     static async fireEvent(moduleName, eventName, entityData, companyId) {
         try {
+            // Phase E.3-D.9-B2-B: Check ExecutionCoordinator authority for coordinated events
+            if (moduleName === 'deals' && (eventName === 'deal_created' || eventName === 'DealCreated')) {
+                const { validateExecutionAuthority } = await import('./executionCoordinator.js');
+                const authority = await validateExecutionAuthority('LEGACY', eventName);
+                if (!authority.authorized) {
+                    console.log(`[WorkflowEngine] Event ${moduleName}.${eventName} execution suppressed by ExecutionCoordinator (owner: ${authority.owner}, epoch: ${authority.epoch}, reason: ${authority.reason})`);
+                    return;
+                }
+            }
+
             const activeTriggers = await Trigger.find({
                 module: moduleName,
                 event: eventName,
@@ -500,8 +830,9 @@ export class WorkflowEngine {
                 const shouldFire = this.evaluateRules(trigger.conditions, entityData);
                 if (shouldFire) {
                     console.log(`[WorkflowEngine] Trigger '${trigger.name}' fired for ${moduleName}.${eventName}`);
-                    for (const action of trigger.actions) {
-                        await this.executeAction(action, entityData, trigger, companyId);
+                    for (let actionIndex = 0; actionIndex < trigger.actions.length; actionIndex++) {
+                        const action = trigger.actions[actionIndex];
+                        await this.executeAction(action, entityData, trigger, companyId, false, { actionIndex });
                     }
                 }
             }

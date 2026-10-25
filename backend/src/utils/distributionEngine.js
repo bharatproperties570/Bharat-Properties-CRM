@@ -337,7 +337,9 @@ const performAssignment = async (entity, assignedTo, ruleName) => {
         );
     }
 
-    // Emit event so the AutomationEngine can react (e.g. sequence triggers, webhook firing)
+    // Emit event for future Outbox/TriggerEvaluationConsumer adoption (Phase E).
+    // NOTE: AutomationEngine retired Phase B — EventBus has no active consumer.
+    // Emission is preserved as a compatibility adapter pending Outbox migration.
     if (updatedDoc) {
         const eventName = `${modelName.toUpperCase()}_UPDATED`;
         eventBus.emit(eventName, updatedDoc);
