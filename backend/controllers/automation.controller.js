@@ -217,3 +217,39 @@ export const deleteAutomatedAction = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// --- SEQUENCE ENROLLMENT ---
+export const enrollEntityInSequence = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { entityId, module = 'deals' } = req.body;
+        const companyId = req.user?.companyId || req.user?.tenantId;
+
+        if (!id || !entityId) {
+            return res.status(400).json({ error: 'sequenceId and entityId are required' });
+        }
+
+        const seq = await Sequence.findById(id);
+        if (!seq) return res.status(404).json({ error: 'Sequence not found' });
+
+        const { SequenceEngine } = await import('../src/utils/SequenceEngine.js');
+        await SequenceEngine.enroll(seq, { _id: entityId }, module || seq.module || 'deals', companyId);
+
+        res.status(200).json({ success: true, message: 'Enrolled successfully' });
+    } catch (error) {
+        console.error('[enrollEntityInSequence] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getEntityEnrollments = async (req, res) => {
+    try {
+        const { entityId } = req.params;
+        const SequenceEnrollment = (await import('../models/SequenceEnrollment.js')).default;
+        const enrollments = await SequenceEnrollment.find({ entityId }).populate('sequenceId');
+        res.status(200).json(enrollments);
+    } catch (error) {
+        console.error('[getEntityEnrollments] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

@@ -3,7 +3,8 @@ import { authenticate } from '../src/middlewares/auth.middleware.js';
 import {
     getTriggers, createTrigger, updateTrigger, deleteTrigger,
     getSequences, createSequence, getSequenceById, updateSequence, deleteSequence,
-    getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction
+    getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction,
+    enrollEntityInSequence, getEntityEnrollments
 } from '../controllers/automation.controller.js';
 
 const router = express.Router();
@@ -23,6 +24,8 @@ router.post('/sequences', createSequence);
 router.get('/sequences/:id', getSequenceById);
 router.put('/sequences/:id', updateSequence);
 router.delete('/sequences/:id', deleteSequence);
+router.post('/sequences/:id/enroll', enrollEntityInSequence);
+router.get('/sequences/enrollments/:entityId', getEntityEnrollments);
 
 // --- Automated Actions ---
 router.get('/actions', getAutomatedActions);

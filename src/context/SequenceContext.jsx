@@ -4,6 +4,34 @@ import { automationAPI } from '../utils/api';
 
 const SequenceContext = createContext();
 
+const normalizeStep = (s, idx) => {
+    if (!s) return { id: idx + 1, stepNumber: idx + 1, day: 0, delay: { amount: 0, unit: 'days' }, time: '09:00', type: 'Automated Action', instruction: '' };
+    const day = s.day ?? (s.delay?.amount !== undefined ? Number(s.delay.amount) : (s.delayMs ? Math.floor(s.delayMs / 86400000) : 0));
+    const time = s.time || s.executionWindow?.startTime || '09:00';
+    const type = s.type || s.action?.type || 'Automated Action';
+    const instruction = s.instruction || s.action?.instruction || (s.action?.automatedActionId ? 'Automated Action Triggered' : '');
+    return {
+        ...s,
+        id: s.id || s._id || idx + 1,
+        stepNumber: s.stepNumber || idx + 1,
+        day,
+        delay: s.delay || { amount: day, unit: 'days' },
+        time,
+        type,
+        instruction
+    };
+};
+
+const normalizeSequence = (d) => {
+    if (!d) return null;
+    return {
+        ...d,
+        id: d._id || d.id,
+        active: d.isActive ?? d.active ?? true,
+        steps: Array.isArray(d.steps) ? d.steps.map(normalizeStep) : []
+    };
+};
+
 export const SequenceProvider = ({ children }) => {
     // Sequence Definitions (Pre-seeded with examples, overwritten by server if available)
     const [sequences, setSequences] = useState([
@@ -76,55 +104,77 @@ export const SequenceProvider = ({ children }) => {
      * @param {string} sequenceId
      * @param {Object} options - { source: 'trigger'|'sequence_engine'|'manual' }
      */
-    const enrollInSequence = (entityId, sequenceId, options = {}) => {
-        const { source = 'system' } = options;
-        const sequence = sequences.find(s => s.id === sequenceId);
-        if (!sequence) {
-            console.warn(`[SequenceEngine] Cannot enroll: Sequence '${sequenceId}' not found.`);
-            return { success: false, reason: 'sequence_not_found' };
-        }
+    const enrollInSequence = async (entityId, sequenceId, options = {}) => {
+        try {
+            const { source = 'system', module = 'deals' } = options;
+            const sequence = sequences.find(s => s.id === sequenceId);
+            if (!sequence) {
+                console.warn(`[SequenceEngine] Cannot enroll: Sequence '${sequenceId}' not found.`);
+                return { success: false, reason: 'sequence_not_found' };
+            }
 
-        // ── Enterprise Idempotency Guard ──────────────────────────────────────────
-        // Block re-enrollment if entity already has an ACTIVE or PAUSED enrollment.
-        // 'paused' means the lead responded and sequence is waiting — re-enrolling
-        // would reset the sequence and erase the lead's progress, which is incorrect.
-        const BLOCKING_STATUSES = ['active', 'paused'];
-        const existingEnrollment = enrollments.find(
-            e => e.entityId === entityId &&
-                 e.sequenceId === sequenceId &&
-                 BLOCKING_STATUSES.includes(e.status)
-        );
-
-        if (existingEnrollment) {
-            console.log(
-                `[SequenceEngine] IDEMPOTENCY: Skipped duplicate enrollment.` +
-                ` Entity: ${entityId}, Sequence: ${sequence.name}, Source: ${source},` +
-                ` Existing status: ${existingEnrollment.status}`
+            // ── Enterprise Idempotency Guard ──────────────────────────────────────────
+            // Block re-enrollment if entity already has an ACTIVE or PAUSED enrollment.
+            const BLOCKING_STATUSES = ['active', 'paused'];
+            const existingEnrollment = enrollments.find(
+                e => e.entityId === entityId &&
+                     e.sequenceId === sequenceId &&
+                     BLOCKING_STATUSES.includes(e.status)
             );
-            return { success: false, reason: 'already_enrolled', status: existingEnrollment.status };
+
+            if (existingEnrollment) {
+                console.log(
+                    `[SequenceEngine] IDEMPOTENCY: Skipped duplicate enrollment.` +
+                    ` Entity: ${entityId}, Sequence: ${sequence.name}, Source: ${source},` +
+                    ` Existing status: ${existingEnrollment.status}`
+                );
+                return { success: false, reason: 'already_enrolled', status: existingEnrollment.status };
+            }
+
+            const firstStep = sequence.steps?.[0] ? normalizeStep(sequence.steps[0], 0) : { day: 0, time: '09:00' };
+            let nextStepIso;
+            try {
+                const nextDate = calculateStepExecutionTime(new Date(), firstStep.delay || firstStep.day, firstStep.time);
+                nextStepIso = (nextDate && !isNaN(nextDate.getTime())) ? nextDate.toISOString() : new Date().toISOString();
+            } catch {
+                nextStepIso = new Date().toISOString();
+            }
+
+            const newEnrollment = {
+                id: `enr_${Date.now()}`,
+                entityId,
+                sequenceId,
+                currentStep: 0,
+                status: 'active',
+                enrolledAt: new Date().toISOString(),
+                enrolledBy: source,
+                nextStepAt: nextStepIso,
+                logs: [{
+                    timestamp: new Date().toISOString(),
+                    message: `Enrolled in ${sequence.name} via ${source}`,
+                    event: 'enrolled',
+                    source
+                }]
+            };
+
+            setEnrollments(prev => [...prev, newEnrollment]);
+            addLog(entityId, sequenceId, 'Enrolled', `Enrolled in ${sequence.name} via ${source}`);
+            console.log(`[SequenceEngine] Enrolled entity ${entityId} in '${sequence.name}' (source: ${source})`);
+
+            // Try backend enrollment sync if sequence exists on server
+            if (sequenceId && !String(sequenceId).startsWith('seq_') && automationAPI.enrollInSequence) {
+                try {
+                    await automationAPI.enrollInSequence(sequenceId, { entityId, module: sequence.module || module, source });
+                } catch (apiErr) {
+                    console.warn('[SequenceEngine] Backend enrollment sync notice:', apiErr.message);
+                }
+            }
+
+            return { success: true, enrollmentId: newEnrollment.id };
+        } catch (err) {
+            console.error('[SequenceEngine] Error enrolling in sequence:', err);
+            return { success: false, reason: 'error', message: err.message };
         }
-
-        const newEnrollment = {
-            id: `enr_${Date.now()}`,
-            entityId,
-            sequenceId,
-            currentStep: 0,
-            status: 'active',
-            enrolledAt: new Date().toISOString(),
-            enrolledBy: source,  // ← Audit: who/what triggered enrollment
-            nextStepAt: calculateStepExecutionTime(new Date(), sequence.steps[0].day, sequence.steps[0].time).toISOString(),
-            logs: [{
-                timestamp: new Date().toISOString(),
-                message: `Enrolled in ${sequence.name} via ${source}`,
-                event: 'enrolled',
-                source
-            }]
-        };
-
-        setEnrollments(prev => [...prev, newEnrollment]);
-        addLog(entityId, sequenceId, 'Enrolled', `Enrolled in ${sequence.name} via ${source}`);
-        console.log(`[SequenceEngine] Enrolled entity ${entityId} in '${sequence.name}' (source: ${source})`);
-        return { success: true, enrollmentId: newEnrollment.id };
     };
 
     const updateEnrollmentStatus = (entityId, status) => {
@@ -184,11 +234,7 @@ export const SequenceProvider = ({ children }) => {
             try {
                 const data = await automationAPI.getSequences();
                 if (data && Array.isArray(data) && data.length > 0) {
-                    setSequences(data.map(d => ({
-                        ...d,
-                        id: d._id || d.id,
-                        active: d.isActive ?? d.active ?? true
-                    })));
+                    setSequences(data.map(normalizeSequence).filter(Boolean));
                 }
             } catch (err) {
                 console.error("Failed to fetch sequences from API, keeping seeded sequences:", err);
@@ -200,12 +246,12 @@ export const SequenceProvider = ({ children }) => {
     const addSequence = async (newSeq) => {
         try {
             const saved = await automationAPI.createSequence(newSeq);
-            const normalized = { ...saved, id: saved._id || saved.id, active: saved.isActive ?? saved.active ?? true };
+            const normalized = normalizeSequence(saved);
             setSequences(prev => [...prev, normalized]);
             return normalized;
         } catch (err) {
             console.error("Failed to save sequence to server:", err);
-            const fallback = { ...newSeq, id: `seq_${Date.now()}`, active: true, createdAt: new Date().toISOString() };
+            const fallback = normalizeSequence({ ...newSeq, id: `seq_${Date.now()}`, active: true, createdAt: new Date().toISOString() });
             setSequences(prev => [...prev, fallback]);
             return fallback;
         }
@@ -215,14 +261,14 @@ export const SequenceProvider = ({ children }) => {
         try {
             if (id && !String(id).startsWith('seq_')) {
                 const updated = await automationAPI.updateSequence(id, updatedData);
-                const normalized = { ...updated, id: updated._id || updated.id, active: updated.isActive ?? updated.active ?? true };
+                const normalized = normalizeSequence(updated);
                 setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? normalized : s));
                 return normalized;
             }
         } catch (err) {
             console.error("Failed to update sequence on server:", err);
         }
-        setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? { ...s, ...updatedData, updatedAt: new Date().toISOString() } : s));
+        setSequences(prev => prev.map(s => (s.id === id || s._id === id) ? normalizeSequence({ ...s, ...updatedData, updatedAt: new Date().toISOString() }) : s));
     };
 
     const deleteSequence = async (id) => {

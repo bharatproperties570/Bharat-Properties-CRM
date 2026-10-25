@@ -34,9 +34,11 @@ export const evaluateSequenceTrigger = (entity, trigger) => {
         }
 
         case 'onInactivity': {
-            const lastActivityDate = new Date(entity.lastActivityAt || entity.updatedAt);
-            const daysInactive = (new Date() - lastActivityDate) / (1000 * 60 * 60 * 24);
-            return daysInactive >= trigger.days;
+            const rawDate = entity.lastActivityAt || entity.updatedAt;
+            const lastActivityDate = rawDate ? new Date(rawDate) : null;
+            if (!lastActivityDate || isNaN(lastActivityDate.getTime())) return false;
+            const daysInactive = (Date.now() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24);
+            return daysInactive >= (Number(trigger.days) || 0);
         }
 
         default:
@@ -45,14 +47,62 @@ export const evaluateSequenceTrigger = (entity, trigger) => {
 };
 
 /**
- * Calculates the execution time for a sequence step.
+ * Calculates the execution time for a sequence step defensively.
+ * Handles both number day offsets and object delay configs ({ amount, unit }).
+ * Always returns a guaranteed valid Date object.
  */
 export const calculateStepExecutionTime = (baseTime, dayOffset, timeOfDay = '09:00') => {
-    const scheduledDate = new Date(baseTime);
-    scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+    let scheduledDate = new Date(baseTime || Date.now());
+    if (isNaN(scheduledDate.getTime())) {
+        scheduledDate = new Date();
+    }
 
-    const [hours, minutes] = timeOfDay.split(':').map(Number);
-    scheduledDate.setHours(hours, minutes, 0, 0);
+    // Determine offset amount & unit
+    let amount = 0;
+    let unit = 'days';
+
+    if (typeof dayOffset === 'object' && dayOffset !== null) {
+        amount = Number(dayOffset.amount) || 0;
+        unit = (dayOffset.unit || 'days').toLowerCase();
+    } else if (typeof dayOffset === 'number' || (typeof dayOffset === 'string' && !isNaN(Number(dayOffset)))) {
+        amount = Number(dayOffset) || 0;
+        unit = 'days';
+    }
+
+    // Apply offset by unit
+    switch (unit) {
+        case 'minutes':
+            scheduledDate.setMinutes(scheduledDate.getMinutes() + amount);
+            break;
+        case 'hourly':
+        case 'hours':
+            scheduledDate.setHours(scheduledDate.getHours() + amount);
+            break;
+        case 'weekly':
+        case 'weeks':
+            scheduledDate.setDate(scheduledDate.getDate() + (amount * 7));
+            break;
+        case 'monthly':
+        case 'months':
+            scheduledDate.setMonth(scheduledDate.getMonth() + amount);
+            break;
+        case 'daily':
+        case 'days':
+        default:
+            scheduledDate.setDate(scheduledDate.getDate() + amount);
+            break;
+    }
+
+    // Apply time of day if unit is days/weeks/months
+    if (['daily', 'days', 'weekly', 'weeks', 'monthly', 'months'].includes(unit)) {
+        const timeStr = typeof timeOfDay === 'string' && timeOfDay.includes(':') ? timeOfDay : '09:00';
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        scheduledDate.setHours(isNaN(hours) ? 9 : hours, isNaN(minutes) ? 0 : minutes, 0, 0);
+    }
+
+    if (isNaN(scheduledDate.getTime())) {
+        return new Date();
+    }
 
     return scheduledDate;
 };
