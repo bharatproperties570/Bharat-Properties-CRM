@@ -30,6 +30,8 @@ import {
     submitFeedback
 } from '../controllers/feedbackForm.controller.js';
 import variableResolutionService from '../services/VariableResolutionService.js';
+import LeadTokenGenerator from '../src/utils/LeadTokenGenerator.js';
+import { resolveToken } from '../controllers/dynamicForm.controller.js';
 import {
     publicFeedbackSecurityHeaders,
     publicFormFetchLimiter,
@@ -204,10 +206,266 @@ it('Generates distinct tokens with unique JTIs for the same Lead and Activity (N
     assert.notStrictEqual(d1.jti, d2.jti, 'Each token must have a unique request identity (jti)');
 });
 
+it('[Finding A] Token generation fails safely when required signing configuration is absent', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    const origNodeEnv = process.env.NODE_ENV;
+    try {
+        delete process.env.FEEDBACK_JWT_SECRET;
+        delete process.env.JWT_SECRET;
+        process.env.NODE_ENV = 'staging'; // Staging without secrets must also fail closed
+
+        // 1. VariableResolutionService returns 'error' for feedbackLink
+        const mockLead = { _id: new mongoose.Types.ObjectId(), firstName: 'Test' };
+        const res = variableResolutionService.resolveNamed(mockLead, {});
+        assert.strictEqual(res.feedback_link, 'error', 'Must fail safely and return error when secrets are absent');
+
+        // 2. LeadTokenGenerator throws FATAL error
+        assert.throws(() => {
+            LeadTokenGenerator.generate(mockLead._id);
+        }, /FATAL: JWT secret not configured/, 'LeadTokenGenerator must throw when secrets are absent');
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+        process.env.NODE_ENV = origNodeEnv;
+    }
+});
+
+it('[CRITICAL-17L / Finding A] LeadTokenGenerator requires JWT_SECRET and fails if absent even when FEEDBACK_JWT_SECRET is set', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        process.env.FEEDBACK_JWT_SECRET = 'feedback_only_secret_xyz';
+        delete process.env.JWT_SECRET;
+
+        const mockLead = { _id: new mongoose.Types.ObjectId() };
+        assert.throws(() => {
+            LeadTokenGenerator.generate(mockLead._id);
+        }, /FATAL: JWT secret not configured/, 'LeadTokenGenerator must throw when JWT_SECRET is absent even if FEEDBACK_JWT_SECRET is set');
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+it('[CRITICAL-17L / Finding A] LeadTokenGenerator with JWT_SECRET produces tokens verifiable by Dynamic Forms consumer', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        process.env.JWT_SECRET = 'active_jwt_secret_12345';
+        process.env.FEEDBACK_JWT_SECRET = 'different_feedback_secret_67890';
+
+        const leadId = new mongoose.Types.ObjectId().toString();
+        const tokenWithTildes = LeadTokenGenerator.generate(leadId, { projectId: 'project123' });
+        assert(tokenWithTildes, 'Token must be generated');
+
+        // Simulate Dynamic Forms verifier (dynamicForm.controller.js)
+        const normalized = tokenWithTildes.replace(/~/g, '.');
+        const decoded = jwt.verify(normalized, process.env.JWT_SECRET);
+        assert.strictEqual(decoded.leadId, leadId);
+        assert.strictEqual(decoded.projectId, 'project123');
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUITE 2: Token Verification & Trust Boundaries
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n--- SUITE 2: Token Verification & Trust Boundaries ---');
+
+it('[CRITICAL-17L] Dual-Key Rotation: When both FEEDBACK_JWT_SECRET and JWT_SECRET are configured and different', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        process.env.FEEDBACK_JWT_SECRET = 'new_primary_feedback_secret_11111';
+        process.env.JWT_SECRET = 'old_secondary_jwt_secret_22222';
+
+        const leadId = new mongoose.Types.ObjectId().toString();
+        const activityId = new mongoose.Types.ObjectId().toString();
+
+        // 1. New token signed with FEEDBACK_JWT_SECRET verifies
+        const newPrimaryToken = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId,
+            activityId,
+            formSlug: 'test-slug',
+            jti: uuidv4()
+        }, process.env.FEEDBACK_JWT_SECRET);
+
+        const verifiedNew = verifyFeedbackToken(newPrimaryToken, 'test-slug');
+        assert(verifiedNew && verifiedNew.valid === true, 'New token signed with FEEDBACK_JWT_SECRET must verify');
+        assert.strictEqual(verifiedNew.leadId, leadId);
+        assert.strictEqual(verifiedNew.activityId, activityId);
+
+        // 2. In-flight legacy token signed with previous JWT_SECRET verifies seamlessly
+        const inFlightOldToken = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId,
+            activityId,
+            formSlug: 'test-slug',
+            jti: uuidv4()
+        }, process.env.JWT_SECRET);
+
+        const verifiedInFlight = verifyFeedbackToken(inFlightOldToken, 'test-slug');
+        assert(verifiedInFlight && verifiedInFlight.valid === true, 'In-flight token signed with previous JWT_SECRET must verify seamlessly');
+        assert.strictEqual(verifiedInFlight.leadId, leadId);
+        assert.strictEqual(verifiedInFlight.activityId, activityId);
+
+        // 3. Token signed with an unrelated third key is rejected
+        const attackerToken = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId,
+            activityId,
+            formSlug: 'test-slug',
+            jti: uuidv4()
+        }, 'unrelated_attacker_key_33333');
+
+        const verifiedAttacker = verifyFeedbackToken(attackerToken, 'test-slug');
+        assert.strictEqual(verifiedAttacker, null, 'Token signed with unrelated key must be rejected');
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+it('[CRITICAL-17L] Single-Secret: Only FEEDBACK_JWT_SECRET configured verifies matching tokens', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        process.env.FEEDBACK_JWT_SECRET = 'single_feedback_secret_44444';
+        delete process.env.JWT_SECRET;
+
+        const leadId = new mongoose.Types.ObjectId().toString();
+        const token = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId,
+            formSlug: 'single-slug',
+            jti: uuidv4()
+        }, process.env.FEEDBACK_JWT_SECRET);
+
+        const verified = verifyFeedbackToken(token, 'single-slug');
+        assert(verified && verified.valid === true);
+        assert.strictEqual(verified.leadId, leadId);
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+it('[CRITICAL-17L] Single-Secret: Only JWT_SECRET configured verifies matching tokens', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        delete process.env.FEEDBACK_JWT_SECRET;
+        process.env.JWT_SECRET = 'single_jwt_secret_55555';
+
+        const leadId = new mongoose.Types.ObjectId().toString();
+        const token = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId,
+            formSlug: 'single-slug',
+            jti: uuidv4()
+        }, process.env.JWT_SECRET);
+
+        const verified = verifyFeedbackToken(token, 'single-slug');
+        assert(verified && verified.valid === true);
+        assert.strictEqual(verified.leadId, leadId);
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+it('[Finding A] Missing secret fails closed in verifyFeedbackToken', () => {
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        delete process.env.FEEDBACK_JWT_SECRET;
+        delete process.env.JWT_SECRET;
+
+        const token = jwt.sign({
+            iss: 'bharat-properties-crm',
+            purpose: 'feedback_submission',
+            leadId: new mongoose.Types.ObjectId().toString(),
+            formSlug: 'any-form',
+            jti: uuidv4()
+        }, 'some_secret');
+
+        const verified = verifyFeedbackToken(token, 'any-form');
+        assert.strictEqual(verified, null, 'Must return null and fail closed when JWT secrets are absent');
+    } finally {
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+it('[Finding A] Old token signed with predictable fallback (dev_secret_fallback) is rejected', () => {
+    const leadId = new mongoose.Types.ObjectId().toString();
+    const fallbackToken = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId,
+        formSlug: 'test-form',
+        jti: uuidv4()
+    }, 'dev_secret_fallback');
+
+    const verified = verifyFeedbackToken(fallbackToken, 'test-form');
+    assert.strictEqual(verified, null, 'Tokens signed with dev_secret_fallback MUST be rejected');
+});
+
+it('[Finding A] Correctly signed token using configured secret still verifies', () => {
+    const leadId = new mongoose.Types.ObjectId().toString();
+    const validToken = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId,
+        formSlug: 'test-form',
+        jti: uuidv4()
+    }, process.env.FEEDBACK_JWT_SECRET);
+
+    const verified = verifyFeedbackToken(validToken, 'test-form');
+    assert(verified && verified.valid === true);
+    assert.strictEqual(verified.leadId, leadId);
+});
+
+it('[Finding A] Invalid signatures remain rejected', () => {
+    const leadId = new mongoose.Types.ObjectId().toString();
+    const badSigToken = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId,
+        formSlug: 'test-form',
+        jti: uuidv4()
+    }, 'attacker_random_key_99999');
+
+    const verified = verifyFeedbackToken(badSigToken, 'test-form');
+    assert.strictEqual(verified, null, 'Token with invalid signature must be rejected');
+});
+
+it('[Finding B] Valid general_feedback token strips activityId even if present in token payload', () => {
+    const leadId = new mongoose.Types.ObjectId().toString();
+    const fakeActivityId = new mongoose.Types.ObjectId().toString();
+    const injectedGeneralToken = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'general_feedback',
+        leadId,
+        activityId: fakeActivityId,
+        formSlug: 'general-slug',
+        jti: uuidv4()
+    }, process.env.FEEDBACK_JWT_SECRET);
+
+    const verified = verifyFeedbackToken(injectedGeneralToken, 'general-slug');
+    assert(verified && verified.valid === true);
+    assert.strictEqual(verified.activityId, null, 'general_feedback tokens MUST NEVER be granted activityId binding');
+    assert.strictEqual(verified.purpose, 'general_feedback');
+});
 
 it('Verifies valid modern token for matching form slug', () => {
     const leadId = new mongoose.Types.ObjectId().toString();
@@ -1763,6 +2021,422 @@ await itAsync('[ReplSet TC-12] Finding 2: Duplicate key mismatch rejects collisi
     }
 
     assert.strictEqual(errorThrown, true, 'Must reject submission and throw duplicate key error when logical subject mismatches');
+});
+
+// ── Test Case 13: Finding B - general_feedback with injected activityId cannot complete Activity ──
+await itAsync('[ReplSet TC-13] Finding B: general_feedback token with injected activityId cannot complete an Activity', async () => {
+    const lead = await Lead.create({ firstName: 'GeneralLead', lastName: 'Test', mobile: '9876500014' });
+    const activity = await Activity.create({
+        type: 'Site Visit',
+        subject: 'Site Visit at Palm Hills',
+        entityType: 'Lead',
+        entityId: lead._id,
+        lead: lead._id,
+        dueDate: new Date(),
+        status: 'Scheduled'
+    });
+    const form = await FeedbackForm.create({
+        name: 'General Purpose Form',
+        slug: 'form-general-purpose-' + uuidv4(),
+        isActive: true,
+        sections: [{ id: 's1', title: 'Exp', fields: [{ id: 'rating', label: 'Rating', type: 'rating' }] }]
+    });
+
+    const token = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'general_feedback',
+        leadId: String(lead._id),
+        activityId: String(activity._id), // Injected activityId in general_feedback token
+        formSlug: form.slug,
+        jti: uuidv4()
+    }, process.env.FEEDBACK_JWT_SECRET);
+
+    let resCode = 200, resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await submitFeedback({
+        params: { slug: form.slug },
+        body: { token, responses: { rating: 5 } },
+        headers: {},
+        query: {}
+    }, res, (err) => { if (err) throw err; });
+
+    assert.strictEqual(resCode, 201);
+    assert.strictEqual(resData.success, true);
+
+    // Activity MUST NOT be completed
+    const updatedActivity = await Activity.findById(activity._id);
+    assert.strictEqual(updatedActivity.status, 'Scheduled', 'Activity status must remain Scheduled');
+    assert.strictEqual(updatedActivity.details?.submissionId, undefined, 'Activity must not be linked to submission');
+
+    // Submission recorded with activity: null
+    const sub = await FeedbackSubmission.findById(resData.submissionId);
+    assert.strictEqual(sub.activity, null, 'Submission activity must be null');
+
+    // ZERO OutboxEvents created
+    const outboxCount = await OutboxEvent.countDocuments({ aggregateId: activity._id });
+    assert.strictEqual(outboxCount, 0, 'Zero OutboxEvents must be created for general_feedback submission');
+});
+
+// ── Test Case 14: Finding B - Wrong-form token is rejected ────────────────────
+await itAsync('[ReplSet TC-14] Finding B: Wrong-form token is rejected with HTTP 403 and zero database writes', async () => {
+    const lead = await Lead.create({ firstName: 'WrongForm', lastName: 'Lead', mobile: '9876500015' });
+    const activity = await Activity.create({
+        type: 'Site Visit',
+        subject: 'Wrong Form Inspection',
+        entityType: 'Lead',
+        entityId: lead._id,
+        lead: lead._id,
+        dueDate: new Date(),
+        status: 'Scheduled'
+    });
+    const formA = await FeedbackForm.create({
+        name: 'Form A',
+        slug: 'form-target-a-' + uuidv4(),
+        isActive: true
+    });
+    const formB = await FeedbackForm.create({
+        name: 'Form B',
+        slug: 'form-target-b-' + uuidv4(),
+        isActive: true
+    });
+
+    // Token issued for formA, submitted to formB
+    const tokenForA = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId: String(lead._id),
+        activityId: String(activity._id),
+        formSlug: formA.slug,
+        jti: uuidv4()
+    }, process.env.FEEDBACK_JWT_SECRET);
+
+    const initialSubCount = await FeedbackSubmission.countDocuments();
+    const initialAuditCount = await AuditLog.countDocuments();
+    const initialOutboxCount = await OutboxEvent.countDocuments();
+
+    let resCode = 200, resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await submitFeedback({
+        params: { slug: formB.slug },
+        body: { token: tokenForA, responses: { feedback: 'Wrong route attempt' } },
+        headers: {},
+        query: {}
+    }, res, (err) => { if (err) throw err; });
+
+    assert.strictEqual(resCode, 403, 'Must return HTTP 403 Forbidden for mismatched form slug token');
+    assert.strictEqual(resData.success, false);
+
+    // Assert zero side effects
+    const postSubCount = await FeedbackSubmission.countDocuments();
+    const postAuditCount = await AuditLog.countDocuments();
+    const postOutboxCount = await OutboxEvent.countDocuments();
+    const checkActivity = await Activity.findById(activity._id);
+
+    assert.strictEqual(postSubCount, initialSubCount, 'Zero FeedbackSubmissions must be created');
+    assert.strictEqual(postAuditCount, initialAuditCount, 'Zero AuditLogs must be created');
+    assert.strictEqual(postOutboxCount, initialOutboxCount, 'Zero OutboxEvents must be created');
+    assert.strictEqual(checkActivity.status, 'Scheduled', 'Activity must remain Scheduled');
+});
+
+// ── Test Case 15: Finding B - Client-supplied IDs cannot override token claims ─
+await itAsync('[ReplSet TC-15] Finding B: Client-supplied leadId and activityId cannot override token claims in Activity-bound flow', async () => {
+    const authorizedLead = await Lead.create({ firstName: 'Authorized', lastName: 'Lead', mobile: '9876500016' });
+    const attackerLead = await Lead.create({ firstName: 'Attacker', lastName: 'Lead', mobile: '9876500017' });
+
+    const authorizedActivity = await Activity.create({
+        type: 'Site Visit',
+        subject: 'Authorized Inspection',
+        entityType: 'Lead',
+        entityId: authorizedLead._id,
+        lead: authorizedLead._id,
+        dueDate: new Date(),
+        status: 'Scheduled'
+    });
+    const attackerActivity = await Activity.create({
+        type: 'Site Visit',
+        subject: 'Attacker Target',
+        entityType: 'Lead',
+        entityId: attackerLead._id,
+        lead: attackerLead._id,
+        dueDate: new Date(),
+        status: 'Scheduled'
+    });
+
+    const form = await FeedbackForm.create({
+        name: 'Claim Override Test Form',
+        slug: 'form-claim-override-' + uuidv4(),
+        isActive: true,
+        sections: [{ id: 's1', title: 'Exp', fields: [{ id: 'rating', label: 'Rating', type: 'rating' }] }]
+    });
+
+    const token = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId: String(authorizedLead._id),
+        activityId: String(authorizedActivity._id),
+        formSlug: form.slug,
+        jti: uuidv4()
+    }, process.env.FEEDBACK_JWT_SECRET);
+
+    // Attacker tries to inject attackerLead._id and attackerActivity._id in request body
+    let resCode = 200, resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await submitFeedback({
+        params: { slug: form.slug },
+        body: {
+            token,
+            leadId: String(attackerLead._id),
+            activityId: String(attackerActivity._id),
+            responses: { rating: 5 }
+        },
+        headers: {},
+        query: {}
+    }, res, (err) => { if (err) throw err; });
+
+    assert.strictEqual(resCode, 201);
+    assert.strictEqual(resData.success, true);
+
+    // Verify authorized activity was completed, attacker activity was NOT touched
+    const checkedAuthorizedActivity = await Activity.findById(authorizedActivity._id);
+    const checkedAttackerActivity = await Activity.findById(attackerActivity._id);
+    assert.strictEqual(checkedAuthorizedActivity.status, 'Completed', 'Authorized activity must be completed');
+    assert.strictEqual(checkedAttackerActivity.status, 'Scheduled', 'Attacker activity must remain untouched');
+
+    // Verify submission record belongs to authorized lead, NOT attacker lead
+    const sub = await FeedbackSubmission.findById(resData.submissionId);
+    assert.strictEqual(String(sub.lead), String(authorizedLead._id), 'Submission must bind to token authoritativeLeadId');
+    assert.strictEqual(String(sub.activity), String(authorizedActivity._id), 'Submission must bind to token authoritativeActivityId');
+});
+
+// ── Test Case 16: Finding B - Rejected requests create zero database mutations ──
+await itAsync('[ReplSet TC-16] Finding B: Rejected requests (tampered, expired) create zero database mutations', async () => {
+    const form = await FeedbackForm.create({
+        name: 'Strict Rejection Form',
+        slug: 'form-strict-reject-' + uuidv4(),
+        isActive: true
+    });
+
+    const tamperedToken = jwt.sign({
+        iss: 'bharat-properties-crm',
+        purpose: 'feedback_submission',
+        leadId: new mongoose.Types.ObjectId().toString(),
+        activityId: new mongoose.Types.ObjectId().toString(),
+        formSlug: form.slug,
+        jti: uuidv4()
+    }, 'attacker_secret_xyz');
+
+    const initialSubCount = await FeedbackSubmission.countDocuments();
+    const initialAuditCount = await AuditLog.countDocuments();
+    const initialOutboxCount = await OutboxEvent.countDocuments();
+
+    let resCode = 200, resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await submitFeedback({
+        params: { slug: form.slug },
+        body: { token: tamperedToken, responses: {} },
+        headers: {},
+        query: {}
+    }, res, (err) => { if (err) throw err; });
+
+    assert.strictEqual(resCode, 403, 'Tampered token must be rejected with 403');
+    assert.strictEqual(resData.success, false);
+
+    assert.strictEqual(await FeedbackSubmission.countDocuments(), initialSubCount, 'No submissions created');
+    assert.strictEqual(await AuditLog.countDocuments(), initialAuditCount, 'No audit logs created');
+    assert.strictEqual(await OutboxEvent.countDocuments(), initialOutboxCount, 'No outbox events created');
+});
+
+// ── Test Case 17: Dynamic Forms verification fails safely when JWT_SECRET is absent ──
+await itAsync('[ReplSet TC-17] Finding C: Dynamic Forms resolveToken fails safely when JWT_SECRET is absent, even if FEEDBACK_JWT_SECRET exists', async () => {
+    const origJwtSecret = process.env.JWT_SECRET;
+    const origFeedbackSecret = process.env.FEEDBACK_JWT_SECRET;
+    try {
+        delete process.env.JWT_SECRET;
+        process.env.FEEDBACK_JWT_SECRET = 'active_feedback_secret_only';
+
+        let resCode = 200;
+        let resData = null;
+        const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+        // Test with arbitrary token string
+        await resolveToken({ params: { token: 'sample~token~value' } }, res, () => {});
+        assert.strictEqual(resCode, 400, 'Must return HTTP 400 when JWT_SECRET is unconfigured');
+        assert.strictEqual(resData.success, false);
+        assert.strictEqual(resData.message, 'Token expired or invalid');
+    } finally {
+        process.env.JWT_SECRET = origJwtSecret;
+        process.env.FEEDBACK_JWT_SECRET = origFeedbackSecret;
+    }
+});
+
+// ── Test Case 18: Dynamic Forms resolveToken succeeds with valid token signed by configured JWT_SECRET ──
+await itAsync('[ReplSet TC-18] Finding C: Dynamic Forms resolveToken succeeds with valid token signed by configured JWT_SECRET', async () => {
+    const lead = await Lead.create({
+        firstName: 'Ananya',
+        lastName: 'Roy',
+        mobile: '9876543299',
+        email: 'ananya.roy@example.com',
+        requirement: '3BHK',
+        budget: '2 Cr',
+        location: 'Golf Course Extension',
+        sector: 'Sector 65'
+    });
+
+    const tokenWithTildes = LeadTokenGenerator.generate(lead._id, {
+        projectId: 'project_super_luxury_65',
+        properties: ['prop_001', 'prop_002'],
+        hidePrice: true
+    });
+
+    let resCode = 200;
+    let resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await resolveToken({ params: { token: tokenWithTildes } }, res, () => {});
+    assert.strictEqual(resCode, 200, 'Must return HTTP 200 for valid token');
+    assert.strictEqual(resData.success, true);
+    assert.strictEqual(resData.data.lead.firstName, 'Ananya');
+    assert.strictEqual(resData.data.lead.mobile, '9876543299');
+    assert.strictEqual(resData.data.matchedProject, 'project_super_luxury_65');
+    assert.strictEqual(resData.data.hidePrice, true);
+    assert.strictEqual(resData.data.properties.length, 2);
+});
+
+// ── Test Case 19: Dynamic Forms resolveToken rejects invalid-signature and tampered tokens ──
+await itAsync('[ReplSet TC-19] Finding C: Dynamic Forms resolveToken rejects invalid-signature and tampered tokens', async () => {
+    const lead = await Lead.create({ firstName: 'Karan', lastName: 'Johar', mobile: '9876543298' });
+    const invalidSecretToken = jwt.sign({ leadId: String(lead._id) }, 'unrelated_attacker_secret').replace(/\./g, '~');
+
+    let resCode = 200;
+    let resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await resolveToken({ params: { token: invalidSecretToken } }, res, () => {});
+    assert.strictEqual(resCode, 400, 'Must return HTTP 400 for invalid signature');
+    assert.strictEqual(resData.success, false);
+    assert.strictEqual(resData.message, 'Token expired or invalid');
+
+    // Tampered payload
+    const validToken = LeadTokenGenerator.generate(lead._id);
+    const parts = validToken.split('~');
+    const tamperedToken = `${parts[0]}~${Buffer.from('{"leadId":"evil"}').toString('base64url')}~${parts[2]}`;
+
+    resCode = 200;
+    resData = null;
+    await resolveToken({ params: { token: tamperedToken } }, res, () => {});
+    assert.strictEqual(resCode, 400, 'Must return HTTP 400 for tampered payload');
+    assert.strictEqual(resData.success, false);
+    assert.strictEqual(resData.message, 'Token expired or invalid');
+});
+
+// ── Test Case 20: Dynamic Forms resolveToken rejects expired tokens ──
+await itAsync('[ReplSet TC-20] Finding C: Dynamic Forms resolveToken rejects expired tokens', async () => {
+    const lead = await Lead.create({ firstName: 'Sunil', lastName: 'Gavaskar', mobile: '9876543297' });
+    const expiredToken = jwt.sign(
+        { leadId: String(lead._id), iat: Math.floor(Date.now() / 1000) - 100 },
+        process.env.JWT_SECRET,
+        { expiresIn: '-1s' }
+    ).replace(/\./g, '~');
+
+    let resCode = 200;
+    let resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await resolveToken({ params: { token: expiredToken } }, res, () => {});
+    assert.strictEqual(resCode, 400, 'Must return HTTP 400 for expired token');
+    assert.strictEqual(resData.success, false);
+    assert.strictEqual(resData.message, 'Token expired or invalid');
+});
+
+// ── Test Case 21: Dynamic Forms resolveToken never accepts predictable fallback secret (crm_secret_key) ──
+await itAsync('[ReplSet TC-21] Finding C: Dynamic Forms resolveToken never accepts predictable fallback secret (crm_secret_key)', async () => {
+    const lead = await Lead.create({ firstName: 'Kapil', lastName: 'Dev', mobile: '9876543296' });
+    const fallbackToken = jwt.sign(
+        { leadId: String(lead._id) },
+        'crm_secret_key'
+    ).replace(/\./g, '~');
+
+    // Part A: Rejected when JWT_SECRET is configured
+    let resCode = 200;
+    let resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await resolveToken({ params: { token: fallbackToken } }, res, () => {});
+    assert.strictEqual(resCode, 400, 'Must reject crm_secret_key token when JWT_SECRET is set');
+    assert.strictEqual(resData.success, false);
+    assert.strictEqual(resData.message, 'Token expired or invalid');
+
+    // Part B: Rejected when JWT_SECRET is missing (no fallback attempted)
+    const origJwtSecret = process.env.JWT_SECRET;
+    try {
+        delete process.env.JWT_SECRET;
+        resCode = 200;
+        resData = null;
+        await resolveToken({ params: { token: fallbackToken } }, res, () => {});
+        assert.strictEqual(resCode, 400, 'Must reject crm_secret_key token when JWT_SECRET is unset (no fallback)');
+        assert.strictEqual(resData.success, false);
+        assert.strictEqual(resData.message, 'Token expired or invalid');
+    } finally {
+        process.env.JWT_SECRET = origJwtSecret;
+    }
+});
+
+// ── Test Case 22: Dynamic Forms failure causes zero database writes, zero messaging, and does not crash ──
+await itAsync('[ReplSet TC-22] Finding C: Dynamic Forms verification failure causes zero database writes, zero messaging, and does not crash', async () => {
+    const initialLeadCount = await Lead.countDocuments();
+    const initialAuditCount = await AuditLog.countDocuments();
+    const initialSubCount = await FeedbackSubmission.countDocuments();
+    const initialOutboxCount = await OutboxEvent.countDocuments();
+
+    const res = { status: () => res, json: () => {} };
+
+    // Missing token
+    await resolveToken({ params: {} }, res, () => {});
+    // Malformed token
+    await resolveToken({ params: { token: 'invalid...token' } }, res, () => {});
+    // Unknown leadId
+    const nonExistentLeadId = new mongoose.Types.ObjectId().toString();
+    const ghostToken = jwt.sign({ leadId: nonExistentLeadId }, process.env.JWT_SECRET).replace(/\./g, '~');
+    await resolveToken({ params: { token: ghostToken } }, res, () => {});
+
+    // Assert absolute zero database side-effects
+    assert.strictEqual(await Lead.countDocuments(), initialLeadCount, 'Zero lead mutations on token failure');
+    assert.strictEqual(await AuditLog.countDocuments(), initialAuditCount, 'Zero audit log mutations on token failure');
+    assert.strictEqual(await FeedbackSubmission.countDocuments(), initialSubCount, 'Zero feedback submission mutations');
+    assert.strictEqual(await OutboxEvent.countDocuments(), initialOutboxCount, 'Zero outbox event mutations');
+});
+
+// ── Test Case 23: Dynamic Forms tokens cannot enter public feedback submission flow ──
+await itAsync('[ReplSet TC-23] Finding C: Dynamic Forms tokens cannot enter public feedback submission flow', async () => {
+    const lead = await Lead.create({ firstName: 'Sachin', lastName: 'Tendulkar', mobile: '9876543295' });
+    const dynamicToken = LeadTokenGenerator.generate(lead._id);
+
+    const form = await FeedbackForm.findOne().lean();
+    assert(form, 'Form must exist for test');
+
+    // 1. Direct verifier rejection
+    const verified = verifyFeedbackToken(dynamicToken, form.slug);
+    assert.strictEqual(verified, null, 'verifyFeedbackToken must return null for Dynamic Forms token (missing iss, purpose, formSlug)');
+
+    // 2. Controller endpoint rejection with HTTP 403 Forbidden
+    let resCode = 200;
+    let resData = null;
+    const res = { status: (s) => { resCode = s; return res; }, json: (d) => { resData = d; } };
+
+    await submitFeedback({
+        params: { slug: form.slug },
+        body: { token: dynamicToken, responses: { feedback: 'Great service' } },
+        headers: {},
+        query: {}
+    }, res, (err) => { if (err) throw err; });
+
+    assert.strictEqual(resCode, 403, 'Must return HTTP 403 Forbidden for Dynamic Forms token in feedback flow');
+    assert.strictEqual(resData.success, false);
+    assert.strictEqual(resData.error, 'Invalid or unauthorized feedback token');
 });
 
 // Teardown isolated replica set cleanly
