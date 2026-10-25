@@ -80,7 +80,12 @@ function validateRecipient(lead) {
         lead.isUnsubscribed === true
     );
     if (hasOptedOut) {
-        return { valid: false, status: 'OPTED_OUT', error: 'Customer has opted out of automated communications (DND/Opt-Out active)' };
+        return {
+            valid: false,
+            status: 'OPTED_OUT',
+            reason: 'OPTED_OUT',
+            error: 'Customer has opted out of automated communications (DND/Opt-Out active)'
+        };
     }
 
     if (lead.mobile === null || lead.mobile === undefined || String(lead.mobile).trim() === '') {
@@ -128,6 +133,7 @@ function validateRecipient(lead) {
 
     return {
         valid: true,
+        normalized: normalized10,
         normalizedMobile: normalized10,
         providerFormat: `91${normalized10}`,
         e164: `+91${normalized10}`
@@ -435,10 +441,13 @@ export class SiteVisitAutomationService {
         const ActivityModel = mongoose.models.Activity || Activity;
         const LeadModel = mongoose.models.Lead || Lead;
 
+        const session = deliveryOptions.session;
+        const sessionOpt = session ? { session } : undefined;
+
         // Idempotency: check if already accepted/delivered
         let currentAct = activity;
         if (mongoose.connection?.readyState === 1 && typeof ActivityModel.findById === 'function') {
-            currentAct = await ActivityModel.findById(activity._id).lean().catch(() => null);
+            currentAct = await ActivityModel.findById(activity._id, null, sessionOpt).lean().catch(() => null);
         }
         if (currentAct?.details?.feedbackDispatchStatus === 'ACCEPTED' || currentAct?.details?.feedbackDispatchStatus === 'DELIVERED' || currentAct?.details?.feedbackDispatchedAt) {
             return {
@@ -451,7 +460,7 @@ export class SiteVisitAutomationService {
 
         let lead = null;
         if (activity.entityId && mongoose.Types.ObjectId.isValid(activity.entityId)) {
-            lead = await LeadModel.findById(activity.entityId).lean().catch(() => null);
+            lead = await LeadModel.findById(activity.entityId, null, sessionOpt).lean().catch(() => null);
         }
 
         const projectName = activity.details?.projectName || 'our project';
@@ -493,7 +502,7 @@ export class SiteVisitAutomationService {
             updateData['details.feedbackDispatchedAt'] = new Date();
         }
 
-        await ActivityModel.findByIdAndUpdate(activity._id, { $set: updateData }).catch(() => {});
+        await ActivityModel.findByIdAndUpdate(activity._id, { $set: updateData }, sessionOpt).catch(() => {});
 
         console.log(`[SiteVisitAutomation] Post-visit feedback link dispatch status for Activity ${activity._id}: ${dispatchResult.status}`);
 

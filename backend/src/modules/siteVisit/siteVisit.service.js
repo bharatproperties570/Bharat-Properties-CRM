@@ -120,10 +120,12 @@ export class SiteVisitService {
                 pickupAddress: pickupAddress || '',
                 visitedProperties: normalizedProperties,
                 rescheduleHistory: [],
+                journeyToken: journeyInfo?.token || null,
                 journeyTokenHash: journeyInfo?.tokenHash || null,
                 journeyTokenJti: journeyInfo?.jti || null,
                 journeyExpiresAt: journeyInfo?.expiresAt || null,
-                journeyUrl: journeyInfo?.journeyUrl || null
+                journeyUrl: journeyInfo?.journeyUrl || null,
+                clientJourneyUrl: journeyInfo?.journeyUrl || null
             }
         };
 
@@ -157,6 +159,9 @@ export class SiteVisitService {
         return {
             alreadyScheduled: false,
             activity,
+            journeyToken: journeyInfo?.token || null,
+            journeyUrl: journeyInfo?.journeyUrl || null,
+            clientJourneyUrl: journeyInfo?.journeyUrl || null,
             message: 'Site visit scheduled successfully'
         };
     }
@@ -278,7 +283,7 @@ export class SiteVisitService {
      * Cancel an existing Site Visit.
      */
     static async cancel(activityId, payload, user = null, options = {}) {
-        const { reason } = payload;
+        const reason = typeof payload === 'string' ? payload : payload?.reason;
         const session = options.session;
         const sessionOpt = session ? { session } : undefined;
         if (!activityId || !mongoose.Types.ObjectId.isValid(activityId)) {
@@ -425,7 +430,8 @@ export class SiteVisitService {
                 completedAt: new Date(),
                 completionResult: trimmedOutcome,
                 performedBy: performerName,
-                'details.outcome': trimmedOutcome
+                'details.outcome': trimmedOutcome,
+                'details.completionResult': trimmedOutcome
             }
         };
         if (clientRating) updateOps.$set['details.clientRating'] = Number(clientRating);
@@ -445,6 +451,7 @@ export class SiteVisitService {
             updateOps.$addToSet = {
                 relatedTo: { id: dealId, model: 'Deal', name: dealTitle }
             };
+            updateOps.$set['details.dealId'] = dealId;
         }
 
         // Generate Customer Feedback Token & Hash (Store ONLY hash & JTI - Never persist raw token)
@@ -504,6 +511,7 @@ export class SiteVisitService {
             existingActivity.performedBy = performerName;
             if (!existingActivity.details) existingActivity.details = {};
             existingActivity.details.outcome = trimmedOutcome;
+            existingActivity.details.completionResult = trimmedOutcome;
             if (clientRating) existingActivity.details.clientRating = Number(clientRating);
             if (Array.isArray(visitedProperties) && visitedProperties.length > 0) {
                 existingActivity.details.visitedProperties = visitedProperties;
@@ -517,6 +525,7 @@ export class SiteVisitService {
             if (dealDoc) {
                 if (!Array.isArray(existingActivity.relatedTo)) existingActivity.relatedTo = [];
                 existingActivity.relatedTo.push({ id: dealId, model: 'Deal', name: dealDoc.title || 'Linked Deal' });
+                existingActivity.details.dealId = dealId;
             }
             await existingActivity.save(options.session ? { session: options.session } : undefined);
             activity = existingActivity;
@@ -562,15 +571,18 @@ export class SiteVisitService {
         let dispatchResult = null;
         if (rawFeedbackUrl) {
             try {
-                dispatchResult = await SiteVisitAutomationService.dispatchPostVisitFeedback(activity, { feedbackUrl: rawFeedbackUrl });
+                dispatchResult = await SiteVisitAutomationService.dispatchPostVisitFeedback(activity, {
+                    feedbackUrl: rawFeedbackUrl,
+                    session: options.session
+                });
             } catch (autoErr) {
                 console.warn('[SiteVisitService] Feedback dispatch warning:', autoErr.message);
             }
         }
 
-        // Trigger Stage Transition Engine & Scoring
+        // Trigger Stage Transition Engine & Scoring (deferred if inside an active transaction session or when disconnected)
         let transition = null;
-        if (mongoose.connection?.readyState === 1 || typeof autoTriggerStageChange === 'function') {
+        if (!options.session && mongoose.connection?.readyState === 1 && typeof autoTriggerStageChange === 'function') {
             try {
                 transition = await autoTriggerStageChange(activity, user?._id || user?.id || null);
             } catch (transErr) {

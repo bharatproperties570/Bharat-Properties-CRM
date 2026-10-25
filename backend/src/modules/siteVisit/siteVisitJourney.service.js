@@ -582,6 +582,12 @@ export class SiteVisitJourneyService {
             activity.tags.push('High-Satisfaction');
         }
 
+        // Ensure Mongoose marks Mixed type details as modified
+        if (typeof activity.markModified === 'function') {
+            activity.markModified('details');
+            activity.markModified('details.visitedProperties');
+        }
+
         try {
             if (typeof activity.save === 'function') {
                 const saveOpts = options.session ? { session: options.session } : undefined;
