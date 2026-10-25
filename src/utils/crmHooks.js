@@ -652,8 +652,8 @@ export function useBulkDeleteInventoryMutation() {
 export function useBulkDeleteLeadsMutation() {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ ids }) => {
-            const res = await api.post('/leads/bulk-delete', { ids });
+        mutationFn: async ({ ids, deleteContacts = false }) => {
+            const res = await api.post('/leads/bulk-delete', { ids, deleteContacts });
             return res;
         },
         onSuccess: () => {

@@ -3,13 +3,24 @@ import { api, safeStorage } from '../utils/api';
 import { useLookups, useLookupMutations } from '../utils/crmHooks';
 import { useQueryClient } from '@tanstack/react-query';
 
-const ContactConfigContext = createContext();
+const defaultContactConfig = {
+    professionalConfig: {},
+    addressConfig: {},
+    profileConfig: {},
+    documentConfig: {},
+    loading: false,
+    addLookup: async () => false,
+    updateLookup: async () => false,
+    deleteLookup: async () => false
+};
+
+const ContactConfigContext = createContext(defaultContactConfig);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useContactConfig = () => {
     const context = useContext(ContactConfigContext);
     if (!context) {
-        throw new Error('useContactConfig must be used within a ContactConfigProvider');
+        return defaultContactConfig;
     }
     return context;
 };

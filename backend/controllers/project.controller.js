@@ -18,7 +18,7 @@ import { paginate } from "../utils/pagination.js";
 
 export const getProjects = async (req, res) => {
     try {
-        const { sortBy, sortOrder, page, limit, search, developerId } = req.query;
+        const { sortBy, sortOrder, page, limit, search, developerId, status } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // Professional Search Logic
@@ -26,6 +26,26 @@ export const getProjects = async (req, res) => {
         
         if (developerId && mongoose.Types.ObjectId.isValid(developerId)) {
             query.developerId = developerId;
+        }
+
+        // 🎯 [ENTERPRISE SUMMARY FOOTER FILTER] Project Status Filtering
+        if (status && status !== 'total' && status !== 'all') {
+            const LookupModel = mongoose.model('Lookup');
+            const statusLookups = await LookupModel.find({
+                lookup_type: 'ProjectStatus',
+                lookup_value: new RegExp(`^${status}$`, 'i')
+            }).select('_id lookup_value').lean();
+            const statusIds = statusLookups.map(l => l._id);
+            const statusCondition = [
+                { status: { $in: statusIds } },
+                { status: new RegExp(`^${status}$`, 'i') }
+            ];
+            if (query.$or) {
+                query.$and = (query.$and || []).concat([{ $or: query.$or }, { $or: statusCondition }]);
+                delete query.$or;
+            } else {
+                query.$or = statusCondition;
+            }
         }
 
         if (search) {

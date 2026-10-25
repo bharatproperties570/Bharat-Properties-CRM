@@ -180,6 +180,11 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
             // 4. Temporarily assign normalized data for Verification Engine to use
             Object.assign(intake, normalizedData);
 
+            // 🛡️ Ensure originating WhatsApp line is strictly preserved
+            if (!intake.whatsappIntegrationId && rawData.whatsappIntegrationId) {
+                intake.whatsappIntegrationId = rawData.whatsappIntegrationId;
+            }
+
             // 5. Run AI Verification Layer
             const verificationResult = await aiVerificationEngine.verify(intake);
             Object.assign(intake, verificationResult);

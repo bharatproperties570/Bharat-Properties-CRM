@@ -43,6 +43,21 @@ export const createStandardizedLead = async (data, context = {}) => {
             newContact = contactRes.contact;
         }
 
+        // 🛡️ Stage Qualification Engine: Auto-promote to targetStage if requirement completeness threshold is met
+        if (!data.stage) {
+            try {
+                const { evaluateLeadStageQualification } = await import('../utils/leadDataCompleteness.js');
+                const qualResult = await evaluateLeadStageQualification(data);
+                if (qualResult.qualified) {
+                    data.stage = await resolveLeadLookup('Stage', qualResult.targetStage || 'Prospect');
+                } else {
+                    data.stage = await resolveLeadLookup('Stage', 'Incoming');
+                }
+            } catch (err) {
+                data.stage = await resolveLeadLookup('Stage', 'Incoming');
+            }
+        }
+
         const leadDoc = new Lead(data);
         await leadDoc.save({ session });
         createdLeadId = leadDoc._id;

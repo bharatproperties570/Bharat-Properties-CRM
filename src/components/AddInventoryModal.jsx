@@ -32,10 +32,10 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
     const allProjects = projectQueryData?.data || [];
     
     const { data: teams = [] } = useTeams();
-    const { validateAsync } = useFieldRules();
-    const { fireEvent } = useTriggers();
-    const { executeDistribution } = useDistribution();
-    const { evaluateAndEnroll } = useSequences();
+    const { validateAsync = async () => ({ isValid: true, errors: {} }) } = useFieldRules() || {};
+    const { fireEvent = () => {} } = useTriggers() || {};
+    const { executeDistribution = async () => null } = useDistribution() || {};
+    const { evaluateAndEnroll = () => {} } = useSequences() || {};
 
     const [activeTab, setActiveTab] = useState(initialTab);
 

@@ -37,7 +37,8 @@ class WhatsAppGroupConnector extends BaseConnector {
             messageId,
             timestamp,
             conversationId,
-            user_id
+            user_id,
+            whatsappIntegrationId
         } = inputData;
 
         const cleanText = (text || '').substring(0, 50000);
@@ -84,6 +85,7 @@ class WhatsAppGroupConnector extends BaseConnector {
             price: extracted.price || '',
             contact_numbers: extracted.contact_numbers || [],
             seller_intent: extracted.intent || 'unknown',
+            whatsappIntegrationId: whatsappIntegrationId || inputData.whatsappIntegrationId || null,
             extracted_entities: {
                 ...extracted,
                 // WhatsApp Group metadata for traceability
@@ -94,7 +96,8 @@ class WhatsAppGroupConnector extends BaseConnector {
                     participant,
                     messageId,
                     timestamp,
-                    conversationId: String(conversationId)
+                    conversationId: String(conversationId),
+                    whatsappIntegrationId: whatsappIntegrationId || inputData.whatsappIntegrationId || null
                 }
             },
             verification_status: 'unverified',
@@ -108,7 +111,8 @@ class WhatsAppGroupConnector extends BaseConnector {
                 participant,
                 messageId,
                 timestamp,
-                conversationId: String(conversationId)
+                conversationId: String(conversationId),
+                whatsappIntegrationId: whatsappIntegrationId || inputData.whatsappIntegrationId || null
             }
         };
 
@@ -124,7 +128,7 @@ class WhatsAppGroupConnector extends BaseConnector {
             hash = this.generateDuplicateHash(cleanText);
         }
 
-        return { ...finalData, duplicate_hash: hash, createdBy: user_id };
+        return { ...finalData, whatsappIntegrationId: finalData.whatsappIntegrationId || inputData.whatsappIntegrationId || null, duplicate_hash: hash, createdBy: user_id };
     }
 
     /**

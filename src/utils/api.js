@@ -643,6 +643,11 @@ export const scoringRulesAPI = {
 export const systemSettingsAPI = {
     getAll: (options = {}) => apiRequest('/system-settings', options),
     getByKey: (key, options = {}) => apiRequest(`/system-settings/${key}`, { _silentError: true, ...options }),
+    getStageQualificationConfig: (options = {}) => apiRequest('/system-settings/stage-qualification/fields', options),
+    reEvaluateExistingLeads: (options = {}) => apiRequest('/system-settings/stage-qualification/re-evaluate', {
+        method: 'POST',
+        ...options
+    }),
     upsert: (key, data, options = {}) => apiRequest('/system-settings/upsert', {
         method: 'POST',
         body: JSON.stringify({ key, ...data }),
@@ -892,20 +897,23 @@ export const aiAgentsAPI = {
 
 // Jarvis Voice AI Operating System API
 export const jarvisAPI = {
-    sendCommand: (data) => api.post('/jarvis/command', data).then(res => res.data),
-    confirmAction: (actionId) => api.post(`/jarvis/confirm/${actionId}`).then(res => res.data),
-    cancelAction: (actionId) => api.delete(`/jarvis/confirm/${actionId}`).then(res => res.data),
+    sendCommand: (data) => api.post('/jarvis/command', data, { timeout: 60000 }).then(res => res.data),
+    confirmAction: (actionId) => api.post(`/jarvis/confirm/${actionId}`, {}, { timeout: 45000 }).then(res => res.data),
+    cancelAction: (actionId) => api.delete(`/jarvis/confirm/${actionId}`, { timeout: 30000 }).then(res => res.data),
     getSession: (params) => api.get('/jarvis/session', { params }).then(res => res.data),
     getHistory: (params) => api.get('/jarvis/history', { params }).then(res => res.data),
-    getStatus: () => api.get('/jarvis/status').then(res => res.data),
-    processCallIntel: (data) => api.post('/jarvis/call-intel', data).then(res => res.data),
+    getStatus: () => api.get('/jarvis/status', { timeout: 15000 }).then(res => res.data),
+    processCallIntel: (data) => api.post('/jarvis/call-intel', data, { timeout: 60000 }).then(res => res.data),
     getCallIntelHistory: (params) => api.get('/jarvis/call-intel', { params }).then(res => res.data),
     getCallIntelById: (id) => api.get(`/jarvis/call-intel/${id}`).then(res => res.data),
-    getBriefing: () => api.get('/jarvis/briefing').then(res => res.data),
-    getSuggestions: () => api.get('/jarvis/suggestions').then(res => res.data),
+    getBriefing: () => api.get('/jarvis/briefing', { timeout: 30000 }).then(res => res.data),
+    getSuggestions: () => api.get('/jarvis/suggestions', { timeout: 20000 }).then(res => res.data),
     getAnalytics: (params) => api.get('/jarvis/analytics', { params }).then(res => res.data),
-    getTeamPerformance: (params) => api.get('/jarvis/team-performance', { params }).then(res => res.data),
-    processMeetingNotes: (data) => api.post('/jarvis/meeting-notes', data).then(res => res.data)
+    getTeamPerformance: (params) => api.get('/jarvis/team-performance', { params, timeout: 30000 }).then(res => res.data),
+    processMeetingNotes: (data) => api.post('/jarvis/meeting-notes', data, { timeout: 60000 }).then(res => res.data),
+    synthesizeSpeech: (data) => api.post('/jarvis/speak', data, { timeout: 30000 }).then(res => res.data),
+    getVoiceConfig: () => api.get('/jarvis/voice-config').then(res => res.data),
+    saveVoiceConfig: (data) => api.post('/jarvis/voice-config', data).then(res => res.data)
 };
 
 export default {

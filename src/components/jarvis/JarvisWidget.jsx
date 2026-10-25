@@ -30,6 +30,7 @@ export const JarvisWidget = () => {
     const mediaStreamRef = useRef(null);
     const isRecordingAudioRef = useRef(false);
     const synthRef = useRef(typeof window !== 'undefined' ? window.speechSynthesis : null);
+    const currentAudioRef = useRef(null);
     const handleCommandSubmitRef = useRef(null);
     const accumulatedTextRef = useRef('');
     const hasSubmittedRef = useRef(false);
@@ -108,23 +109,36 @@ export const JarvisWidget = () => {
         }
     };
 
-    // Speak voice output using SpeechSynthesis (Hardened against Chrome stall bugs)
-    const speakVoice = (text) => {
-        if (!synthRef.current || isMuted || !text) return;
+    // Stop any active speech synthesis or studio audio playback immediately
+    const stopSpeaking = () => {
+        if (currentAudioRef.current) {
+            try {
+                currentAudioRef.current.pause();
+                currentAudioRef.current.currentTime = 0;
+            } catch (e) {}
+            currentAudioRef.current = null;
+        }
+        if (synthRef.current) {
+            try {
+                if (synthRef.current.speaking || synthRef.current.pending) {
+                    synthRef.current.cancel();
+                }
+            } catch (e) {}
+        }
+        setStatus('idle');
+    };
+
+    // Fallback: Browser Web Speech API synthesizer (Hardened against Chrome stall bugs)
+    const speakLocalTTS = (cleanText) => {
+        if (!synthRef.current || isMuted || !cleanText) return;
 
         try {
-            // Chrome bug workaround: always resume synth and cancel pending queue
             if (synthRef.current.speaking || synthRef.current.pending) {
                 synthRef.current.cancel();
             }
             if (synthRef.current.paused) {
                 synthRef.current.resume();
             }
-
-            const cleanText = text
-                .replace(/[*_#`~]/g, '')
-                .replace(/https?:\/\/\S+/g, 'link')
-                .trim();
 
             const utterance = new SpeechSynthesisUtterance(cleanText);
             utterance.rate = 1.05;
@@ -139,7 +153,7 @@ export const JarvisWidget = () => {
             utterance.onstart = () => setStatus('speaking');
             utterance.onend = () => setStatus('idle');
             utterance.onerror = (e) => {
-                console.warn('[Jarvis] TTS event error:', e);
+                console.warn('[Jarvis] Local TTS event error:', e);
                 setStatus('idle');
             };
 
@@ -151,17 +165,62 @@ export const JarvisWidget = () => {
                 }
             }, 60);
         } catch (e) {
-            console.error('[Jarvis] TTS error:', e);
+            console.error('[Jarvis] Local TTS error:', e);
             setStatus('idle');
         }
+    };
+
+    // 🔊 Primary Speech Output: Plays Studio-grade Gemini 3.8 Flash TTS with seamless local fallback
+    const speakVoice = (text, audioBase64 = null) => {
+        if (isMuted || !text) return;
+
+        // Stop any currently playing audio before starting new playback
+        stopSpeaking();
+
+        const cleanText = text
+            .replace(/[*_#`~]/g, '')
+            .replace(/https?:\/\/\S+/g, 'link')
+            .trim();
+
+        // 1. High-fidelity Gemini 3.8 Flash Studio Audio playback (Natural Hindi pronunciation)
+        if (audioBase64) {
+            try {
+                const audio = new Audio('data:audio/wav;base64,' + audioBase64);
+                currentAudioRef.current = audio;
+
+                audio.onplay = () => setStatus('speaking');
+                audio.onended = () => {
+                    setStatus('idle');
+                    currentAudioRef.current = null;
+                };
+                audio.onerror = (err) => {
+                    console.warn('[Jarvis] Studio audio playback error, falling back to local TTS:', err);
+                    currentAudioRef.current = null;
+                    speakLocalTTS(cleanText);
+                };
+
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch((err) => {
+                        console.warn('[Jarvis] Autoplay restriction prevented immediate audio, falling back:', err);
+                        currentAudioRef.current = null;
+                        speakLocalTTS(cleanText);
+                    });
+                }
+                return;
+            } catch (err) {
+                console.warn('[Jarvis] Studio audio failed to initialize, falling back:', err);
+            }
+        }
+
+        // 2. Fallback to Web Speech API synthesizer if audioBase64 is absent
+        speakLocalTTS(cleanText);
     };
 
     // 🎙️ Direct Hardware Voice Recording (MediaRecorder + Gemini Multimodal AI)
     // 100% Guaranteed cross-browser reliability (Safari, Chrome, Firefox, iOS, Android)
     const startDirectRecording = async () => {
-        if (synthRef.current) {
-            try { synthRef.current.cancel(); } catch (e) {}
-        }
+        stopSpeaking();
         if (recognitionRef.current) {
             try { recognitionRef.current.abort(); } catch (e) {}
             recognitionRef.current = null;
@@ -268,7 +327,7 @@ export const JarvisWidget = () => {
                     setPendingAction(null);
                 }
 
-                speakVoice(response.speechResponse);
+                speakVoice(response.speechResponse, response.audioBase64);
 
                 if (response.action === 'navigate' && response.targetUrl) {
                     toast.success(`JARVIS: Navigating to ${response.displayData?.page || 'page'}`, {
@@ -281,12 +340,24 @@ export const JarvisWidget = () => {
                 }
             } else {
                 setSpeechResponse(response?.speechResponse || "Sir, command execute nahi ho paayi.");
-                speakVoice(response?.speechResponse || "Sir, command execute nahi ho paayi.");
+                speakVoice(response?.speechResponse || "Sir, command execute nahi ho paayi.", response?.audioBase64);
                 setStatus('idle');
             }
         } catch (error) {
             console.error('[Jarvis] Audio command error:', error);
-            const fallbackMsg = "Sir, connection me issue aayi. Dobara try kijiye.";
+            const serverSpeech = error.response?.data?.speechResponse || error.response?.data?.message;
+            const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'));
+            const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+            let fallbackMsg = "Sir, connection me thodi issue aayi. Kripya dubara boliye.";
+            if (serverSpeech) {
+                fallbackMsg = serverSpeech;
+            } else if (isOffline) {
+                fallbackMsg = "Sir, internet offline lag raha hai. Kripya connection check kijiye.";
+            } else if (isTimeout) {
+                fallbackMsg = "Sir, response aane me waqt lag raha hai. Kripya dobara try kijiye.";
+            }
+
             setSpeechResponse(fallbackMsg);
             speakVoice(fallbackMsg);
             setStatus('idle');
@@ -295,9 +366,7 @@ export const JarvisWidget = () => {
 
     // 🎙️ Dynamic Fresh Speech Recognition Starter (Streaming text)
     const startListening = () => {
-        if (synthRef.current) {
-            try { synthRef.current.cancel(); } catch (e) {}
-        }
+        stopSpeaking();
 
         if (recognitionRef.current) {
             try { recognitionRef.current.abort(); } catch (e) {}
@@ -430,8 +499,7 @@ export const JarvisWidget = () => {
     // Toggle Listening
     const toggleListening = () => {
         if (status === 'speaking') {
-            synthRef.current?.cancel();
-            setStatus('idle');
+            stopSpeaking();
             return;
         }
 
@@ -454,6 +522,7 @@ export const JarvisWidget = () => {
     // Cleanup on unmount
     useEffect(() => {
         return () => {
+            stopSpeaking();
             if (recognitionRef.current) {
                 try { recognitionRef.current.abort(); } catch (e) {}
             }
@@ -499,8 +568,8 @@ export const JarvisWidget = () => {
                     setPendingAction(null);
                 }
 
-                // Speak reply
-                speakVoice(response.speechResponse);
+                // Speak reply with studio audio if available
+                speakVoice(response.speechResponse, response.audioBase64);
 
                 // Handle navigation action
                 if (response.action === 'navigate' && response.targetUrl) {
@@ -514,12 +583,24 @@ export const JarvisWidget = () => {
                 }
             } else {
                 setSpeechResponse(response?.speechResponse || "Sir, command execute nahi ho paayi.");
-                speakVoice(response?.speechResponse || "Sir, command execute nahi ho paayi.");
+                speakVoice(response?.speechResponse || "Sir, command execute nahi ho paayi.", response?.audioBase64);
                 setStatus('idle');
             }
         } catch (error) {
             console.error('[Jarvis] Command error:', error);
-            const fallbackMsg = "Sir, connection me issue aayi. Dobara try kijiye.";
+            const serverSpeech = error.response?.data?.speechResponse || error.response?.data?.message;
+            const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'));
+            const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+            let fallbackMsg = "Sir, connection me thodi issue aayi. Kripya dubara boliye.";
+            if (serverSpeech) {
+                fallbackMsg = serverSpeech;
+            } else if (isOffline) {
+                fallbackMsg = "Sir, internet offline lag raha hai. Kripya connection check kijiye.";
+            } else if (isTimeout) {
+                fallbackMsg = "Sir, response aane me waqt lag raha hai. Kripya dobara try kijiye.";
+            }
+
             setSpeechResponse(fallbackMsg);
             speakVoice(fallbackMsg);
             setStatus('idle');
@@ -535,14 +616,14 @@ export const JarvisWidget = () => {
             if (res?.success) {
                 setSpeechResponse(res.speechResponse);
                 setPendingAction(null);
-                speakVoice(res.speechResponse);
+                speakVoice(res.speechResponse, res.audioBase64);
                 toast.success('JARVIS: Action Executed Successfully', {
                     icon: '✅',
                     style: { background: '#0f172a', color: '#10b981', border: '1px solid #059669' }
                 });
             } else {
                 setSpeechResponse(res?.speechResponse || 'Error executing action');
-                speakVoice(res?.speechResponse || 'Error executing action');
+                speakVoice(res?.speechResponse || 'Error executing action', res?.audioBase64);
             }
         } catch (e) {
             toast.error('Failed to confirm action');
@@ -558,7 +639,7 @@ export const JarvisWidget = () => {
             const res = await jarvisAPI.cancelAction(actionId);
             setSpeechResponse(res?.speechResponse || 'Action cancelled.');
             setPendingAction(null);
-            speakVoice(res?.speechResponse || 'Action cancelled.');
+            speakVoice(res?.speechResponse || 'Action cancelled.', res?.audioBase64);
             toast('JARVIS: Action Cancelled', { icon: '🚫' });
         } catch (e) {
             toast.error('Failed to cancel action');
@@ -597,7 +678,7 @@ export const JarvisWidget = () => {
                     ...res
                 });
                 setSpeechResponse(res.speechResponse);
-                speakVoice(res.speechResponse);
+                speakVoice(res.speechResponse, res.audioBase64);
                 toast.success('Call Intelligence processed & synchronized!', {
                     icon: '🚀',
                     style: { background: '#0f172a', color: '#38bdf8', border: '1px solid #0284c7' }
@@ -874,7 +955,7 @@ export const JarvisWidget = () => {
                                         {briefingData?.speechResponse && (
                                             <button
                                                 type="button"
-                                                onClick={() => speakVoice(briefingData.speechResponse)}
+                                                onClick={() => speakVoice(briefingData.speechResponse, briefingData.audioBase64)}
                                                 style={{
                                                     padding: '4px 8px',
                                                     borderRadius: '6px',

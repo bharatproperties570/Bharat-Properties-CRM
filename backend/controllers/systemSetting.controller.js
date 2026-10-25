@@ -4,6 +4,12 @@ import openaiService from "../services/OpenAIService.js";
 import claudeService from "../services/ClaudeService.js";
 import { invalidateSequenceGuardCache } from "../src/services/SequenceGuardService.js";
 import { invalidateRulesCache } from "../src/services/StageTransitionEngine.js";
+import {
+    getAvailableQualificationFields,
+    getQualificationRule,
+    invalidateQualificationRulesCache
+} from "../utils/leadDataCompleteness.js";
+import Lookup from "../models/Lookup.js";
 
 
 // Mock storage for when DB is unavailable
@@ -138,6 +144,11 @@ export const upsertSystemSetting = async (req, res) => {
             invalidateRulesCache();
         }
 
+        // Invalidate stage qualification cache when stage_qualification_rules changes
+        if (key === 'stage_qualification_rules') {
+            invalidateQualificationRulesCache();
+        }
+
         res.json({ success: true, status: "success", data: setting });
     } catch (error) {
         console.error("Upsert Setting Error:", error);
@@ -181,6 +192,165 @@ export const deleteSystemSetting = async (req, res) => {
         await SystemSetting.findOneAndDelete({ key });
         res.json({ success: true, status: "success", message: "Setting deleted" });
     } catch (error) {
+        res.status(500).json({ success: false, status: "error", message: error.message });
+    }
+};
+
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+// Get Stage Qualification Configuration (Rule + Available Fields + Stages)
+export const getStageQualificationConfig = async (req, res) => {
+    try {
+        const [rule, fields, stageLookups] = await Promise.all([
+            getQualificationRule(),
+            getAvailableQualificationFields(),
+            Lookup.find({ lookup_type: 'Stage', isDeleted: { $ne: true }, isActive: { $ne: false } })
+                .select('lookup_value order')
+                .sort({ order: 1 })
+                .lean()
+                .catch(() => [])
+        ]);
+
+        // Clean unique list of stages, ensuring Prospect is always available
+        const rawStages = (stageLookups && stageLookups.length > 0)
+            ? stageLookups.map(s => s.lookup_value).filter(Boolean)
+            : ['Incoming', 'Prospect', 'Opportunity', 'Negotiation', 'Closed Won', 'Closed (Lost)'];
+
+        const stageSet = new Set(rawStages);
+        // Guarantee Prospect is in the stage list
+        if (!stageSet.has('Prospect')) {
+            rawStages.splice(1, 0, 'Prospect');
+        }
+
+        res.json({
+            success: true,
+            status: "success",
+            data: {
+                rule,
+                fields,
+                stages: Array.from(new Set(rawStages))
+            }
+        });
+    } catch (error) {
+        console.error("[getStageQualificationConfig] Error:", error);
+        res.status(500).json({ success: false, status: "error", message: error.message });
+    }
+};
+
+// Re-evaluate and promote existing leads currently in Incoming
+export const reEvaluateExistingLeadsQualification = async (req, res) => {
+    try {
+        const { evaluateLeadStageQualification, getQualificationRule, invalidateQualificationRulesCache } = await import("../utils/leadDataCompleteness.js");
+        const Lead = (await import("../models/Lead.js")).default;
+        const Lookup = (await import("../models/Lookup.js")).default;
+
+        // Allow caller to pass custom rule overrides in req.body or fallback to DB rule
+        const dbRule = await getQualificationRule();
+        const incomingRule = (req.body && req.body.rule) ? req.body.rule : (req.body && req.body.thresholdPercent ? req.body : null);
+        const rule = incomingRule ? { ...dbRule, ...incomingRule } : dbRule;
+
+        if (!rule.enabled) {
+            return res.status(400).json({
+                success: false,
+                message: "Stage Qualification Rule is currently disabled. Please enable it before running sync."
+            });
+        }
+
+        const targetStageName = rule.targetStage || 'Prospect';
+        const escapedTarget = escapeRegExp(targetStageName);
+
+        const [incomingLookup, targetStageLookup] = await Promise.all([
+            Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: /^Incoming$/i } }).lean(),
+            Lookup.findOne({ lookup_type: 'Stage', lookup_value: new RegExp(`^${escapedTarget}$`, 'i') }).lean()
+        ]);
+
+        if (!targetStageLookup) {
+            return res.status(400).json({
+                success: false,
+                message: `Target stage "${targetStageName}" lookup not found in database.`
+            });
+        }
+
+        const incomingQuery = {
+            isDeleted: { $ne: true },
+            isArchived: { $ne: true },
+            $or: [
+                ...(incomingLookup ? [{ stage: incomingLookup._id }] : []),
+                { stage: 'Incoming' },
+                { stage: null },
+                { stage: { $exists: false } }
+            ]
+        };
+
+        const incomingLeads = await Lead.find(incomingQuery).lean();
+        console.log(`[BatchQualification] Found ${incomingLeads.length} incoming leads to evaluate.`);
+
+        let promotedCount = 0;
+        const now = new Date();
+        const promotedDetails = [];
+        const bulkOps = [];
+
+        for (const lead of incomingLeads) {
+            const qual = await evaluateLeadStageQualification(lead);
+            if (qual.qualified) {
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: lead._id },
+                        update: {
+                            $set: {
+                                stage: targetStageLookup._id,
+                                stageChangedAt: now
+                            },
+                            $push: {
+                                stageHistory: {
+                                    stage: targetStageName,
+                                    enteredAt: now,
+                                    triggeredBy: 'batch_qualification_sync',
+                                    reason: `Batch promoted by Stage Qualification Rule (${qual.score}% data completeness)`
+                                }
+                            }
+                        }
+                    }
+                });
+
+                promotedCount++;
+                if (promotedDetails.length < 15) {
+                    promotedDetails.push({
+                        id: lead._id,
+                        name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
+                        score: `${qual.score}%`
+                    });
+                }
+            }
+        }
+
+        // 🏎️ Enterprise Scalability: Chunked bulkWrite (chunks of 500) to prevent socket/memory exhaustion
+        if (bulkOps.length > 0) {
+            const CHUNK_SIZE = 500;
+            for (let i = 0; i < bulkOps.length; i += CHUNK_SIZE) {
+                const chunk = bulkOps.slice(i, i + CHUNK_SIZE);
+                await Lead.bulkWrite(chunk, { ordered: false });
+            }
+        }
+
+        console.log(`[BatchQualification] Successfully promoted ${promotedCount} of ${incomingLeads.length} leads to ${targetStageName}.`);
+
+        res.json({
+            success: true,
+            status: "success",
+            data: {
+                totalScanned: incomingLeads.length,
+                promotedCount,
+                targetStage: targetStageName,
+                samples: promotedDetails
+            },
+            message: `Evaluated ${incomingLeads.length} leads. Promoted ${promotedCount} qualified leads to ${targetStageName}!`
+        });
+    } catch (error) {
+        console.error("[reEvaluateExistingLeadsQualification] Error:", error);
         res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };

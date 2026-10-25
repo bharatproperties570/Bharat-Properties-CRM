@@ -19,7 +19,8 @@ import EmailActivitySection from './Activities/sections/EmailActivitySection';
 import TaskActivitySection from './Activities/sections/TaskActivitySection';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
-    const { activityMasterFields } = usePropertyConfig();
+    const config = usePropertyConfig();
+    const activityMasterFields = config?.activityMasterFields || { activities: [] };
     const {
         formData,
         setFormData,

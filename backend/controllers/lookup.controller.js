@@ -161,8 +161,21 @@ export const addLookup = async (req, res) => {
                         }
                     });
                     
+                    // Merge subCategories array if present in either/both
+                    const oldSubs = Array.isArray(oldMeta.subCategories) ? oldMeta.subCategories : (oldMeta.subCategory ? [oldMeta.subCategory] : []);
+                    const newSubs = Array.isArray(metadata.subCategories) ? metadata.subCategories : (metadata.subCategory ? [metadata.subCategory] : []);
+                    const mergedSubs = [...new Set([...oldSubs, ...newSubs])];
+
                     // Update metadata fields that were missing (category, subCategory, unitType, areas, etc.)
-                    const updatedMeta = { ...oldMeta, ...metadata, projectMappings: mergedMappings };
+                    const updatedMeta = {
+                        ...oldMeta,
+                        ...metadata,
+                        ...(mergedSubs.length > 0 ? {
+                            subCategories: mergedSubs,
+                            subCategory: mergedSubs.join(', ')
+                        } : {}),
+                        projectMappings: mergedMappings
+                    };
                     existing.metadata = updatedMeta;
                     existing.markModified('metadata');
                     await existing.save();

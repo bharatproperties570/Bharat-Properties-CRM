@@ -11,17 +11,17 @@ import { numberToIndianWords } from '../utils/numberToWords';
 import { api, systemSettingsAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 import whatsappService from '../services/whatsappService';
-import { findMatchedSize } from '../utils/sizeDimensionUtils';
+import { findMatchedSize, resolveUnitDimensionsAndSize, extractAreaFromLabel, formatDimension, getMetricAbbreviation } from '../utils/sizeDimensionUtils';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
-    const { isDark } = useTheme();
-    const { getLookupId, getLookupValue, dealMasterFields, sizes = [] } = usePropertyConfig();
-    const { validateAsync } = useFieldRules();
-    const { fireEvent } = useTriggers();
-    const { executeDistribution } = useDistribution();
-    const { data: users = [] } = useActiveUsers();
+    const { isDark } = useTheme() || {};
+    const { getLookupId, getLookupValue, dealMasterFields, sizes = [] } = usePropertyConfig() || {};
+    const { validateAsync = async () => ({ isValid: true, errors: {} }) } = useFieldRules() || {};
+    const { fireEvent = () => {} } = useTriggers() || {};
+    const { executeDistribution = async () => null } = useDistribution() || {};
+    const { data: users = [] } = useActiveUsers() || {};
     
-    const { data: teams = [] } = useTeams();
+    const { data: teams = [] } = useTeams() || {};
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
     const addDealMutation = useAddDealMutation();
@@ -51,6 +51,16 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         subCategory: '',
         size: '',
         sizeUnit: 'Sq Yard',
+        sizeLabel: '',
+        sizeId: null,
+        sizeConfig: null,
+        width: '',
+        length: '',
+        widthMetric: 'Feet',
+        lengthMetric: 'Feet',
+        roadWidth: '',
+        facing: '',
+        direction: '',
         location: '',
         intent: 'Sell', // Sell, Rent, Lease
 
@@ -153,7 +163,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 // We use POST to send the draft deal data
                 const matchRes = await api.post('leads/match', { deal: formData });
                 if (matchRes.data?.success) {
-                    setLiveMatchCount(matchRes.data.count || 0);
+                    const totalMatches = typeof matchRes.data.totalCount === 'number'
+                        ? matchRes.data.totalCount
+                        : (matchRes.data.count || 0);
+                    setLiveMatchCount(totalMatches);
                     setLiveMatchedLeads(matchRes.data.matchingLeads || []);
                 } else {
                     setLiveMatchCount(0);
@@ -176,8 +189,92 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         'sq feet': 0.111111,
         'marla': 25,
         'kananl': 500,
+        'kanal': 500,
         'acre': 4840,
         'hectare': 11959.9
+    };
+
+    const METRIC_IN_SQ_YARD = {
+        'sqyard': 1,
+        'sq.yard': 1,
+        'sq yard': 1,
+        'sqyd': 1,
+        'sq yd': 1,
+        'yard': 1,
+        'yards': 1,
+        'gaj': 1,
+        'sq feet': 1 / 9,
+        'sqfeet': 1 / 9,
+        'sq.feet': 1 / 9,
+        'sq ft': 1 / 9,
+        'sq.ft': 1 / 9,
+        'sq.ft.': 1 / 9,
+        'sqft': 1 / 9,
+        'ft': 1 / 9,
+        'sqmeter': 1.19599,
+        'sq meter': 1.19599,
+        'sq.meter': 1.19599,
+        'sqm': 1.19599,
+        'sq m': 1.19599,
+        'meter': 1.19599,
+        'marla': 25,
+        'kanal': 500,
+        'kananl': 500,
+        'acre': 4840,
+        'hectare': 11959.9
+    };
+
+    const normalizeUnitKey = (unitStr) => {
+        if (!unitStr) return 'sqyard';
+        return String(unitStr).toLowerCase().replace(/[^a-z0-9.]/g, '');
+    };
+
+    const getFactorInSqYard = (unitStr) => {
+        const key = normalizeUnitKey(unitStr);
+        for (const [k, factor] of Object.entries(METRIC_IN_SQ_YARD)) {
+            if (key === normalizeUnitKey(k)) return factor;
+        }
+        return 1;
+    };
+
+    const convertSizeToMetric = (rawSize, sourceUnit = 'Sq Yard', targetMetric = 'SqYard') => {
+        if (rawSize === null || rawSize === undefined || rawSize === '') return 0;
+        const numSize = parseFloat(String(rawSize).replace(/[^0-9.]/g, ''));
+        if (isNaN(numSize) || numSize <= 0) return 0;
+
+        const sourceFactor = getFactorInSqYard(sourceUnit);
+        const targetFactor = getFactorInSqYard(targetMetric);
+
+        const sizeInSqYard = numSize * sourceFactor;
+        return sizeInSqYard / targetFactor;
+    };
+
+    const getUnitShortName = (unit) => {
+        const map = {
+            'SqYard': 'Sq.Yd',
+            'sqMeter': 'Sq.Mt',
+            'sq feet': 'Sq.Ft',
+            'marla': 'Marla',
+            'kananl': 'Kanal',
+            'kanal': 'Kanal',
+            'acre': 'Acre',
+            'hectare': 'Hectare'
+        };
+        return map[unit] || unit || 'Sq.Yd';
+    };
+
+    const getUnitDisplayName = (unit) => {
+        const map = {
+            'SqYard': 'Sq. Yard (Gaj)',
+            'sqMeter': 'Sq. Meter',
+            'sq feet': 'Sq. Feet',
+            'marla': 'Marla',
+            'kananl': 'Kanal',
+            'kanal': 'Kanal',
+            'acre': 'Acre',
+            'hectare': 'Hectare'
+        };
+        return map[unit] || unit || 'Sq. Yard';
     };
 
     const getUnitLabel = (size) => {
@@ -193,6 +290,88 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         }
         return val;
     };
+
+    /**
+     * Enterprise Area Resolver:
+     * Ground Truth Principle: The count inside brackets of sizeLabel (e.g. "8 Marla (200.01 Sq Yd)")
+     * represents the TRUE total area in Sq. Yard (Gaj).
+     * Total Expected Price / Bracket Count = Rate per Sq. Yard.
+     * Rate per Sq. Yard * Bracket Count = Total Expected Price.
+     */
+    const resolveEffectiveArea = useCallback((formObj = formData) => {
+        // Priority 1: Check sizeLabel or unitSpecification.sizeLabel
+        const labelCandidates = [
+            formObj?.sizeLabel,
+            formObj?.unitSpecification?.sizeLabel,
+            formObj?.sizeConfig
+        ];
+
+        for (const cand of labelCandidates) {
+            if (typeof cand === 'string' && cand) {
+                const parsed = extractAreaFromLabel(cand);
+                if (parsed && parsed.area > 0) {
+                    const areaInSqYard = convertSizeToMetric(parsed.area, parsed.unit, 'SqYard');
+                    return {
+                        areaInSqYard,
+                        bracketCount: parsed.area,
+                        bracketUnit: parsed.unit,
+                        rawUnit: parsed.rawUnit,
+                        source: 'label_bracket',
+                        label: cand
+                    };
+                }
+            }
+        }
+
+        // Priority 2: Check matched size from master sizes
+        const matched = findMatchedSize(formObj, null, sizes);
+        if (matched) {
+            if (matched.name) {
+                const parsed = extractAreaFromLabel(matched.name);
+                if (parsed && parsed.area > 0) {
+                    const areaInSqYard = convertSizeToMetric(parsed.area, parsed.unit, 'SqYard');
+                    return {
+                        areaInSqYard,
+                        bracketCount: parsed.area,
+                        bracketUnit: parsed.unit,
+                        rawUnit: parsed.rawUnit,
+                        source: 'master_bracket',
+                        label: matched.name
+                    };
+                }
+            }
+            if (matched.totalArea && parseFloat(matched.totalArea) > 0) {
+                const num = parseFloat(matched.totalArea);
+                const metric = matched.resultMetric || matched.unit || 'Sq Yard';
+                const areaInSqYard = convertSizeToMetric(num, metric, 'SqYard');
+                return {
+                    areaInSqYard,
+                    bracketCount: num,
+                    bracketUnit: metric,
+                    rawUnit: metric,
+                    source: 'master_totalArea',
+                    label: matched.name || formObj?.sizeLabel
+                };
+            }
+        }
+
+        // Priority 3: Direct formData.size and sizeUnit
+        const numSize = parseFloat(String(formObj?.size || '').replace(/[^0-9.]/g, '') || '0');
+        if (numSize > 0) {
+            const unit = formObj?.sizeUnit || 'Sq Yard';
+            const areaInSqYard = convertSizeToMetric(numSize, unit, 'SqYard');
+            return {
+                areaInSqYard,
+                bracketCount: numSize,
+                bracketUnit: unit,
+                rawUnit: unit,
+                source: 'direct_size',
+                label: formObj?.sizeLabel || `${numSize} ${unit}`
+            };
+        }
+
+        return null;
+    }, [formData, sizes]);
 
     const initialInheritanceRef = useRef(false);
     // removed existingDeals state
@@ -240,16 +419,50 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 const finalPrice = initialPrice || getPriceValue(deal.price) || prev.price;
                 const finalQuotePrice = getPriceValue(deal.quotePrice) || prev.quotePrice;
 
+                // Enterprise: Calculate rates if missing and we have prices + area
+                let initialRate = cleanStr(deal.ratePrice, prev.ratePrice);
+                let initialQuoteRate = cleanStr(deal.quoteRatePrice, prev.quoteRatePrice);
+                const effective = resolveEffectiveArea({
+                    ...prev,
+                    ...deal,
+                    price: finalPrice,
+                    quotePrice: finalQuotePrice,
+                    size: cleanStr(deal.size, prev.size),
+                    sizeUnit: cleanStr(deal.sizeUnit, prev.sizeUnit)
+                });
+
+                if (effective && effective.areaInSqYard > 0) {
+                    const targetFactor = getFactorInSqYard(deal.priceUnit || prev.priceUnit || 'SqYard');
+                    const sizeInTarget = effective.areaInSqYard / targetFactor;
+
+                    if (sizeInTarget > 0) {
+                        if (finalPrice && parseFloat(finalPrice) > 0 && !initialRate) {
+                            initialRate = Math.round(parseFloat(finalPrice) / sizeInTarget).toString();
+                        }
+                        if (finalQuotePrice && parseFloat(finalQuotePrice) > 0 && !initialQuoteRate) {
+                            initialQuoteRate = Math.round(parseFloat(finalQuotePrice) / sizeInTarget).toString();
+                        }
+                    }
+                }
+
                 const updated = {
                     ...prev,
                     ...deal,
                     projectName: cleanStr(deal.projectName, prev.projectName),
                     block: cleanStr(deal.block, prev.block),
                     unitNo: cleanStr(deal.unitNo, prev.unitNo),
-                    unitType: cleanStr(deal.unitType, prev.unitType),
+                    unitType: getLookupValue('UnitType', deal.unitType || deal.unitSpecification?.unitType) || cleanStr(deal.unitType || deal.unitSpecification?.unitType, prev.unitType || 'Ordinary'),
+                    roadWidth: getLookupValue('RoadWidth', deal.roadWidth || deal.unitSpecification?.roadWidth) || cleanStr(deal.roadWidth || deal.unitSpecification?.roadWidth, prev.roadWidth || ''),
+                    facing: getLookupValue('Facing', deal.facing || deal.unitSpecification?.facing) || cleanStr(deal.facing || deal.unitSpecification?.facing, prev.facing || ''),
+                    direction: getLookupValue('Orientation', deal.direction || deal.orientation || deal.unitSpecification?.direction || deal.unitSpecification?.orientation) || cleanStr(deal.direction || deal.orientation || deal.unitSpecification?.direction || deal.unitSpecification?.orientation, prev.direction || ''),
                     location: cleanStr(deal.location, prev.location),
                     size: cleanStr(deal.size, prev.size),
                     sizeUnit: cleanStr(deal.sizeUnit, prev.sizeUnit),
+                    sizeLabel: cleanStr(deal.sizeLabel || deal.unitSpecification?.sizeLabel, prev.sizeLabel),
+                    width: cleanStr(deal.width || deal.unitSpecification?.width, prev.width),
+                    length: cleanStr(deal.length || deal.unitSpecification?.length, prev.length),
+                    widthMetric: cleanStr(deal.widthMetric || deal.dimensionMetric || deal.unitSpecification?.widthMetric, prev.widthMetric || 'Feet'),
+                    lengthMetric: cleanStr(deal.lengthMetric || deal.dimensionMetric || deal.unitSpecification?.lengthMetric, prev.lengthMetric || 'Feet'),
                     source: getLookupValue('Source', deal.source) || cleanStr(deal.source, prev.source),
                     dealType: cleanStr(deal.dealType, prev.dealType),
                     transactionType: cleanStr(deal.transactionType, prev.transactionType),
@@ -257,6 +470,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     priceInWords: numberToIndianWords(finalPrice),
                     quotePrice: finalQuotePrice,
                     quotePriceInWords: numberToIndianWords(finalQuotePrice),
+                    ratePrice: initialRate,
+                    quoteRatePrice: initialQuoteRate,
                     intent: intent,
                     owner: newOwner,
                     associatedContact: newAssociate,
@@ -326,7 +541,25 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             block: defaultBlock,
             unitNo: '', // Reset unit when project changes
             propertyType: '', // Reset unit-dependent fields
+            category: '',
+            subCategory: '',
+            unitType: 'Ordinary',
             size: '',
+            sizeLabel: '',
+            sizeConfig: '',
+            sizeId: '',
+            width: '',
+            length: '',
+            roadWidth: '',
+            facing: '',
+            direction: '',
+            unitSpecification: {},
+            ratePrice: '',
+            quoteRatePrice: '',
+            price: '',
+            quotePrice: '',
+            priceInWords: '',
+            quotePriceInWords: '',
             owner: { name: '', phone: '', email: '' },
             associatedContact: { name: '', phone: '', email: '' },
             assignedTo,
@@ -336,9 +569,14 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     }, [projects, formData, executeDistribution]);
 
     const handleUnitChange = useCallback((unitNo) => {
-        const unit = units.find(i =>
-            (renderValue(i.unitNo) === unitNo || renderValue(i.unitNumber) === unitNo)
-        );
+        const targetClean = String(unitNo || '').trim().toLowerCase();
+        const unit = units.find(i => {
+            const u1 = String(renderValue(i.unitNo) || '').trim().toLowerCase();
+            const u2 = String(renderValue(i.unitNumber) || '').trim().toLowerCase();
+            const u3 = String(i.unitNo || '').trim().toLowerCase();
+            const u4 = String(i.unitNumber || '').trim().toLowerCase();
+            return u1 === targetClean || u2 === targetClean || u3 === targetClean || u4 === targetClean;
+        });
 
         if (unit) {
             const cleanStr = (val, fallback = '') => {
@@ -347,12 +585,26 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             };
 
             setFormData(prev => {
-                const newSize = cleanStr(unit.size, prev.size);
                 const matchedSize = findMatchedSize(unit, null, sizes);
-                const inheritedWidth = unit.width || unit.frontage || unit.unitSpecification?.width || matchedSize?.width || prev.width;
-                const inheritedLength = unit.length || unit.depth || unit.unitSpecification?.length || matchedSize?.length || prev.length;
+                const inheritedSizeLabel = unit.sizeLabel || unit.unitSpecification?.sizeLabel || matchedSize?.name || prev.sizeLabel;
+                const parsedBracket = extractAreaFromLabel(inheritedSizeLabel) || extractAreaFromLabel(matchedSize?.name);
+
+                // Enterprise: Prioritize the bracket count in sizeLabel as the true total area
+                const newSize = parsedBracket?.area 
+                    ? String(parsedBracket.area) 
+                    : (matchedSize?.totalArea ? String(matchedSize.totalArea) : cleanStr(unit.size, prev.size));
+                const newUnit = parsedBracket?.unit || matchedSize?.resultMetric || cleanStr(unit.sizeUnit, prev.sizeUnit) || 'Sq Yard';
+
+                const inheritedWidth = unit.width || unit.frontage || unit.unitSpecification?.width || matchedSize?.width || matchedSize?.metadata?.width || prev.width || '';
+                const inheritedLength = unit.length || unit.depth || unit.unitSpecification?.length || matchedSize?.length || matchedSize?.metadata?.length || prev.length || '';
+                const inheritedWidthMetric = unit.widthMetric || unit.dimensionMetric || unit.unitSpecification?.widthMetric || matchedSize?.widthMetric || matchedSize?.dimensionMetric || matchedSize?.metadata?.widthMetric || prev.widthMetric || 'Feet';
+                const inheritedLengthMetric = unit.lengthMetric || unit.dimensionMetric || unit.unitSpecification?.lengthMetric || matchedSize?.lengthMetric || matchedSize?.dimensionMetric || matchedSize?.metadata?.lengthMetric || prev.lengthMetric || 'Feet';
                 const inheritedSizeId = unit.sizeId || matchedSize?.id || matchedSize?._id || prev.sizeId;
-                const inheritedSizeLabel = unit.sizeLabel || matchedSize?.name || prev.sizeLabel;
+
+                const inheritedFacing = getLookupValue('Facing', unit.facing || unit.unitSpecification?.facing) || cleanStr(unit.facing || unit.unitSpecification?.facing, '');
+                const inheritedDirection = getLookupValue('Orientation', unit.direction || unit.orientation || unit.unitSpecification?.direction || unit.unitSpecification?.orientation) || cleanStr(unit.direction || unit.orientation || unit.unitSpecification?.direction || unit.unitSpecification?.orientation, '');
+                const inheritedRoadWidth = getLookupValue('RoadWidth', unit.roadWidth || unit.unitSpecification?.roadWidth) || cleanStr(unit.roadWidth || unit.unitSpecification?.roadWidth, '');
+                const inheritedUnitType = getLookupValue('UnitType', unit.unitType || unit.unitSpecification?.unitType) || cleanStr(unit.unitType || unit.unitSpecification?.unitType, prev.unitType || 'Ordinary');
 
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
@@ -361,24 +613,33 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     propertyType: getLookupValue('PropertyType', unit.type || unit.category) || cleanStr(unit.type || unit.category, prev.propertyType),
                     category: getLookupValue('Category', unit.category) || cleanStr(unit.category, ''),
                     subCategory: getLookupValue('SubCategory', unit.subCategory) || cleanStr(unit.subCategory, ''),
+                    unitType: inheritedUnitType,
                     size: newSize,
-                    sizeUnit: cleanStr(unit.sizeUnit, prev.sizeUnit),
+                    sizeUnit: newUnit,
                     sizeId: inheritedSizeId,
                     sizeConfig: unit.sizeConfig || inheritedSizeId,
                     sizeLabel: inheritedSizeLabel,
                     width: inheritedWidth,
                     length: inheritedLength,
+                    widthMetric: inheritedWidthMetric,
+                    lengthMetric: inheritedLengthMetric,
+                    roadWidth: inheritedRoadWidth,
+                    facing: inheritedFacing,
+                    direction: inheritedDirection,
 
                     // Detailed Data Inheritance
                     unitSpecification: {
-                        facing: unit.facing,
-                        direction: unit.direction,
-                        orientation: unit.orientation,
-                        roadWidth: unit.roadWidth,
+                        facing: inheritedFacing,
+                        direction: inheritedDirection,
+                        orientation: inheritedDirection,
+                        roadWidth: inheritedRoadWidth,
+                        unitType: inheritedUnitType,
                         builtupType: unit.builtupType,
                         ownership: unit.ownership,
                         length: inheritedLength,
                         width: inheritedWidth,
+                        lengthMetric: inheritedLengthMetric,
+                        widthMetric: inheritedWidthMetric,
                         sizeLabel: inheritedSizeLabel,
                         totalSaleableArea: unit.totalSaleableArea,
                         builtUpArea: unit.builtUpArea,
@@ -413,32 +674,32 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     visibleTo: (unit.visibleTo ? (unit.visibleTo === 'Public' ? 'Everyone' : unit.visibleTo) : prev.visibleTo)
                 };
 
-                // Trigger Recalculation logic if size changed
-                if (newSize && newSize !== prev.size) {
-                    const sizeValSqYard = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
-                    const factor = METRIC_FACTORS[prev.priceUnit] || 1;
-                    const sizeInMetric = sizeValSqYard / factor;
+                // Trigger Recalculation logic based on true bracket ground-truth area
+                if (newSize) {
+                    const effectiveAreaInSqYard = convertSizeToMetric(newSize, newUnit, 'SqYard');
+                    const targetFactor = getFactorInSqYard(prev.priceUnit || 'SqYard');
+                    const sizeInMetric = effectiveAreaInSqYard / targetFactor;
 
-                    if (sizeValSqYard > 0) {
+                    if (sizeInMetric > 0) {
                         // Recalculate based on current Pricing Mode
                         if (prev.pricingMode === 'Rate') {
-                            if (prev.ratePrice) {
-                                const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice || 0));
+                            if (prev.ratePrice && parseFloat(prev.ratePrice) > 0) {
+                                const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice));
                                 updates.price = total.toString();
                                 updates.priceInWords = numberToIndianWords(total);
                             }
-                            if (prev.quoteRatePrice) {
-                                const totalQuote = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice || 0));
+                            if (prev.quoteRatePrice && parseFloat(prev.quoteRatePrice) > 0) {
+                                const totalQuote = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice));
                                 updates.quotePrice = totalQuote.toString();
                                 updates.quotePriceInWords = numberToIndianWords(totalQuote);
                             }
                         } else {
-                            if (prev.price) {
+                            if (prev.price && parseFloat(prev.price) > 0) {
                                 const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
                                 updates.ratePrice = rate.toString();
                                 updates.priceInWords = numberToIndianWords(prev.price);
                             }
-                            if (prev.quotePrice) {
+                            if (prev.quotePrice && parseFloat(prev.quotePrice) > 0) {
                                 const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
                                 updates.quoteRatePrice = rateQuote.toString();
                                 updates.quotePriceInWords = numberToIndianWords(prev.quotePrice);
@@ -456,71 +717,216 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         }
     }, [units]);
 
-    // Pricing Logic Helpers
-    const calculatePriceValues = (type, value, currentSize, mode, metric) => {
-        const sizeValSqYard = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
-        const numValue = parseFloat(value || '0');
-        const factor = METRIC_FACTORS[metric || formData.priceUnit] || 1;
+    // Pricing Logic Helpers (Enterprise Grade - Ground truth from Size Label Bracket Count)
+    const calculatePriceValues = useCallback((type, value, currentSize, currentUnit, mode, metric) => {
+        const numValue = parseFloat(String(value || '').replace(/[^0-9.]/g, '') || '0');
+        const targetMetric = metric || formData.priceUnit || 'SqYard';
+
+        // Ground truth area via resolveEffectiveArea
+        const effective = resolveEffectiveArea({
+            ...formData,
+            size: currentSize !== undefined ? currentSize : formData.size,
+            sizeUnit: currentUnit !== undefined ? currentUnit : formData.sizeUnit
+        });
+
+        let sizeInTarget = 0;
+        if (effective && effective.areaInSqYard > 0) {
+            const targetFactor = getFactorInSqYard(targetMetric);
+            sizeInTarget = effective.areaInSqYard / targetFactor;
+        }
 
         let updates = {};
 
         if (mode === 'Rate') {
-            // User entered RATE (per Metric)
+            // User entered RATE (per target metric, e.g. per Sq.Yard)
             updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = value;
 
-            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
-                // Total Price = (Size in Metric) * Rate
-                // Size in Metric = Size in SqYard / Factor
-                const sizeInMetric = sizeValSqYard / factor;
-                const total = Math.round(sizeInMetric * numValue);
+            if (sizeInTarget > 0 && numValue > 0) {
+                // Rate * Area = Total Price
+                const total = Math.round(sizeInTarget * numValue);
                 updates[type === 'expected' ? 'price' : 'quotePrice'] = total.toString();
                 updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(total);
-            } else {
+            } else if (!value) {
                 updates[type === 'expected' ? 'price' : 'quotePrice'] = '';
                 updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = '';
             }
         } else {
-            // User entered TOTAL
+            // User entered TOTAL PRICE
             updates[type === 'expected' ? 'price' : 'quotePrice'] = value;
-            updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(value);
-
-            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
-                // Rate = Total / Size in Metric
-                const sizeInMetric = sizeValSqYard / factor;
-                const rate = Math.round(numValue / sizeInMetric);
-                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
+            if (value && numValue > 0) {
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(numValue);
             } else {
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = '';
+            }
+
+            if (sizeInTarget > 0 && numValue > 0) {
+                // Total Price / Bracket Count Area = Rate per Unit
+                const rate = Math.round(numValue / sizeInTarget);
+                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
+            } else if (!value) {
                 updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = '';
             }
         }
         return updates;
-    };
+    }, [formData, resolveEffectiveArea]);
 
-    const handlePriceChange = useCallback((field, value) => {
+    const handlePriceFieldChange = useCallback((field, rawValue) => {
+        const cleanVal = rawValue.replace(/[^0-9.]/g, '');
+        const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
+        const isRate = field === 'ratePrice' || field === 'quoteRatePrice';
+        const type = isQuote ? 'quote' : 'expected';
+        const mode = isRate ? 'Rate' : 'Total';
+
         setFormData(prev => {
             try {
-                const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
-                const type = isQuote ? 'quote' : 'expected';
                 const updates = calculatePriceValues(
                     type,
-                    value,
+                    cleanVal,
                     prev.size,
-                    prev.pricingMode,
+                    prev.sizeUnit,
+                    mode,
                     prev.priceUnit
                 );
-                return { ...prev, ...updates };
+                return {
+                    ...prev,
+                    ...updates,
+                    pricingMode: mode
+                };
             } catch (error) {
-                console.error("Error in handlePriceChange:", error);
+                console.error("Error in handlePriceFieldChange:", error);
                 return prev;
             }
         });
     }, [calculatePriceValues]);
 
+    const handlePriceChange = useCallback((field, value) => {
+        handlePriceFieldChange(field, value);
+    }, [handlePriceFieldChange]);
+
     const handleMetricChange = (metric) => {
         setFormData(prev => {
-            const updates = calculatePriceValues('expected', prev.price, prev.size, 'Total', metric);
-            const quoteUpdates = calculatePriceValues('quote', prev.quotePrice, prev.size, 'Total', metric);
-            return { ...prev, ...updates, ...quoteUpdates, priceUnit: metric };
+            const updates = { priceUnit: metric };
+            const effective = resolveEffectiveArea(prev);
+
+            if (effective && effective.areaInSqYard > 0) {
+                const targetFactor = getFactorInSqYard(metric);
+                const sizeInMetric = effective.areaInSqYard / targetFactor;
+
+                if (sizeInMetric > 0) {
+                    if (prev.price && parseFloat(prev.price) > 0) {
+                        const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
+                        updates.ratePrice = rate.toString();
+                    }
+                    if (prev.quotePrice && parseFloat(prev.quotePrice) > 0) {
+                        const quoteRate = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
+                        updates.quoteRatePrice = quoteRate.toString();
+                    }
+                }
+            }
+            return { ...prev, ...updates };
+        });
+    };
+
+    const handleSizeLabelChange = (selectedLabel) => {
+        const selected = sizes.find(s => s.name === selectedLabel || s.id === selectedLabel || s._id === selectedLabel);
+
+        setFormData(prev => {
+            const parsedBracket = extractAreaFromLabel(selectedLabel) || extractAreaFromLabel(selected?.name);
+            const area = parsedBracket?.area || selected?.totalArea || selected?.size || prev.size;
+            const unit = parsedBracket?.unit || selected?.resultMetric || selected?.unit || prev.sizeUnit || 'Sq Yard';
+            const width = selected?.width || prev.width || '';
+            const length = selected?.length || prev.length || '';
+            const label = selected?.name || selectedLabel;
+
+            const newSize = area ? String(area) : prev.size;
+            const newUnit = unit || prev.sizeUnit;
+
+            const updates = {
+                sizeLabel: label,
+                sizeId: selected?.id || selected?._id || prev.sizeId,
+                sizeConfig: selected?.id || selected?._id || prev.sizeConfig,
+                size: newSize,
+                sizeUnit: newUnit,
+                width,
+                length,
+                unitSpecification: {
+                    ...prev.unitSpecification,
+                    sizeLabel: label,
+                    width: width || prev.unitSpecification?.width,
+                    length: length || prev.unitSpecification?.length
+                }
+            };
+
+            const effective = resolveEffectiveArea({ ...prev, ...updates });
+            if (effective && effective.areaInSqYard > 0) {
+                const targetFactor = getFactorInSqYard(prev.priceUnit || 'SqYard');
+                const sizeInMetric = effective.areaInSqYard / targetFactor;
+
+                if (sizeInMetric > 0) {
+                    if (prev.pricingMode === 'Rate' && prev.ratePrice && parseFloat(prev.ratePrice) > 0) {
+                        const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice));
+                        updates.price = total.toString();
+                        updates.priceInWords = numberToIndianWords(total);
+                    } else if (prev.price && parseFloat(prev.price) > 0) {
+                        const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
+                        updates.ratePrice = rate.toString();
+                    }
+
+                    if (prev.pricingMode === 'Rate' && prev.quoteRatePrice && parseFloat(prev.quoteRatePrice) > 0) {
+                        const totalQ = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice));
+                        updates.quotePrice = totalQ.toString();
+                        updates.quotePriceInWords = numberToIndianWords(totalQ);
+                    } else if (prev.quotePrice && parseFloat(prev.quotePrice) > 0) {
+                        const rateQ = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
+                        updates.quoteRatePrice = rateQ.toString();
+                    }
+                }
+            }
+
+            return { ...prev, ...updates };
+        });
+    };
+
+    const handleSizeChange = (field, value) => {
+        setFormData(prev => {
+            const cleanVal = field === 'size' ? value.replace(/[^0-9.]/g, '') : value;
+            const newSize = field === 'size' ? cleanVal : prev.size;
+            const newUnit = field === 'sizeUnit' ? value : prev.sizeUnit;
+
+            const updates = { [field]: cleanVal };
+
+            const effective = resolveEffectiveArea({
+                ...prev,
+                size: newSize,
+                sizeUnit: newUnit
+            });
+
+            if (effective && effective.areaInSqYard > 0) {
+                const targetFactor = getFactorInSqYard(prev.priceUnit || 'SqYard');
+                const sizeInMetric = effective.areaInSqYard / targetFactor;
+
+                if (sizeInMetric > 0) {
+                    if (prev.pricingMode === 'Rate' && prev.ratePrice && parseFloat(prev.ratePrice) > 0) {
+                        const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice));
+                        updates.price = total.toString();
+                        updates.priceInWords = numberToIndianWords(total);
+                    } else if (prev.price && parseFloat(prev.price) > 0) {
+                        const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
+                        updates.ratePrice = rate.toString();
+                    }
+
+                    if (prev.pricingMode === 'Rate' && prev.quoteRatePrice && parseFloat(prev.quoteRatePrice) > 0) {
+                        const totalQ = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice));
+                        updates.quotePrice = totalQ.toString();
+                        updates.quotePriceInWords = numberToIndianWords(totalQ);
+                    } else if (prev.quotePrice && parseFloat(prev.quotePrice) > 0) {
+                        const rateQ = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
+                        updates.quoteRatePrice = rateQ.toString();
+                    }
+                }
+            }
+
+            return { ...prev, ...updates };
         });
     };
 
@@ -663,11 +1069,24 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 status: formData.status,
                 width: formData.width || formData.unitSpecification?.width,
                 length: formData.length || formData.unitSpecification?.length,
+                widthMetric: formData.widthMetric || formData.unitSpecification?.widthMetric || 'Feet',
+                lengthMetric: formData.lengthMetric || formData.unitSpecification?.lengthMetric || 'Feet',
                 sizeId: formData.sizeId,
                 sizeConfig: formData.sizeConfig,
                 sizeLabel: formData.sizeLabel,
+                unitType: getLookupId('UnitType', formData.unitType) || formData.unitType,
+                roadWidth: formData.roadWidth || formData.unitSpecification?.roadWidth,
+                facing: formData.facing || formData.unitSpecification?.facing,
+                direction: formData.direction || formData.unitSpecification?.direction,
                 // Ensure inherited data is saved
-                unitSpecification: formData.unitSpecification,
+                unitSpecification: {
+                    ...formData.unitSpecification,
+                    width: formData.width || formData.unitSpecification?.width,
+                    length: formData.length || formData.unitSpecification?.length,
+                    widthMetric: formData.widthMetric || formData.unitSpecification?.widthMetric || 'Feet',
+                    lengthMetric: formData.lengthMetric || formData.unitSpecification?.lengthMetric || 'Feet',
+                    sizeLabel: formData.sizeLabel || formData.unitSpecification?.sizeLabel
+                },
                 locationDetails: formData.locationDetails,
                 builtupDetails: formData.builtupDetails,
                 furnishing: formData.furnishing,
@@ -956,10 +1375,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
     const TABS = [
         { id: 'property', label: 'Property & Unit', icon: 'fas fa-city', color: '#3b82f6' },
-        { id: 'commercials', label: 'Pricing & Commercials', icon: 'fas fa-sack-dollar', color: '#10b981' },
-        { id: 'terms', label: 'Deal Terms & Stage', icon: 'fas fa-file-contract', color: '#8b5cf6' },
-        { id: 'marketing', label: 'Omnichannel Marketing', icon: 'fas fa-rocket', color: '#f59e0b' },
-        { id: 'assignment', label: 'Assignment & Notes', icon: 'fas fa-users-gear', color: '#06b6d4' },
+        { id: 'commercials', label: 'Commercials, Terms & Registry', icon: 'fas fa-file-invoice-dollar', color: '#10b981' },
+        { id: 'marketing', label: 'Marketing, Assignment & Notes', icon: 'fas fa-bullhorn', color: '#f59e0b' },
         { id: 'all', label: 'All Details', icon: 'fas fa-table-cells', color: '#64748b' },
     ];
 
@@ -1078,7 +1495,25 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                 block,
                                 unitNo: '',
                                 propertyType: '',
+                                category: '',
+                                subCategory: '',
+                                unitType: 'Ordinary',
                                 size: '',
+                                sizeLabel: '',
+                                sizeConfig: '',
+                                sizeId: '',
+                                width: '',
+                                length: '',
+                                roadWidth: '',
+                                facing: '',
+                                direction: '',
+                                unitSpecification: {},
+                                ratePrice: '',
+                                quoteRatePrice: '',
+                                price: '',
+                                quotePrice: '',
+                                priceInWords: '',
+                                quotePriceInWords: '',
                                 owner: { name: '', phone: '', email: '' },
                                 associatedContact: { name: '', phone: '', email: '' }
                             }));
@@ -1116,39 +1551,336 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 </div>
             </div>
 
-            {/* Inherited Specifications Chips */}
-            {(formData.size || formData.propertyType || formData.category || formData.unitSpecification?.facing) && (
-                <div style={{
-                    padding: '12px 14px', borderRadius: '12px',
-                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
-                    border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid #f1f5f9',
-                    display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '18px'
-                }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', marginRight: '4px' }}>
-                        Inherited Specs:
-                    </span>
-                    {formData.size && (
-                        <span style={{ fontSize: '0.74rem', color: '#4f46e5', background: isDark ? 'rgba(79,70,229,0.15)' : '#eef2ff', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #c7d2fe' }}>
-                            <i className="fas fa-expand-arrows-alt mr-1"></i> {renderValue(formData.size)} {formData.sizeUnit || ''}
-                        </span>
-                    )}
-                    {formData.propertyType && (
-                        <span style={{ fontSize: '0.74rem', color: '#0284c7', background: isDark ? 'rgba(2,132,199,0.15)' : '#f0f9ff', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bae6fd' }}>
-                            <i className="fas fa-building mr-1"></i> {renderValue(formData.propertyType)}
-                        </span>
-                    )}
-                    {formData.category && (
-                        <span style={{ fontSize: '0.74rem', color: '#059669', background: isDark ? 'rgba(5,150,105,0.15)' : '#ecfdf5', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #a7f3d0' }}>
-                            <i className="fas fa-layer-group mr-1"></i> {renderValue(formData.category)}
-                        </span>
-                    )}
-                    {formData.unitSpecification?.facing && (
-                        <span style={{ fontSize: '0.74rem', color: '#d97706', background: isDark ? 'rgba(217,119,6,0.15)' : '#fffbeb', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #fde68a' }}>
-                            <i className="fas fa-compass mr-1"></i> Facing: {renderValue(formData.unitSpecification.facing)}
+            {/* Property & Unit Specifications (Unified Enterprise Section) */}
+            <div style={{
+                background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0',
+                borderRadius: '14px',
+                padding: '16px 18px',
+                marginBottom: '18px'
+            }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '28px', height: '28px', borderRadius: '8px',
+                            background: isDark ? 'rgba(79,70,229,0.25)' : '#eef2ff',
+                            color: '#4f46e5', border: '1px solid #c7d2fe',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem'
+                        }}>
+                            <i className="fas fa-layer-group"></i>
+                        </div>
+                        <div>
+                            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a' }}>
+                                Unit Specifications & Orientation
+                            </span>
+                            <span style={{ fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '8px' }}>
+                                (Inherited from backend inventory database)
+                            </span>
+                        </div>
+                    </div>
+                    {formData.unitNo && (
+                        <span style={{
+                            fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '6px',
+                            background: isDark ? 'rgba(79,70,229,0.2)' : '#eef2ff',
+                            color: '#4f46e5', border: '1px solid #c7d2fe',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                        }}>
+                            <i className="fas fa-lock mr-1"></i> Unit #{formData.unitNo} Registered Specs
                         </span>
                     )}
                 </div>
-            )}
+
+                {!formData.unitNo ? (
+                    <div style={{
+                        padding: '14px 16px',
+                        borderRadius: '10px',
+                        background: isDark ? 'rgba(255,255,255,0.02)' : '#ffffff',
+                        border: isDark ? '1px dashed rgba(255,255,255,0.1)' : '1px dashed #cbd5e1',
+                        fontSize: '0.76rem',
+                        color: isDark ? '#94a3b8' : '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                    }}>
+                        <div style={{
+                            width: '26px',
+                            height: '26px',
+                            borderRadius: '6px',
+                            background: isDark ? 'rgba(99,102,241,0.15)' : '#eef2ff',
+                            color: '#6366f1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            fontSize: '0.75rem'
+                        }}>
+                            <i className="fas fa-info-circle"></i>
+                        </div>
+                        <span>Select a <strong>Project Name</strong>, <strong>Block / Sector</strong>, and <strong>Unit Number</strong> above to reflect its verified Category, Subcategory, Unit Type, Size Label, and Orientation metadata.</span>
+                    </div>
+                ) : (
+                    (() => {
+                        const linkedUnit = units.find(u => {
+                            const u1 = String(renderValue(u.unitNo) || '').trim().toLowerCase();
+                            const u2 = String(renderValue(u.unitNumber) || '').trim().toLowerCase();
+                            const u3 = String(u.unitNo || '').trim().toLowerCase();
+                            const u4 = String(u.unitNumber || '').trim().toLowerCase();
+                            const target = String(formData.unitNo || '').trim().toLowerCase();
+                            return u1 === target || u2 === target || u3 === target || u4 === target;
+                        });
+
+                        const dimData = resolveUnitDimensionsAndSize(formData, {
+                            linkedInventory: linkedUnit,
+                            sizes,
+                            getLookupValue
+                        });
+
+                        // Resolve Master Size Label
+                        const resolvedSizeLabel = formData.sizeLabel || dimData.sizeLabel || linkedUnit?.sizeLabel || '-';
+
+                        // Resolve Raw Dimensions
+                        const rawWidth = (formData.width !== undefined && formData.width !== null && formData.width !== '' && formData.width !== '-')
+                            ? formData.width
+                            : (dimData.width || linkedUnit?.width || linkedUnit?.frontage);
+
+                        const rawLength = (formData.length !== undefined && formData.length !== null && formData.length !== '' && formData.length !== '-')
+                            ? formData.length
+                            : (dimData.length || linkedUnit?.length || linkedUnit?.depth);
+
+                        // Resolve Metrics with explicit unit inheritance
+                        const widthMetric = formData.widthMetric || dimData.widthMetric || linkedUnit?.widthMetric || linkedUnit?.dimensionMetric || 'Feet';
+                        const lengthMetric = formData.lengthMetric || dimData.lengthMetric || linkedUnit?.lengthMetric || linkedUnit?.dimensionMetric || 'Feet';
+
+                        // Formatted Width & Length using exact saved metric (useAbbr = false for full metric display)
+                        const displayWidthText = formatDimension(rawWidth, widthMetric, false);
+                        const displayLengthText = formatDimension(rawLength, lengthMetric, false);
+
+                        const renderSpecBadge = (label, value, icon, accentColor) => {
+                            const displayVal = renderValue(value);
+                            const hasVal = displayVal && displayVal !== '-';
+
+                            return (
+                                <div style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.07)' : '1px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    padding: '10px 14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '11px',
+                                    boxShadow: isDark ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.02)',
+                                    transition: 'all 0.15s ease'
+                                }}>
+                                    <div style={{
+                                        width: '34px',
+                                        height: '34px',
+                                        borderRadius: '9px',
+                                        background: isDark ? `${accentColor}25` : `${accentColor}12`,
+                                        color: accentColor,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.82rem',
+                                        flexShrink: 0
+                                    }}>
+                                        <i className={icon}></i>
+                                    </div>
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                        <div style={{
+                                            fontSize: '0.64rem',
+                                            fontWeight: 800,
+                                            color: isDark ? '#94a3b8' : '#64748b',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.5px',
+                                            marginBottom: '2px'
+                                        }}>
+                                            {label}
+                                        </div>
+                                        <div style={{
+                                            fontSize: '0.86rem',
+                                            fontWeight: 700,
+                                            color: hasVal ? (isDark ? '#f1f5f9' : '#0f172a') : (isDark ? '#64748b' : '#94a3b8'),
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap'
+                                        }} title={displayVal}>
+                                            {displayVal}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+                                {/* Row 1: Top Tier - Size Label & Dimensions (Length & Width with saved metrics) */}
+                                <div style={{
+                                    background: isDark
+                                        ? 'linear-gradient(135deg, rgba(79, 70, 229, 0.18) 0%, rgba(124, 58, 237, 0.10) 100%)'
+                                        : 'linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%)',
+                                    border: isDark ? '1.5px solid rgba(99, 102, 241, 0.4)' : '1.5px solid #c7d2fe',
+                                    borderRadius: '12px',
+                                    padding: '12px 16px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    flexWrap: 'wrap',
+                                    gap: '12px',
+                                    boxShadow: isDark ? 'none' : '0 1px 4px rgba(79, 70, 229, 0.05)'
+                                }}>
+                                    {/* Left: Master Size Label */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '220px', flex: '1 1 auto' }}>
+                                        <div style={{
+                                            width: '38px',
+                                            height: '38px',
+                                            borderRadius: '10px',
+                                            background: '#4f46e5',
+                                            color: '#ffffff',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '0.95rem',
+                                            boxShadow: '0 2px 6px rgba(79, 70, 229, 0.3)',
+                                            flexShrink: 0
+                                        }}>
+                                            <i className="fas fa-ruler-combined"></i>
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{
+                                                fontSize: '0.64rem',
+                                                fontWeight: 800,
+                                                color: isDark ? '#a5b4fc' : '#4f46e5',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.5px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                marginBottom: '2px'
+                                            }}>
+                                                <span>SIZE LABEL (REGISTERED)</span>
+                                                <span style={{
+                                                    fontSize: '0.56rem',
+                                                    fontWeight: 800,
+                                                    color: '#ffffff',
+                                                    background: '#4f46e5',
+                                                    padding: '1px 5px',
+                                                    borderRadius: '4px',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '3px'
+                                                }}>
+                                                    <i className="fas fa-lock" style={{ fontSize: '0.5rem' }}></i> Master
+                                                </span>
+                                            </div>
+                                            <div style={{
+                                                fontSize: '1rem',
+                                                fontWeight: 800,
+                                                color: isDark ? '#ffffff' : '#1e1b4b',
+                                                letterSpacing: '-0.2px'
+                                            }}>
+                                                {renderValue(resolvedSizeLabel) !== '-' ? renderValue(resolvedSizeLabel) : 'Size TBA'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Right: Width & Length with exact saved metrics */}
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        flexWrap: 'wrap'
+                                    }}>
+                                        {/* Width Badge */}
+                                        <div style={{
+                                            background: isDark ? 'rgba(15, 23, 42, 0.65)' : '#ffffff',
+                                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #c7d2fe',
+                                            borderRadius: '9px',
+                                            padding: '6px 12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <div style={{
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '6px',
+                                                background: isDark ? 'rgba(99, 102, 241, 0.25)' : '#e0e7ff',
+                                                color: '#4f46e5',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '0.72rem',
+                                                flexShrink: 0
+                                            }}>
+                                                <i className="fas fa-arrows-alt-h"></i>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                                                    WIDTH
+                                                </div>
+                                                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a' }}>
+                                                    {displayWidthText}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontWeight: 800, fontSize: '0.95rem' }}>×</span>
+
+                                        {/* Length Badge */}
+                                        <div style={{
+                                            background: isDark ? 'rgba(15, 23, 42, 0.65)' : '#ffffff',
+                                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #c7d2fe',
+                                            borderRadius: '9px',
+                                            padding: '6px 12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}>
+                                            <div style={{
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '6px',
+                                                background: isDark ? 'rgba(99, 102, 241, 0.25)' : '#e0e7ff',
+                                                color: '#4f46e5',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '0.72rem',
+                                                flexShrink: 0
+                                            }}>
+                                                <i className="fas fa-arrows-alt-v"></i>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                                                    LENGTH
+                                                </div>
+                                                <div style={{ fontSize: '0.84rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a' }}>
+                                                    {displayLengthText}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Row 2: Category > Subcategory > Unit Type (Single horizontal line) */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                    {renderSpecBadge('Category', formData.category, 'fas fa-layer-group', '#6366f1')}
+                                    {renderSpecBadge('Subcategory', formData.subCategory, 'fas fa-tags', '#059669')}
+                                    {renderSpecBadge('Unit Type', formData.unitType !== '-' ? formData.unitType : 'Ordinary', 'fas fa-shapes', '#d97706')}
+                                </div>
+
+                                {/* Row 3: Orientation Data - Direction, Facing, Road Width (Single horizontal line) */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                    {renderSpecBadge('Direction', formData.unitSpecification?.direction || formData.unitSpecification?.orientation || formData.direction, 'fas fa-location-arrow', '#8b5cf6')}
+                                    {renderSpecBadge('Facing', formData.unitSpecification?.facing || formData.facing, 'fas fa-compass', '#e11d48')}
+                                    {renderSpecBadge('Road Width', formData.unitSpecification?.roadWidth || formData.roadWidth, 'fas fa-road', '#0284c7')}
+                                </div>
+                            </div>
+                        );
+                    })()
+                )}
+            </div>
 
             {/* Owner & Associate Selection Cards */}
             {formData.unitNo && (
@@ -1206,161 +1938,315 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     );
 
     // Sub-renderer: Commercials & Pricing Section
-    const renderCommercialsSection = () => (
-        <div style={ent.card}>
-            <div style={ent.sectionHeader('#10b981')}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={ent.iconBadge('#10b981')}>
-                        <i className="fas fa-sack-dollar"></i>
-                    </div>
-                    <div>
-                        <h4 style={ent.sectionTitle}>Commercials & Financials</h4>
-                        <p style={ent.sectionSubtitle}>Expected valuation, quote price, rate conversion, and lease contracts</p>
-                    </div>
-                </div>
+    const renderCommercialsSection = () => {
+        const effective = resolveEffectiveArea(formData);
+        const activeUnitDisplay = getUnitDisplayName(formData.priceUnit);
+        const activeUnitShort = getUnitShortName(formData.priceUnit);
+        const activeSizeLabel = formData.sizeLabel || (formData.unitSpecification?.sizeLabel) || '-';
 
-                {/* Pricing Mode Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ display: 'flex', background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
-                        <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
-                            style={{
-                                padding: '5px 12px', borderRadius: '6px', border: 'none', fontSize: '0.78rem', fontWeight: 700,
-                                cursor: 'pointer',
-                                backgroundColor: formData.pricingMode === 'Total' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                                color: formData.pricingMode === 'Total' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                                boxShadow: formData.pricingMode === 'Total' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                transition: 'all 0.15s'
-                            }}
-                        >
-                            Total Amount
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
-                            style={{
-                                padding: '5px 12px', borderRadius: '6px', border: 'none', fontSize: '0.78rem', fontWeight: 700,
-                                cursor: 'pointer',
-                                backgroundColor: formData.pricingMode === 'Rate' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                                color: formData.pricingMode === 'Rate' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                                boxShadow: formData.pricingMode === 'Rate' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                transition: 'all 0.15s'
-                            }}
-                        >
-                            Rate / Unit
-                        </button>
+        const targetFactor = getFactorInSqYard(formData.priceUnit);
+        const effectiveAreaInTarget = (effective && effective.areaInSqYard > 0)
+            ? (effective.areaInSqYard / targetFactor)
+            : 0;
+        const totalSizeNum = effectiveAreaInTarget;
+
+        return (
+            <div style={ent.card}>
+                <div style={ent.sectionHeader('#10b981')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={ent.iconBadge('#10b981')}>
+                            <i className="fas fa-sack-dollar"></i>
+                        </div>
+                        <div>
+                            <h4 style={ent.sectionTitle}>Commercials & Financials</h4>
+                            <p style={ent.sectionSubtitle}>Expected valuation, quote price, rate conversion, and lease contracts</p>
+                        </div>
                     </div>
-                    {formData.pricingMode === 'Rate' && (
+
+                    {/* Rate Unit Metric Selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase' }}>
+                            Rate Unit:
+                        </span>
                         <select
                             value={formData.priceUnit}
                             onChange={(e) => handleMetricChange(e.target.value)}
                             style={{
-                                padding: '5px 10px', borderRadius: '8px',
-                                border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e2e8f0',
-                                fontSize: '0.78rem', fontWeight: 700,
+                                padding: '6px 12px', borderRadius: '8px',
+                                border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #cbd5e1',
+                                fontSize: '0.8rem', fontWeight: 700,
                                 backgroundColor: isDark ? '#1e293b' : '#ffffff',
                                 color: isDark ? '#f1f5f9' : '#0f172a',
-                                outline: 'none', cursor: 'pointer'
+                                outline: 'none', cursor: 'pointer',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                             }}
                         >
-                            {Object.keys(METRIC_FACTORS).map(metric => (
-                                <option key={metric} value={metric}>{metric}</option>
-                            ))}
+                            <option value="SqYard">Per Sq. Yard (Gaj)</option>
+                            <option value="sqMeter">Per Sq. Meter</option>
+                            <option value="sq feet">Per Sq. Feet</option>
+                            <option value="marla">Per Marla</option>
+                            <option value="kananl">Per Kanal</option>
+                            <option value="acre">Per Acre</option>
                         </select>
-                    )}
+                    </div>
                 </div>
-            </div>
 
-            {/* Expected Price Row */}
-            <div style={{ marginBottom: '18px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <label style={{ ...ent.label, marginBottom: 0 }}>
-                        {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent' : 'Expected Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
-                    </label>
-                    {formData.priceInWords && (
-                        <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 700, fontStyle: 'italic' }}>
-                            ({formData.priceInWords} Rupees Only)
-                        </span>
+                {/* Calculation Basis / Size Linkage Banner */}
+                <div style={{
+                    marginBottom: '18px',
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    background: totalSizeNum > 0
+                        ? (isDark ? 'rgba(16,185,129,0.08)' : '#f0fdf4')
+                        : (isDark ? 'rgba(245,158,11,0.08)' : '#fffbeb'),
+                    border: totalSizeNum > 0
+                        ? (isDark ? '1px solid rgba(16,185,129,0.25)' : '1px solid #bbf7d0')
+                        : (isDark ? '1px solid rgba(245,158,11,0.25)' : '1px solid #fde68a'),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '0.78rem'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                            width: '28px', height: '28px', borderRadius: '8px',
+                            background: totalSizeNum > 0 ? '#10b981' : '#f59e0b', color: '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem'
+                        }}>
+                            <i className={totalSizeNum > 0 ? "fas fa-calculator" : "fas fa-triangle-exclamation"}></i>
+                        </div>
+                        <div>
+                            {totalSizeNum > 0 ? (
+                                <div style={{ color: isDark ? '#f1f5f9' : '#0f172a' }}>
+                                    <span style={{ fontWeight: 800, color: '#10b981', marginRight: '6px' }}>
+                                        Calculation Basis:
+                                    </span>
+                                    Size Label: <strong style={{ color: '#4f46e5' }}>{activeSizeLabel !== '-' ? activeSizeLabel : 'Configured Size'}</strong>
+                                    {' '}• Total Area (Bracket Count): <strong style={{ color: '#059669' }}>{effective.bracketCount} {effective.bracketUnit || 'Sq.Yard'}</strong>
+                                    {formData.priceUnit !== 'SqYard' && (
+                                        <span style={{ color: isDark ? '#94a3b8' : '#64748b' }}>
+                                            {' '}(= <strong>{effectiveAreaInTarget % 1 === 0 ? effectiveAreaInTarget : effectiveAreaInTarget.toFixed(2)} {activeUnitShort}</strong>)
+                                        </span>
+                                    )}
+                                    <div style={{ fontSize: '0.72rem', color: isDark ? '#a7f3d0' : '#047857', fontWeight: 600, marginTop: '2px' }}>
+                                        Formula: Rate / {activeUnitShort} = Total Price ÷ {effectiveAreaInTarget % 1 === 0 ? effectiveAreaInTarget : effectiveAreaInTarget.toFixed(2)} {activeUnitShort}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <span style={{ fontWeight: 800, color: '#d97706', marginRight: '6px' }}>
+                                        Notice:
+                                    </span>
+                                    No Property Size configured yet. Total Price and Rate per Unit cannot synchronize automatically without total size.
+                                </div>
+                            )}
+                            <div style={{ fontSize: '0.71rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                                {totalSizeNum > 0
+                                    ? `Enter Total Price to calculate Rate/${activeUnitShort}, or enter Rate/${activeUnitShort} to calculate Total Price.`
+                                    : 'Please configure size label or enter total size in "Property & Unit Configuration".'}
+                            </div>
+                        </div>
+                    </div>
+                    {totalSizeNum <= 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setCurrentTab('property')}
+                            style={{
+                                padding: '6px 12px', borderRadius: '8px',
+                                background: '#f59e0b', color: '#ffffff', border: 'none',
+                                fontSize: '0.74rem', fontWeight: 800, cursor: 'pointer'
+                            }}
+                        >
+                            Set Size Now
+                        </button>
                     )}
                 </div>
-                <div style={{ position: 'relative' }}>
-                    <input
-                        style={{
-                            ...ent.input,
-                            paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px'
-                        }}
-                        value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
-                        onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
-                        placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
-                    />
-                    {formData.pricingMode === 'Total' && formData.ratePrice && (
-                        <div style={{
-                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-                            fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 700,
-                            background: isDark ? 'rgba(255,255,255,0.06)' : '#f8fafc',
-                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'
-                        }}>
-                            ₹{formData.ratePrice}/{unitLabel}
-                        </div>
-                    )}
-                    {formData.pricingMode === 'Rate' && formData.price && (
-                        <div style={{
-                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-                            fontSize: '0.72rem', color: '#16a34a', fontWeight: 800,
-                            background: isDark ? 'rgba(22,163,74,0.15)' : '#f0fdf4',
-                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(22,163,74,0.3)' : '1px solid #bbf7d0'
-                        }}>
-                            TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.price)}
-                        </div>
-                    )}
-                </div>
-            </div>
 
-            {/* Quote Price Row */}
-            <div style={{ marginBottom: '18px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <label style={{ ...ent.label, marginBottom: 0 }}>
-                        {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent' : 'Quote Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
-                    </label>
-                    {formData.quotePriceInWords && (
-                        <span style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, fontStyle: 'italic' }}>
-                            ({formData.quotePriceInWords} Rupees Only)
-                        </span>
-                    )}
-                </div>
-                <div style={{ position: 'relative' }}>
-                    <input
-                        style={{
-                            ...ent.input,
-                            paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px'
-                        }}
-                        value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
-                        onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
-                        placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
-                    />
-                    {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
+                {/* Expected Price Row - Two-way sync */}
+                <div style={{ marginBottom: '18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ ...ent.label, marginBottom: 0 }}>
+                            {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent & Rate' : 'Expected Valuation & Rate per Unit'}
+                        </label>
+                        {formData.priceInWords && (
+                            <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 700, fontStyle: 'italic' }}>
+                                ({formData.priceInWords} Rupees Only)
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
+                        {/* Total Expected Price */}
+                        <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '4px' }}>
+                                Total {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Rent (₹)' : 'Expected Price (₹)'}
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <span style={{
+                                    position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+                                    fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8'
+                                }}>₹</span>
+                                <input
+                                    style={{ ...ent.input, paddingLeft: '28px' }}
+                                    value={formData.price}
+                                    onChange={e => handlePriceFieldChange('price', e.target.value)}
+                                    placeholder={totalSizeNum > 0 ? "Enter total price (auto-calculates rate)" : "Enter total price"}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Rate per Unit */}
+                        <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '4px' }}>
+                                Rate per {activeUnitDisplay} (₹)
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <span style={{
+                                    position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+                                    fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8'
+                                }}>₹</span>
+                                <input
+                                    style={{
+                                        ...ent.input,
+                                        paddingLeft: '28px',
+                                        paddingRight: '76px',
+                                        backgroundColor: (!totalSizeNum) ? (isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc') : undefined
+                                    }}
+                                    value={formData.ratePrice}
+                                    onChange={e => handlePriceFieldChange('ratePrice', e.target.value)}
+                                    placeholder={totalSizeNum > 0 ? "Enter rate (auto-calculates total)" : "Requires size"}
+                                    disabled={!totalSizeNum}
+                                />
+                                <span style={{
+                                    position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b',
+                                    background: isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                                    padding: '2px 6px', borderRadius: '4px'
+                                }}>
+                                    /{activeUnitShort}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live Calculation Formula Equation */}
+                    {formData.price && totalSizeNum > 0 && (
                         <div style={{
-                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-                            fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b', fontWeight: 700,
-                            background: isDark ? 'rgba(255,255,255,0.06)' : '#f8fafc',
-                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0'
+                            marginTop: '8px', padding: '6px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                            border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid #f1f5f9',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b'
                         }}>
-                            ₹{formData.quoteRatePrice}/{unitLabel}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fas fa-equals" style={{ color: '#10b981' }}></i>
+                                <span>
+                                    <strong>₹{new Intl.NumberFormat('en-IN').format(parseFloat(formData.price) || 0)}</strong>
+                                    {' '}÷{' '}
+                                    <strong>{totalSizeNum % 1 === 0 ? totalSizeNum : totalSizeNum.toFixed(2)} {activeUnitShort}</strong>
+                                    {' '}={' '}
+                                    <strong style={{ color: '#16a34a' }}>₹{new Intl.NumberFormat('en-IN').format(parseFloat(formData.ratePrice) || 0)}</strong> / {activeUnitShort}
+                                </span>
+                            </div>
+                            <span style={{ color: '#16a34a', fontWeight: 700 }}>
+                                <i className="fas fa-check-circle mr-1"></i> Rate Synced
+                            </span>
                         </div>
                     )}
-                    {formData.pricingMode === 'Rate' && formData.quotePrice && (
+                </div>
+
+                {/* Quote Price Row - Two-way sync */}
+                <div style={{ marginBottom: '18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ ...ent.label, marginBottom: 0 }}>
+                            {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent & Rate' : 'Quote Price & Rate per Unit'}
+                        </label>
+                        {formData.quotePriceInWords && (
+                            <span style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, fontStyle: 'italic' }}>
+                                ({formData.quotePriceInWords} Rupees Only)
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
+                        {/* Total Quote Price */}
+                        <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '4px' }}>
+                                Total {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent (₹)' : 'Quote Price (₹)'}
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <span style={{
+                                    position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+                                    fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8'
+                                }}>₹</span>
+                                <input
+                                    style={{ ...ent.input, paddingLeft: '28px' }}
+                                    value={formData.quotePrice}
+                                    onChange={e => handlePriceFieldChange('quotePrice', e.target.value)}
+                                    placeholder={totalSizeNum > 0 ? "Enter quote price (auto-calculates rate)" : "Enter quote price"}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Quote Rate per Unit */}
+                        <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b', marginBottom: '4px' }}>
+                                Quote Rate per {activeUnitDisplay} (₹)
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <span style={{
+                                    position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+                                    fontWeight: 700, color: isDark ? '#64748b' : '#94a3b8'
+                                }}>₹</span>
+                                <input
+                                    style={{
+                                        ...ent.input,
+                                        paddingLeft: '28px',
+                                        paddingRight: '76px',
+                                        backgroundColor: (!totalSizeNum) ? (isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc') : undefined
+                                    }}
+                                    value={formData.quoteRatePrice}
+                                    onChange={e => handlePriceFieldChange('quoteRatePrice', e.target.value)}
+                                    placeholder={totalSizeNum > 0 ? "Enter quote rate (auto-calculates total)" : "Requires size"}
+                                    disabled={!totalSizeNum}
+                                />
+                                <span style={{
+                                    position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                                    fontSize: '0.72rem', fontWeight: 700, color: isDark ? '#94a3b8' : '#64748b',
+                                    background: isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9',
+                                    padding: '2px 6px', borderRadius: '4px'
+                                }}>
+                                    /{activeUnitShort}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live Quote Calculation Formula Equation */}
+                    {formData.quotePrice && totalSizeNum > 0 && (
                         <div style={{
-                            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-                            fontSize: '0.72rem', color: '#2563eb', fontWeight: 800,
-                            background: isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff',
-                            padding: '3px 8px', borderRadius: '6px', border: isDark ? '1px solid rgba(37,99,235,0.3)' : '1px solid #bfdbfe'
+                            marginTop: '8px', padding: '6px 10px', borderRadius: '8px',
+                            background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc',
+                            border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid #f1f5f9',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b'
                         }}>
-                            TOTAL: ₹{new Intl.NumberFormat('en-IN').format(formData.quotePrice)}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fas fa-equals" style={{ color: '#2563eb' }}></i>
+                                <span>
+                                    <strong>₹{new Intl.NumberFormat('en-IN').format(parseFloat(formData.quotePrice) || 0)}</strong>
+                                    {' '}÷{' '}
+                                    <strong>{totalSizeNum % 1 === 0 ? totalSizeNum : totalSizeNum.toFixed(2)} {activeUnitShort}</strong>
+                                    {' '}={' '}
+                                    <strong style={{ color: '#2563eb' }}>₹{new Intl.NumberFormat('en-IN').format(parseFloat(formData.quoteRatePrice) || 0)}</strong> / {activeUnitShort}
+                                </span>
+                            </div>
+                            <span style={{ color: '#2563eb', fontWeight: 700 }}>
+                                <i className="fas fa-check-circle mr-1"></i> Quote Rate Synced
+                            </span>
                         </div>
                     )}
                 </div>
-            </div>
 
             {/* Rent Specific Fields */}
             {(formData.intent === 'Rent' || formData.intent === 'Lease') && (
@@ -1419,42 +2305,9 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     Strictly Fixed Price
                 </label>
             </div>
-
-            {/* Live Matched Buyer Audience Card */}
-            {liveMatchCount !== null && liveMatchCount > 0 && (
-                <div style={{
-                    marginTop: '18px', padding: '12px 16px', borderRadius: '12px',
-                    background: isDark ? 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(59,130,246,0.12) 100%)' : 'linear-gradient(135deg, #ecfdf5 0%, #eff6ff 100%)',
-                    border: isDark ? '1px solid rgba(16,185,129,0.3)' : '1px solid #bbf7d0',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{
-                            width: '32px', height: '32px', borderRadius: '8px',
-                            background: '#10b981', color: '#fff',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem'
-                        }}>
-                            <i className="fas fa-crosshairs"></i>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? '#f1f5f9' : '#0f172a' }}>
-                                Enterprise Match Engine Active
-                            </div>
-                            <div style={{ fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b' }}>
-                                {liveMatchCount} buyer leads in CRM match this budget and property criteria.
-                            </div>
-                        </div>
-                    </div>
-                    <span style={{
-                        fontSize: '0.76rem', fontWeight: 800, padding: '4px 10px', borderRadius: '6px',
-                        background: isDark ? 'rgba(16,185,129,0.2)' : '#d1fae5', color: isDark ? '#34d399' : '#047857'
-                    }}>
-                        🎯 {liveMatchCount} Ready Buyers
-                    </span>
-                </div>
-            )}
         </div>
     );
+};
 
     // Sub-renderer: Deal Terms & Stages Section
     const renderTermsSection = () => (
@@ -1953,10 +2806,18 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     }}
                 >
                     {currentTab === 'property' && renderPropertySection()}
-                    {currentTab === 'commercials' && renderCommercialsSection()}
-                    {currentTab === 'terms' && renderTermsSection()}
-                    {currentTab === 'marketing' && renderMarketingSection()}
-                    {currentTab === 'assignment' && renderAssignmentSection()}
+                    {currentTab === 'commercials' && (
+                        <>
+                            {renderCommercialsSection()}
+                            {renderTermsSection()}
+                        </>
+                    )}
+                    {currentTab === 'marketing' && (
+                        <>
+                            {renderMarketingSection()}
+                            {renderAssignmentSection()}
+                        </>
+                    )}
                     {currentTab === 'all' && (
                         <div>
                             {renderPropertySection()}
@@ -2023,7 +2884,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             </button>
                         )}
 
-                        {currentTab !== 'assignment' && currentTab !== 'all' && (
+                        {currentTab !== 'marketing' && currentTab !== 'all' && (
                             <button
                                 type="button"
                                 onClick={handleNextTab}

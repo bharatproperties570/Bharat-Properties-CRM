@@ -93,6 +93,50 @@ export const getContacts = async (req, res, next) => {
             query.$or = [{ company: { $exists: false } }, { company: "" }, { company: null }];
         }
 
+        // 🎯 [ENTERPRISE SUMMARY FOOTER FILTER] Interactive Role & Segment Filtering
+        const roleFilter = req.query.role || filters.role;
+        delete filters.role;
+
+        if (roleFilter && roleFilter !== 'all' && roleFilter !== 'total') {
+            const LookupModel = mongoose.model('Lookup');
+            const lookups = await LookupModel.find({
+                lookup_type: { $in: ['ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionCategory', 'ProfessionSubCategory', 'Stage'] }
+            }).lean();
+            const findLookupIds = (regex, type) => lookups.filter(l => (!type || l.lookup_type === type) && regex.test(l.lookup_value)).map(l => l._id);
+
+            if (roleFilter === 'propertyOwners') {
+                const inventoryQuery = { ...visibilityFilter };
+                const ownerIdsInInventory = await Inventory.distinct('owners', inventoryQuery);
+                query._id = { $in: ownerIdsInInventory };
+            } else if (roleFilter === 'investors') {
+                const investorIds = findLookupIds(/Investor/i);
+                query.$or = [{ professionCategory: { $in: investorIds } }, { professionSubCategory: { $in: investorIds } }];
+            } else if (roleFilter === 'realEstateAgents') {
+                const agentIds = findLookupIds(/Real Estate Agent/i);
+                query.$or = [{ professionCategory: { $in: agentIds } }, { professionSubCategory: { $in: agentIds } }];
+            } else if (roleFilter === 'salesPersons') {
+                const salesIds = findLookupIds(/Sales|Sales Person|Sales Executive/i);
+                query.$or = [{ professionCategory: { $in: salesIds } }, { professionSubCategory: { $in: salesIds } }];
+            } else if (roleFilter === 'prospects') {
+                const prospectContactIds = await Lead.distinct('contactDetails', visibilityFilter);
+                query._id = { $in: prospectContactIds };
+            } else if (roleFilter === 'customers') {
+                const bookedStageIds = findLookupIds(/^Booked$/i, 'Stage');
+                const bookedLeadContactIds = await Lead.distinct('contactDetails', { ...visibilityFilter, stage: { $in: bookedStageIds } });
+                const closedBookingQuery = { ...visibilityFilter, 'closingDetails.isClosed': true };
+                const [closedBuyers, closedSellers] = await Promise.all([
+                    Booking.distinct('lead', closedBookingQuery),
+                    Booking.distinct('seller', closedBookingQuery)
+                ]);
+                const allCustomerIds = Array.from(new Set([
+                    ...bookedLeadContactIds.map(id => id.toString()),
+                    ...closedBuyers.map(id => id.toString()),
+                    ...closedSellers.map(id => id.toString())
+                ]));
+                query._id = { $in: allCustomerIds };
+            }
+        }
+
         // 🛡️ [SENIOR FIX] Dynamically apply all filter keys (e.g. personalAddress.city, professionCategory)
         for (const [key, value] of Object.entries(filters)) {
             let mappedKey = key;

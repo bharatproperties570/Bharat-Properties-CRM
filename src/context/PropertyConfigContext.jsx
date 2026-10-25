@@ -2792,7 +2792,14 @@ export const PropertyConfigProvider = ({ children }) => {
             if (!projectBlockMatches) return false;
 
             if (tCat && s.category && norm(s.category) !== tCat) return false;
-            if (tSub && s.subCategory && norm(s.subCategory) !== tSub) return false;
+            if (tSub) {
+                const matchesSub = (
+                    (Array.isArray(s.subCategories) && s.subCategories.length > 0 && s.subCategories.some(sc => norm(sc) === tSub)) ||
+                    (s.subCategory && norm(s.subCategory) === tSub) ||
+                    (s.subCategory && String(s.subCategory).split(',').map(x => norm(x.trim())).includes(tSub))
+                );
+                if (!matchesSub) return false;
+            }
 
             return true;
         });

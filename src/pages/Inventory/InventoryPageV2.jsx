@@ -1,5 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { useUserContext } from '../../context/UserContext';
 import { useTriggers } from '../../context/TriggersContext';
@@ -89,11 +89,21 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     // -- Response Mapping --
     const inventoryItems = inventoryData?.records || [];
     const totalRecords = inventoryData?.totalCount || 0;
+    const persistentTotalInventory = useRef(0);
+    const persistentCategoryStats = useRef([]);
+    if (totalRecords > 0 && (!filters.category || !filters.category.length)) {
+        persistentTotalInventory.current = totalRecords;
+    }
+    if (inventoryData?.categoryStats?.length > 1 && (!filters.category || !filters.category.length)) {
+        persistentCategoryStats.current = inventoryData.categoryStats;
+    }
     const totalPages = Math.max(inventoryData?.totalPages || 1, 1);
     const stats = {
         active: inventoryData?.activeCount || 0,
         inactive: inventoryData?.inactiveCount || 0,
-        categories: inventoryData?.categoryStats || []
+        categories: (persistentCategoryStats.current && persistentCategoryStats.current.length > 0)
+            ? persistentCategoryStats.current
+            : (inventoryData?.categoryStats || [])
     };
 
     const refresh = useCallback(() => {
@@ -187,6 +197,31 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         setSearchTerm('');
         setCurrentPage(1);
     }, [setStatusFilter, setFilters, setSearchTerm, setCurrentPage]);
+
+    const handleCategoryFilter = useCallback((catName) => {
+        if (!catName) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.category;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            const current = prev.category || [];
+            const isSelected = Array.isArray(current) 
+                ? current.some(c => String(c).toLowerCase() === String(catName).toLowerCase()) 
+                : String(current).toLowerCase() === String(catName).toLowerCase();
+            if (isSelected) {
+                const next = { ...prev };
+                delete next.category;
+                return next;
+            }
+            return { ...prev, category: [catName] };
+        });
+        setCurrentPage(1);
+    }, [setFilters, setCurrentPage]);
 
     useEffect(() => {
         const handleSync = () => refresh();
@@ -385,15 +420,75 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
             <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
+                    <div 
+                        className="summary-label" 
+                        onClick={() => handleCategoryFilter(null)}
+                        style={{ 
+                            background: '#334155', color: '#fff', borderRadius: '8px', 
+                            fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, 
+                            whiteSpace: 'nowrap', cursor: 'pointer',
+                            boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
+                        }}
+                        title="Click to view all inventory"
+                    >
+                        SUMMARY
+                    </div>
+
+                    {/* TOTAL PROPERTIES Pill */}
+                    <div 
+                        className={`stat-pill ${(!filters.category || !filters.category.length) ? 'active-summary-pill' : ''}`} 
+                        onClick={() => handleCategoryFilter(null)}
+                        style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '5px', 
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            letterSpacing: '0.5px',
+                            background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                            border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
+                            boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={(!filters.category || !filters.category.length) ? "Showing all properties" : "Click to view all properties"}
+                    >
+                        TOTAL 
+                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2ecc71' }}>
+                            {(persistentTotalInventory.current || totalRecords).toLocaleString()}
+                        </span>
+                    </div>
                     {stats?.categories && stats.categories.length > 0 ? (
                         stats.categories.map((stat, idx) => {
                             const colors = ['#6366f1', '#2563eb', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
                             const color = colors[idx % colors.length];
                             const rawLabel = stat.name || stat.category || 'N/A';
-                            const label = (typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || 'N/A') : String(rawLabel)).toUpperCase();
+                            const labelStr = typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || 'N/A') : String(rawLabel);
+                            const label = labelStr.toUpperCase();
+                            const isSelected = Array.isArray(filters.category)
+                                ? filters.category.some(c => String(c).toLowerCase() === labelStr.toLowerCase())
+                                : String(filters.category || '').toLowerCase() === labelStr.toLowerCase();
+
                             return (
-                                <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                <div 
+                                    key={idx} 
+                                    className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`} 
+                                    onClick={() => handleCategoryFilter(labelStr)}
+                                    style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                                        cursor: 'pointer',
+                                        padding: '2px 8px',
+                                        borderRadius: '10px',
+                                        background: isSelected ? `${color}20` : undefined,
+                                        border: isSelected ? `1.5px solid ${color}` : '1px solid transparent',
+                                        boxShadow: isSelected ? `0 0 5px ${color}40` : undefined,
+                                        transition: 'all 0.15s ease-in-out'
+                                    }}
+                                    title={isSelected ? `Click to clear ${labelStr} filter` : `Filter by ${labelStr}`}
+                                >
                                     <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
                                     <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{renderValue(stat.count)}</span>
                                 </div>

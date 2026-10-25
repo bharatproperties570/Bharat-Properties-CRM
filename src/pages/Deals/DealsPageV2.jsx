@@ -194,6 +194,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const { data: dealsData, isLoading: loading } = useDeals(queryParams);
     const deals = dealsData?.records || [];
     const totalRecords = dealsData?.totalCount || 0;
+    const persistentTotalDeals = React.useRef(0);
+    if (totalRecords > 0 && (!filters.category || !filters.category.length)) {
+        persistentTotalDeals.current = totalRecords;
+    }
     const categoryStats = dealsData?.categoryStats || [];
 
     const updateDealMutation = useUpdateDealMutation({ isPartial: true });
@@ -400,6 +404,52 @@ function DealsPage({ onNavigate, onAddActivity }) {
         setFilters({});
     };
 
+    const handleCategoryFilter = (catName) => {
+        if (!catName) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.category;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            const current = prev.category || [];
+            const isSelected = Array.isArray(current) 
+                ? current.some(c => c && String(c).toLowerCase() === String(catName).toLowerCase()) 
+                : (current && String(current).toLowerCase() === String(catName).toLowerCase());
+            if (isSelected) {
+                const next = { ...prev };
+                delete next.category;
+                return next;
+            }
+            return { ...prev, category: [catName] };
+        });
+        setCurrentPage(1);
+    };
+
+    // 🎯 [STAGE FILTER] Click on Pipeline Dashboard Stages to directly filter deals table
+    const handleStageClick = useCallback((stages) => {
+        setFilters(prev => {
+            const next = { ...prev };
+            const stageArr = Array.isArray(stages) ? stages : [stages];
+            const currentStages = Array.isArray(prev.stage) ? prev.stage : (prev.stage ? [prev.stage] : []);
+            
+            // Check if already selected -> toggle off
+            const isSame = stageArr.length === currentStages.length && 
+                stageArr.every(s => currentStages.some(cs => String(cs).toLowerCase() === String(s).toLowerCase()));
+            
+            if (isSame) {
+                delete next.stage;
+            } else {
+                next.stage = stageArr;
+            }
+            return next;
+        });
+        setCurrentPage(1);
+    }, []);
+
 
     // 🚀 ENTERPRISE GRADE: 100% Server-side filtering offloaded to Database
     const filteredDeals = useMemo(() => {
@@ -595,14 +645,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     </div>
                 </div>
 
-                {/* Pipeline Dashboard - Enhanced with Percentages */}
+                {/* Pipeline Dashboard - Enhanced with Percentages & Direct Stage Filter */}
                 <PipelineDashboard 
                     entityType="deal" 
                     refreshTrigger={refreshTrigger} 
-                    onStageClick={(stages) => {
-                        setFilters(prev => ({ ...prev, stage: Array.isArray(stages) ? stages : [stages] }));
-                        setIsFilterPanelOpen(true);
-                    }}
+                    activeStage={filters.stage}
+                    onStageClick={handleStageClick}
                 />
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
@@ -1387,14 +1435,73 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
             <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
+                    <div 
+                        className="summary-label" 
+                        onClick={() => handleCategoryFilter(null)}
+                        style={{ 
+                            background: '#334155', color: '#fff', borderRadius: '8px', 
+                            fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, 
+                            whiteSpace: 'nowrap', cursor: 'pointer',
+                            boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
+                        }}
+                        title="Click to view all deals"
+                    >
+                        SUMMARY
+                    </div>
+
+                    {/* TOTAL DEAL Pill */}
+                    <div 
+                        className={`stat-pill ${(!filters.category || !filters.category.length) ? 'active-summary-pill' : ''}`} 
+                        onClick={() => handleCategoryFilter(null)}
+                        style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '5px', 
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            letterSpacing: '0.5px',
+                            background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                            border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
+                            boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
+                            transition: 'all 0.15s ease-in-out'
+                        }}
+                        title={(!filters.category || !filters.category.length) ? "Showing all deals" : "Click to view all deals"}
+                    >
+                        TOTAL DEAL 
+                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2ecc71' }}>
+                            {(persistentTotalDeals.current || totalRecords).toLocaleString()}
+                        </span>
+                    </div>
                     {categoryStats && categoryStats.length > 0 ? (
                         categoryStats.map((stat, idx) => {
                             const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
                             const color = colors[idx % colors.length];
                             const label = stat.name.toUpperCase();
+                            const isSelected = Array.isArray(filters.category) 
+                                ? filters.category.some(c => c && String(c).toLowerCase() === stat.name.toLowerCase())
+                                : (filters.category && String(filters.category).toLowerCase() === stat.name.toLowerCase());
+
                             return (
-                                <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                <div 
+                                    key={idx} 
+                                    className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`} 
+                                    onClick={() => handleCategoryFilter(stat.name)}
+                                    style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                                        cursor: 'pointer',
+                                        padding: '2px 8px',
+                                        borderRadius: '10px',
+                                        background: isSelected ? `${color}20` : undefined,
+                                        border: isSelected ? `1.5px solid ${color}` : '1px solid transparent',
+                                        boxShadow: isSelected ? `0 0 5px ${color}40` : undefined,
+                                        transition: 'all 0.15s ease-in-out'
+                                    }}
+                                    title={isSelected ? `Click to clear ${stat.name} filter` : `Filter by ${stat.name}`}
+                                >
                                     <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
                                     <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
                                 </div>

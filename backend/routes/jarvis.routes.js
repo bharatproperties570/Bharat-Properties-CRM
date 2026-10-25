@@ -14,7 +14,10 @@ import {
     getProactiveSuggestionsController,
     getJarvisAnalyticsController,
     getTeamPerformanceController,
-    processMeetingNotesController
+    processMeetingNotesController,
+    handleJarvisSpeak,
+    getJarvisVoiceConfig,
+    saveJarvisVoiceConfig
 } from '../controllers/jarvis.controller.js';
 
 const router = express.Router();
@@ -26,6 +29,11 @@ router.delete('/confirm/:actionId', protect, cancelJarvisAction);
 router.get('/session', protect, getJarvisSession);
 router.get('/history', protect, getJarvisHistory);
 router.get('/status', protect, getJarvisStatus);
+
+// Voice OS Speech Synthesis & Voice Config
+router.post('/speak', protect, handleJarvisSpeak);
+router.get('/voice-config', protect, getJarvisVoiceConfig);
+router.post('/voice-config', protect, saveJarvisVoiceConfig);
 
 // Phase 3: Call Intelligence Engine Endpoints
 router.post('/call-intel', protect, handleProcessCallIntel);
