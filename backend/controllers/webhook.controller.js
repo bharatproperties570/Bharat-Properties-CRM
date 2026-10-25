@@ -71,6 +71,7 @@ export const captureLeadWebhook = async (req, res) => {
 
         // Create the lead using Standardized Engine
         const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
+        const effectiveTenantId = req.resolvedTenantId || null;
         const leadResult = await createStandardizedLead({
             firstName,
             lastName,
@@ -78,10 +79,11 @@ export const captureLeadWebhook = async (req, res) => {
             email: email || undefined,
             source: sourceId,
             source_meta,
+            tenantId: effectiveTenantId,
             intent_index: intentIndex,
             description: message || `Lead from ${source_meta.utm_medium || 'campaign'} campaign`,
             tags: ['Marketing Automation'],
-        }, { triggerEvent: 'onCampaignIntake' });
+        }, { triggerEvent: 'onCampaignIntake', tenantId: effectiveTenantId });
 
         const lead = leadResult.lead;
         console.log(`[WebhookController] New lead created: ${lead._id} (${mobile}) intent: ${intentIndex}`);

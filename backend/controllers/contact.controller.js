@@ -47,7 +47,7 @@ const populateFields = [
 const flattenPopulatedRefs = (obj) => {
     if (!obj || typeof obj !== 'object' || obj instanceof mongoose.Types.ObjectId) return obj;
     if (Array.isArray(obj)) return obj.map(flattenPopulatedRefs);
-    
+
     const newObj = { ...obj };
     const schemaContainers = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents", "assignment"];
     const referenceArrays = ["team", "teams", "tags", "groups", "addOn"];
@@ -75,7 +75,7 @@ export const getContacts = async (req, res, next) => {
     try {
         const { page = 1, limit = 10, search = "", phone, sortBy, sortOrder, contactType, ...filters } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
         if (req.user) {
             console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
@@ -147,13 +147,13 @@ export const getContacts = async (req, res, next) => {
 
             if (value && value !== "" && value !== "undefined") {
                 let searchValues = Array.isArray(value) ? value : [value];
-                
+
                 // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
                 const mixedValues = [];
                 const validIds = [];
-                
+
                 searchValues.forEach(val => {
-                    mixedValues.push(val); 
+                    mixedValues.push(val);
                     if (mongoose.Types.ObjectId.isValid(val)) {
                         mixedValues.push(new mongoose.Types.ObjectId(val));
                         validIds.push(val);
@@ -557,13 +557,13 @@ export const getContacts = async (req, res, next) => {
 
                 return {
                     ...c,
-                    interactionCounts: { 
-                        call: stats.call || 0, 
-                        siteVisit: stats.siteVisit || 0, 
-                        meeting: stats.meeting || 0, 
-                        email: stats.email || 0, 
-                        sms: stats.sms || 0, 
-                        whatsapp: stats.whatsapp || 0 
+                    interactionCounts: {
+                        call: stats.call || 0,
+                        siteVisit: stats.siteVisit || 0,
+                        meeting: stats.meeting || 0,
+                        email: stats.email || 0,
+                        sms: stats.sms || 0,
+                        whatsapp: stats.whatsapp || 0
                     },
                     activity: stats.latestActivity || null,
                     lastAct: lastActText,
@@ -776,7 +776,7 @@ const resolveAllReferenceFields = async (obj) => {
         if (!obj.assignment) obj.assignment = {};
         obj.assignment.team = Array.isArray(obj.team) ? obj.team : [obj.team];
     }
-    
+
     // Sync plural 'teams' to legacy 'team' for backward compatibility if logic expects singular
     if (obj.teams && Array.isArray(obj.teams) && obj.teams.length > 0 && !obj.team) {
         obj.team = obj.teams[0];
@@ -802,10 +802,10 @@ export const createContact = async (req, res, next) => {
                 field: error.details[0].path,
                 value: error.details[0].context?.value
             });
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 message: error.details[0].message,
-                details: error.details 
+                details: error.details
             });
         }
 
@@ -896,7 +896,7 @@ export const updateContact = async (req, res, next) => {
         console.log("[updateContact] Request Body:", JSON.stringify(req.body, null, 2));
 
         const updateData = flattenPopulatedRefs(req.body);
-        
+
         // Strip internal fields
         const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
         fieldsToStrip.forEach(field => delete updateData[field]);
@@ -909,10 +909,10 @@ export const updateContact = async (req, res, next) => {
                 field: error.details[0].path,
                 value: error.details[0].context?.value
             });
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 error: error.details[0].message,
-                details: error.details 
+                details: error.details
             });
         }
 
@@ -1056,7 +1056,7 @@ export const syncAllContacts = async (req, res) => {
                 { googleContactId: "" }
             ]
         }).select('_id');
-        
+
         console.log(`[ContactController] syncAllContacts: Found ${contacts.length} unsynced contacts.`);
 
         if (contacts.length === 0) {
@@ -1125,26 +1125,27 @@ export const bulkDeleteContacts = async (req, res, next) => {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
 
-        const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
-        const contacts = await Contact.find({ _id: { $in: objectIds } });
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
 
-        // Cascading Updates/Deletions
+        const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
+        const contacts = await Contact.find({ _id: { $in: objectIds }, ...tenantFilter });
+        const allowedIds = contacts.map(c => c._id);
+
+        if (allowedIds.length === 0) {
+            return res.json({ success: true, message: "0 contacts deleted" });
+        }
+
+        // Cascading Updates/Deletions strictly scoped to the tenant
         await Promise.all([
-            // Delete related Leads
-            // Lead.deleteMany({ contactDetails: { $in: objectIds } }),
-            // Remove from Inventory
-            Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
-            Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),
-            // Null out in Bookings
-            Booking.updateMany({ lead: { $in: objectIds } }, { $set: { lead: null } }),
-            Booking.updateMany({ seller: { $in: objectIds } }, { $set: { seller: null } }),
-            Booking.updateMany({ channelPartner: { $in: objectIds } }, { $set: { channelPartner: null } }),
-            // Delete related Activities
-            // Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
+            Inventory.updateMany({ owners: { $in: allowedIds }, ...tenantFilter }, { $pull: { owners: { $in: allowedIds } } }),
+            Inventory.updateMany({ "associates.contact": { $in: allowedIds }, ...tenantFilter }, { $pull: { associates: { contact: { $in: allowedIds } } } }),
+            Booking.updateMany({ lead: { $in: allowedIds }, ...tenantFilter }, { $set: { lead: null } }),
+            Booking.updateMany({ seller: { $in: allowedIds }, ...tenantFilter }, { $set: { seller: null } }),
+            Booking.updateMany({ channelPartner: { $in: allowedIds }, ...tenantFilter }, { $set: { channelPartner: null } }),
         ]);
 
-
-        await Contact.softDeleteMany({ _id: { $in: objectIds } }, { userId: req.user?._id });
+        await Contact.softDeleteMany({ _id: { $in: allowedIds }, ...tenantFilter }, { userId: req.user?._id });
 
         // Sync to Google
         contacts.forEach(contact => {
@@ -1153,7 +1154,7 @@ export const bulkDeleteContacts = async (req, res, next) => {
             }
         });
 
-        res.json({ success: true, message: `${ids.length} contacts and associations deleted successfully` });
+        res.json({ success: true, message: `${allowedIds.length} contacts and associations deleted successfully` });
     } catch (error) {
         console.error("[ERROR] bulkDeleteContacts failed:", error);
         next(error);
@@ -1165,8 +1166,11 @@ export const searchDuplicates = async (req, res, next) => {
         const { name, phone, email, fatherName, hNo, location } = req.query;
         if (!name && !phone && !email && !fatherName) return res.status(200).json({ success: true, data: [] });
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
         // 1. Fetch Active Rules
-        const activeRules = await DuplicationRule.find({ isActive: true });
+        const activeRules = await DuplicationRule.find({ isActive: true, ...tenantFilter });
 
         let query = {};
 
@@ -1216,7 +1220,8 @@ export const searchDuplicates = async (req, res, next) => {
             query = { $or: cases };
         }
 
-        const contacts = await Contact.find(query).limit(10).lean();
+        const finalQuery = Object.keys(tenantFilter).length > 0 ? { $and: [query, tenantFilter] } : query;
+        const contacts = await Contact.find(finalQuery).limit(10).lean();
         res.status(200).json({ success: true, data: contacts });
     } catch (error) {
         console.error("[ERROR] searchDuplicates failed:", error);
@@ -1267,6 +1272,9 @@ export const importContacts = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
         const bulkOps = [];
         const processedData = [];
         const errors = [];
@@ -1278,6 +1286,9 @@ export const importContacts = async (req, res, next) => {
                 if (i < 3) console.log(`[IMPORT_DIAG] Row ${i+1} Raw:`, JSON.stringify(item));
 
                 const newItem = { ...item };
+                if (rawTenantId) {
+                    newItem.tenantId = rawTenantId;
+                }
 
                 // Resolve Lookups
                 newItem.title = await resolveLookup('Title', item.title);
@@ -1287,7 +1298,7 @@ export const importContacts = async (req, res, next) => {
                 newItem.source = await resolveLookup('Source', item.source);
                 newItem.subSource = await resolveLookup('SubSource', item.subSource);
                 newItem.campaign = await resolveLookup('Campaign', item.campaign);
-                
+
                 // 🚀 [SENIOR] Assignment & Team Resolution
                 const rawOwner = item.owner || item.Owner;
                 newItem.owner = await resolveUser(rawOwner);
@@ -1298,7 +1309,7 @@ export const importContacts = async (req, res, next) => {
 
                 if (rawAssignedTo || rawTeam || rawVisibility) {
                     if (!newItem.assignment) newItem.assignment = {};
-                    
+
                     if (rawAssignedTo) {
                         newItem.assignment.assignedTo = await resolveUser(rawAssignedTo);
                         // Also sync to top-level for compatibility
@@ -1359,7 +1370,7 @@ export const importContacts = async (req, res, next) => {
                 let pincode = item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip'] || '';
 
                 let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
-                
+
                 // Fallback: If no explicit fullAddress is mapped, check if 'street' contains the full address string
                 if (!fullAddress && !hNo && street && AddressParsingService.shouldParse(street)) {
                     fullAddress = street;
@@ -1398,7 +1409,7 @@ export const importContacts = async (req, res, next) => {
                     country,
                     pincode
                 });
-                
+
                 newItem.personalAddress = resolvedAddr;
 
 
@@ -1440,10 +1451,10 @@ export const importContacts = async (req, res, next) => {
                         if (resolution === 'MERGE_DATA_CUSTOM' && req.body.resolutions?.[rowKey]?.customData) {
                             const customData = req.body.resolutions[rowKey].customData;
                             const customUpdate = { $set: {} };
-                            
+
                             if (customData.name) customUpdate.$set.name = customData.name;
                             if (customData.fatherName) customUpdate.$set.fatherName = customData.fatherName;
-                            
+
                             // Address Merge
                             ['hNo', 'street', 'area', 'city', 'state', 'pincode', 'location'].forEach(f => {
                                 if (customData[f]) customUpdate.$set[`personalAddress.${f}`] = customData[f];
@@ -1455,10 +1466,11 @@ export const importContacts = async (req, res, next) => {
                             if (customData.email) {
                                 customUpdate.$set['emails.0'] = { type: 'Personal', address: customData.email };
                             }
+                            if (rawTenantId) customUpdate.$set.tenantId = rawTenantId;
 
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: customUpdate,
                                     upsert: true
                                 }
@@ -1474,17 +1486,19 @@ export const importContacts = async (req, res, next) => {
                                 delete updateOp.$set.emails;
                                 updateOp.$addToSet = { ...updateOp.$addToSet, emails: { $each: newItem.emails } };
                             }
+                            if (rawTenantId) updateOp.$set.tenantId = rawTenantId;
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: updateOp,
                                     upsert: true
                                 }
                             });
                         } else {
+                            if (rawTenantId) flatUpdate.tenantId = rawTenantId;
                             bulkOps.push({
                                 updateOne: {
-                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                    filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }], ...tenantFilter },
                                     update: { $set: flatUpdate },
                                     upsert: true
                                 }
@@ -1525,16 +1539,16 @@ export const importContacts = async (req, res, next) => {
                         }
                     });
 
-                    // 🛡️ [SENIOR] Pre-sanitize database to prevent `Cannot create field in element {personalAddress: null}` 
+                    // 🛡️ [SENIOR] Pre-sanitize database to prevent `Cannot create field in element {personalAddress: null}`
                     // This happens when dot-notation `$set` tries to update a nested field whose parent is explicitly `null`
                     if (mobilesToSanitize.length > 0) {
                         await Contact.updateMany(
-                            { $or: [{ mobile: { $in: mobilesToSanitize } }, { "phones.number": { $in: mobilesToSanitize } }] },
-                            { 
-                                $unset: { 
-                                    personalAddress: 1, 
-                                    correspondenceAddress: 1 
-                                } 
+                            { $or: [{ mobile: { $in: mobilesToSanitize } }, { "phones.number": { $in: mobilesToSanitize } }], ...tenantFilter },
+                            {
+                                $unset: {
+                                    personalAddress: 1,
+                                    correspondenceAddress: 1
+                                }
                             },
                             { session }
                         );
@@ -1556,7 +1570,7 @@ export const importContacts = async (req, res, next) => {
             if (!updateDuplicates) {
                 // 🚀 [SENIOR] Advanced Multi-Field Duplicate Detection
                 const mobiles = processedData.map(d => d.phones?.[0]?.number).filter(Boolean);
-                
+
                 // Build a composite query for records without mobiles
                 const compositeCriteria = processedData
                     .filter(d => !d.phones?.[0]?.number)
@@ -1568,18 +1582,22 @@ export const importContacts = async (req, res, next) => {
                     }))
                     .filter(c => c.name && c.fatherName); // Ensure basic fields exist for matching
 
-                const existingQuery = {
-                    $or: [
-                        ...(mobiles.length > 0 ? [{ "phones.number": { $in: mobiles } }] : []),
-                        ...compositeCriteria
-                    ]
-                };
+                const baseExistingConditions = [
+                    ...(mobiles.length > 0 ? [{ "phones.number": { $in: mobiles } }] : []),
+                    ...compositeCriteria
+                ];
 
-                const existing = await Contact.find(existingQuery, 'phones name fatherName personalAddress.hNo personalAddress.location').lean();
-                
+                const existingQuery = Object.keys(tenantFilter).length > 0
+                    ? { $and: [{ $or: baseExistingConditions }, tenantFilter] }
+                    : { $or: baseExistingConditions };
+
+                const existing = baseExistingConditions.length > 0
+                    ? await Contact.find(existingQuery, 'phones name fatherName personalAddress.hNo personalAddress.location').lean()
+                    : [];
+
                 const existingMobiles = new Set();
                 const existingComposites = new Set();
-                
+
                 existing.forEach(e => {
                     if (e.phones) e.phones.forEach(p => existingMobiles.add(p.number));
                     if (e.name && e.fatherName) {
@@ -1591,7 +1609,7 @@ export const importContacts = async (req, res, next) => {
                 dataToInsert = processedData.filter(d => {
                     const mobile = d.phones?.[0]?.number;
                     if (mobile) return !existingMobiles.has(mobile);
-                    
+
                     const key = `${String(d.name).trim().toLowerCase()}|${String(d.fatherName).trim().toLowerCase()}|${String(d.personalAddress?.hNo || '').trim().toLowerCase()}|${String(d.personalAddress?.location || '')}`;
                     return !existingComposites.has(key);
                 });
@@ -1630,13 +1648,18 @@ export const checkDuplicatesImport = async (req, res, next) => {
         const { mobiles } = req.body;
         if (!mobiles || !Array.isArray(mobiles)) return res.status(400).json({ success: false, message: "Invalid mobile numbers provided" });
 
-        // Find existing contacts by mobile or phone number
-        const duplicates = await Contact.find({
+        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const tenantFilter = rawTenantId ? { tenantId: rawTenantId } : {};
+
+        // Find existing contacts by mobile or phone number scoped to tenant
+        const baseQuery = {
             $or: [
                 { mobile: { $in: mobiles } },
                 { "phones.number": { $in: mobiles } }
             ]
-        }, 'mobile phones name surname').lean();
+        };
+        const finalQuery = Object.keys(tenantFilter).length > 0 ? { $and: [baseQuery, tenantFilter] } : baseQuery;
+        const duplicates = await Contact.find(finalQuery, 'mobile phones name surname').lean();
 
         const duplicateMobiles = new Set();
         duplicates.forEach(d => {
@@ -1656,10 +1679,10 @@ export const checkDuplicatesImport = async (req, res, next) => {
 export const getContactStats = async (req, res, next) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 1. Basic counts from Contact collection
         const totalCount = await Contact.countDocuments(visibilityFilter);
-        
+
         // Use lookup values to find IDs for professional categories
         const lookups = await Lookup.find({
             lookup_type: { $in: ['ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionCategory', 'ProfessionSubCategory', 'Stage'] }
@@ -1691,7 +1714,7 @@ export const getContactStats = async (req, res, next) => {
         // 5. [NEW LOGIC] Count Customers
         // A: Leads with 'Booked' stage
         const bookedLeadContactIds = await Lead.distinct('contactDetails', { ...visibilityFilter, stage: { $in: bookedStageIds } });
-        
+
         // B: Closed Bookings (Sellers and Buyers)
         const closedBookingQuery = { ...visibilityFilter, 'closingDetails.isClosed': true };
         const [closedBuyers, closedSellers] = await Promise.all([
@@ -1806,7 +1829,7 @@ export const mergeContacts = async (req, res, next) => {
 
         for (let i = 0; i < duplicates.length; i++) {
             const dup = duplicates[i];
-            
+
             // 1. Get exact rewires and baseline field changes for this duplicate from Enterprise service
             const p = await previewMerge(currentMaster, dup);
 
@@ -1814,13 +1837,13 @@ export const mergeContacts = async (req, res, next) => {
             if (i === 0 && Object.keys(sanitizedResolvedData).length > 0) {
                 p.consolidatedFields = p.consolidatedFields || { $set: {} };
                 p.consolidatedFields.$set = p.consolidatedFields.$set || {};
-                
+
                 for (const [key, newValue] of Object.entries(sanitizedResolvedData)) {
                     // Only apply if it actually differs from current master state
                     const oldValue = currentMaster[key];
                     if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
                         p.consolidatedFields.$set[key] = newValue;
-                        
+
                         // Overwrite any baseline fieldChange for this key with the manual UI change
                         const existingChangeIdx = p.fieldChanges.findIndex(fc => fc.field === key);
                         if (existingChangeIdx >= 0) {
@@ -1840,13 +1863,13 @@ export const mergeContacts = async (req, res, next) => {
             // Execute the merge mutation cleanly inside its own transaction via the Enterprise Engine
             const audit = await executeMerge(currentMaster._id, dup._id, p, { userId: req.user?._id });
             mergedAudits.push(audit);
-            
+
             // Refresh currentMaster state for the next duplicate loop
             currentMaster = await Contact.findById(currentMaster._id).lean();
         }
 
-        res.status(200).json({ 
-            success: true, 
+        res.status(200).json({
+            success: true,
             message: `Successfully merged ${duplicateContactIds.length} duplicate(s) into Master.`,
             masterId: currentMaster._id,
             audits: mergedAudits.map(a => a.mergeOperationId)
