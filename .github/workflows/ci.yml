@@ -1,0 +1,64 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches:
+      - main
+      - 'enterprise/**'
+  pull_request:
+    branches:
+      - main
+      - 'enterprise/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-backend:
+    name: Backend Test Suite (Node.js 20)
+    runs-on: ubuntu-latest
+    env:
+      MONGOMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies (Deterministic)
+        run: |
+          cd backend
+          npm ci --legacy-peer-deps
+
+      - name: Run Phase 1 & 1.1 Discovery Engine Tests
+        run: |
+          cd backend
+          npm test
+
+  build-frontend:
+    name: Frontend Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies (Deterministic)
+        run: |
+          npm ci
+
+      - name: Run Vite production build
+        run: |
+          npm run build

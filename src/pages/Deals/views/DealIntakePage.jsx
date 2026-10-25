@@ -1327,6 +1327,12 @@ const DealIntakePage = () => {
                 (item.source && item.source.startsWith('WhatsApp Group'))
             );
         }
+        if (selectedGroupFilter === 'online_discovery') {
+            return intakeItems.filter(item => 
+                ['public_url', 'property_listing', 'google_index'].includes(item.source_type) ||
+                (item.source && item.source.toLowerCase().includes('discovery'))
+            );
+        }
         return intakeItems.filter(item => 
             item.raw_source_data?.groupJid === selectedGroupFilter ||
             item.extracted_entities?._whatsappGroup?.groupJid === selectedGroupFilter
@@ -1663,6 +1669,9 @@ const DealIntakePage = () => {
                                 <option value="whatsapp_group_all">
                                     🟢 All WhatsApp Groups ({intakeItems.filter(i => i.source_type === 'whatsapp_group' || (i.source && i.source.startsWith('WhatsApp Group'))).length})
                                 </option>
+                                <option value="online_discovery">
+                                    🌐 Online Discoveries ({intakeItems.filter(i => ['public_url', 'property_listing', 'google_index'].includes(i.source_type) || (i.source && i.source.toLowerCase().includes('discovery'))).length})
+                                </option>
                                 {intakeGroups.map(g => {
                                     const groupLiveCount = intakeItems.filter(i => 
                                         i.raw_source_data?.groupJid === g.groupJid ||
@@ -1761,7 +1770,36 @@ const DealIntakePage = () => {
                                                 </span>
                                             </span>
                                         ) : (
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
+                                            <span style={{ 
+                                                fontSize: '0.7rem', 
+                                                fontWeight: 800, 
+                                                color: item.source === 'WhatsApp' ? '#22c55e' : (['public_url', 'property_listing', 'google_index'].includes(item.source_type) ? '#2563eb' : '#f59e0b'), 
+                                                background: item.source === 'WhatsApp' ? (isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7') : (['public_url', 'property_listing', 'google_index'].includes(item.source_type) ? (isDark ? 'rgba(59, 130, 246, 0.2)' : '#dbeafe') : '#fef3c7'), 
+                                                padding: '2px 8px', 
+                                                borderRadius: '4px' 
+                                            }}>
+                                                {['public_url', 'property_listing', 'google_index'].includes(item.source_type) ? (
+                                                    <><i className="fas fa-globe" style={{ marginRight: '4px' }}></i>Web Discovery</>
+                                                ) : item.source}
+                                            </span>
+                                        )}
+                                        {(item.raw_source_data?.filter_evaluation?.disqualified || item.extracted_entities?.filter_evaluation?.disqualified) && (
+                                            <span style={{ 
+                                                fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', 
+                                                color: '#b91c1c', background: isDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2', 
+                                                border: '1px solid #fca5a5' 
+                                            }}>
+                                                <i className="fas fa-filter" style={{ marginRight: '4px' }}></i>FILTER EXCLUDED
+                                            </span>
+                                        )}
+                                        {(item.raw_source_data?.filter_evaluation?.passed === true || item.extracted_entities?.filter_evaluation?.passed === true) && (
+                                            <span style={{ 
+                                                fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', 
+                                                color: '#15803d', background: isDark ? 'rgba(34, 197, 94, 0.2)' : '#dcfce7', 
+                                                border: '1px solid #86efac' 
+                                            }}>
+                                                <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i>FILTER MATCH
+                                            </span>
                                         )}
                                         {(item.status === 'Needs Review' || item.verification_status === 'needs_review' || item.verification_status === 'suspicious') && (
                                             <span style={{ 

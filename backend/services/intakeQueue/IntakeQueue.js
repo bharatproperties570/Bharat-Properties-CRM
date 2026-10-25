@@ -7,6 +7,9 @@ import aiVerificationEngine from '../intakeVerification/AIVerificationEngine.js'
 import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngine.js';
 import NotificationEngine from '../NotificationEngine.js';
 import { tracer } from '../../src/config/otel.js';
+import { normalizeDiscoveryUrl } from '../discovery/DiscoveryFilterEngine.js';
+import { evaluateOperationAuthorization, evaluateOperationAuthorizationAsync, SOURCE_TIERS } from '../discovery/SourceAuthorizationMatrix.js';
+import { validateDestinationSecurity } from '../discovery/SafeUrlFetcher.js';
 
 // ── Structured logger ──────────────────────────────────────────
 const log = {
@@ -45,6 +48,48 @@ export function generateNormalizedDealHash(text) {
 }
 
 export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
+    // 🛡️ Phase 1.2.1 / 1.2.3: Pre-flight Scheme, SSRF & Governance Gate for Web Intake
+    let webAuthDecision = null;
+    let webCanonicalUrl = null;
+    if (sourceType === 'public_url' || sourceType === 'property_listing') {
+        const rawUrl = rawData?.url || rawData?.normalized_url;
+        if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
+            return { success: false, duplicate: false, reason: 'missing_or_invalid_url' };
+        }
+
+        webCanonicalUrl = normalizeDiscoveryUrl(rawUrl) || rawUrl;
+        webAuthDecision = await evaluateOperationAuthorizationAsync(rawUrl, 'automated_fetch');
+        if (webAuthDecision.tier === SOURCE_TIERS.TIER_4_WALLED_GARDEN) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: 'walled_garden_blocked_pending_oauth',
+                message: 'Walled garden social platforms are unsupported for automated intake.'
+            };
+        }
+
+        if (webAuthDecision.reason && webAuthDecision.reason.startsWith('unsafe_scheme_')) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: webAuthDecision.reason,
+                message: `Unsafe URL scheme rejected: ${webAuthDecision.reason}`
+            };
+        }
+
+        // SSRF Destination Validation (Blocks loopback, private IP, link-local, cloud metadata)
+        try {
+            await validateDestinationSecurity(rawUrl);
+        } catch (ssrfErr) {
+            return {
+                success: false,
+                duplicate: false,
+                reason: 'ssrf_destination_blocked',
+                message: ssrfErr.message
+            };
+        }
+    }
+
     // 🛡️ Pillar 4: Exact WhatsApp Message ID Deduplication Guard
     if (rawData?.messageId) {
         try {
@@ -108,6 +153,82 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
         if (existing) {
             return { success: false, duplicate: true, message: 'Duplicate intake detected', intakeId: existing._id };
         }
+    }
+
+    // 🛡️ Phase 1.2: URL Ingestion Deduplication Guard (public_url & property_listing)
+    if (!dealHash && (sourceType === 'public_url' || sourceType === 'property_listing') && (rawData?.url || rawData?.normalized_url)) {
+        const canonicalUrl = normalizeDiscoveryUrl(rawData.url || rawData.normalized_url) || rawData.url;
+        const tempConnector = connectorRegistry.getConnector(sourceType);
+        dealHash = tempConnector.generateDuplicateHash(canonicalUrl);
+
+        try {
+            const existingUrlIntake = await Intake.findOne({
+                $or: [
+                    { duplicate_hash: dealHash },
+                    { 'raw_source_data.url': canonicalUrl },
+                    { 'raw_source_data.normalized_url': canonicalUrl },
+                    { 'raw_source_data.raw_url': rawData.url }
+                ]
+            });
+
+            if (existingUrlIntake) {
+                return {
+                    success: false,
+                    duplicate: true,
+                    reason: 'duplicate_url_already_queued_or_processed',
+                    intakeId: existingUrlIntake._id
+                };
+            }
+        } catch (urlDedupErr) {
+            console.warn('[IntakeQueue:URL Dedup Error]:', urlDedupErr.message);
+        }
+    }
+
+    // 🛡️ Phase 1.2.3: Queue Admission Domain Governance Gate
+    // If the web URL is not authorized for automated fetching (unapproved Tier 2 or unpermitted Tier 3),
+    // preserve the candidate document in MongoDB for Deal Intake Desk operator review,
+    // but DO NOT dispatch an automated network fetch job to BullMQ/Worker.
+    if ((sourceType === 'public_url' || sourceType === 'property_listing') && webAuthDecision && !webAuthDecision.allowed) {
+        const canonicalUrl = webCanonicalUrl || normalizeDiscoveryUrl(rawData.url || rawData.normalized_url) || rawData.url;
+        const title = rawData.search_metadata?.title || rawData.title || canonicalUrl;
+        const nowIso = new Date().toISOString();
+
+        const heldIntake = new Intake({
+            source: rawData.source || 'Online Discovery',
+            source_type: sourceType,
+            status: 'Needs Review',
+            verification_status: 'unverified',
+            title: title.substring(0, 100),
+            description: `[Automated Fetch Blocked] Candidate URL requires domain governance verification: ${webAuthDecision.reason}. Preserved for authorized human review on Deal Intake Desk.`,
+            duplicate_hash: dealHash || undefined,
+            raw_source_data: {
+                ...rawData,
+                url: canonicalUrl,
+                raw_url: rawData.url,
+                normalized_url: canonicalUrl,
+                originalTitle: title,
+                source_tier: webAuthDecision.tier,
+                authorization_status: webAuthDecision.status,
+                fetch_blocked: true,
+                fetch_block_reason: webAuthDecision.reason,
+                discovery_timestamp: rawData.discovery_timestamp || rawData.search_metadata?.discoveredAt || nowIso,
+                extraction_timestamp: nowIso,
+                published_date: rawData.search_metadata?.publishedDate || rawData.published_date || null
+            },
+            verification_notes: [
+                `[Queue Admission Governance Gate] Automated fetch blocked: ${webAuthDecision.reason}. Preserved for operator triage.`
+            ],
+            createdBy: userId
+        });
+
+        await heldIntake.save();
+        return {
+            success: true,
+            heldForReview: true,
+            fetchBlocked: true,
+            reason: webAuthDecision.reason,
+            intakeId: heldIntake._id
+        };
     }
 
     // 1. Create a "Queued" record in MongoDB with duplicate_hash pre-populated
@@ -193,8 +314,8 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
             const aiAssistantResult = intakeAIAssistantEngine.analyze(intake);
             intake.ai_assistant = aiAssistantResult;
 
-            // 7. Finalize Status
-            intake.status = 'Processed'; // Overriding base processing status, but preserving verification_status
+            // 7. Finalize Status (Preserve verification status, mark rejected or fetch-blocked as Needs Review)
+            intake.status = (intake.verification_status === 'rejected' || intake.raw_source_data?.fetch_blocked) ? 'Needs Review' : 'Processed';
             intake.createdBy = userId;
             
             await intake.save();

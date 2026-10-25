@@ -8,6 +8,7 @@
     "dev": "concurrently \"vite\" \"npm run dev --prefix backend\"",
     "start": "npm run dev",
     "build": "vite build",
+    "test": "npm test --prefix backend",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives || true",
     "preview": "vite preview"
   },
