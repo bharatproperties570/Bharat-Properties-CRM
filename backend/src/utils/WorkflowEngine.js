@@ -1,13 +1,12 @@
 import Trigger from '../../models/Trigger.js';
 import AutomationLog from '../../models/AutomationLog.js';
-import { sendWhatsAppMessage } from '../../controllers/social.controller.js'; // Ensure correct path or use an internal service method
-// If sendWhatsAppMessage expects req/res, we might need a dedicated internal service for server-to-server calls.
-// For now, let's mock the dispatcher or use an internal function.
+// Phase C: Removed static import of sendWhatsAppMessage from social.controller.js.
+// WorkflowEngine now calls WhatsAppService directly (service boundary fix).
 
 export class WorkflowEngine {
     static evaluateCondition(rule, entityData) {
         let rawValue = entityData[rule.field];
-        
+
         // Extract string representation if it's a populated object (e.g. status, stage)
         const extractValue = (v) => {
             if (v && typeof v === 'object') {
@@ -16,10 +15,10 @@ export class WorkflowEngine {
             return v !== null && v !== undefined ? String(v) : '';
         };
 
-        const value = Array.isArray(rawValue) 
+        const value = Array.isArray(rawValue)
             ? rawValue.map(extractValue).join(',') // If array of objects, convert to comma-separated string for simpler IN logic
             : extractValue(rawValue);
-        
+
         // For comparison, normalize everything to lowercase for case-insensitive matching
         const valStr = value.toLowerCase();
 
@@ -71,14 +70,14 @@ export class WorkflowEngine {
 
     static evaluateRules(conditions, entityData) {
         if (!conditions || typeof conditions !== 'object') return true;
-        
+
         // If it's a leaf node (has a field instead of an operator)
         if (conditions.field && conditions.operator) {
             return this.evaluateCondition(conditions, entityData);
         }
 
         if (!conditions.rules || conditions.rules.length === 0) return true;
-        
+
         if (conditions.operator === 'OR') {
             return conditions.rules.some(rule => this.evaluateRules(rule, entityData));
         } else {
@@ -86,16 +85,25 @@ export class WorkflowEngine {
         }
     }
 
-    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false, opts = {}) {
+    static async executeAction(action, entityData, trigger, companyId, isDelayedExecution = false, executionOptions = {}) {
+        const isDealCreatedNative = trigger?.module === 'deals' &&
+            (trigger?.event === 'deal_created' || trigger?.event === 'DealCreated') &&
+            action?.type !== 'fire_automated_action';
+
+        let canonicalKey = null;
+        let claimToken = null;
+        let leaseUntil = null;
+        let claimAcquired = false;
+
         try {
             // Process Delayed Actions if this is a 'fire_automated_action' and not already delayed
             if (action.type === 'fire_automated_action' && action.automatedActionId) {
                 const AutomatedAction = (await import('../../models/AutomatedAction.js')).default;
                 const autoAction = await AutomatedAction.findById(action.automatedActionId);
-                
+
                 if (!isDelayedExecution && autoAction && autoAction.delay && autoAction.delay.isActive) {
                     const relativeDate = entityData[autoAction.delay.relativeToField] ? new Date(entityData[autoAction.delay.relativeToField]) : new Date();
-                    
+
                     let offsetMs = 0;
                     const amount = autoAction.delay.amount || 0;
                     switch (autoAction.delay.unit) {
@@ -104,49 +112,30 @@ export class WorkflowEngine {
                         case 'days': offsetMs = amount * 24 * 60 * 60 * 1000; break;
                         case 'weeks': offsetMs = amount * 7 * 24 * 60 * 60 * 1000; break;
                     }
-                    
+
                     const targetDate = new Date(relativeDate.getTime() + offsetMs);
                     const delayMs = targetDate.getTime() - Date.now();
-                    
+
                     if (delayMs > 0) {
                         const { enqueueAction } = await import('../../services/automationQueue/automationQueue.js');
                         await enqueueAction({ action, entityData, trigger, companyId }, delayMs);
                         return; // Successfully queued for delayed execution
                     }
                 }
-                
+
                 // If we reach here, it's either immediate or the delay has already elapsed
                 console.log(`[WorkflowEngine] Executing Automated Action: ${autoAction?.name}`);
-                
+
                 // Idempotency check: Include updatedAt to allow repeating actions on subsequent updates
                 const entityUpdatedTime = entityData.updatedAt ? new Date(entityData.updatedAt).getTime() : Date.now();
-                const idempotencyKey = isDelayedExecution 
-                    ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}` 
+                const idempotencyKey = isDelayedExecution
+                    ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`
                     : `imm-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`;
-                    
-                try {
-                    await AutomationLog.create({
-                        ruleType: 'AutomatedAction',
-                        ruleId: autoAction._id,
-                        targetEntityId: entityData._id || entityData.id,
-                        targetModule: trigger.module,
-                        status: 'pending',
-                        idempotencyKey,
-                        companyId
-                    });
-                } catch (err) {
-                    if (err.code === 11000) {
-                        const reclaimed = await AutomationLog.findOneAndUpdate(
-                            { idempotencyKey, status: 'failed' },
-                            { $set: { status: 'pending' } }
-                        );
-                        if (!reclaimed) {
-                            console.log(`[WorkflowEngine] Action already executed or executing for key: ${idempotencyKey}. Skipping.`);
-                            return;
-                        }
-                    } else {
-                        throw err;
-                    }
+
+                const existingLog = await AutomationLog.findOne({ idempotencyKey });
+                if (existingLog) {
+                    console.log(`[WorkflowEngine] Action already executed for key: ${idempotencyKey}. Skipping.`);
+                    return;
                 }
 
                 try {
@@ -158,7 +147,7 @@ export class WorkflowEngine {
                             const VariableResolver = (await import('./VariableResolver.js')).default;
                             const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
                             const config = autoAction.notificationConfig;
-                            
+
                             if (config.channels.whatsapp && config.templates.whatsapp) {
                                 const resolvedTemplate = VariableResolver.resolve(config.templates.whatsapp, entityData);
                                 console.log(`[WorkflowEngine] Sending WhatsApp to ${entityData.mobile} using template: ${resolvedTemplate}`);
@@ -190,11 +179,11 @@ export class WorkflowEngine {
                     } else if (autoAction.actionType === 'update_field') {
                         console.log(`[WorkflowEngine] Updating field for ${trigger.module} ID ${entityData._id || entityData.id} with data:`, autoAction.fieldMapping);
                         const mongoose = (await import('mongoose')).default;
-                        
+
                         // Robust Model Name Mapping
                         const modelMap = { leads: 'Lead', deals: 'Deal', activities: 'Activity', inventory: 'Inventory', communication: 'Communication', post_sale: 'PostSale', campaigns: 'Campaign' };
                         const modelName = modelMap[trigger.module] || trigger.module;
-                        
+
                         const Model = mongoose.model(modelName);
                         await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: autoAction.fieldMapping }, { new: true });
                     } else if (autoAction.actionType === 'lock_inventory') {
@@ -202,297 +191,108 @@ export class WorkflowEngine {
                         const mongoose = (await import('mongoose')).default;
                         const Inventory = mongoose.model('Inventory');
                         await Inventory.findByIdAndUpdate(entityData._id || entityData.id, { $set: { status: 'Locked' } }, { new: true });
-                    } else if (autoAction.actionType === 'broadcast_deal') {
-                        console.log(`[WorkflowEngine] Executing broadcast_deal for entity ${entityData._id || entityData.id}`);
-                        const mongoose = (await import('mongoose')).default;
-                        const DealModel = mongoose.model('Deal');
-                        
-                        // 1. Resolve full deal document
-                        let dealDoc = await DealModel.findById(entityData._id || entityData.id)
-                            .populate('inventoryId')
-                            .populate('owner')
-                            .populate('projectId')
-                            .populate('partyStructure.owner')
-                            .populate('assignedTo')
-                            .lean();
-                            
-                        if (!dealDoc) {
-                            dealDoc = entityData;
-                        }
-
-                        // 2. Prepare / sanitize broadcast metadata
-                        const formatPrice = (p) => {
-                            const num = Number(p || 0);
-                            if (num >= 10000000) return `₹ ${(num / 10000000).toFixed(2)} Cr`;
-                            if (num >= 100000) return `₹ ${(num / 100000).toFixed(2)} Lac`;
-                            return num ? `₹ ${num.toLocaleString('en-IN')}` : 'Price on Request';
-                        };
-
-                        const meta = dealDoc.broadcastMetadata?.isReady ? dealDoc.broadcastMetadata : {
-                            title: dealDoc.title || dealDoc.projectName || 'Exclusive Deal',
-                            location: dealDoc.location || dealDoc.sector || 'Prime Location',
-                            price: formatPrice(dealDoc.price),
-                            features: [dealDoc.unitType || dealDoc.subCategory || 'Residential', dealDoc.size ? `${dealDoc.size} Sq.Ft` : ''].filter(Boolean),
-                            detailedSections: [
-                                {
-                                    title: 'Deal Highlights',
-                                    lines: [
-                                        `Project: ${dealDoc.projectName || 'Premium Development'}`,
-                                        `Location: ${dealDoc.location || 'Prime'}`,
-                                        `Price: ${formatPrice(dealDoc.price)}`,
-                                        `Remarks: ${dealDoc.remarks || 'Verified listing'}`
-                                    ]
-                                }
-                            ]
-                        };
-
-                        // 3. Resolve target recipients based on audienceConfig
-                        const audConfig = autoAction.audienceConfig || {};
-                        let rawRecipients = [];
-
-                        // 3a. Broker Groups (Company Groups & WhatsApp Groups)
-                        if (audConfig.sendToBrokerGroups !== false) {
-                            try {
-                                const Company = mongoose.models.Company || mongoose.model('Company');
-                                let companyQuery = {};
-                                if (Array.isArray(audConfig.selectedGroups) && audConfig.selectedGroups.length > 0) {
-                                    companyQuery = { groups: { $in: audConfig.selectedGroups } };
-                                } else if (audConfig.groupFilter === 'bna_only') {
-                                    companyQuery = { $or: [{ tags: { $in: ['bna', 'broker'] } }, { isVerifiedBroker: true }] };
-                                } else {
-                                    companyQuery = { $or: [{ isVerifiedBroker: true }, { 'groups.0': { $exists: true } }] };
-                                }
-                                if (companyId) companyQuery.companyId = companyId;
-
-                                const companies = await Company.find(companyQuery).lean();
-                                companies.forEach(c => {
-                                    const phone = c.phones?.[0]?.phoneNumber || c.mobile || '';
-                                    const email = c.emails?.[0]?.address || c.email || '';
-                                    if (phone || email) {
-                                        rawRecipients.push({
-                                            id: c._id,
-                                            name: c.name || 'Broker',
-                                            mobile: phone,
-                                            email: email,
-                                            isVerified: Boolean(c.isVerifiedBroker),
-                                            context: { originalType: 'Company' }
-                                        });
-                                    }
-                                });
-
-                                const WhatsAppGroup = mongoose.models.WhatsAppGroup || mongoose.model('WhatsAppGroup', new mongoose.Schema({ jid: String, name: String, tags: [String] }, { strict: false }));
-                                const groupFilter = audConfig.groupFilter === 'bna_only' ? { tags: { $in: ['bna', 'broker'] } } : {};
-                                const wGroups = await WhatsAppGroup.find(groupFilter).lean();
-                                wGroups.forEach(g => {
-                                    if (g.jid) {
-                                        rawRecipients.push({
-                                            id: g.jid || g._id,
-                                            name: g.name || 'Broker Community Group',
-                                            mobile: g.jid,
-                                            email: '',
-                                            isVerified: false,
-                                            isGroup: true,
-                                            context: { originalType: 'WhatsAppGroup' }
-                                        });
-                                    }
-                                });
-                            } catch (gErr) {
-                                console.warn('[WorkflowEngine] Error querying Broker Groups:', gErr.message);
-                            }
-                        }
-
-                        // 3b. Contact Groups
-                        if (audConfig.includeContactGroups !== false) {
-                            try {
-                                const Contact = mongoose.models.Contact || mongoose.model('Contact');
-                                let contactQuery = {};
-                                if (Array.isArray(audConfig.selectedContactGroups) && audConfig.selectedContactGroups.length > 0) {
-                                    contactQuery = { groups: { $in: audConfig.selectedContactGroups } };
-                                } else if (audConfig.allContactGroups) {
-                                    contactQuery = { 'groups.0': { $exists: true } };
-                                }
-                                if (companyId) contactQuery.companyId = companyId;
-
-                                if (Object.keys(contactQuery).length > 0) {
-                                    const contacts = await Contact.find(contactQuery).lean();
-                                    contacts.forEach(c => {
-                                        const phone = c.phones?.[0]?.number || c.mobile || c.phone || '';
-                                        const email = c.emails?.[0]?.address || c.email || '';
-                                        if (phone || email) {
-                                            rawRecipients.push({
-                                                id: c._id,
-                                                name: `${c.name || ''} ${c.surname || ''}`.trim() || 'Contact',
-                                                mobile: phone,
-                                                email: email,
-                                                isVerified: false,
-                                                context: { originalType: 'Contact' }
-                                            });
-                                        }
-                                    });
-                                }
-                            } catch (cErr) {
-                                console.warn('[WorkflowEngine] Error querying Contact Groups:', cErr.message);
-                            }
-                        }
-
-                        // 3c. WhatsApp Web Groups (@g.us)
-                        if (audConfig.includeWaGroups !== false) {
-                            try {
-                                if (Array.isArray(audConfig.selectedWaGroups) && audConfig.selectedWaGroups.length > 0) {
-                                    audConfig.selectedWaGroups.forEach(jid => {
-                                        rawRecipients.push({
-                                            id: jid,
-                                            name: 'WhatsApp Group',
-                                            mobile: jid,
-                                            email: '',
-                                            isVerified: false,
-                                            isGroup: true,
-                                            context: { originalType: 'WhatsAppGroup' }
-                                        });
-                                    });
-                                }
-                            } catch (wErr) {
-                                console.warn('[WorkflowEngine] Error querying WhatsApp Groups:', wErr.message);
-                            }
-                        }
-
-                        // 3d. AI Matched Buyers
-                        if (audConfig.includeMatchedBuyers !== false) {
-                            try {
-                                const LeadModel = mongoose.model('Lead');
-                                const minScore = audConfig.minMatchScore || 75;
-                                const leadFilter = {
-                                    stage: { $nin: ['Won', 'Lost', 'Closed'] }
-                                };
-                                if (companyId) leadFilter.companyId = companyId;
-
-                                const matchedLeads = await LeadModel.find(leadFilter).limit(50).lean();
-                                matchedLeads.forEach(l => {
-                                    const phone = l.mobile || l.primaryPhone || '';
-                                    if (phone) {
-                                        rawRecipients.push({
-                                            id: l._id,
-                                            name: `${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Prospective Buyer',
-                                            firstName: l.firstName || 'Buyer',
-                                            lastName: l.lastName || '',
-                                            mobile: phone,
-                                            email: l.email || '',
-                                            isVerified: false,
-                                            context: { originalType: 'Lead' }
-                                        });
-                                    }
-                                });
-                            } catch (lErr) {
-                                console.error('[WorkflowEngine] Error querying matched buyers:', lErr.message);
-                            }
-                        }
-
-                        // 3e. Tagged Investor Contacts
-                        if (audConfig.includeInvestorContacts) {
-                            try {
-                                const ContactModel = mongoose.models.Contact || mongoose.model('Contact');
-                                const tag = audConfig.contactTag || 'Investor';
-                                const contacts = await ContactModel.find({
-                                    companyId: companyId,
-                                    tags: { $in: [new RegExp(tag, 'i')] }
-                                }).lean();
-
-                                contacts.forEach(c => {
-                                    const phone = c.phone || c.mobile || '';
-                                    if (phone) {
-                                        rawRecipients.push({
-                                            id: c._id,
-                                            name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Investor',
-                                            firstName: c.firstName || (c.name ? c.name.split(' ')[0] : 'Investor'),
-                                            lastName: c.lastName || '',
-                                            mobile: phone,
-                                            email: c.email || '',
-                                            isVerified: false,
-                                            context: { originalType: 'Contact' }
-                                        });
-                                    }
-                                });
-                            } catch (cErr) {
-                                console.error('[WorkflowEngine] Error querying tagged contacts:', cErr.message);
-                            }
-                        }
-
-                        // Deduplicate recipients
-                        const seenKeys = new Set();
-                        const recipients = [];
-                        for (const r of rawRecipients) {
-                            const key = r.mobile ? `m:${r.mobile}` : (r.email ? `e:${String(r.email).toLowerCase()}` : `id:${r.id}`);
-                            if (!seenKeys.has(key)) {
-                                seenKeys.add(key);
-                                recipients.push(r);
-                            }
-                        }
-
-                        console.log(`[WorkflowEngine] Resolved ${recipients.length} recipients for Deal Broadcast`);
-
-                        // 4. Build Omnichannel channels & templates
-                        const notifConfig = autoAction.notificationConfig || {};
-                        const rawChannels = notifConfig.channels || { whatsapp: true };
-                        const channels = Array.isArray(rawChannels) 
-                            ? rawChannels 
-                            : Object.keys(rawChannels).filter(k => rawChannels[k]);
-                        if (channels.length === 0) channels.push('whatsapp');
-                        const templates = notifConfig.templates || {};
-
-                        const isBaileys = audConfig.whatsappMode !== 'cloud_api';
-
-                        const jobData = {
-                            name: `BNA Broadcast: ${meta.title}`,
-                            dealId: dealDoc._id || dealDoc.id,
-                            dealIds: [dealDoc._id || dealDoc.id],
-                            deal: dealDoc,
-                            deals: [dealDoc],
-                            channels: channels,
-                            recipients: recipients,
-                            meta: meta,
-                            templateId: templates.whatsapp || 'deal_broadcast',
-                            isBaileys: Boolean(isBaileys),
-                            smsTemplate: (channels.includes('sms') || notifConfig.channels?.sms) ? {
-                                templateId: templates.sms || 'default_sms_bna',
-                                name: templates.sms || 'Default DLT Deal Alert'
-                            } : null,
-                            emailTemplate: (channels.includes('email') || notifConfig.channels?.email) ? {
-                                templateId: templates.email || 'default_email_bna',
-                                name: templates.email || 'Default Deal Bulletin HTML'
-                            } : null,
-                            rcsTemplate: (channels.includes('rcs') || notifConfig.channels?.rcs) ? {
-                                templateId: templates.rcs || 'default_rcs_bna',
-                                name: templates.rcs || 'Default Verified RCS Rich Card'
-                            } : null,
-                            throttleSeconds: audConfig.throttleSeconds || 4,
-                            performedBy: 'Automated Rule Engine'
-                        };
-
-                        if (recipients.length > 0) {
-                            const { marketingQueue } = await import('../queues/marketingQueue.js');
-                            if (marketingQueue) {
-                                await marketingQueue.add('bna-broadcast', jobData, { removeOnComplete: true });
-                                console.log(`[WorkflowEngine] Successfully queued bna-broadcast for Deal ${dealDoc._id}`);
-                            } else {
-                                console.warn('[WorkflowEngine] marketingQueue not available for bna-broadcast');
-                            }
-                        } else {
-                            console.log(`[WorkflowEngine] No recipients found for Deal broadcast, skipping enqueue.`);
-                        }
                     }
-                    
+
                     // Log success
-                    await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'success' } });
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger.module,
+                        status: 'success',
+                        idempotencyKey,
+                        companyId,
+                        tenantId: entityData.tenantId || trigger.tenantId || null
+                    });
                 } catch (execError) {
                     console.error(`[WorkflowEngine] Automated Action Execution failed:`, execError);
-                    await AutomationLog.updateOne({ idempotencyKey }, { $set: { status: 'failed', details: { error: execError.message } } });
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger.module,
+                        status: 'failed',
+                        details: { error: execError.message },
+                        idempotencyKey,
+                        companyId,
+                        tenantId: entityData.tenantId || trigger.tenantId || null
+                    });
                     throw execError;
                 }
-                
+
                 return; // Automated action logic executed successfully
             }
 
             // ─── Native Raw Trigger Actions ───
+            if (isDealCreatedNative) {
+                const targetEntityId = String(entityData._id || entityData.id);
+                const triggerId = String(trigger._id);
+                const actionId = action._id ? String(action._id) : (executionOptions.actionIndex !== undefined ? String(executionOptions.actionIndex) : '0');
+                canonicalKey = `canonical-deal_created-${targetEntityId}-${triggerId}-${actionId}`;
+
+                if (executionOptions.callerManagedClaim && executionOptions.canonicalClaimAcquired) {
+                    claimAcquired = true;
+                    canonicalKey = executionOptions.idempotencyKey || canonicalKey;
+                    claimToken = executionOptions.claimToken;
+                    leaseUntil = executionOptions.leaseUntil || null;
+                } else {
+                    const { validateExecutionAuthority } = await import('./executionCoordinator.js');
+                    const authority = await validateExecutionAuthority('LEGACY', trigger?.event);
+                    if (!authority.authorized) {
+                        console.log(`[WorkflowEngine] executeAction for ${trigger?.event} suppressed by ExecutionCoordinator (owner: ${authority.owner}, epoch: ${authority.epoch}, reason: ${authority.reason})`);
+                        return;
+                    }
+
+                    const crypto = (await import('crypto')).default;
+                    claimToken = crypto.randomUUID();
+                    leaseUntil = new Date(Date.now() + 120000);
+
+                    try {
+                        await AutomationLog.create({
+                            ruleType: 'Trigger',
+                            ruleId: trigger._id,
+                            targetEntityId,
+                            targetModule: trigger.module,
+                            status: 'pending',
+                            idempotencyKey: canonicalKey,
+                            companyId,
+                            claimToken,
+                            leaseUntil,
+                            tenantId: entityData.tenantId || trigger.tenantId || null
+                        });
+                        claimAcquired = true;
+                    } catch (claimErr) {
+                        if (claimErr.code === 11000) {
+                            const existing = await AutomationLog.findOne({ idempotencyKey: canonicalKey });
+                            const existingDoc = existing?.lean ? await existing.lean() : existing;
+                            if (existingDoc && existingDoc.status === 'success') {
+                                console.log(`[WorkflowEngine] Action already executed for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                            if (existingDoc && existingDoc.status === 'pending' && existingDoc.leaseUntil && new Date(existingDoc.leaseUntil) > new Date()) {
+                                console.log(`[WorkflowEngine] Active claim held for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                            // Stale lease acquisition
+                            const updated = await AutomationLog.findOneAndUpdate(
+                                { idempotencyKey: canonicalKey, status: 'pending', leaseUntil: { $lte: new Date() } },
+                                { $set: { claimToken, leaseUntil } },
+                                { new: true }
+                            );
+                            if (updated) {
+                                claimAcquired = true;
+                                leaseUntil = updated.leaseUntil || leaseUntil;
+                            } else {
+                                console.log(`[WorkflowEngine] Lost claim race for canonical key: ${canonicalKey}. Skipping.`);
+                                return;
+                            }
+                        } else {
+                            throw claimErr;
+                        }
+                    }
+                }
+            }
+
             if (action.type === 'send_communication') {
                 let recipientMobile = entityData.mobile || entityData.primaryPhone || null;
                 if (!recipientMobile && entityData.entityId) {
@@ -513,33 +313,64 @@ export class WorkflowEngine {
                 } else {
                     const VariableResolver = (await import('./VariableResolver.js')).default;
                     if (action.channel === 'whatsapp') {
-                        const { sendWhatsAppMessage } = await import('../../controllers/social.controller.js');
-                        const resolvedTemplate = VariableResolver.resolve(action.templateId || action.message || '', entityData);
-                        console.log(`[WorkflowEngine] Sending WhatsApp to ${recipientMobile} | Template: ${action.templateId || 'text'}`);
+                        const WhatsAppService = (await import('../../services/WhatsAppService.js')).default;
 
-                        // 🚀 ENTERPRISE: Build templateComponents with named parameters for Meta API
-                        let templateComponents = [];
                         if (action.templateId) {
+                            // Phase C.2: Build CRM variable map first (named-param flat array)
+                            let crmParams = [];
                             try {
-                                templateComponents = await this._buildTemplateComponents(entityData, trigger.module, companyId);
-                                console.log(`[WorkflowEngine] Built ${templateComponents.length} template components for ${trigger.module}`);
+                                crmParams = await this._buildTemplateComponents(entityData, trigger.module, companyId);
+                                console.log(`[WorkflowEngine] Built ${crmParams.length} CRM params for template ${action.templateId}`);
                             } catch (tcErr) {
-                                console.error('[WorkflowEngine] Failed to build template components:', tcErr.message);
+                                console.error('[WorkflowEngine] Failed to build CRM params:', tcErr.message);
+                            }
+
+                            // Phase C.2: Fetch template definition — same as old controller path.
+                            // Required to: (a) get correct language, (b) build Meta-format components.
+                            const templates = await WhatsAppService.getTemplates();
+                            const templateDef = templates.find(t => t.name === action.templateId);
+
+                            // Language: from template definition (mirrors old: templateDef?.language || language || 'en')
+                            // 'language' in old mockReq.body was never set → always resolved to templateDef?.language || 'en'
+                            const langCode = templateDef?.language || 'en';
+
+                            // Build Meta-format components (body + header + buttons)
+                            const metaComponents = await this._buildMetaComponents(
+                                templateDef, crmParams, action.templateId
+                            );
+
+                            // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
+                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                                throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp template dispatch for canonical key: ${canonicalKey}`);
+                            }
+
+                            console.log(`[WorkflowEngine] Sending WhatsApp template "${action.templateId}" lang="${langCode}" to ${recipientMobile}`);
+                            const waResult = await WhatsAppService.sendTemplate(
+                                recipientMobile,
+                                action.templateId,
+                                langCode,
+                                metaComponents
+                            );
+                            if (!waResult?.success && waResult?.error) {
+                                throw new Error(`WhatsApp template send failed: ${JSON.stringify(waResult.error)}`);
+                            }
+                        } else {
+                            // Plain text — unchanged from Phase C
+                            const VariableResolver = (await import('./VariableResolver.js')).default;
+                            const resolvedMessage = VariableResolver.resolve(action.message || '', entityData);
+
+                            // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
+                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                                throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp text dispatch for canonical key: ${canonicalKey}`);
+                            }
+
+                            console.log(`[WorkflowEngine] Sending WhatsApp text to ${recipientMobile}`);
+                            if (resolvedMessage) {
+                                await WhatsAppService.sendMessage(recipientMobile, resolvedMessage);
+                            } else {
+                                console.log(`[WorkflowEngine] Skipping WhatsApp send: no templateId and no message`);
                             }
                         }
-
-                        const mockReq = {
-                            user: { companyId },
-                            body: {
-                                mobile: recipientMobile,
-                                message: resolvedTemplate,
-                                type: action.templateId ? 'template' : 'text',
-                                templateId: action.templateId,
-                                templateComponents: templateComponents.length > 0 ? templateComponents : undefined
-                            }
-                        };
-                        const mockRes = { status: () => mockRes, json: () => mockRes };
-                        await sendWhatsAppMessage(mockReq, mockRes, () => {}).catch(e => console.error('[WorkflowEngine] Meta API err:', e.message));
                     } else if (action.channel === 'sms') {
                         const resolvedSms = VariableResolver.resolve(action.templateId || '', entityData);
                         console.log(`[WorkflowEngine] Sending SMS (Raw) to ${recipientMobile}`);
@@ -548,17 +379,17 @@ export class WorkflowEngine {
             } else if (action.type === 'start_sequence' && action.sequenceId) {
                 console.log(`[WorkflowEngine] Enrolling entity ${entityData._id || entityData.id} into Sequence ${action.sequenceId}`);
                 try {
-                    const { SequenceEngine } = await import('./SequenceEngine.js');
-                    const Sequence = (await import('../../models/Sequence.js')).default;
-                    const sequence = await Sequence.findById(action.sequenceId);
-                    if (sequence) {
-                        await SequenceEngine.enroll(sequence, entityData, trigger.module || 'deals', companyId);
-                        console.log(`[WorkflowEngine] Successfully enrolled entity ${entityData._id || entityData.id} into Sequence: ${sequence.name}`);
-                    } else {
-                        console.warn(`[WorkflowEngine] Sequence ${action.sequenceId} not found in database.`);
+                    const mod = await import('../../src/queues/marketingQueue.js');
+                    const marketingQueue = mod.marketingQueue;
+                    if (marketingQueue) {
+                        await marketingQueue.add('drip', {
+                            leadId: entityData._id || entityData.id,
+                            sequenceId: action.sequenceId,
+                            step: 1
+                        }, { delay: 0 });
                     }
                 } catch (qErr) {
-                    console.error('[WorkflowEngine] Failed to enroll into sequence:', qErr.message);
+                    console.error('[WorkflowEngine] Failed to enqueue sequence:', qErr.message);
                 }
             } else if (action.type === 'send_notification' && action.message) {
                 console.log(`[WorkflowEngine] Sending Internal Notification (Raw) to ${action.target}`);
@@ -589,20 +420,36 @@ export class WorkflowEngine {
                 const Model = mongoose.model(modelName);
                 await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
             }
-            
-            if (!opts.skipLogging) {
+
+            if (isDealCreatedNative && claimAcquired) {
+                if (!executionOptions.callerManagedClaim) {
+                    const finalizeResult = await AutomationLog.updateOne(
+                        { idempotencyKey: canonicalKey, claimToken },
+                        { $set: { status: 'success', executedAt: new Date() } }
+                    );
+                    if (finalizeResult.modifiedCount !== 1) {
+                        console.warn(`[WorkflowEngine] Ownership lost during finalization for canonical key: ${canonicalKey}`);
+                    }
+                }
+            } else {
                 await AutomationLog.create({
                     ruleType: 'Trigger',
                     ruleId: trigger._id,
                     targetEntityId: entityData._id || entityData.id,
                     targetModule: trigger.module,
                     status: 'success',
-                    companyId
+                    companyId,
+                    tenantId: entityData.tenantId || trigger.tenantId || null
                 });
             }
         } catch (error) {
             console.error(`[WorkflowEngine] Action failed:`, error);
-            if (!opts.skipLogging) {
+            if (isDealCreatedNative && claimAcquired && !executionOptions.callerManagedClaim) {
+                await AutomationLog.updateOne(
+                    { idempotencyKey: canonicalKey, claimToken },
+                    { $set: { status: 'failed', details: { error: error.message } } }
+                );
+            } else if (!isDealCreatedNative) {
                 await AutomationLog.create({
                     ruleType: 'Trigger',
                     ruleId: trigger._id,
@@ -610,19 +457,211 @@ export class WorkflowEngine {
                     targetModule: trigger.module,
                     status: 'failed',
                     details: { error: error.message },
-                    companyId
+                    companyId,
+                    tenantId: entityData.tenantId || trigger.tenantId || null
                 });
             }
-            if (opts.propagateError) {
+            if (executionOptions.rethrowErrors) {
                 throw error;
             }
         }
     }
 
     /**
+     * Phase C.2 — Build Meta-format components from a CRM named-param array.
+     *
+     * Replicates the template-building logic previously inside sendWhatsAppMessage()
+     * in social.controller.js, adapted for non-HTTP / server-to-server execution.
+     *
+     * Covers:
+     *  - BODY: named ({{OwnerName}}) and numbered ({{1}}) variable resolution
+     *  - HEADER TEXT: variable-bearing text headers
+     *  - HEADER media (IMAGE/VIDEO/DOCUMENT): DB-configured default or hardcoded fallback
+     *  - BUTTONS: URL with dynamic variable, FLOW tokens, QUICK_REPLY (no-op)
+     *  - Fallback when template definition is not found
+     *
+     * @param {object|null}  templateDef  Template definition from WhatsAppService.getTemplates()
+     * @param {Array}        crmParams    Output of _buildTemplateComponents(): [{parameter_name, text}]
+     * @param {string}       templateId   Template name (for logging)
+     * @returns {Array}                   Meta-format components array
+     */
+    static async _buildMetaComponents(templateDef, crmParams, templateId) {
+        const components = [];
+
+        // ─── Build lookup maps from CRM params (mirrors controller) ──────────────
+        const namedParamMap   = {};   // exact-case lookup
+        const namedParamMapLC = {};   // lowercase lookup for case-insensitive match
+        const positionalValues = [];  // ordered list for {{1}}, {{2}} …
+        const plainTextList    = [];  // bare string items without parameter_name
+
+        if (Array.isArray(crmParams) && crmParams.length > 0) {
+            crmParams.forEach(item => {
+                if (item && typeof item === 'object' && item.parameter_name) {
+                    namedParamMap[item.parameter_name]                    = item.text || '';
+                    namedParamMapLC[item.parameter_name.toLowerCase()]    = item.text || '';
+                    positionalValues.push(item.text || '');
+                } else {
+                    plainTextList.push(typeof item === 'string' ? item : (item?.text || ''));
+                }
+            });
+        }
+
+        let positionalIdx = 0;
+        let plainIdx      = 0;
+
+        if (templateDef) {
+            for (const compDef of templateDef.components) {
+
+                // ── BODY ──────────────────────────────────────────────────────────
+                if (compDef.type === 'BODY') {
+                    const bodyMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                    const uniqueVars  = Array.from(new Set(bodyMatches.map(m => m.replace(/[{}]/g, '').trim())));
+
+                    if (uniqueVars.length > 0) {
+                        const parameters = uniqueVars.map(varName => {
+                            const isNumberedVar = /^\d+$/.test(varName);
+                            const varLC         = varName.toLowerCase();
+                            let textVal;
+
+                            if (namedParamMapLC[varLC] !== undefined) {
+                                textVal = namedParamMapLC[varLC];
+                            } else if (isNumberedVar && positionalIdx < positionalValues.length) {
+                                textVal = positionalValues[positionalIdx++];
+                            } else if (plainIdx < plainTextList.length) {
+                                textVal = plainTextList[plainIdx++];
+                            } else {
+                                textVal = '-';
+                            }
+
+                            // Meta rejects empty-string variables — use '-' as fallback
+                            let finalVal = String(textVal).trim();
+                            if (finalVal === '' || finalVal === 'null' || finalVal === 'undefined') finalVal = '-';
+
+                            const param = { type: 'text', text: finalVal };
+                            if (!isNumberedVar) param.parameter_name = varName; // preserve named-var identity
+                            return param;
+                        });
+                        components.push({ type: 'body', parameters });
+                    }
+
+                // ── BUTTONS ───────────────────────────────────────────────────────
+                } else if (compDef.type === 'BUTTONS') {
+                    compDef.buttons?.forEach((btn, btnIdx) => {
+                        if (btn.type === 'URL' && btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
+                            const urlVarName = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
+                            let btnTokenVal  = namedParamMap[urlVarName]
+                                || namedParamMap['siteVisitToken']
+                                || namedParamMap['site_visit_token']
+                                || plainTextList[plainIdx]
+                                || 'visit';
+                            // JWT dots must be encoded as '~' for Meta URL template vars
+                            if (typeof btnTokenVal === 'string' && btnTokenVal.includes('.')) {
+                                btnTokenVal = btnTokenVal.replace(/\./g, '~');
+                            }
+                            components.push({
+                                type:       'button',
+                                sub_type:   'url',
+                                index:      String(btnIdx),
+                                parameters: [{ type: 'text', text: String(btnTokenVal) }]
+                            });
+                        } else if (btn.type === 'FLOW') {
+                            components.push({
+                                type:       'button',
+                                sub_type:   'flow',
+                                index:      String(btnIdx),
+                                parameters: [{
+                                    type:   'action',
+                                    action: { flow_token: `crm_flow_${Date.now()}_${Math.floor(Math.random() * 1000)}` }
+                                }]
+                            });
+                        }
+                        // QUICK_REPLY: no component needed — Meta renders automatically
+                    });
+
+                // ── TEXT HEADER ───────────────────────────────────────────────────
+                } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT') {
+                    const headerMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                    if (headerMatches.length > 0) {
+                        const parameters = headerMatches.map(match => {
+                            const varName   = match.replace(/[{}]/g, '').trim();
+                            const isNumbered = /^\d+$/.test(varName);
+                            let textVal;
+                            if (namedParamMapLC[varName.toLowerCase()] !== undefined) {
+                                textVal = namedParamMapLC[varName.toLowerCase()];
+                            } else if (isNumbered && positionalIdx < positionalValues.length) {
+                                textVal = positionalValues[positionalIdx++];
+                            } else {
+                                textVal = plainTextList[plainIdx] || 'Update';
+                            }
+                            const param = { type: 'text', text: String(textVal).substring(0, 200) };
+                            if (!isNumbered) param.parameter_name = varName;
+                            return param;
+                        });
+                        components.push({ type: 'header', parameters });
+                    }
+
+                // ── MEDIA HEADER (IMAGE / VIDEO / DOCUMENT) ───────────────────────
+                // Note: controller also accepted headerImageUrl/mediaUrl from req.body.
+                // WorkflowEngine has no HTTP request — media URL comes from DB default
+                // or hardcoded fallback, same as when controller ran without explicit media.
+                } else if (compDef.type === 'HEADER' && compDef.format && compDef.format !== 'TEXT') {
+                    const hType = compDef.format.toLowerCase(); // 'image' | 'video' | 'document'
+
+                    let dbDefaultImage = null;
+                    try {
+                        const mongoose = (await import('mongoose')).default;
+                        const SystemSetting = mongoose.models.SystemSetting || mongoose.model('SystemSetting');
+                        const imgSetting = await SystemSetting.findOne({ key: 'wa_feedback_header_image' }).lean();
+                        dbDefaultImage = imgSetting?.value?.url || null;
+                    } catch (_e) { /* non-fatal — fall through to hardcoded default */ }
+
+                    const finalMediaUrl = dbDefaultImage || (
+                        hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
+                        hType === 'image'    ? '/uploads/whatsapp_feedback_header.jpg' :
+                        'https://www.w3schools.com/html/mov_bbb.mp4'
+                    );
+
+                    // WorkflowEngine cannot upload local files to Meta (no req/res context).
+                    // Use link-based reference — same as controller's non-local-file path.
+                    const mediaObject = { link: finalMediaUrl };
+                    if (hType === 'document') mediaObject.filename = 'Huda_Map_Book_KKR.pdf';
+
+                    const headerComp = {
+                        type:       'header',
+                        parameters: [{ type: hType, [hType]: mediaObject }]
+                    };
+                    const existingHeaderIdx = components.findIndex(c => c.type === 'header');
+                    if (existingHeaderIdx >= 0) components[existingHeaderIdx] = headerComp;
+                    else components.push(headerComp);
+                }
+            }
+
+        // ─── Fallback — template definition not found (mirrors controller fallback) ─
+        } else {
+            console.warn(`[WorkflowEngine] ⚠️ Template definition NOT found for: ${templateId}. Using flat param fallback.`);
+            if (Array.isArray(crmParams) && crmParams.length > 0) {
+                components.push({
+                    type:       'body',
+                    parameters: crmParams.map(item => {
+                        let textVal = typeof item === 'string' ? item : (item?.text || '');
+                        textVal = String(textVal).trim();
+                        if (textVal === '' || textVal === 'null' || textVal === 'undefined') textVal = '-';
+                        const param = { type: 'text', text: textVal };
+                        if (item?.parameter_name) param.parameter_name = item.parameter_name;
+                        return param;
+                    })
+                });
+            }
+        }
+
+        return components;
+    }
+
+    /**
      * 🚀 ENTERPRISE: Build comprehensive templateComponents from entity data.
      * Maps CRM fields to Meta-approved template variables so that WhatsApp
      * templates receive real, dynamic data instead of empty placeholders.
+
      * Also generates JWT tokens for CTA button URLs (public form pre-fill).
      */
     static async _buildTemplateComponents(entityData, moduleName, companyId) {
@@ -640,19 +679,19 @@ export class WorkflowEngine {
                 if (val && typeof val === 'object' && val._id) return [val._id.toString()];
                 return [];
             };
-            
+
             const lookupFields = ['sizeType', 'propertyType', 'subType', 'transactionType', 'source', 'status', 'stage', 'requirement', 'location'];
             const idsToResolve = [];
             lookupFields.forEach(field => {
                 const ids = extractIds(entityData[field]);
                 if (ids && ids.length) idsToResolve.push(...ids);
             });
-            
+
             if (idsToResolve.length > 0) {
                 const lookups = await LookupModel.find({ _id: { $in: idsToResolve } }).lean();
                 const lookupMap = {};
                 lookups.forEach(l => lookupMap[l._id.toString()] = l.label || l.value || l.lookup_value || l.name);
-                
+
                 lookupFields.forEach(field => {
                     const val = entityData[field];
                     if (!val) return;
@@ -715,9 +754,6 @@ export class WorkflowEngine {
             }
         }
 
-        const teamName = entityData.assignment?.team || entityData.team || 'Sales Team';
-        const visibleToStr = entityData.assignment?.visibleTo || entityData.visibleTo || 'Everyone';
-
         // ─── Build full name ───
         const fullName = [entityData.firstName, entityData.lastName].filter(Boolean).join(' ')
             || entityData.fullName || entityData.name || 'Valued Customer';
@@ -765,25 +801,12 @@ export class WorkflowEngine {
             'budget_max': formatBudget(entityData),
             'budget_min': entityData.budgetMin ? String(entityData.budgetMin) : '',
 
-            // System & Assignment Data
-            'team': teamName,
-            'team_name': teamName,
-            'assignedTo': agentName,
-            'assignedto': agentName,
-            'visibleTo': visibleToStr,
-            'visibleto': visibleToStr,
-
             // Agent / Employee Data
             'employee_name': agentName,
             'employee_mobile': agentMobile,
-            'employee_email': agentEmail,
             'agent_name': agentName,
             'agent_mobile': agentMobile,
             'agent_email': agentEmail,
-            'ownerMobile': agentMobile,
-            'ownermobile': agentMobile,
-            'ownerEmail': agentEmail,
-            'owneremail': agentEmail,
 
             // Feedback-style Aliases
             'OwnerName': fullName,
@@ -811,6 +834,16 @@ export class WorkflowEngine {
 
     static async fireEvent(moduleName, eventName, entityData, companyId) {
         try {
+            // Phase E.3-D.9-B2-B: Check ExecutionCoordinator authority for coordinated events
+            if (moduleName === 'deals' && (eventName === 'deal_created' || eventName === 'DealCreated')) {
+                const { validateExecutionAuthority } = await import('./executionCoordinator.js');
+                const authority = await validateExecutionAuthority('LEGACY', eventName);
+                if (!authority.authorized) {
+                    console.log(`[WorkflowEngine] Event ${moduleName}.${eventName} execution suppressed by ExecutionCoordinator (owner: ${authority.owner}, epoch: ${authority.epoch}, reason: ${authority.reason})`);
+                    return;
+                }
+            }
+
             const activeTriggers = await Trigger.find({
                 module: moduleName,
                 event: eventName,
@@ -822,8 +855,9 @@ export class WorkflowEngine {
                 const shouldFire = this.evaluateRules(trigger.conditions, entityData);
                 if (shouldFire) {
                     console.log(`[WorkflowEngine] Trigger '${trigger.name}' fired for ${moduleName}.${eventName}`);
-                    for (const action of trigger.actions) {
-                        await this.executeAction(action, entityData, trigger, companyId);
+                    for (let actionIndex = 0; actionIndex < trigger.actions.length; actionIndex++) {
+                        const action = trigger.actions[actionIndex];
+                        await this.executeAction(action, entityData, trigger, companyId, false, { actionIndex });
                     }
                 }
             }

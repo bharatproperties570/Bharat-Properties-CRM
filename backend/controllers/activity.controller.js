@@ -898,7 +898,12 @@ export const addActivity = async (req, res) => {
         const activityData = { ...req.body };
         const actorName = req.user?.fullName || req.user?.name || 'A teammate';
 
-        // Auto-set performer name from authenticated user
+        // Auto-set performer name from authenticated user and isolate tenant
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            activityData.tenantId = effectiveTenantId;
+        }
+
         if (req.user) {
             activityData.createdBy = req.user.id || req.user._id;
             activityData.performedBy = actorName;
@@ -936,7 +941,7 @@ export const addActivity = async (req, res) => {
         await withMongoTransaction(async (session) => {
             activity = (await Activity.create([activityData], { session }))[0];
 
-            await OutboxEvent.create([{
+            const outboxEntry = {
                 eventType: 'ActivityCreated',
                 aggregateType: 'Activity',
                 aggregateId: activity._id,
@@ -944,7 +949,12 @@ export const addActivity = async (req, res) => {
                     ...activity.toJSON(),
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            };
+            if (effectiveTenantId) {
+                outboxEntry.tenantId = effectiveTenantId;
+            }
+
+            await OutboxEvent.create([outboxEntry], { session });
 
         // 🚀 Detect Mentions in Note/Description
         if (activity.description) {

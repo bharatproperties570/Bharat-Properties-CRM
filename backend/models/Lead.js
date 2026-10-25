@@ -184,6 +184,8 @@ const LeadSchema = new mongoose.Schema({
     }],
     interestedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
     snoozedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null },
 }, { timestamps: true });
 
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -526,6 +528,8 @@ LeadSchema.index({ companyId: 1, isArchived: 1 }, { background: true });
 LeadSchema.index({ status: 1, createdAt: -1 }, { background: true });
 LeadSchema.index({ contactDetails: 1 }, { background: true }); // 🚀 [ENTERPRISE] CRM Linkage aggregation
 LeadSchema.index({ mobile: 1 }, { background: true }); // 🚀 [ENTERPRISE] Fast phone-based CRM Linkage
+LeadSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+LeadSchema.index({ tenantId: 1, stage: 1 }, { background: true });
 
 // 🚀 [ENTERPRISE] Soft Delete Support
 LeadSchema.plugin(softDeletePlugin);

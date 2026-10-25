@@ -16,7 +16,7 @@ import LeadScoringService from "../src/services/LeadScoringService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
-import Project from "../models/Project.js"; 
+import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
@@ -64,7 +64,7 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    
+
     // 🚀 SENIOR SAFETY: Extract ID if it's an object
     let idStr = identifier;
     if (typeof identifier === 'object') {
@@ -150,7 +150,7 @@ const resolveAllReferenceFields = async (doc) => {
 
     // Handle Team resolution (from ID or Name)
     let teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []);
-    
+
     // Also check nested assignment.team if scalar teams are missing
     if (teamsToResolve.length === 0 && doc.assignment?.team) {
         teamsToResolve = Array.isArray(doc.assignment.team) ? doc.assignment.team : [doc.assignment.team];
@@ -161,7 +161,7 @@ const resolveAllReferenceFields = async (doc) => {
         const resolvedTeams = await Promise.all(teamsToResolve.map(async (t) => {
             let teamId = t;
             if (typeof teamId === 'object' && teamId?._id) teamId = teamId._id;
-            
+
             if (mongoose.Types.ObjectId.isValid(teamId)) {
                 const teamDoc = await Team.findById(teamId).select('_id');
                 return teamDoc?._id;
@@ -279,7 +279,7 @@ const leadListPopulateFields = [
  */
 export const getLeads = async (req, res, next) => {
     try {
-        const { 
+        const {
             page = 1, limit = 100, search = "", stage, status, teamId, userId, mobile, showDormant,
             source, project, location, budgetMin, budgetMax, areaMin, areaMax,
             propertyType, subType, unitType, facing, direction, roadWidth, requirement,
@@ -291,7 +291,7 @@ export const getLeads = async (req, res, next) => {
         const safeLimit = Math.min(Number(limit) || 100, 500);
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        
+
         // 🛠️ SENIOR DIAGNOSTIC: Log exact request params for Mobile Debugging
         const auditData = {
             user: req.user?.email,
@@ -313,11 +313,11 @@ export const getLeads = async (req, res, next) => {
         for (const [key, value] of Object.entries(dynamicFilters)) {
             if (value && value !== "" && value !== "undefined") {
                 let searchValues = Array.isArray(value) ? value : [value];
-                
+
                 // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
                 const mixedValues = [];
                 searchValues.forEach(val => {
-                    mixedValues.push(val); 
+                    mixedValues.push(val);
                     if (mongoose.Types.ObjectId.isValid(val)) {
                         mixedValues.push(new mongoose.Types.ObjectId(val));
                     }
@@ -344,7 +344,7 @@ export const getLeads = async (req, res, next) => {
         // 🛡️ [SENIOR FIX] Validate 'mobile' param — only apply regex if it's a numeric string
         // This prevents 'mobile=true' (common in some UI flags) from returning 0 results
         if (mobile && typeof mobile === 'string' && /^\d+$/.test(mobile)) {
-            query.mobile = { $regex: new RegExp(`${mobile}$`) }; 
+            query.mobile = { $regex: new RegExp(`${mobile}$`) };
         }
 
         if (search) {
@@ -358,7 +358,7 @@ export const getLeads = async (req, res, next) => {
                     { locArea: { $regex: search, $options: "i" } }
                 ]
             };
-            
+
             // 🛡️ [SENIOR FIX] Safe Merge: Use $and to wrap visibility and search
             // This prevents the search $or from accidentally overriding top-level visibility logic
             if (Object.keys(query).length > 0) {
@@ -376,7 +376,7 @@ export const getLeads = async (req, res, next) => {
         }
 
         if (teamId && mongoose.Types.ObjectId.isValid(teamId)) query['assignment.team'] = teamId;
-        
+
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             const userFilter = { $or: [{ owner: userId }, { 'assignment.assignedTo': userId }] };
             if (Object.keys(query).length > 0) {
@@ -460,9 +460,9 @@ export const getLeads = async (req, res, next) => {
                 const validLeadIds = leadsWithActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
                 query._id = { $nin: validLeadIds };
             } else if (operationalFilter === 'noFollowup') {
-                const futureActivities = await Activity.distinct('entityId', { 
-                    entityType: { $in: ['Lead', 'lead', 'leads'] }, 
-                    dueDate: { $gte: new Date() } 
+                const futureActivities = await Activity.distinct('entityId', {
+                    entityType: { $in: ['Lead', 'lead', 'leads'] },
+                    dueDate: { $gte: new Date() }
                 });
                 const validFutureIds = futureActivities.filter(id => id && mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
                 query._id = { $nin: validFutureIds };
@@ -503,9 +503,9 @@ export const getLeads = async (req, res, next) => {
             else if (status === 'lost') targetStages = ['Closed Lost', 'Stalled'];
 
             if (targetStages.length > 0) {
-                const stages = await Lookup.find({ 
-                    lookup_type: 'Stage', 
-                    lookup_value: { $in: targetStages.map(s => new RegExp(`^${s}$`, 'i')) } 
+                const stages = await Lookup.find({
+                    lookup_type: 'Stage',
+                    lookup_value: { $in: targetStages.map(s => new RegExp(`^${s}$`, 'i')) }
                 }).select('_id');
                 query.stage = { $in: stages.map(s => s._id) };
             } else if (mongoose.Types.ObjectId.isValid(status)) {
@@ -519,7 +519,7 @@ export const getLeads = async (req, res, next) => {
             const rawStages = Array.isArray(stageParam) ? stageParam : [stageParam];
             const stageRegexes = rawStages.map(s => new RegExp(`^${escapeRegExp(String(s))}$`, 'i'));
             const stageObjectIds = rawStages.filter(s => mongoose.Types.ObjectId.isValid(s)).map(s => new mongoose.Types.ObjectId(s));
-            
+
             const matchedStages = await Lookup.find({
                 lookup_type: 'Stage',
                 $or: [
@@ -533,19 +533,19 @@ export const getLeads = async (req, res, next) => {
                 query.stage = { $in: allMatchedIds };
             }
         }
-        
+
         // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true OR searching OR filtering dormant) ---
         if (showDormant !== "true" && !req.query.stage && !search && operationalFilter !== 'dormant') {
-            const dormantLookups = await Lookup.find({ 
-                lookup_value: { $regex: /^Dormant$/i } 
+            const dormantLookups = await Lookup.find({
+                lookup_value: { $regex: /^Dormant$/i }
             }).select('_id').lean();
             const dormantIds = dormantLookups.map(l => l._id);
-            
+
             if (dormantIds.length > 0) {
-                const exclusionFilter = { 
+                const exclusionFilter = {
                     stage: { $nin: dormantIds }
                 };
-                
+
                 if (query.$and) {
                     query.$and.push(exclusionFilter);
                 } else if (Object.keys(query).length > 0) {
@@ -570,9 +570,9 @@ export const getLeads = async (req, res, next) => {
         };
 
         const allTargetStages = [...new Set(Object.values(stageBuckets).flat())];
-        const resolvedStages = await Lookup.find({ 
-            lookup_type: 'Stage', 
-            lookup_value: { $in: allTargetStages.map(s => new RegExp(`^${s}$`, 'i')) } 
+        const resolvedStages = await Lookup.find({
+            lookup_type: 'Stage',
+            lookup_value: { $in: allTargetStages.map(s => new RegExp(`^${s}$`, 'i')) }
         }).select('_id lookup_value').lean();
 
         const stageToId = new Map();
@@ -711,7 +711,7 @@ export const getLeads = async (req, res, next) => {
         // --- 📊 DYNAMIC SORTING (Senior Professional Optimization) ---
         const finalSortBy = req.query.sortBy || 'updatedAt';
         const finalSortOrder = parseInt(req.query.sortOrder) || -1;
-        
+
         let sortOption = { [finalSortBy]: finalSortOrder };
 
         // 🏗️ [SENIOR FIX] Intelligent Stage Sorting
@@ -719,8 +719,8 @@ export const getLeads = async (req, res, next) => {
         if (finalSortBy === 'stage') {
             console.log("[LeadSort] Applying Intelligent Stage Sequence sort...");
             // We use the 'stage_sequence' logic: Incoming(1) -> Prospect(2) -> Qualified(3) -> Opportunity(4) -> Negotiation(5) -> Booked(6) -> Closed Won(7)
-            // Since we can't easily sort by lookup value sequence in a simple .find(), 
-            // we'll keep the standard sort but ensure the UI knows this is a best-effort sort by ID 
+            // Since we can't easily sort by lookup value sequence in a simple .find(),
+            // we'll keep the standard sort but ensure the UI knows this is a best-effort sort by ID
             // OR we could use an aggregate, but for now we'll stick to indexed fields.
             // NOTE: Future improvement should add a 'sequence' field to the Lead model updated on stage change.
         }
@@ -906,18 +906,18 @@ export const getLeads = async (req, res, next) => {
             // O(1) lookup collection
             const uniqueLookupIds = new Set();
             const mixedFields = [
-                'requirement', 'subRequirement', 'budget', 'location', 'source', 
-                'status', 'stage', 'subSource', 'campaign', 'salutation', 
+                'requirement', 'subRequirement', 'budget', 'location', 'source',
+                'status', 'stage', 'subSource', 'campaign', 'salutation',
                 'unitType', 'propertyType', 'subType' // Added for scalar support
             ];
             const arrayMixedFields = [
-                'propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 
+                'propertyType', 'subType', 'unitType', 'facing', 'roadWidth',
                 'direction', 'category', 'propertySubType' // Expanded list
             ];
 
             results.records.forEach(lead => {
                 const leadObj = lead.toObject ? lead.toObject() : lead;
-                
+
                 mixedFields.forEach(f => {
                     const val = leadObj[f];
                     if (!val) return;
@@ -955,14 +955,14 @@ export const getLeads = async (req, res, next) => {
                 uniqueLookupIds.size > 0
                     ? Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value lookup_type').lean()
                     : Promise.resolve([]),
-                mongoose.models.SystemSetting 
+                mongoose.models.SystemSetting
                     ? mongoose.model('SystemSetting').findOne({ key: 'propertyConfig' }).select('value').lean()
                     : Promise.resolve(null)
             ]);
 
             // Create a map for standard lookups
             const lookupValueMap = new Map(batchLookups.map(l => [l._id.toString(), l.lookup_value]));
-            
+
             console.log(`[HYDRATION_DEBUG] Fetched ${batchLookups.length} lookups. Unique IDs requested: ${uniqueLookupIds.size}`);
             if (uniqueLookupIds.size > 0 && batchLookups.length === 0) {
                 console.warn(`[HYDRATION_DEBUG] CRITICAL: Requested ${uniqueLookupIds.size} IDs but found 0 in Lookups table!`);
@@ -972,7 +972,7 @@ export const getLeads = async (req, res, next) => {
                 const idStr = id.toString();
                 // 1. Try standard map
                 if (lookupValueMap.has(idStr)) return lookupValueMap.get(idStr);
-                
+
                 // 2. Try propertyConfig crawl
                 if (systemConfig?.value) {
                     let foundName = null;
@@ -993,7 +993,7 @@ export const getLeads = async (req, res, next) => {
             results.records = results.records.map((lead) => {
                 const leadId = lead._id.toString();
                 const actStat = activityMap.get(leadId);
-                const latest = actStat?.latestActivity; 
+                const latest = actStat?.latestActivity;
                 const leadObj = lead.toObject ? lead.toObject() : lead;
 
                 // 🏗️ Universal Hydration (Batch Optimized)
@@ -1021,7 +1021,7 @@ export const getLeads = async (req, res, next) => {
                         } else if (typeof val === 'string') {
                             // If resolution fails but it was a string, hide the ID from being the label
                             // Actually, better to keep it as ID but mark it for frontend cleanup
-                            leadObj[f] = { _id: val, lookup_value: null }; 
+                            leadObj[f] = { _id: val, lookup_value: null };
                         }
                     } else if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
                         leadObj[f] = { lookup_value: val };
@@ -1042,7 +1042,7 @@ export const getLeads = async (req, res, next) => {
                             } else if (typeof v === 'object') {
                                 id = v._id?.toString() || (mongoose.Types.ObjectId.isValid(v.id) ? v.id : null);
                                 label = v.lookup_value || v.name || v.label;
-                                
+
                                 // Fix if label is an ID
                                 if (label && mongoose.Types.ObjectId.isValid(label)) {
                                     label = resolveFromAnywhere(label);
@@ -1141,7 +1141,7 @@ export const addLead = async (req, res, next) => {
 
         // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
         await resolveAllReferenceFields(data);
-        
+
         // 🛡️ Stage Qualification Engine: Evaluate requirement completeness before defaulting
         if (!data.stage) {
             try {
@@ -1160,14 +1160,19 @@ export const addLead = async (req, res, next) => {
             }
         }
         if (!data.status) data.status = await resolveLookup('Status', 'New');
-        
+
         console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
 
-        // 2. 🔒 Enterprise Isolation: Auto-tag with creator's department and teams ONLY IF MISSING
+        // 2. 🔒 Enterprise Isolation: Auto-tag with creator's department, teams, and tenantId
         // We do this AFTER resolution so that manual selections are respected.
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            data.tenantId = effectiveTenantId;
+        }
+
         if (req.user) {
             if (req.user.department && !data.department) data.department = req.user.department;
-            
+
             // Critical Fix: Only auto-assign creator's teams if the resolved data.teams is still empty
             if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
                 data.teams = req.user.teams.map(t => t._id || t);
@@ -1175,7 +1180,13 @@ export const addLead = async (req, res, next) => {
         }
 
         const { createStandardizedLead } = await import('../services/LeadCreationEngine.js');
-        const leadResult = await createStandardizedLead(data, { triggerEvent: 'onCreate' });
+        const leadResult = await createStandardizedLead(data, {
+            triggerEvent: 'onCreate',
+            tenantId: effectiveTenantId,
+            actorId: req.user?._id || req.user?.id || null,
+            actorType: 'HUMAN',
+            source: 'HTTP'
+        });
         const lead = leadResult.lead;
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
@@ -1197,7 +1208,7 @@ export const addLead = async (req, res, next) => {
 export const togglePinMatch = async (req, res) => {
     try {
         const { id, inventoryId } = req.params;
-        
+
         // 🛡️ Enterprise Fix: Avoid .save() validation errors by using atomic operators
         const lead = await Lead.findById(id).select('pinnedMatches');
         if (!lead) {
@@ -1205,7 +1216,7 @@ export const togglePinMatch = async (req, res) => {
         }
 
         const isPinned = lead.pinnedMatches?.some(p => p.toString() === inventoryId.toString());
-        
+
         const updateOp = isPinned
             ? { $pull: { pinnedMatches: inventoryId } }
             : { $addToSet: { pinnedMatches: inventoryId } };
@@ -1228,7 +1239,7 @@ export const updateLead = async (req, res, next) => {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
 
-        // 🛡️ SENIOR FIX: Prevent frontend from overwriting audit trails & computed fields 
+        // 🛡️ SENIOR FIX: Prevent frontend from overwriting audit trails & computed fields
         // This causes "Cast to embedded failed" if frontend passes back hydrated _id strings
         delete updateData.stageHistory;
         delete updateData.interactionCounts;
@@ -1264,10 +1275,10 @@ export const updateLead = async (req, res, next) => {
                     currentStageStr = String(existing.stage).toLowerCase();
                 }
             }
-            
+
             const isCurrentlyClosed = currentStageStr.includes('closed') || currentStageStr.includes('lost') || currentStageStr.includes('won') || currentStageStr.includes('unqualified') || currentStageStr.includes('junk');
             let isReviving = false;
-            
+
             if (updateData.stage) {
                 let newStageStr = String(updateData.stage).toLowerCase();
                 if (mongoose.Types.ObjectId.isValid(updateData.stage) && String(updateData.stage).length === 24) {
@@ -1328,7 +1339,7 @@ export const updateLead = async (req, res, next) => {
                         currentStageStr = String(existing.stage);
                     }
                 }
-                
+
                 let newStageStr = String(updateData.stage);
                 if (updateData.stage && mongoose.Types.ObjectId.isValid(updateData.stage) && /^[a-fA-F0-9]{24}$/.test(String(updateData.stage))) {
                     const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
@@ -1420,13 +1431,13 @@ export const updateLead = async (req, res, next) => {
                 const atomicUpdate = { ...historyUpdate };
                 const pushOps = atomicUpdate.$push;
                 delete atomicUpdate.$push;
-                
+
                 // 🏎️ SENIOR OPTIMIZATION: Sequential updates to avoid Mongoose path conflicts
                 // (You cannot $set and $push to the same array/path in a single operation)
                 if (Object.keys(atomicUpdate).length > 0) {
                     await Lead.findByIdAndUpdate(req.params.id, { $set: atomicUpdate }, { session });
                 }
-                
+
                 if (pushOps && Object.keys(pushOps).length > 0) {
                     await Lead.findByIdAndUpdate(req.params.id, { $push: pushOps }, { session });
                 }
@@ -1479,9 +1490,9 @@ export const updateLead = async (req, res, next) => {
         if (finalLead) {
             // Bidirectional Sync: Lead -> Inventory
             if (updateData.documents && Array.isArray(updateData.documents)) {
-                await syncDocumentsToInventory(updateData.documents, { 
-                    name: `${finalLead.firstName} ${finalLead.lastName || ''}`.trim(), 
-                    mobile: finalLead.mobile 
+                await syncDocumentsToInventory(updateData.documents, {
+                    name: `${finalLead.firstName} ${finalLead.lastName || ''}`.trim(),
+                    mobile: finalLead.mobile
                 });
             }
             // Enrichment and Scoring are now handled by Domain Event Worker via OutboxEvent
@@ -1523,7 +1534,7 @@ export const deleteLead = async (req, res, next) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         console.log(`[DELETE_AUDIT] Attempt by ${req.user?.email} for lead ${id}. Filter: ${JSON.stringify(visibilityFilter)}`);
-        
+
         const lead = await Lead.findOne({ _id: id, ...visibilityFilter });
         if (!lead) {
             console.warn(`[DELETE_AUDIT] ⛔ Lead ${id} not found or access denied for ${req.user?.email}`);
@@ -1570,7 +1581,7 @@ export const getLeadById = async (req, res, next) => {
 
         // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
         const leadData = lead.toObject();
-        
+
         const mixedFields = [
             { field: 'requirement', type: 'Requirement' },
             { field: 'subRequirement', type: 'SubRequirement' },
@@ -1814,7 +1825,7 @@ export const importLeads = async (req, res, next) => {
                 };
 
                 let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
-                
+
                 // Fallback: If no explicit fullAddress is mapped, check if 'searchLocation' contains the full address string
                 if (!fullAddress && (!leadEntry.locArea || !leadEntry.locCity) && leadEntry.searchLocation && AddressParsingService.shouldParse(leadEntry.searchLocation)) {
                     fullAddress = leadEntry.searchLocation;
@@ -1958,7 +1969,7 @@ export const checkDuplicatesImport = async (req, res, next) => {
 // 🧊 [ENTERPRISE] Advanced Specific Unit Range & String Matcher
 const checkUnitMatch = (leadUnits, dealUnitNo) => {
     if (!dealUnitNo || !leadUnits || leadUnits.length === 0) return false;
-    
+
     // 1. Exact string match fallback
     if (leadUnits.some(u => u === dealUnitNo || dealUnitNo.includes(u) || u.includes(dealUnitNo))) return true;
 
@@ -1968,24 +1979,24 @@ const checkUnitMatch = (leadUnits, dealUnitNo) => {
         try {
             const rangeStr = rangeUnit.replace('range:', '');
             const [startStr, endStr] = rangeStr.split('-');
-            
+
             const extractNum = (str) => {
                 const match = str ? str.match(/\d+/) : null;
                 return match ? parseInt(match[0], 10) : null;
             };
-            
+
             const startNum = extractNum(startStr);
             const endNum = extractNum(endStr);
             const dealNum = extractNum(dealUnitNo);
-            
+
             if (startNum !== null && endNum !== null && dealNum !== null) {
                 const minNum = Math.min(startNum, endNum);
                 const maxNum = Math.max(startNum, endNum);
-                
+
                 const getPrefix = (str) => (str || '').replace(/\d+/g, '').trim();
                 const startPrefix = getPrefix(startStr);
                 const dealPrefix = getPrefix(dealUnitNo);
-                
+
                 if (dealNum >= minNum && dealNum <= maxNum) {
                     if (!startPrefix || !dealPrefix || startPrefix === dealPrefix) {
                         return true;
@@ -2131,7 +2142,7 @@ export const matchLeads = async (req, res) => {
         // ─── 2. FETCH LEADS ───────────────────────────────────────────────────────
         const terminalStageLookups = allLookups
             .filter(l => ['Closed (Lost)', 'Closed (Won)', 'Unqualified', 'Closed Lost', 'Closed Won', 'Lost', 'Closed', 'Junk', 'Sold Out'].includes(l.lookup_value));
-            
+
         // Because stage is Mixed type in Schema, Mongoose might not cast automatically. Include ObjectId, String ID, and Raw Values.
         const terminalStageIds = ['Closed (Lost)', 'Closed (Won)', 'Unqualified', 'Closed Lost', 'Closed Won', 'Lost', 'Closed', 'Junk', 'Sold Out'];
         terminalStageLookups.forEach(l => {
@@ -2141,7 +2152,7 @@ export const matchLeads = async (req, res) => {
 
         const excludedStatusLookups = allLookups
             .filter(l => ['Lost', 'Closed', 'Rejected', 'Converted'].includes(l.lookup_value));
-            
+
         const excludedStatusIds = ['Lost', 'Closed', 'Rejected', 'Converted'];
         excludedStatusLookups.forEach(l => {
             excludedStatusIds.push(l._id);
@@ -2149,8 +2160,8 @@ export const matchLeads = async (req, res) => {
         });
 
         const visFilter = await getVisibilityFilter(req.user);
-        const leadQuery = { 
-            ...visFilter, 
+        const leadQuery = {
+            ...visFilter,
             status: { $nin: excludedStatusIds },
             stage: { $nin: terminalStageIds }
         };
@@ -2387,7 +2398,7 @@ export const matchLeads = async (req, res) => {
 
             const isCatMatch      = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
             const isSubCatMatch   = leadSubs.length > 0 && dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat));
-            
+
             // SizeType is optional, but if specified it must match.
             // Since frontend sometimes sends size types in unitType (like "Booth"), we check if any provided size/unit string matches dealSizeDesc.
             const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
@@ -2395,7 +2406,7 @@ export const matchLeads = async (req, res) => {
 
             const isBudgetPref    = hasLeadBudget ? (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) : false;
             const isLocationPref  = hasLeadLocation ? (scoreBreakdown.location.earned >= 25) : false;
-            
+
             // Unit Type is intentionally EXCLUDED from Preferred Match as per user request
             const isPreferredMatch = isCatMatch && isSubCatMatch && sizeOrUnitMatched && isBudgetPref && isLocationPref;
 
@@ -2532,7 +2543,7 @@ export const snoozeLeadMatch = async (req, res, next) => {
 
 /**
  * Phase 5: AI-Driven Lead Requirement Interpretation
- * Uses Gemini to analyze unstructured data (notes, activity logs) and extract 
+ * Uses Gemini to analyze unstructured data (notes, activity logs) and extract
  * high-precision matching parameters.
  */
 export const interpretLeadRequirements = async (req, res) => {
@@ -2549,25 +2560,25 @@ export const interpretLeadRequirements = async (req, res) => {
 
         const prompt = `
         As a Senior Real Estate Analyst, analyze the following lead data and extract structured requirements for our CRM matching engine.
-        
+
         LEAD NAME: ${lead.firstName} ${lead.lastName || ''}
         CURRENT PROJECT: ${lead.projectName || 'Not specified'}
         CURRENT BUDGET: ${lead.budgetMin || 0} - ${lead.budgetMax || 0}
         CURRENT LOCATION: ${lead.sector || lead.locArea || lead.locCity || ''}
-        
+
         NOTES:
         ${notes}
-        
+
         RECENT ACTIVITY LOGS:
         ${activityText}
-        
+
         TASK:
         1. Identify the intended use (Buying, Renting, or Investment).
         2. Extract specific property types (e.g., 3BHK, Independent Floor, Plot).
         3. Determine the budget range (convert words like "1.5Cr" to numbers like 15000000).
         4. Identify location preferences (Sectors, Areas).
         5. Look for "soft signals" like: Vastu, Park facing, High floor, Construction stage.
-        
+
         RETURN ONLY A JSON OBJECT in this exact format:
         {
             "requirement": "Buy" | "Rent" | "Investment",
@@ -2583,7 +2594,7 @@ export const interpretLeadRequirements = async (req, res) => {
 
         // 2. Fetch Config from AI Agent (Settings Page Integration)
         let agent = await AiAgent.findOne({ name: /Requirement Profiler/i, isActive: true });
-        
+
         // Auto-provision if missing (Professional Fallback)
         if (!agent) {
             console.log("[AI_INTERPRET] Agent not found in settings. Using system default.");
@@ -2606,7 +2617,7 @@ export const interpretLeadRequirements = async (req, res) => {
 
         // 4. Transform Interpretation to DB IDs (Optional but professional)
         // Note: For now we return the raw interpretation and let the frontend confirm
-        
+
         res.json({
             success: true,
             data: interpretation,
@@ -2629,7 +2640,7 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
     try {
         const Lead = (await import('../models/Lead.js')).default;
         const Lookup = (await import('../models/Lookup.js')).default;
-        
+
         const reqUser = user || { _id: null };
         let visFilter = {};
         if (reqUser._id) {
@@ -2646,7 +2657,7 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
         .select('_id budgetMin budgetMax areaMin areaMax locCity locArea sector projectName requirement propertyType subType sizeType unitType location')
         .populate('projectName', 'name')
         .lean();
-        
+
         const allLookups = await Lookup.find({}).lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), String(l.lookup_value || '').toLowerCase()]));
 
@@ -2677,7 +2688,7 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
             const dealSector = getLookupVal(deal.inventoryId?.sector || deal.sector);
             const dealCity = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
             const dealLoc = getLookupVal(deal.location || deal.inventoryId?.address?.locality);
-            
+
             const dealCategory = getLookupVal(deal.category || deal.inventoryId?.category);
             const dealSubCat = getLookupVal(deal.subCategory || deal.inventoryId?.subCategory);
             const dealSizeDesc = [
@@ -2693,14 +2704,14 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
                 const lMax = parseFloat(lead.budgetMax) || 0;
                 const hasLeadBudget = lMax > 0;
                 const isBudgetPref = hasLeadBudget ? (price > 0 && price >= lMin && price <= lMax) : false;
-                
+
                 let locMatchCount = 0;
                 const leadSector = String(lead.sector || '').toLowerCase();
                 const leadCity = String(lead.locCity || '').toLowerCase();
                 const leadArea = String(lead.locArea || '').toLowerCase();
                 const leadLocVal = String(lead.location || '').toLowerCase();
                 const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [lead.projectName]).filter(Boolean).map(p => String(p?.name || p || '').toLowerCase());
-                
+
                 if (leadProjects.length > 0 && leadProjects.some(p => p && dealProj.includes(p))) {
                     locMatchCount++;
                 } else {
@@ -2714,7 +2725,7 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
                 }
                 const hasLeadLocation = !!(leadLocVal || leadArea || leadSector || leadCity || leadProjects.length > 0);
                 const isLocationPref = hasLeadLocation ? (locMatchCount >= 1) : false;
-                
+
                 const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupVal(c)).filter(Boolean);
                 const leadSubCats = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
                 const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
@@ -2722,12 +2733,12 @@ export const getBulkDealExactMatchCounts = async (deals, user = null) => {
 
                 const isCatMatch = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
                 const isSubCatMatch = leadSubCats.length > 0 && dealSubCat && leadSubCats.some(c => dealSubCat.includes(c) || c.includes(dealSubCat));
-                
+
                 const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
                 const sizeOrUnitMatched = !hasSizeOrUnitPref || leadSizeTypes.some(s => dealSizeDesc.includes(s)) || leadUnitTypes.some(u => dealSizeDesc.includes(u));
 
                 const isPreferredMatch = isCatMatch && isSubCatMatch && sizeOrUnitMatched && isBudgetPref && isLocationPref;
-                
+
                 if (isPreferredMatch) {
                     prefCount++;
                 }
@@ -2745,7 +2756,7 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
     try {
         const Lead = (await import('../models/Lead.js')).default;
         const Lookup = (await import('../models/Lookup.js')).default;
-        
+
         const reqUser = user || { _id: null };
         let visFilter = {};
         if (reqUser._id) {
@@ -2762,7 +2773,7 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
         .select('_id firstName lastName email mobile phone budgetMin budgetMax areaMin areaMax locCity locArea sector projectName requirement propertyType subType sizeType unitType location assignedTo')
         .populate('projectName', 'name')
         .lean();
-        
+
         const allLookups = await Lookup.find({}).lean();
         const lookupIdMap = new Map(allLookups.map(l => [String(l._id), String(l.lookup_value || '').toLowerCase()]));
 
@@ -2791,7 +2802,7 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
         const dealSector = getLookupVal(deal.inventoryId?.sector || deal.sector);
         const dealCity = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
         const dealLoc = getLookupVal(deal.location || deal.inventoryId?.address?.locality);
-        
+
         const dealCategory = getLookupVal(deal.category || deal.inventoryId?.category);
         const dealSubCat = getLookupVal(deal.subCategory || deal.inventoryId?.subCategory);
         const dealSizeDesc = [
@@ -2807,14 +2818,14 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
             const lMax = parseFloat(lead.budgetMax) || 0;
             const hasLeadBudget = lMax > 0;
             const isBudgetPref = hasLeadBudget ? (price > 0 && price >= lMin && price <= lMax) : false;
-            
+
             let locMatchCount = 0;
             const leadSector = String(lead.sector || '').toLowerCase();
             const leadCity = String(lead.locCity || '').toLowerCase();
             const leadArea = String(lead.locArea || '').toLowerCase();
             const leadLocVal = String(lead.location || '').toLowerCase();
             const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [lead.projectName]).filter(Boolean).map(p => String(p?.name || p || '').toLowerCase());
-            
+
             if (leadProjects.length > 0 && leadProjects.some(p => p && dealProj.includes(p))) {
                 locMatchCount++;
             } else {
@@ -2828,7 +2839,7 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
             }
             const hasLeadLocation = !!(leadLocVal || leadArea || leadSector || leadCity || leadProjects.length > 0);
             const isLocationPref = hasLeadLocation ? (locMatchCount >= 1) : false;
-            
+
             const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupVal(c)).filter(Boolean);
             const leadSubCats = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
             const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
@@ -2836,7 +2847,7 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
 
             const isCatMatch = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
             const isSubCatMatch = leadSubCats.length > 0 && dealSubCat && leadSubCats.some(c => dealSubCat.includes(c) || c.includes(dealSubCat));
-            
+
             const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
             const sizeOrUnitMatched = !hasSizeOrUnitPref || leadSizeTypes.some(s => dealSizeDesc.includes(s)) || leadUnitTypes.some(u => dealSizeDesc.includes(u));
 
@@ -2898,7 +2909,7 @@ export const convertLeadToContact = async (req, res, next) => {
                     }
                 }
             });
-            
+
             if (!contactRes.success || !contactRes.contact) {
                 throw new Error(contactRes.error || 'Failed to resolve or create Contact Identity');
             }

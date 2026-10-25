@@ -175,6 +175,7 @@ export const createStandardizedDeal = async (input, options = {}) => {
             }
 
             // 4. Normalize and Inject Geo (Bypass unsafe hook)
+            const effectiveTenantId = dealData.tenantId || input.tenantId || null;
             const normalizedDealPayload = {
                 ...dealData,
                 source,
@@ -188,6 +189,9 @@ export const createStandardizedDeal = async (input, options = {}) => {
                     channelPartner: ownerInfo?.channelPartner
                 }
             };
+            if (effectiveTenantId) {
+                normalizedDealPayload.tenantId = effectiveTenantId;
+            }
 
             if (inventory) {
                 normalizedDealPayload.latitude = inventory.latitude || inventory.lat || null;
@@ -307,7 +311,7 @@ export const createStandardizedDeal = async (input, options = {}) => {
             }
 
             // R56 STAGE 2: Durable Outbox Integration
-            await OutboxEvent.create([{
+            const outboxEntry = {
                 eventId: uuidv4(),
                 eventType: 'DealCreated',
                 aggregateType: 'Deal',
@@ -321,7 +325,11 @@ export const createStandardizedDeal = async (input, options = {}) => {
                     inventoryId: linkage?.inventoryId || null,
                     documents: (triggerDocumentSync && dealData.documents?.length) ? dealData.documents : []
                 }
-            }], { session });
+            };
+            if (effectiveTenantId) {
+                outboxEntry.tenantId = effectiveTenantId;
+            }
+            await OutboxEvent.create([outboxEntry], { session });
         }
 
         if (!isExternalSession) {

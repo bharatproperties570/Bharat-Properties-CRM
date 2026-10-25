@@ -1,16 +1,18 @@
 import mongoose from 'mongoose';
 import Contact from '../models/Contact.js';
-import { normalizePhone } from '../utils/normalization.js'; // Assuming it exists
+import { normalizePhone } from '../utils/normalization.js';
 
 /**
  * Enterprise Contact Identity Resolution Service
  * 
  * Safely resolves or creates a Contact identity according to Option C lifecycle rules.
  * Does NOT merge conflicting contacts automatically (returns conflict flag).
+ * Enforces strict multi-tenant boundary isolation.
  * 
  * @param {Object} params
  * @param {String} params.mobile - Un-normalized mobile number from Lead
  * @param {String} params.email - Un-normalized email from Lead
+ * @param {Object|String} params.tenantId - Tenant ObjectId or string
  * @param {Object} params.contactData - Data to initialize/update the contact with
  * @param {Object} params.session - Mongoose transaction session
  * @param {Boolean} params.createIfMissing - If true, creates a Contact if none exists.
@@ -19,6 +21,7 @@ import { normalizePhone } from '../utils/normalization.js'; // Assuming it exist
 export const resolveContactIdentity = async ({
     mobile,
     email,
+    tenantId = null,
     contactData = {},
     session,
     createIfMissing = false
@@ -31,6 +34,14 @@ export const resolveContactIdentity = async ({
             return { success: false, error: 'Cannot resolve identity without mobile or email.' };
         }
 
+        // Determine effective tenantId
+        const rawTenant = tenantId || contactData.tenantId;
+        const effectiveTenantId = (rawTenant && mongoose.Types.ObjectId.isValid(rawTenant.toString()))
+            ? new mongoose.Types.ObjectId(rawTenant.toString())
+            : null;
+
+        const tenantFilter = effectiveTenantId ? { tenantId: effectiveTenantId } : {};
+
         let contactByPhone = null;
         let contactByEmail = null;
 
@@ -38,7 +49,8 @@ export const resolveContactIdentity = async ({
             contactByPhone = await Contact.findOne({
                 "phones.number": normMobile,
                 isDeleted: { $ne: true },
-                isMerged: { $ne: true }
+                isMerged: { $ne: true },
+                ...tenantFilter
             }).session(session);
         }
 
@@ -46,13 +58,14 @@ export const resolveContactIdentity = async ({
             contactByEmail = await Contact.findOne({
                 "emails.address": normEmail,
                 isDeleted: { $ne: true },
-                isMerged: { $ne: true }
+                isMerged: { $ne: true },
+                ...tenantFilter
             }).session(session);
         }
 
         // Identity Conflict Check
         if (contactByPhone && contactByEmail && String(contactByPhone._id) !== String(contactByEmail._id)) {
-            // Found two different active contacts matching the identity tokens
+            // Found two different active contacts matching the identity tokens within this tenant
             return {
                 success: true,
                 conflict: true,
@@ -64,16 +77,15 @@ export const resolveContactIdentity = async ({
         let canonicalContact = contactByPhone || contactByEmail;
 
         if (canonicalContact) {
-            // We found a safe canonical contact. DO NOT save it again. 
-            // Just return it so it can be linked.
+            // We found a safe canonical contact within the tenant.
             return { success: true, contact: canonicalContact, conflict: false };
         }
 
         if (createIfMissing) {
             // Atomic Upsert using $setOnInsert to prevent race conditions during creation
             const filter = normMobile 
-                ? { "phones.number": normMobile, isDeleted: { $ne: true }, isMerged: { $ne: true } }
-                : { "emails.address": normEmail, isDeleted: { $ne: true }, isMerged: { $ne: true } };
+                ? { "phones.number": normMobile, isDeleted: { $ne: true }, isMerged: { $ne: true }, ...tenantFilter }
+                : { "emails.address": normEmail, isDeleted: { $ne: true }, isMerged: { $ne: true }, ...tenantFilter };
 
             const insertData = {
                 name: contactData.name || 'Unknown',
@@ -95,6 +107,10 @@ export const resolveContactIdentity = async ({
                 personalAddress: contactData.personalAddress
             };
 
+            if (effectiveTenantId) {
+                insertData.tenantId = effectiveTenantId;
+            }
+
             const upsertedContact = await Contact.findOneAndUpdate(
                 filter,
                 { $setOnInsert: insertData },
@@ -112,3 +128,5 @@ export const resolveContactIdentity = async ({
         throw error;
     }
 };
+
+export default { resolveContactIdentity };

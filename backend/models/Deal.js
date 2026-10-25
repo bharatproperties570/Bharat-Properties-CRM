@@ -291,7 +291,9 @@ const DealSchema = new mongoose.Schema({
     geoPoint: {
         type: { type: String, enum: ['Point'] },
         coordinates: { type: [Number] }
-    }
+    },
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true, strict: false });
 
 DealSchema.pre("save", async function (next) {
@@ -523,6 +525,8 @@ DealSchema.index({ inventoryId: 1 }); // Inventory mapping
 DealSchema.index({ owner: 1 }); // Owner lookup
 DealSchema.index({ dealId: 1 }); // Quick search
 DealSchema.index({ geoPoint: "2dsphere" });
+DealSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+DealSchema.index({ tenantId: 1, stage: 1 }, { background: true });
 
 DealSchema.pre('insertMany', function(next, docs) {
     if (Array.isArray(docs)) {

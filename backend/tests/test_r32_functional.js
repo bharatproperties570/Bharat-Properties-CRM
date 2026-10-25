@@ -167,7 +167,7 @@ const runTests = async () => {
         assert.strictEqual(ev.payload.stageChanged, false);
         assert.strictEqual(ev.payload.documents, null);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign']);
+        await assertEffects(ev.eventId, ['campaign', 'workflow_deal_updated']);
         assert.strictEqual(campaignCallCount, 1);
         assert.strictEqual(smsCallCount, 0);
 
@@ -181,7 +181,7 @@ const runTests = async () => {
         assert.strictEqual(ev.payload.stageProvided, true);
         assert.strictEqual(ev.payload.stageChanged, false);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign', 'sms']);
+        await assertEffects(ev.eventId, ['campaign', 'sms', 'workflow_deal_updated']);
         assert.strictEqual(campaignCallCount, 1);
         assert.strictEqual(smsCallCount, 1);
 
@@ -195,7 +195,7 @@ const runTests = async () => {
         assert.strictEqual(ev.payload.stageProvided, true);
         assert.strictEqual(ev.payload.stageChanged, true);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign', 'notification', 'sms', 'workflow']);
+        await assertEffects(ev.eventId, ['campaign', 'notification', 'sms', 'workflow', 'workflow_deal_updated']);
         assert.strictEqual(campaignCallCount, 1);
         assert.strictEqual(smsCallCount, 1);
 
@@ -209,7 +209,7 @@ const runTests = async () => {
         assert.strictEqual(ev.payload.stageProvided, false);
         assert.strictEqual(Array.isArray(ev.payload.documents), true);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign', 'documents']);
+        await assertEffects(ev.eventId, ['campaign', 'documents', 'workflow_deal_updated']);
 
         console.log('\n--- TEST 5: Stage Changed + Documents ---');
         resetStubs();
@@ -221,7 +221,7 @@ const runTests = async () => {
         assert.strictEqual(ev.payload.stageChanged, true);
         assert.strictEqual(Array.isArray(ev.payload.documents), true);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign', 'documents', 'notification', 'sms', 'workflow']);
+        await assertEffects(ev.eventId, ['campaign', 'documents', 'notification', 'sms', 'workflow', 'workflow_deal_updated']);
 
         console.log('\n--- TEST 6: Documents Omitted ---');
         resetStubs();
@@ -232,7 +232,7 @@ const runTests = async () => {
         ev = outboxEvents[0];
         assert.strictEqual(ev.payload.documents, null);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign']);
+        await assertEffects(ev.eventId, ['campaign', 'workflow_deal_updated']);
 
         console.log('\n--- TEST 7: Documents Explicit [] ---');
         resetStubs();
@@ -243,7 +243,7 @@ const runTests = async () => {
         ev = outboxEvents[0];
         assert.deepStrictEqual(ev.payload.documents, []);
         await processOutbox(deal._id);
-        await assertEffects(ev.eventId, ['campaign', 'documents']);
+        await assertEffects(ev.eventId, ['campaign', 'documents', 'workflow_deal_updated']);
 
         console.log('\n--- TEST 8: Transaction Failure ---');
         const beforeFailCount = await OutboxEvent.countDocuments();
@@ -383,7 +383,7 @@ const runTests = async () => {
         assert.strictEqual(ev.status, 'PUBLISHED');
 
         // Assert effects completed via the queue
-        await assertEffects(ev.eventId, ['campaign', 'notification', 'sms', 'workflow']);
+        await assertEffects(ev.eventId, ['campaign', 'notification', 'sms', 'workflow', 'workflow_deal_updated']);
         assert.strictEqual(campaignCallCount, 1);
         assert.strictEqual(smsCallCount, 1);
 

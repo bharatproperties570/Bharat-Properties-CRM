@@ -30,7 +30,11 @@ const OutboxEventSchema = new mongoose.Schema({
         type: String,
         required: false
     },
-
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true,
+        required: false
+    },
     provenance: {
         source: { type: String, enum: ['HTTP', 'MOBILE', 'PUBLIC_FORM', 'WEBHOOK', 'WORKER'], required: false },
         actorType: { type: String, enum: ['HUMAN', 'EXTERNAL', 'WEBHOOK', 'SYSTEM'], required: false },
@@ -38,7 +42,6 @@ const OutboxEventSchema = new mongoose.Schema({
         correlationId: { type: String, required: false }
     },
     status: {
-
         type: String,
         required: true,
         enum: ['PENDING', 'PROCESSING', 'PUBLISHED', 'FAILED'],
@@ -75,6 +78,7 @@ const OutboxEventSchema = new mongoose.Schema({
 OutboxEventSchema.index({ status: 1, availableAt: 1 });
 OutboxEventSchema.index({ status: 1, lockedUntil: 1 });
 OutboxEventSchema.index({ aggregateType: 1, aggregateId: 1 });
+OutboxEventSchema.index({ tenantId: 1, status: 1 }, { background: true });
 
 const OutboxEvent = mongoose.model('OutboxEvent', OutboxEventSchema);
 

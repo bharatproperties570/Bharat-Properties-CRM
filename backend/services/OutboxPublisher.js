@@ -75,14 +75,16 @@ class OutboxPublisher {
                 return;
             }
 
-            // Publish to BullMQ
+            // Publish to BullMQ with tenant and provenance metadata
             const jobPayload = {
                 eventId: event.eventId,
                 eventType: event.eventType,
                 aggregateType: event.aggregateType,
                 aggregateId: event.aggregateId,
                 payload: event.payload,
-                correlationId: event.correlationId
+                correlationId: event.correlationId,
+                tenantId: event.tenantId,
+                provenance: event.provenance
             };
 
             await domainEventQueue.add(event.eventType, jobPayload, {

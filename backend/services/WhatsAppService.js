@@ -80,7 +80,7 @@ class WhatsAppService {
 
         // 3. Fallback: Legacy meta_wa_config in SystemSetting (100% Backward Compatible)
         try {
-            const SystemSetting = mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default;
+            const SystemSetting = mongoose.model ? mongoose.model('SystemSetting') : (mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default);
             const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
 
             if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
@@ -94,6 +94,7 @@ class WhatsAppService {
                 };
             }
         } catch (e) {
+            if (e instanceof TypeError) throw e;
             console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
         }
 

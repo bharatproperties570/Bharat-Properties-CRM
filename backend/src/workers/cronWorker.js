@@ -4,10 +4,11 @@ import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 import Activity from '../../models/Activity.js';
 import AuditLog from '../../models/AuditLog.js';
-import { notificationQueue } from '../queues/queueManager.js';
+import { notificationQueue, domainEventQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import { writeFailedJobLog } from '../utils/failedJobLogger.js';
+import { publishPendingEvents } from '../../services/OutboxPublisher.js';
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -412,5 +413,26 @@ cronWorker.on('failed', async (job, err) => {
 cronWorker.on('error', err => {
     // console.warn('⚠️ [Cron Worker] Redis Offline, suppressing crash...');
 });
+
+// ── Outbox Publisher Polling Loop (Phase D.1 / Phase 4.6I) ───────────────────
+const OUTBOX_POLL_INTERVAL_MS = 10000; // 10 seconds
+let _outboxPolling = false;
+
+const outboxPollInterval = setInterval(async () => {
+    if (_outboxPolling) return;
+    _outboxPolling = true;
+    try {
+        const mongoose = (await import('mongoose')).default;
+        if (mongoose.connection?.readyState !== 1) return;
+
+        await publishPendingEvents(domainEventQueue, 50);
+    } catch (err) {
+        console.error('[OutboxPublisher] Poll error (non-fatal):', err.message);
+    } finally {
+        _outboxPolling = false;
+    }
+}, OUTBOX_POLL_INTERVAL_MS);
+
+outboxPollInterval.unref();
 
 console.log('✅ Cron Worker Initialized');

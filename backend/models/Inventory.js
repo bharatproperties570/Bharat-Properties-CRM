@@ -259,8 +259,10 @@ const InventorySchema = new mongoose.Schema({
     // Legacy Support (to prevent 400 errors during transition)
     remarks: String,
     lastContactDate: String,
-    lastContactUser: String
+    lastContactUser: String,
 
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true, strict: true });
  
 // ━━ PERFORMANCE INDEXES (Harden for Bulk Operations) ━━━━━━━━━━━━━━━━━━━━━━
@@ -282,6 +284,8 @@ InventorySchema.index({ category: 1, updatedAt: -1 });             // Category f
 InventorySchema.index({ projectId: 1, updatedAt: -1 });            // Project filter + sort
 InventorySchema.index({ owners: 1 });                              // Owner lookup
 InventorySchema.index({ projectName: 1, updatedAt: -1 });          // Project name + sort (visibility queries)
+InventorySchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+InventorySchema.index({ tenantId: 1, status: 1 }, { background: true });
  
 // Permanent Fix: Deep Data Integrity Hooks
 

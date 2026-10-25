@@ -828,7 +828,12 @@ export const createContact = async (req, res, next) => {
             }
         };
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department, teams, and tenantId
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            contactData.tenantId = effectiveTenantId;
+        }
+
         if (req.user) {
             if (req.user.department && !contactData.department) contactData.department = req.user.department;
             if (req.user.teams && req.user.teams.length > 0 && (!contactData.teams || contactData.teams.length === 0)) {
@@ -836,14 +841,16 @@ export const createContact = async (req, res, next) => {
             }
         }
 
-        // Phase 4.6 Identity Deduplication Check
+        // Phase 4.6 Identity Deduplication Check (tenant-scoped)
         if (contactData.phones && Array.isArray(contactData.phones)) {
             const phoneNumbers = contactData.phones.map(p => p.number).filter(n => n);
             if (phoneNumbers.length > 0) {
+                const tenantFilter = effectiveTenantId ? { tenantId: effectiveTenantId } : {};
                 const existing = await Contact.findOne({
                     "phones.number": { $in: phoneNumbers },
                     isDeleted: false,
-                    isMerged: false
+                    isMerged: false,
+                    ...tenantFilter
                 });
                 if (existing) {
                     return res.status(409).json({
@@ -858,7 +865,7 @@ export const createContact = async (req, res, next) => {
         const contact = await withMongoTransaction(async (session) => {
             const [created] = await Contact.create([contactData], { session });
 
-            await OutboxEvent.create([{
+            const outboxEntry = {
                 eventType: 'ContactCreated',
                 aggregateType: 'Contact',
                 aggregateId: created._id,
@@ -867,7 +874,12 @@ export const createContact = async (req, res, next) => {
                     syncToGoogle: true,
                     actorId: req.user?.id || req.user?._id || null
                 }
-            }], { session });
+            };
+            if (effectiveTenantId) {
+                outboxEntry.tenantId = effectiveTenantId;
+            }
+
+            await OutboxEvent.create([outboxEntry], { session });
 
             return created;
         });

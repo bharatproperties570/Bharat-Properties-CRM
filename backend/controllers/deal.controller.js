@@ -2261,6 +2261,12 @@ export const addDeal = async (req, res) => {
         const sanitizedData = sanitizeData(req.body);
         const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotencyKey;
 
+        // 🏢 Multi-Tenancy Data Scope Isolation
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+        if (effectiveTenantId) {
+            sanitizedData.tenantId = effectiveTenantId;
+        }
+
         const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
         const { WorkflowEngine } = await import('../src/utils/WorkflowEngine.js');
         const mongoose = await import('mongoose');
@@ -2268,6 +2274,7 @@ export const addDeal = async (req, res) => {
         const input = {
             source: 'API',
             idempotencyKey,
+            tenantId: effectiveTenantId,
             correlationId: req.headers['x-correlation-id'] || req.headers['x-request-id'] || 'web-form-fallback',
             dealData: sanitizedData,
             linkage: {
@@ -2299,7 +2306,9 @@ export const addDeal = async (req, res) => {
 
         // Trigger Workflow Engine (Legacy compatibility)
         try {
-            if (result.deal.inventoryId) {
+            const deal = result.deal;
+            await WorkflowEngine.fireEvent('deals', 'deal_created', deal, deal.companyId);
+            if (deal.inventoryId) {
                 const InventoryModel = mongoose.default ? mongoose.default.model('Inventory') : mongoose.model('Inventory');
                 const linkedInv = await InventoryModel.findById(result.deal.inventoryId).lean();
                 if (linkedInv) {

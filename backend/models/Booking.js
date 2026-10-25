@@ -137,7 +137,9 @@ const BookingSchema = new mongoose.Schema({
             sellerContacted: { type: Boolean, default: false }
         },
         remarks: String
-    }
+    },
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null }
 }, { timestamps: true });
 
 // ─── Pre-Save Hook: Auto-compute derived financial fields ──────────────────
@@ -261,6 +263,8 @@ function computeNextAction(booking) {
 BookingSchema.index({ lead: 1 }, { background: true });
 BookingSchema.index({ seller: 1 }, { background: true });
 BookingSchema.index({ channelPartner: 1 }, { background: true });
+BookingSchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+BookingSchema.index({ tenantId: 1, dealId: 1 }, { background: true });
 
 BookingSchema.plugin(softDeletePlugin);
 

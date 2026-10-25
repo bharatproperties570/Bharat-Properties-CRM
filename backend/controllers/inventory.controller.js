@@ -1172,11 +1172,16 @@ export const addInventory = async (req, res) => {
         const { projectName, block, unitNo, unitNumber } = req.body;
         const finalUnitNo = unitNo || unitNumber;
 
+        // 🏢 Multi-Tenancy Data Scope Isolation
+        const effectiveTenantId = req.user?.tenantId || req.user?.tenant || null;
+
         if (projectName && block && finalUnitNo) {
+            const tenantFilter = effectiveTenantId ? { tenantId: effectiveTenantId } : {};
             const existing = await Inventory.findOne({
                 projectName,
                 block,
-                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }]
+                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }],
+                ...tenantFilter
             });
 
             if (existing) {
@@ -1185,6 +1190,9 @@ export const addInventory = async (req, res) => {
         }
 
         const data = sanitizePayload({ ...req.body });
+        if (effectiveTenantId) {
+            data.tenantId = effectiveTenantId;
+        }
         
         // Resolve Reference Fields to prevent CastErrors
         if (data.category !== undefined) data.category = await resolveLookup('Category', data.category);

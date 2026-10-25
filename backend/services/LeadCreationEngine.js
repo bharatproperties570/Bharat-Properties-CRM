@@ -15,9 +15,12 @@ export const createStandardizedLead = async (data, context = {}) => {
     const session = context.session || await mongoose.startSession();
     
     const executeInTransaction = async () => {
+        const effectiveTenantId = data.tenantId || context.tenantId || null;
+
         const contactRes = await resolveContactIdentity({
             mobile: data.mobile,
             email: data.email,
+            tenantId: effectiveTenantId,
             session,
             createIfMissing: true,
             contactData: {
@@ -34,7 +37,8 @@ export const createStandardizedLead = async (data, context = {}) => {
                 requirement: data.requirement,
                 budget: data.budget,
                 location: data.location,
-                personalAddress: data.personalAddress
+                personalAddress: data.personalAddress,
+                tenantId: effectiveTenantId
             }
         });
 
@@ -58,18 +62,37 @@ export const createStandardizedLead = async (data, context = {}) => {
             }
         }
 
+        if (effectiveTenantId && !data.tenantId) {
+            data.tenantId = effectiveTenantId;
+        }
+
         const leadDoc = new Lead(data);
         await leadDoc.save({ session });
         createdLeadId = leadDoc._id;
 
-        // R56 STAGE 1: Durable Outbox Integration
-        await OutboxEvent.create([{
+        // R56 STAGE 1: Durable Outbox Integration with Multi-Tenancy & Provenance
+        const outboxEntry = {
             eventId: uuidv4(),
             eventType: 'LeadCreated',
             aggregateType: 'Lead',
             aggregateId: leadDoc._id,
             payload: { triggerEvent: context.triggerEvent || 'onCreate' }
-        }], { session });
+        };
+
+        if (effectiveTenantId) {
+            outboxEntry.tenantId = effectiveTenantId;
+        }
+
+        if (context.actorId || context.actorType || context.source) {
+            outboxEntry.provenance = {
+                source: context.source || 'HTTP',
+                actorType: context.actorType || 'HUMAN',
+                actorId: context.actorId || null,
+                correlationId: context.correlationId || null
+            };
+        }
+
+        await OutboxEvent.create([outboxEntry], { session });
     };
 
     if (isExternalSession) {

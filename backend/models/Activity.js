@@ -46,6 +46,8 @@ const ActivitySchema = new mongoose.Schema({
     department: { type: String, index: true }, // Explicit branch/regional isolation
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     googleEventId: { type: String, index: true },
+    // 🏢 Multi-Tenancy Data Scope Isolation
+    tenantId: { type: mongoose.Schema.Types.ObjectId, index: true, default: null },
 
 }, { timestamps: true });
 
@@ -69,6 +71,8 @@ ActivitySchema.index({ type: 1, dueDate: 1 });
 ActivitySchema.index({ status: 1, dueDate: 1 });
 ActivitySchema.index({ 'details.dealId': 1, type: 1, status: 1 });
 ActivitySchema.index({ 'details.inventoryId': 1, type: 1, status: 1 });
+ActivitySchema.index({ tenantId: 1, createdAt: -1 }, { background: true }); // 🏢 Multi-Tenancy Compound Index
+ActivitySchema.index({ tenantId: 1, status: 1 }, { background: true });
 
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);
