@@ -241,43 +241,62 @@ export const getContacts = async (req, res, next) => {
 
             results.records.forEach(contact => {
                 const cIdStr = contact._id.toString();
+                const rawPhones = [];
                 if (Array.isArray(contact.phones)) {
-                    contact.phones.forEach(p => {
-                        const raw = String(p?.number || p || "").replace(/\D/g, "");
-                        if (raw.length >= 10) {
-                            const last10 = raw.slice(-10);
-                            phoneToContactIdMap.set(last10, cIdStr);
-                            contactPhonesList.push(last10);
-                        }
-                    });
+                    contact.phones.forEach(p => rawPhones.push(p?.number || p));
                 }
-            });
+                if (contact.phone) rawPhones.push(contact.phone);
+                if (contact.mobile) rawPhones.push(contact.mobile);
 
-            // Run ALL aggregations in parallel for maximum performance
-            const [activityStats, smsStats, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
-                // 1. Activity Counts + Latest Activity (FIXED: mixedEntityIds + $toLower instead of $regexMatch)
-                Activity.aggregate([
-                    { $match: { entityId: { $in: mixedEntityIds }, status: 'Completed' } },
-                    { $sort: { createdAt: -1 } },
-                    {
-                        $group: {
-                            _id: { $toString: "$entityId" },
-                            latestActivity: { $first: "$subject" },
-                            latestDate: { $first: "$createdAt" },
-                            call: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["call", "outbound call", "inbound call"]] }, 1, 0] } },
-                            meeting: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["meeting"]] }, 1, 0] } },
-                            siteVisit: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["site visit"]] }, 1, 0] } },
-                            email: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["email"]] }, 1, 0] } },
-                            whatsapp: { $sum: { $cond: [{ $in: [{ $toLower: "$type" }, ["whatsapp", "messaging"]] }, 1, 0] } }
+                rawPhones.forEach(p => {
+                    const clean = String(p || "").replace(/\D/g, "");
+                    if (clean.length >= 10) {
+                        const last10 = clean.slice(-10);
+                        phoneToContactIdMap.set(last10, cIdStr);
+                        phoneToContactIdMap.set(`+91${last10}`, cIdStr);
+                        phoneToContactIdMap.set(`91${last10}`, cIdStr);
+                        if (!contactPhonesList.includes(last10)) {
+                            contactPhonesList.push(last10, `+91${last10}`, `91${last10}`);
                         }
                     }
-                ]),
+                });
+            });
 
-                // 2. SMS Counts (FIXED: mixedEntityIds)
-                SmsLog.aggregate([
-                    { $match: { entityId: { $in: mixedEntityIds }, status: { $in: ['Sent', 'Delivered'] } } },
-                    { $group: { _id: { $toString: "$entityId" }, sms: { $sum: 1 } } }
-                ]),
+            const actMatchOr = [{ entityId: { $in: mixedEntityIds } }];
+            if (contactPhonesList.length > 0) {
+                actMatchOr.push(
+                    { "details.phoneNumber": { $in: contactPhonesList } },
+                    { "details.recipient": { $in: contactPhonesList } }
+                );
+            }
+
+            const smsMatchOr = [{ entityId: { $in: mixedEntityIds } }];
+            if (contactPhonesList.length > 0) {
+                smsMatchOr.push({ to: { $in: contactPhonesList } });
+            }
+
+            // Run ALL aggregations in parallel for maximum performance
+            const [matchedActivities, smsLogs, leadStats, dealStats, inventoryStats, bookingStats] = await Promise.all([
+                // 1. Matched Activities for Activity Counts + Latest Activity (Enterprise Hybrid)
+                Activity.find({
+                    $and: [
+                        { $or: actMatchOr },
+                        { status: { $nin: ['Cancelled', 'Failed'] } }
+                    ]
+                })
+                .select('_id entityId entityType subject type channel status createdAt details.platform details.phoneNumber details.recipient details.to details.toggles.whatsapp details.channel')
+                .sort({ createdAt: -1 })
+                .lean(),
+
+                // 2. SMS Logs (Enterprise Hybrid)
+                SmsLog.find({
+                    $and: [
+                        { $or: smsMatchOr },
+                        { status: { $in: ['Sent', 'Delivered'] } }
+                    ]
+                })
+                .select('_id entityId to')
+                .lean(),
 
                 // 3. CRM Linkage: Leads Count (Enterprise Hybrid: Match via direct contactDetails OR Phone Number)
                 Lead.aggregate([
@@ -344,14 +363,85 @@ export const getContacts = async (req, res, next) => {
             ]);
 
             // ━━ Build Lookup Maps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            // Activity + SMS stats map
+            // Activity + SMS stats map (Enterprise Resolution: Direct entityId + Phone fallback)
             const statsMap = new Map();
-            activityStats.forEach(stat => statsMap.set(stat._id, stat));
-            smsStats.forEach(stat => {
-                if (statsMap.has(stat._id)) {
-                    statsMap.get(stat._id).sms = stat.sms;
+            contactIdsStr.forEach(idStr => {
+                statsMap.set(idStr, {
+                    call: 0,
+                    meeting: 0,
+                    siteVisit: 0,
+                    email: 0,
+                    whatsapp: 0,
+                    sms: 0,
+                    latestActivity: null,
+                    latestDate: null,
+                    seenActivityIds: new Set()
+                });
+            });
+
+            matchedActivities.forEach(act => {
+                const actIdStr = act._id.toString();
+                let targetContactId = null;
+                const rawEntId = act.entityId ? act.entityId.toString() : null;
+                if (rawEntId && statsMap.has(rawEntId)) {
+                    targetContactId = rawEntId;
                 } else {
-                    statsMap.set(stat._id, { sms: stat.sms });
+                    const ph = act.details?.phoneNumber || act.details?.recipient || act.details?.to || act.details?.from;
+                    if (ph) {
+                        const cleanPh = String(ph).replace(/\D/g, "").slice(-10);
+                        targetContactId = phoneToContactIdMap.get(cleanPh) || null;
+                    }
+                }
+
+                if (!targetContactId || !statsMap.has(targetContactId)) return;
+                const stats = statsMap.get(targetContactId);
+                if (stats.seenActivityIds.has(actIdStr)) return;
+                stats.seenActivityIds.add(actIdStr);
+
+                if (!stats.latestActivity) {
+                    stats.latestActivity = act.subject;
+                    stats.latestDate = act.createdAt;
+                }
+
+                const t = (act.type || "").toLowerCase();
+                const ch = (act.channel || "").toLowerCase();
+                const platform = (act.details?.platform || "").toLowerCase();
+                const isWaToggle = act.details?.toggles?.whatsapp === true;
+                const detailsCh = (act.details?.channel || "").toLowerCase();
+
+                const isWhatsApp = t.includes("whatsapp") || t.includes("messaging") ||
+                    ch === "whatsapp" || platform.includes("whatsapp") || isWaToggle || detailsCh === "whatsapp";
+
+                if (isWhatsApp) {
+                    stats.whatsapp++;
+                } else if (t.includes("call")) {
+                    stats.call++;
+                } else if (t.includes("meeting")) {
+                    stats.meeting++;
+                } else if (t.includes("site visit")) {
+                    stats.siteVisit++;
+                } else if (t.includes("email")) {
+                    stats.email++;
+                }
+            });
+
+            const seenSmsIds = new Set();
+            smsLogs.forEach(log => {
+                const logIdStr = log._id.toString();
+                if (seenSmsIds.has(logIdStr)) return;
+                seenSmsIds.add(logIdStr);
+
+                let targetContactId = null;
+                const rawEntId = log.entityId ? log.entityId.toString() : null;
+                if (rawEntId && statsMap.has(rawEntId)) {
+                    targetContactId = rawEntId;
+                } else if (log.to) {
+                    const cleanTo = String(log.to).replace(/\D/g, "").slice(-10);
+                    targetContactId = phoneToContactIdMap.get(cleanTo) || null;
+                }
+
+                if (targetContactId && statsMap.has(targetContactId)) {
+                    statsMap.get(targetContactId).sms++;
                 }
             });
 
@@ -507,44 +597,89 @@ export const getContact = async (req, res, next) => {
         const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
-        // Attach Recent Activities and Interaction Counts
+        // Attach Recent Activities and Interaction Counts (Enterprise Multi-Key Resolution)
         const contactIdStr = req.params.id.toString();
-        const recentActivities = await Activity.find({
-            entityId: contactIdStr,
-            status: 'Completed'
-        }).sort({ createdAt: -1 }).limit(10).lean();
+        const mixedContactIds = [contactIdStr];
+        if (mongoose.Types.ObjectId.isValid(contactIdStr)) {
+            mixedContactIds.push(new mongoose.Types.ObjectId(contactIdStr));
+        }
 
-        // Aggregate counts from Activity collection
-        const activityStats = await Activity.aggregate([
-            {
-                $match: {
-                    entityId: new mongoose.Types.ObjectId(contactIdStr),
-                    status: 'Completed'
-                }
-            },
-            {
-                $group: {
-                    _id: "$type",
-                    count: { $sum: 1 }
+        const contactPhones = [];
+        const rawPhones = [];
+        if (Array.isArray(contact.phones)) {
+            contact.phones.forEach(p => rawPhones.push(p?.number || p));
+        }
+        if (contact.phone) rawPhones.push(contact.phone);
+        if (contact.mobile) rawPhones.push(contact.mobile);
+
+        rawPhones.forEach(p => {
+            const clean = String(p || "").replace(/\D/g, "");
+            if (clean.length >= 10) {
+                const last10 = clean.slice(-10);
+                if (!contactPhones.includes(last10)) {
+                    contactPhones.push(last10, `+91${last10}`, `91${last10}`);
                 }
             }
-        ]);
+        });
+
+        const actMatchOr = [{ entityId: { $in: mixedContactIds } }];
+        if (contactPhones.length > 0) {
+            actMatchOr.push(
+                { "details.phoneNumber": { $in: contactPhones } },
+                { "details.recipient": { $in: contactPhones } }
+            );
+        }
+
+        const recentActivities = await Activity.find({
+            $and: [
+                { $or: actMatchOr },
+                { status: { $nin: ['Cancelled', 'Failed'] } }
+            ]
+        }).sort({ createdAt: -1 }).limit(15).lean();
+
+        // Aggregate all activities for accurate interaction counts
+        const allContactActivities = await Activity.find({
+            $and: [
+                { $or: actMatchOr },
+                { status: { $nin: ['Cancelled', 'Failed'] } }
+            ]
+        })
+        .select('_id type channel status createdAt details.platform details.phoneNumber details.recipient details.to details.toggles.whatsapp details.channel')
+        .lean();
 
         // Aggregate counts from SmsLog collection
+        const smsMatchOr = [{ entityId: { $in: mixedContactIds } }];
+        if (contactPhones.length > 0) {
+            smsMatchOr.push({ to: { $in: contactPhones } });
+        }
         const smsStatsCount = await SmsLog.countDocuments({
-            entityId: new mongoose.Types.ObjectId(contactIdStr),
-            status: { $in: ['Sent', 'Delivered'] }
+            $and: [
+                { $or: smsMatchOr },
+                { status: { $in: ['Sent', 'Delivered'] } }
+            ]
         });
 
         const interactionCounts = { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: smsStatsCount, whatsapp: 0 };
-        activityStats.forEach(stat => {
-            if (!stat._id) return;
-            const t = stat._id.toLowerCase();
-            if (t.includes('call')) interactionCounts.call += stat.count;
-            else if (t.includes('meeting')) interactionCounts.meeting += stat.count;
-            else if (t.includes('site visit')) interactionCounts.siteVisit += stat.count;
-            else if (t.includes('email')) interactionCounts.email += stat.count;
-            else if (t.includes('whatsapp') || t.includes('messaging')) interactionCounts.whatsapp += stat.count;
+        const seenActIds = new Set();
+        allContactActivities.forEach(act => {
+            const actId = act._id.toString();
+            if (seenActIds.has(actId)) return;
+            seenActIds.add(actId);
+
+            const t = (act.type || "").toLowerCase();
+            const ch = (act.channel || "").toLowerCase();
+            const platform = (act.details?.platform || "").toLowerCase();
+            const isWaToggle = act.details?.toggles?.whatsapp === true;
+            const detailsCh = (act.details?.channel || "").toLowerCase();
+
+            const isWhatsApp = t.includes("whatsapp") || t.includes("messaging") ||
+                ch === "whatsapp" || platform.includes("whatsapp") || isWaToggle || detailsCh === "whatsapp";
+
+            if (isWhatsApp) interactionCounts.whatsapp++;
+            else if (t.includes('call')) interactionCounts.call++;
+            else if (t.includes('meeting')) interactionCounts.meeting++;
+            else if (t.includes('site visit')) interactionCounts.siteVisit++;
+            else if (t.includes('email')) interactionCounts.email++;
         });
 
         const contactData = contact.toObject();

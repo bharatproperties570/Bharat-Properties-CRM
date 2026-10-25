@@ -2015,7 +2015,7 @@ const LeadItem = React.memo(function LeadItem({
                         {[
                             { icon: 'fa-phone-alt', type: 'Call', color: '#10b981', key: 'call' },
                             { icon: 'fa-sms', type: 'SMS', color: '#3b82f6', key: 'sms' },
-                            { icon: 'fa-whatsapp', type: 'WhatsApp', color: '#25d366', key: 'whatsapp' },
+                            { icon: 'fa-whatsapp', type: 'WhatsApp', color: '#25d366', key: 'whatsapp', brand: true },
                             { icon: 'fa-envelope', type: 'Email', color: '#ef4444', key: 'email' },
                             { icon: 'fa-handshake', type: 'Meeting', color: '#8b5cf6', key: 'meeting' },
                             { icon: 'fa-building', type: 'Site Visit', color: '#f59e0b', key: 'siteVisit' }
@@ -2024,7 +2024,7 @@ const LeadItem = React.memo(function LeadItem({
                             if (count === 0) return null;
                             
                             return (
-                                <div key={act.type} style={{
+                                <div key={act.type} title={`${count} ${act.type}`} style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
@@ -2032,7 +2032,7 @@ const LeadItem = React.memo(function LeadItem({
                                     color: act.color,
                                     fontWeight: 700
                                 }}>
-                                    <i className={`fas ${act.icon}`}></i>
+                                    <i className={`${act.brand || act.key === 'whatsapp' ? 'fab' : 'fas'} ${act.icon}`}></i>
                                     {count}
                                 </div>
                             );
