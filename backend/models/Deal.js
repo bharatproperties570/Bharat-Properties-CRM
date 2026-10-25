@@ -255,6 +255,7 @@ const DealSchema = new mongoose.Schema({
 
     // ━━ Stage Engine Fields (MongoDB integration) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },
+    isActiveDeal: { type: Boolean, default: true },
     lastActivityAt: { type: Date, index: true },
     stageSyncReason: { type: String },   // Reason populated by syncDealStage
 
@@ -283,7 +284,45 @@ const DealSchema = new mongoose.Schema({
     }
 }, { timestamps: true, strict: false });
 
+
+const TERMINAL_STAGES = ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'];
+
+function computeIsActiveDeal(stage) {
+    if (stage === undefined || stage === null) return true;
+    return !TERMINAL_STAGES.includes(stage);
+}
+
+function applyIsActiveDealToUpdate(update) {
+    if (update.$set && update.$set.stage) {
+        update.$set.isActiveDeal = computeIsActiveDeal(update.$set.stage);
+    } else if (update.stage) {
+        update.isActiveDeal = computeIsActiveDeal(update.stage);
+    }
+}
+
+const handleE11000 = function(error, doc, next) {
+    if (error.name === 'MongoServerError' && error.code === 11000) {
+        if (error.message.includes('deal_active_inventory_unique')) {
+            const err = new Error('An active Deal already exists for this Inventory.');
+            err.name = 'DuplicateDealError';
+            err.conflictType = 'inventory';
+            err.originalError = error;
+            return next(err);
+        } else if (error.message.includes('deal_active_coordinates_unique')) {
+            const err = new Error('An active Deal already exists at this exact Project, Block, and Unit number.');
+            err.name = 'DuplicateDealError';
+            err.conflictType = 'coordinates';
+            err.originalError = error;
+            return next(err);
+        }
+    }
+    next(error);
+};
+
 DealSchema.pre("save", async function (next) {
+    if (this.isModified("stage") || this.isNew) {
+        this.isActiveDeal = computeIsActiveDeal(this.stage);
+    }
     // --- Auto-Sync Coordinates from Inventory ---
     if (this.inventoryId && (!this.latitude || !this.longitude)) {
         try {
@@ -469,16 +508,16 @@ DealSchema.post('save', function(doc) {
     invalidateDashboardCache(doc);
     const isNew = doc._wasNew !== undefined ? doc._wasNew : (doc.createdAt && doc.updatedAt && Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000);
     if (isNew) {
-        eventBus.emit('DEAL_CREATED', doc);
+        if (!doc.$locals || !doc.$locals.skipEventBus) { eventBus.emit('DEAL_CREATED', doc); }
     } else {
-        eventBus.emit('DEAL_UPDATED', doc);
+        if (!doc.$locals || !doc.$locals.skipEventBus) { eventBus.emit('DEAL_UPDATED', doc); }
     }
 });
 
 DealSchema.post('findOneAndUpdate', function(doc) {
     if (doc) {
         invalidateDashboardCache(doc);
-        eventBus.emit('DEAL_UPDATED', doc);
+        if (!doc.$locals || !doc.$locals.skipEventBus) { eventBus.emit('DEAL_UPDATED', doc); }
     }
 });
 DealSchema.post('findOneAndDelete', invalidateDashboardCache);
