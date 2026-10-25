@@ -133,25 +133,64 @@ export const deleteForm = async (req, res, next) => {
 // 🛡️ CRITICAL-01: Cryptographic Token Verifier with Scoped Purpose & Claim Dropping
 export const verifyFeedbackToken = (rawToken, slug) => {
     if (!rawToken || typeof rawToken !== 'string') return null;
-    const normalized = rawToken.replace(/~/g, '.');
-    const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
-    if (!secret && process.env.NODE_ENV === 'production') {
-        throw new Error('FATAL: JWT secrets missing in production');
+    const primarySecret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
+    if (!primarySecret) {
+        // Fail closed: without explicit secret configuration, no tokens can be verified
+        return null;
     }
-    const signingSecret = secret || 'dev_secret_fallback';
-    try {
-        const decoded = jwt.verify(normalized, signingSecret);
+    // Dual-key rotation support: if FEEDBACK_JWT_SECRET is active and distinct from JWT_SECRET,
+    // allow JWT_SECRET as a secondary verifier for in-flight tokens issued before rotation.
+    const secondarySecret = (
+        process.env.FEEDBACK_JWT_SECRET &&
+        process.env.JWT_SECRET &&
+        process.env.FEEDBACK_JWT_SECRET !== process.env.JWT_SECRET
+    ) ? process.env.JWT_SECRET : null;
 
+    const normalized = rawToken.replace(/~/g, '.');
+    let decoded = null;
+
+    try {
+        decoded = jwt.verify(normalized, primarySecret);
+    } catch (_) {
+        if (secondarySecret) {
+            try {
+                decoded = jwt.verify(normalized, secondarySecret);
+            } catch (_) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    if (!decoded) return null;
+
+    try {
         // Modern Token Contract
         if (decoded.iss === 'bharat-properties-crm' && (decoded.purpose === 'feedback_submission' || decoded.purpose === 'general_feedback')) {
-            if (slug && decoded.formSlug && decoded.formSlug !== slug) {
+            // Finding 3: Strictly require non-empty formSlug claim exactly matching target form slug
+            if (!slug || typeof slug !== 'string' || !slug.trim()) {
+                return null;
+            }
+            if (!decoded.formSlug || typeof decoded.formSlug !== 'string' || !decoded.formSlug.trim()) {
+                return null;
+            }
+            if (decoded.formSlug !== slug) {
                 return null; // Reject token for mismatched form slug
             }
+
+            // Invariant: Only 'feedback_submission' tokens are permitted to carry an activityId binding.
+            // For 'general_feedback' tokens, activityId MUST ALWAYS be null (stripped even if present in token).
+            const isActivityBound = decoded.purpose === 'feedback_submission';
+            const activityId = (isActivityBound && decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId))
+                ? decoded.activityId
+                : null;
+
             return {
                 valid: true,
                 isLegacy: false,
                 leadId: (decoded.leadId && mongoose.Types.ObjectId.isValid(decoded.leadId)) ? decoded.leadId : null,
-                activityId: (decoded.activityId && mongoose.Types.ObjectId.isValid(decoded.activityId)) ? decoded.activityId : null,
+                activityId,
                 jti: decoded.jti || null,
                 purpose: decoded.purpose
             };
@@ -237,7 +276,13 @@ export const submitFeedback = async (req, res, next) => {
         // 🛡️ CRITICAL-01: Token Verification & Untrusted Claim Dropping
         // Client-supplied leadId and activityId in req.body are COMPLETELY DISCARDED
         const rawToken = bodyToken || req.headers['x-feedback-token'] || req.query.ref || req.query.token;
-        const claims = verifyFeedbackToken(rawToken, slug);
+        let claims = null;
+        if (rawToken) {
+            claims = verifyFeedbackToken(rawToken, slug);
+            if (!claims) {
+                return res.status(403).json({ success: false, error: 'Invalid or unauthorized feedback token' });
+            }
+        }
 
         const authoritativeLeadId = claims?.leadId || null;
         const authoritativeActivityId = claims?.activityId || null;
@@ -246,7 +291,8 @@ export const submitFeedback = async (req, res, next) => {
         const requestIdentity = claims?.jti || (claims?.isLegacy && authoritativeLeadId ? `legacy:${authoritativeLeadId}:${slug}` : null);
 
         // 🛡️ Activity-bound Feedback Submission Flow
-        if (authoritativeActivityId) {
+        // Strict invariant: Only a valid modern feedback_submission token with an authoritative Activity binding may enter
+        if (authoritativeActivityId && claims?.purpose === 'feedback_submission') {
             const activityDoc = await Activity.findById(authoritativeActivityId).lean();
             if (!activityDoc) {
                 return res.status(404).json({ success: false, error: 'Activity not found' });
@@ -417,20 +463,54 @@ export const submitFeedback = async (req, res, next) => {
 
         // 🛡️ General Lead Feedback or Anonymous Public Submission Flow
         // (authoritativeActivityId is null; NO Activity is completed; NO OutboxEvent is emitted)
-        const [generalSubmission] = await FeedbackSubmission.create([{
-            form: form._id,
-            lead: authoritativeLeadId,
-            activity: null,
-            inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
-            department: form.department || null,
-            teams: form.teams || [],
-            responses,
-            rating: submissionRating,
-            idempotencyKey: requestIdentity || undefined,
-            sourceMeta: {
-                userAgent: req.headers['user-agent']
+        if (requestIdentity) {
+            const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+            if (existing && existing.idempotencyKey === requestIdentity) {
+                // Verify matching logical request (same form and lead)
+                if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                    return res.status(200).json({
+                        success: true,
+                        duplicate: true,
+                        submissionId: existing._id,
+                        message: 'Feedback already recorded.'
+                    });
+                }
             }
-        }]);
+        }
+
+        let generalSubmission;
+        try {
+            [generalSubmission] = await FeedbackSubmission.create([{
+                form: form._id,
+                lead: authoritativeLeadId,
+                activity: null,
+                inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+                department: form.department || null,
+                teams: form.teams || [],
+                responses,
+                rating: submissionRating,
+                idempotencyKey: requestIdentity || undefined,
+                sourceMeta: {
+                    userAgent: req.headers['user-agent']
+                }
+            }]);
+        } catch (err) {
+            // Handle race-condition duplicate key error on concurrent submissions
+            if ((err.code === 11000 || err.message?.includes('E11000')) && requestIdentity) {
+                const existing = await FeedbackSubmission.findOne({ idempotencyKey: requestIdentity }).lean();
+                if (existing && existing.idempotencyKey === requestIdentity) {
+                    if (String(existing.form) === String(form._id) && String(existing.lead || '') === String(authoritativeLeadId || '')) {
+                        return res.status(200).json({
+                            success: true,
+                            duplicate: true,
+                            submissionId: existing._id,
+                            message: 'Feedback already recorded.'
+                        });
+                    }
+                }
+            }
+            throw err;
+        }
 
         if (authoritativeLeadId) {
             AuditLog.create([{
