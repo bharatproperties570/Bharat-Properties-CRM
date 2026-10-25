@@ -459,10 +459,9 @@ class VariableResolutionService {
                     if (!leadId) return 'token_missing';
 
                     const secret = process.env.FEEDBACK_JWT_SECRET || process.env.JWT_SECRET;
-                    if (!secret && process.env.NODE_ENV === 'production') {
-                        throw new Error('FATAL: JWT secret not configured');
+                    if (!secret) {
+                        return 'error';
                     }
-                    const signingSecret = secret || 'dev_secret_fallback';
                     const formSlug = 'customer-experience-feedback-qx9z2';
                     const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
 
@@ -481,7 +480,7 @@ class VariableResolutionService {
                                 formSlug,
                                 jti: uuidv4()
                             },
-                            signingSecret,
+                            secret,
                             { expiresIn: '7d' }
                         );
                         return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;
@@ -497,7 +496,7 @@ class VariableResolutionService {
                             formSlug,
                             jti: uuidv4()
                         },
-                        signingSecret,
+                        secret,
                         { expiresIn: '30d' }
                     );
                     return `${baseUrl}/public/feedback/${formSlug}?ref=${token}`;

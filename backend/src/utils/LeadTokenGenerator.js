@@ -35,12 +35,11 @@ export class LeadTokenGenerator {
         };
 
         const secret = process.env.JWT_SECRET;
-        if (!secret && process.env.NODE_ENV === 'production') {
-            throw new Error('FATAL: JWT_SECRET not configured');
+        if (!secret) {
+            throw new Error('FATAL: JWT secret not configured');
         }
-        const signingSecret = secret || 'dev_secret_fallback';
 
-        const token = jwt.sign(payload, signingSecret, {
+        const token = jwt.sign(payload, secret, {
             expiresIn: '365d' // Long-lived — WhatsApp messages persist in chat history
         });
 
