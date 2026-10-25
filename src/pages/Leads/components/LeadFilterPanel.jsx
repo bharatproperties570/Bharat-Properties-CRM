@@ -255,7 +255,12 @@ const LeadFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                     const matchesCat = selectedCategories.length === 0 || selectedCategories.some(cat =>
                         cat && (s.category || '').toLowerCase() === cat.toLowerCase());
                     const matchesSub = selectedSubCategories.some(sub =>
-                        sub && (s.subCategory || '').toLowerCase() === sub.toLowerCase());
+                        sub && (
+                            Array.isArray(s.subCategories) && s.subCategories.length > 0
+                                ? s.subCategories.some(sc => sc.toLowerCase() === sub.toLowerCase())
+                                : ((s.subCategory || '').toLowerCase() === sub.toLowerCase() ||
+                                   (s.subCategory || '').split(',').map(x => x.trim().toLowerCase()).includes(sub.toLowerCase()))
+                        ));
                     return matchesCat && matchesSub && s.unitType;
                 })
                 .map(s => s.unitType)

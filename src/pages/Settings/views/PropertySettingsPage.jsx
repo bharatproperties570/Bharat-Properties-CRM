@@ -26,7 +26,32 @@ const SizeItem = ({ size, onEdit, onDelete, onManageAvailability, isSelected, on
             </td>
             <td style={{ padding: '14px 16px' }}>
                 <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.subCategory}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {(() => {
+                        const subs = Array.isArray(size.subCategories) && size.subCategories.length > 0
+                            ? size.subCategories
+                            : (size.subCategory ? String(size.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
+                        if (subs.length === 0) return <span>--</span>;
+                        if (subs.length === 1) return <span>{subs[0]}</span>;
+                        return (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                {subs.map((sc, i) => (
+                                    <span key={i} style={{
+                                        fontSize: '0.7rem',
+                                        background: 'rgba(37,99,235,0.08)',
+                                        color: '#2563eb',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        border: '1px solid #bfdbfe',
+                                        whiteSpace: 'nowrap'
+                                    }}>
+                                        {sc}
+                                    </span>
+                                ))}
+                            </div>
+                        );
+                    })()}
+                </div>
             </td>
             <td style={{ padding: '14px 16px' }}>
                 {(() => {
@@ -198,8 +223,200 @@ const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMappin
 
 // ✅ ENTERPRISE: Helper to determine if a subcategory is land/dimension-based (Plot, House, Villa, Kothi, etc.)
 export const isDimensionType = (subCat) => {
+    if (Array.isArray(subCat)) {
+        return subCat.some(sc => isDimensionType(sc));
+    }
     const s = String(subCat || '').trim().toLowerCase();
     return ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land', 'house', 'kothi', 'villa', 'bungalow', 'farm house', 'independent house'].some(k => s.includes(k));
+};
+
+// ✅ ENTERPRISE: Multi-Select Dropdown for Sub Categories
+const SubCategoryMultiSelect = ({ options = [], selected = [], onChange, inputStyle }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleOption = (opt) => {
+        if (selected.includes(opt)) {
+            onChange(selected.filter(item => item !== opt));
+        } else {
+            onChange([...selected, opt]);
+        }
+    };
+
+    const handleSelectAll = (e) => {
+        e.stopPropagation();
+        onChange([...options]);
+    };
+
+    const handleClearAll = (e) => {
+        e.stopPropagation();
+        onChange([]);
+    };
+
+    return (
+        <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                style={{
+                    ...inputStyle,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    background: 'var(--bg-light)',
+                    userSelect: 'none'
+                }}
+            >
+                <span style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    fontSize: '0.9rem',
+                    color: selected.length === 0 ? 'var(--text-muted)' : 'var(--text-main)',
+                    fontWeight: selected.length > 0 ? 600 : 400
+                }}>
+                    {selected.length === 0
+                        ? 'Select Sub Categories'
+                        : selected.length === 1
+                            ? selected[0]
+                            : `${selected.length} Sub Categories Selected`}
+                </span>
+                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}></i>
+            </div>
+
+            {isOpen && (
+                <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    boxShadow: '0 12px 28px -4px rgba(0,0,0,0.2)',
+                    zIndex: 12000,
+                    maxHeight: '230px',
+                    display: 'flex',
+                    flexDirection: 'column'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 12px',
+                        borderBottom: '1px solid var(--border-color)',
+                        background: 'var(--bg-light)',
+                        fontSize: '0.75rem'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={handleSelectAll}
+                            style={{ border: 'none', background: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                        >
+                            Select All
+                        </button>
+                        <span style={{ color: 'var(--text-muted)' }}>{selected.length} of {options.length}</span>
+                        <button
+                            type="button"
+                            onClick={handleClearAll}
+                            style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                        >
+                            Clear
+                        </button>
+                    </div>
+
+                    <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
+                        {options.length === 0 ? (
+                            <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                No sub categories available
+                            </div>
+                        ) : (
+                            options.map(opt => {
+                                const isChecked = selected.includes(opt);
+                                return (
+                                    <div
+                                        key={opt}
+                                        onClick={() => toggleOption(opt)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            background: isChecked ? 'rgba(37,99,235,0.08)' : 'transparent',
+                                            color: isChecked ? '#1e40af' : 'var(--text-main)',
+                                            fontWeight: isChecked ? 600 : 400,
+                                            transition: 'background 0.15s'
+                                        }}
+                                        onMouseEnter={e => { if (!isChecked) e.currentTarget.style.background = 'var(--bg-light)'; }}
+                                        onMouseLeave={e => { if (!isChecked) e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => {}} // handled by row onClick
+                                            style={{
+                                                width: '16px',
+                                                height: '16px',
+                                                accentColor: '#2563eb',
+                                                cursor: 'pointer',
+                                                margin: 0
+                                            }}
+                                        />
+                                        <span style={{ flex: 1 }}>{opt}</span>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Selected badges display */}
+            {selected.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                    {selected.map(subName => (
+                        <span
+                            key={subName}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                background: 'rgba(37,99,235,0.08)',
+                                color: '#2563eb',
+                                border: '1px solid #bfdbfe'
+                            }}
+                        >
+                            {subName}
+                            <i
+                                className="fas fa-times"
+                                style={{ cursor: 'pointer', fontSize: '0.65rem', opacity: 0.8 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleOption(subName);
+                                }}
+                            />
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 };
 
 // ✅ ENTERPRISE: AddSizeModal — Project/Block removed from size definition
@@ -210,6 +427,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         unitType: '',
         category: 'Residential',
         subCategory: 'Flat/Apartment / Builder Floor',
+        subCategories: ['Flat/Apartment / Builder Floor'],
         saleableArea: '',
         coveredArea: '',
         carpetArea: '',
@@ -244,14 +462,34 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
         console.log('[AddSizeModal] Initializing sizeData. initialData:', initialData);
         if (initialData) {
-            setSizeData(initialData);
+            let initialSubs = [];
+            if (Array.isArray(initialData.subCategories) && initialData.subCategories.length > 0) {
+                initialSubs = initialData.subCategories;
+            } else if (initialData.subCategory) {
+                initialSubs = String(initialData.subCategory).split(',').map(s => s.trim()).filter(Boolean);
+            }
+            const isDim = isDimensionType(initialSubs);
+            setSizeData({
+                ...defaultState,
+                ...initialData,
+                subCategories: initialSubs,
+                subCategory: initialSubs.join(', ') || initialData.subCategory || '',
+                resultMetric: initialData.resultMetric || (isDim ? 'Sq Yd' : 'Sq Ft')
+            });
         } else {
             const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
             const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
-                ? propertyConfig[initialCat].subCategories[0].name
+                ? (typeof propertyConfig[initialCat].subCategories[0] === 'object' ? propertyConfig[initialCat].subCategories[0].name : propertyConfig[initialCat].subCategories[0])
                 : '';
-            const isDim = isDimensionType(initialSub);
-            setSizeData({ ...defaultState, category: initialCat || 'Residential', subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' });
+            const initialSubs = initialSub ? [initialSub] : [];
+            const isDim = isDimensionType(initialSubs);
+            setSizeData({
+                ...defaultState,
+                category: initialCat || 'Residential',
+                subCategory: initialSub,
+                subCategories: initialSubs,
+                resultMetric: isDim ? 'Sq Yd' : 'Sq Ft'
+            });
         }
         setQuickProject('');
         setQuickBlock('');
@@ -280,25 +518,32 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         if (isOpen && !initialData && !sizeData.category && propertyConfig && Object.keys(propertyConfig).length > 0) {
             const initialCat = Object.keys(propertyConfig)[0];
             const initialSub = Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
-                ? propertyConfig[initialCat].subCategories[0].name
+                ? (typeof propertyConfig[initialCat].subCategories[0] === 'object' ? propertyConfig[initialCat].subCategories[0].name : propertyConfig[initialCat].subCategories[0])
                 : '';
-            const isDim = isDimensionType(initialSub);
-            setSizeData(prev => ({ ...prev, category: initialCat, subCategory: initialSub, resultMetric: isDim ? 'Sq Yd' : 'Sq Ft' }));
+            const initialSubs = initialSub ? [initialSub] : [];
+            const isDim = isDimensionType(initialSubs);
+            setSizeData(prev => ({
+                ...prev,
+                category: initialCat,
+                subCategory: initialSub,
+                subCategories: initialSubs,
+                resultMetric: isDim ? 'Sq Yd' : 'Sq Ft'
+            }));
         }
     }, [propertyConfig, isOpen, initialData, sizeData.category]);
 
     // Auto-generate name from unitType + area
     useEffect(() => {
-        const isPlot = isDimensionType(sizeData.subCategory);
+        const isPlot = isDimensionType(sizeData.subCategories) || isDimensionType(sizeData.subCategory);
         let areaPart = '';
         if (isPlot) {
             areaPart = sizeData.totalArea ? `(${sizeData.totalArea} ${sizeData.resultMetric})` : '';
         } else {
             areaPart = sizeData.saleableArea ? `(${sizeData.saleableArea} Sq Ft)` : '';
         }
-        const generatedName = `${sizeData.unitType} ${areaPart}`.trim();
+        const generatedName = `${sizeData.unitType || ''} ${areaPart}`.trim();
         setSizeData(prev => ({ ...prev, name: generatedName }));
-    }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory]);
+    }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory, sizeData.subCategories]);
 
     // ✅ ENTERPRISE: Real-time duplicate check — globally unique name
     useEffect(() => {
@@ -351,15 +596,24 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
     if (!isOpen) return null;
 
-    const isPlotType = isDimensionType(sizeData.subCategory);
+    const isPlotType = isDimensionType(sizeData.subCategories) || isDimensionType(sizeData.subCategory);
     const isResidentialType = !isPlotType;
 
     const handleSubmit = () => {
-        if (!sizeData.subCategory) { alert('Please select a Sub-Category.'); return; }
+        const currentSubs = Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 0
+            ? sizeData.subCategories
+            : (sizeData.subCategory ? String(sizeData.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
+
+        if (currentSubs.length === 0) { alert('Please select at least one Sub-Category.'); return; }
         if (!sizeData.unitType) { alert('Please select a Size Type.'); return; }
         if (nameConflict) { alert(`Size "${sizeData.name}" already exists globally. Change the area to create a different size.`); return; }
         
-        const payload = { ...sizeData };
+        const payload = {
+            ...sizeData,
+            subCategories: currentSubs,
+            subCategory: currentSubs.join(', ')
+        };
+
         if (isPlotType) {
             payload.totalArea = sizeData.totalArea || '';
             payload.resultMetric = sizeData.resultMetric || 'Sq Yd';
@@ -383,11 +637,11 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: 'var(--bg-card)', width: '620px', borderRadius: '14px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-card)', width: '640px', borderRadius: '14px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Size is global — assign to projects below</p>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Size is global — assign to multiple sub categories and projects below</p>
                     </div>
                     <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.1rem' }}></i>
                 </div>
@@ -399,18 +653,20 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         {nameConflict && <div style={{ fontSize: '0.78rem', color: '#dc2626', marginTop: '4px' }}><i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>This size already exists globally. Change area value to differentiate.</div>}
                     </div>
 
-                    {/* Category / SubCategory / SizeType */}
+                    {/* Category / SubCategory (Multi-Select) / SizeType */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                         <div>
                             <label style={labelStyle}>Category</label>
                             <select value={sizeData.category} onChange={e => {
                                 const cat = e.target.value;
                                 const subs = propertyConfig?.[cat]?.subCategories || [];
-                                const firstSub = subs.length > 0 ? subs[0].name : '';
-                                const willBeDimension = isDimensionType(firstSub);
+                                const firstSub = subs.length > 0 ? (typeof subs[0] === 'object' ? subs[0].name : subs[0]) : '';
+                                const newSubs = firstSub ? [firstSub] : [];
+                                const willBeDimension = isDimensionType(newSubs);
                                 setSizeData(prev => ({
                                     ...prev,
                                     category: cat,
+                                    subCategories: newSubs,
                                     subCategory: firstSub,
                                     unitType: '',
                                     resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
@@ -421,22 +677,32 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             </select>
                         </div>
                         <div>
-                            <label style={labelStyle}>Sub Category</label>
-                            <select value={sizeData.subCategory} onChange={e => {
-                                const sub = e.target.value;
-                                const willBeDimension = isDimensionType(sub);
-                                setSizeData(prev => ({
-                                    ...prev,
-                                    subCategory: sub,
-                                    unitType: '',
-                                    resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
-                                }));
-                            }} style={customSelectStyle}>
-                                <option value="">Select Sub Category</option>
-                                {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
-                                    <option key={sub.name} value={sub.name}>{sub.name}</option>
-                                ))}
-                            </select>
+                            <label style={labelStyle}>
+                                Sub Category *
+                                {Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 1 && (
+                                    <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: '#2563eb', fontWeight: 700 }}>
+                                        ({sizeData.subCategories.length})
+                                    </span>
+                                )}
+                            </label>
+                            <SubCategoryMultiSelect
+                                options={(() => {
+                                    if (!propertyConfig || !sizeData.category) return [];
+                                    const subs = propertyConfig[sizeData.category]?.subCategories || [];
+                                    return subs.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : s).filter(Boolean);
+                                })()}
+                                selected={Array.isArray(sizeData.subCategories) ? sizeData.subCategories : (sizeData.subCategory ? [sizeData.subCategory] : [])}
+                                onChange={(newSelected) => {
+                                    const willBeDimension = isDimensionType(newSelected);
+                                    setSizeData(prev => ({
+                                        ...prev,
+                                        subCategories: newSelected,
+                                        subCategory: newSelected.join(', '),
+                                        resultMetric: willBeDimension ? (prev.resultMetric || 'Sq Yd') : 'Sq Ft'
+                                    }));
+                                }}
+                                inputStyle={inputStyle}
+                            />
                         </div>
                         <div>
                             <label style={labelStyle}>Size Type *</label>
@@ -444,10 +710,27 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                 <option value="">Select Size Type</option>
                                 {(() => {
                                     if (!propertyConfig) return null;
-                                    const subCatObj = Array.isArray(propertyConfig[sizeData.category]?.subCategories)
-                                        ? propertyConfig[sizeData.category].subCategories.find(s => s.name === sizeData.subCategory)
-                                        : null;
-                                    return subCatObj?.types?.map(t => { const typeName = typeof t === 'string' ? t : t.name; return <option key={typeName} value={typeName}>{typeName}</option>; });
+                                    const catSubs = propertyConfig[sizeData.category]?.subCategories || [];
+                                    const currentSubs = Array.isArray(sizeData.subCategories) && sizeData.subCategories.length > 0
+                                        ? sizeData.subCategories
+                                        : (sizeData.subCategory ? [sizeData.subCategory] : []);
+
+                                    const typeMap = new Map();
+                                    catSubs.forEach(s => {
+                                        const sName = typeof s === 'object' ? s.name : s;
+                                        if (currentSubs.length === 0 || currentSubs.includes(sName)) {
+                                            (s.types || []).forEach(t => {
+                                                const typeName = typeof t === 'string' ? t : t.name;
+                                                if (typeName && !typeMap.has(typeName)) {
+                                                    typeMap.set(typeName, typeName);
+                                                }
+                                            });
+                                        }
+                                    });
+
+                                    return Array.from(typeMap.values()).map(typeName => (
+                                        <option key={typeName} value={typeName}>{typeName}</option>
+                                    ));
                                 })()}
                             </select>
                         </div>
@@ -1162,6 +1445,7 @@ const PropertySettingsPage = () => {
             (s.unitType || '').toLowerCase().includes(q) ||
             (s.category || '').toLowerCase().includes(q) ||
             (s.subCategory || '').toLowerCase().includes(q) ||
+            (Array.isArray(s.subCategories) && s.subCategories.some(sub => (sub || '').toLowerCase().includes(q))) ||
             String(s.saleableArea || '').includes(q) ||
             String(s.totalArea || '').includes(q) ||
             String(s.carpetArea || '').includes(q) ||
@@ -1177,7 +1461,14 @@ const PropertySettingsPage = () => {
             s.block === sizeFilters.block
         );
         const matchesCategory = !sizeFilters.category || s.category === sizeFilters.category;
-        const matchesSubCategory = !sizeFilters.subCategory || s.subCategory === sizeFilters.subCategory;
+        const matchesSubCategory = !sizeFilters.subCategory || (
+            Array.isArray(s.subCategories) && s.subCategories.length > 0
+                ? s.subCategories.some(sub => (sub || '').toLowerCase() === sizeFilters.subCategory.toLowerCase())
+                : (
+                    (s.subCategory || '').toLowerCase() === sizeFilters.subCategory.toLowerCase() ||
+                    (s.subCategory || '').split(',').map(x => x.trim().toLowerCase()).includes(sizeFilters.subCategory.toLowerCase())
+                )
+        );
         const matchesUnitType = !sizeFilters.unitType || s.unitType === sizeFilters.unitType;
         return matchesSearch && matchesProject && matchesBlock && matchesCategory && matchesSubCategory && matchesUnitType;
     });
