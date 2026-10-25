@@ -300,7 +300,7 @@ const DiscoverySettingsPage = () => {
                                             </span>
                                         ) : (
                                             <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-light)' }}>
-                                                All Portals
+                                                No Portal Filter (Governance Policy Enforced)
                                             </span>
                                         )}
 
@@ -460,14 +460,14 @@ const DiscoverySettingsPage = () => {
 
                         {/* Section 4: Portal Whitelist & Seller Types */}
                         <div style={{ marginBottom: '16px' }}>
-                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>Allowed Real Estate Portals (Whitelist)</label>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>Target Portal Filter (Optional Search Candidate Whitelist)</label>
                             <input 
                                 value={portalWhitelist} 
                                 onChange={e => setPortalWhitelist(e.target.value)} 
                                 placeholder="e.g. 99acres.com, magicbricks.com, housing.com, olx.in" 
                                 style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input, transparent)', color: 'var(--text-main)' }} 
                             />
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>Leave blank to allow all discovered domains.</div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>Leave blank to remove this discovery filter. Note: This filter only scopes search candidate URLs and never grants domain authorization. Automated HTTP fetching remains strictly governed by the durable ApprovedDomain registry and authorization policy.</div>
                         </div>
 
                         <div style={{ marginBottom: '16px' }}>
