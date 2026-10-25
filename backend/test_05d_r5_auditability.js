@@ -257,7 +257,9 @@ async function runTest() {
                 throw new Error('Simulated Audit Failure');
             };
 
-            const result = await LeadScoringService.computeAndSave(leadT16._id, { triggeredBy: 'system' });
+            const { AuthorityProofIssuer } = await import('./utils/ServerAuthorityProof.js');
+            const systemContract = AuthorityProofIssuer.issueSystemContract('system');
+            const result = await LeadScoringService.computeAndSave(leadT16._id, { triggeredBy: 'system' }, { systemAuthorityContract: systemContract });
 
             assert(mockCalled, "T16: AuditLog.logEntityUpdate was not called");
 

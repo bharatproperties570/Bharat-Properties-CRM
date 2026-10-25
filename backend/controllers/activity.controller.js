@@ -384,7 +384,13 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
         );
 
         // 2. Recalculate Lead Score (unified scoring engine)
-        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId });
+        const { AuthorityProofIssuer } = await import('../utils/ServerAuthorityProof.js');
+        const systemContract = AuthorityProofIssuer.issueSystemContract('activity_completion');
+        await LeadScoringService.computeAndSave(
+            leadId,
+            { triggeredBy: 'activity_completion', triggeredByUserId: userId },
+            { user: req.user, systemAuthorityContract: systemContract }
+        );
 
         // 🚀 OMNICHANNEL AUTOMATION TRIGGER
         // Trigger professional workflow (WhatsApp/SMS/Email) based on the specific outcome

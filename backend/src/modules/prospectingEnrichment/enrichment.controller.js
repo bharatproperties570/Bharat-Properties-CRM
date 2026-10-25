@@ -123,7 +123,7 @@ export const runEnrichment = async (req, res, next) => {
         const currentStatus = existingLead?.enrichmentState?.status;
         const currentV = existingLead?.__v || 0;
 
-        if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED') {
+        if (currentStatus === 'REQUESTED' || currentStatus === 'CLAIMED' || currentStatus === 'RUNNING') {
             return res.status(409).json({
                 success: false,
                 message: 'Enrichment is already in progress.'

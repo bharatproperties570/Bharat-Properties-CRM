@@ -25,13 +25,18 @@ function normalizeUrl(rawUrl) {
 }
 
 
+const isHexObjectId = (str) => typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str);
+const isIsoDate = (str) => typeof str === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(str);
+
 function maskScalarPII(text) {
     if (!text || typeof text !== 'string') return text;
+    if (isHexObjectId(text) || isIsoDate(text)) return text;
+
     // Mask emails: leave first char, mask middle, keep domain
     let masked = text.replace(/([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '$1***$2');
 
-    // Mask phones: leave last 4 digits
-    masked = masked.replace(/(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?){1,2}\d{4}/g, (match) => {
+    // Mask phones: standard international or local 10-15 digit phone patterns
+    masked = masked.replace(/(?:\+?\d{1,4}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,5}[-.\s]*\d{4,5}/g, (match) => {
         const digitsOnly = match.replace(/\D/g, '');
         if (digitsOnly.length >= 10 && digitsOnly.length <= 15) {
             return '[PHONE_MINIMIZED]';
@@ -58,13 +63,18 @@ function redactSensitive(obj, currentDepth = 0, seen = new WeakSet()) {
     if (obj instanceof Date) return new Date(obj.getTime());
     if (obj && typeof obj.toHexString === 'function' && typeof obj.equals === 'function') return obj;
 
-    if (typeof obj !== 'object') return obj;
+    if (typeof obj !== 'object') {
+        if (typeof obj === 'string') {
+            return maskScalarPII(obj);
+        }
+        return obj;
+    }
 
     if (currentDepth >= 5) return '[MAX_DEPTH_EXCEEDED]';
     if (seen.has(obj)) return '[CIRCULAR_REFERENCE]';
     seen.add(obj);
 
-    const sensitiveKeys = /password|token|credential|secret|authorization[_-]?proof/i;
+    const sensitiveKeys = /(?:password|credential|secret|authorization[_-]?proof|token(?!s|count))/i;
     const piiKeys = /email|phone|mobile|contactNumber/i;
 
     if (Array.isArray(obj)) {
@@ -232,6 +242,18 @@ AuditLogSchema.pre('save', function (next) {
     if (this.errorMessage) {
         this.errorMessage = maskScalarPII(this.errorMessage);
     }
+    if (this.userEmail) {
+        this.userEmail = maskScalarPII(this.userEmail);
+    }
+    if (this.actorEmail) {
+        this.actorEmail = maskScalarPII(this.actorEmail);
+    }
+    if (this.targetName) {
+        this.targetName = maskScalarPII(this.targetName);
+    }
+    if (this.description) {
+        this.description = maskScalarPII(this.description);
+    }
     next();
 });
 
@@ -301,10 +323,10 @@ AuditLogSchema.statics.logUserEvent = async function (eventType, userId, actorId
         eventType,
         userId,
         userName: user?.fullName,
-        userEmail: user?.email,
+        userEmail: maskScalarPII(user?.email),
         actorId,
         actorName: actor?.fullName,
-        actorEmail: actor?.email,
+        actorEmail: maskScalarPII(actor?.email),
         description: maskScalarPII(description),
         metadata: redactedMetadata,
         status: 'success',
@@ -357,10 +379,10 @@ AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, a
         eventType: 'data_transferred',
         userId: fromUserId,
         userName: fromUser?.fullName,
-        userEmail: fromUser?.email,
+        userEmail: maskScalarPII(fromUser?.email),
         actorId,
         actorName: actor?.fullName,
-        actorEmail: actor?.email,
+        actorEmail: maskScalarPII(actor?.email),
         description: maskScalarPII(description),
         metadata: redactedMetadata,
         status: 'success',
@@ -392,7 +414,7 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
         eventType,
         userId,
         userName: user?.fullName || 'System',
-        userEmail: user?.email || 'system@crm.local',
+        userEmail: maskScalarPII(user?.email || 'system@crm.local'),
         department,
         targetType,
         targetId,
@@ -404,6 +426,32 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
     }], mongooseOptions).then(docs => docs[0]);
 };
 
+const AI_METADATA_ALLOWLIST = new Set([
+    'model',
+    'modelVersion',
+    'provider',
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'inputTokenCount',
+    'outputTokenCount',
+    'tokenUsage',
+    'durationMs',
+    'latencyMs',
+    'confidence',
+    'confidenceScore',
+    'requestInfo',
+    'details',
+    'reason',
+    'tags',
+    'flags',
+    'promptHash',
+    'completionHash',
+    'executionId',
+    'jobId',
+    'callerId',
+    'context'
+]);
 
 // Log AI event
 AuditLogSchema.statics.logAIEvent = async function (eventType, targetId, capability, policyVersion, decision, metadata = {}, options = {}) {
@@ -411,24 +459,34 @@ AuditLogSchema.statics.logAIEvent = async function (eventType, targetId, capabil
 
     let redactedMetadata;
     try {
-        redactedMetadata = redactSensitive(metadata);
+        const filtered = {};
+        if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+            for (const key of Object.keys(metadata)) {
+                if (AI_METADATA_ALLOWLIST.has(key)) {
+                    filtered[key] = metadata[key];
+                }
+            }
+        }
+        redactedMetadata = redactSensitive(filtered);
         if (redactedMetadata?.requestInfo && 'url' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.url = normalizeUrl(redactedMetadata.requestInfo.url);
         if (redactedMetadata?.requestInfo && 'rawUrl' in redactedMetadata.requestInfo) redactedMetadata.requestInfo.rawUrl = normalizeUrl(redactedMetadata.requestInfo.rawUrl);
     } catch (err) {
         redactedMetadata = { _redaction_error: '[REDACTION_FAILED_PAYLOAD_DROPPED]' };
     }
 
+    const finalMetadata = {
+        ...(typeof redactedMetadata === 'object' && redactedMetadata !== null ? redactedMetadata : {}),
+        capability,
+        policyVersion,
+        decision
+    };
+
     return this.create([{
         eventType,
         targetType: 'other',
         targetId,
         description: maskScalarPII(`AI Policy Decision: ${decision}`),
-        metadata: {
-            capability,
-            policyVersion,
-            decision,
-            ...redactedMetadata
-        },
+        metadata: finalMetadata,
         status: decision === 'ALLOWED' ? 'success' : 'warning',
         correlationId: options.correlationId
     }], mongooseOptions).then(docs => docs[0]);

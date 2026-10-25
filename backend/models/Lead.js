@@ -148,7 +148,7 @@ const LeadSchema = new mongoose.Schema({
     ruleScoreBoost: { type: Number, default: 0 }, // Accumulated boosts from Weighted Transition Rules
     intent_index: { type: Number, default: 0, min: 0, max: 100 },
     enrichmentState: {
-        status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'COMPLETED', 'FAILED'], default: 'NONE' },
+        status: { type: String, enum: ['NONE', 'REQUESTED', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED'], default: 'NONE' },
         requestedAt: { type: Date },
         claimedAt: { type: Date },
         completedAt: { type: Date },

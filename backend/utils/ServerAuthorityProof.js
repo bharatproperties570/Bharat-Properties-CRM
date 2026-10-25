@@ -4,6 +4,22 @@ import crypto from 'crypto';
 const AUTHORITY_SECRET = Symbol('SERVER_AUTHORITY_SECRET');
 const validProofs = new WeakSet();
 
+const SYSTEM_AUTHORITY_SECRET = Symbol('SYSTEM_AUTHORITY_SECRET');
+const validSystemContracts = new WeakSet();
+
+export class SystemAuthorityContract {
+    constructor(secret, source, details = {}) {
+        if (secret !== SYSTEM_AUTHORITY_SECRET) {
+            throw new Error("SECURITY_VIOLATION: Cannot directly construct SystemAuthorityContract");
+        }
+        this.source = source;
+        this.details = details;
+        this.issuedAt = Date.now();
+        Object.freeze(this);
+        validSystemContracts.add(this);
+    }
+}
+
 async function _enqueueSystemEnrichment(leadId) {
     if (!leadId) throw new Error("SECURITY_VIOLATION: Missing target ID");
     
@@ -12,7 +28,7 @@ async function _enqueueSystemEnrichment(leadId) {
 
     const Lead = mongoose.model("Lead");
     const updated = await Lead.findOneAndUpdate(
-        { _id: leadId, "enrichmentState.status": { $nin: ["REQUESTED", "COMPLETED", "IN_PROGRESS", "FAILED_PERMANENTLY"] } },
+        { _id: leadId, "enrichmentState.status": { $nin: ["REQUESTED", "CLAIMED", "RUNNING"] } },
         { 
             $set: { 
                 "enrichmentState.status": "REQUESTED", 
@@ -59,7 +75,7 @@ export class AuthorityProofIssuer {
             { 
                 _id: leadId, 
                 "enrichmentState.claimTokenHash": claimTokenHash,
-                "enrichmentState.status": { $in: ["REQUESTED", "FAILED"] }
+                "enrichmentState.status": "REQUESTED"
             },
             { $set: { 
                 "enrichmentState.status": "CLAIMED", 
@@ -185,6 +201,36 @@ export class AuthorityProofIssuer {
 
     static verify(proof) {
         return validProofs.has(proof);
+    }
+
+    static issueSystemContract(source, details = {}) {
+        const allowedSources = [
+            'system',
+            'activity',
+            'activity_created',
+            'activity_completion',
+            'bulk_recalc',
+            'cron',
+            'cron_sla',
+            'import',
+            'lead_created',
+            'lead_updated',
+            'OTHER_SYSTEM_AUTOMATION'
+        ];
+        if (!allowedSources.includes(source)) {
+            throw new Error(`SECURITY_VIOLATION: Invalid system authority contract source: ${source}`);
+        }
+        return new SystemAuthorityContract(SYSTEM_AUTHORITY_SECRET, source, details);
+    }
+
+    static verifySystemContract(contract, expectedSource = null) {
+        if (!contract || !validSystemContracts.has(contract)) {
+            return false;
+        }
+        if (expectedSource && contract.source !== expectedSource) {
+            return false;
+        }
+        return true;
     }
 }
 
