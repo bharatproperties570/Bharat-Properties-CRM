@@ -2191,12 +2191,16 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
 
     const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
     const activeLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    const soldOutLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+    const blockedLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Blocked', 'Booked'] } }).lean();
 
     const availableId = availableLookup ? availableLookup._id : 'Available';
     const activeId = activeLookup ? activeLookup._id : 'Active';
+    const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+    const blockedId = blockedLookup ? blockedLookup._id : 'Blocked';
 
     if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
-        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        await Inventory.findByIdAndUpdate(deal.inventoryId, { status: soldOutId }, opts);
         return;
     }
 
@@ -2206,11 +2210,13 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
             $or: [
                 { status: availableId },
                 { status: activeId },
+                { status: 'Available' },
+                { status: 'Active' },
                 { status: null },
                 { status: { $exists: false } }
             ]
         };
-        const result = await Inventory.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        const result = await Inventory.findOneAndUpdate(filter, { status: blockedId }, opts);
         if (!result) {
             const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
             err.code = 'INVENTORY_UNAVAILABLE';
@@ -2222,11 +2228,12 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
         const activeDeals = await Deal.countDocuments({
             inventoryId: deal.inventoryId,
+            _id: { $ne: deal._id },
             stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
         }).session(opts.session || null);
 
         if (activeDeals === 0) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId }, opts);
         }
         return;
     }
@@ -2237,6 +2244,8 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
     const validStates = [
         { status: availableId },
         { status: activeId },
+        { status: 'Available' },
+        { status: 'Active' },
         { status: null },
         { status: { $exists: false } }
     ];
@@ -2246,7 +2255,7 @@ const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => 
         $or: validStates
     };
 
-    const result = await Inventory.findOneAndUpdate(filter, { status: 'Active' }, opts);
+    const result = await Inventory.findOneAndUpdate(filter, { status: activeId }, opts);
     if (!result) {
         const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Active. It may be reserved or in an invalid state.`);
         err.code = 'INVENTORY_UNAVAILABLE';
@@ -2345,6 +2354,42 @@ export const updateDeal = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
         }
 
+        const ALLOWED_STAGES = ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'];
+        if (stageProvided && !ALLOWED_STAGES.includes(sanitizedData.stage)) {
+            return res.status(400).json({
+                success: false,
+                error: `Invalid deal stage: '${sanitizedData.stage}'. Allowed stages: ${ALLOWED_STAGES.join(', ')}`
+            });
+        }
+
+        const now = new Date();
+        if (newStage === 'Closed Lost') {
+            sanitizedData.closingDetails = sanitizedData.closingDetails || {};
+            sanitizedData.closingDetails.isClosed = true;
+            if (sanitizedData.lossReasons && !sanitizedData.closingDetails.lossReasons) {
+                sanitizedData.closingDetails.lossReasons = Array.isArray(sanitizedData.lossReasons) ? sanitizedData.lossReasons : [sanitizedData.lossReasons];
+            }
+            if (sanitizedData.marketPrice && !sanitizedData.closingDetails.lostPrice) {
+                sanitizedData.closingDetails.lostPrice = Number(sanitizedData.marketPrice);
+            }
+            if (sanitizedData.lostPrice && !sanitizedData.closingDetails.lostPrice) {
+                sanitizedData.closingDetails.lostPrice = Number(sanitizedData.lostPrice);
+            }
+            if (!sanitizedData.closingDetails.lostDate && !sanitizedData.closingDetails.closingDate) {
+                sanitizedData.closingDetails.lostDate = now;
+                sanitizedData.closingDetails.closingDate = now;
+            }
+        } else if (newStage === 'Closed Won' || newStage === 'Closed') {
+            sanitizedData.closingDetails = sanitizedData.closingDetails || {};
+            sanitizedData.closingDetails.isClosed = true;
+            if (!sanitizedData.closingDetails.closingDate) {
+                sanitizedData.closingDetails.closingDate = now;
+            }
+            if (sanitizedData.closedPrice !== undefined && sanitizedData.closedPrice !== null && !isNaN(Number(sanitizedData.closedPrice))) {
+                sanitizedData.closedPrice = Number(sanitizedData.closedPrice);
+            }
+        }
+
         await withMongoTransaction(async (session) => {
             // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             const visibilityFilter = await getVisibilityFilter(req.user);
@@ -2357,13 +2402,14 @@ export const updateDeal = async (req, res) => {
                 previousStage = existing.stage || null;
                 stageChanged = stageProvided && sanitizedData.stage !== existing.stage;
 
-                const now = new Date();
                 const historyUpdate = {};
                 let requiresHistoryUpdate = false;
 
                 // 1. Stage History
                 if (stageChanged) {
                     requiresHistoryUpdate = true;
+                    sanitizedData.stageChangedAt = now;
+                    historyUpdate.stageChangedAt = now;
                     if (existing.stageHistory?.length > 0) {
                         const lastIdx = existing.stageHistory.length - 1;
                         const last = existing.stageHistory[lastIdx];
@@ -2473,7 +2519,7 @@ export const updateDeal = async (req, res) => {
                 if (!sanitizedData.assignment) sanitizedData.assignment = {};
                 sanitizedData.assignment.team = [sanitizedData.team];
             }
-            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, session });
+            deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true, runValidators: true, session });
             if (!deal) {
                 throw new Error('Deal not found');
             }
@@ -2499,14 +2545,16 @@ export const updateDeal = async (req, res) => {
                 await mongoose.model('Activity').create([{
                     entityId: deal.inventoryId,
                     entityType: 'Inventory',
-                    type: 'system_note',
-                    subType: 'deal_lost',
-                    user: req.user?.id || null,
+                    type: 'Task',
+                    subject: `Deal Lost after ${daysActive} days`,
+                    dueDate: lostAt,
                     title: `Deal Lost after ${daysActive} days`,
                     description: `Deal #${deal.dealId || deal._id.toString().slice(-6)} was marked as Closed Lost. Reason: ${sanitizedData.stageSyncReason || sanitizedData.closingDetails?.remarks || sanitizedData.reason || "Not provided"}. It was active for ${daysActive} days.${lostPriceMsg}`,
-                    priority: 'medium',
-                    status: 'completed',
-                    completedAt: lostAt
+                    priority: 'Normal',
+                    status: 'Completed',
+                    completedAt: lostAt,
+                    createdBy: req.user?.id || null,
+                    performedBy: req.user?.name || 'System'
                 }], { session });
             }
 
@@ -2528,7 +2576,13 @@ export const updateDeal = async (req, res) => {
 
     } catch (error) {
         const msg = error.message || 'Transaction failed';
-        if (msg.includes('INVENTORY_UNAVAILABLE') || msg.includes('DUPLICATE PROTECTION') || msg.includes('Deal not found')) {
+        if (
+            msg.includes('INVENTORY_UNAVAILABLE') ||
+            msg.includes('DUPLICATE PROTECTION') ||
+            msg.includes('Deal not found') ||
+            msg.includes('Invalid deal stage') ||
+            error.name === 'ValidationError'
+        ) {
             return res.status(400).json({ success: false, error: msg, message: msg });
         }
         console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
@@ -2551,9 +2605,18 @@ export const deleteDeal = async (req, res) => {
         const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
 
-        // Reset inventory status if the deal was deleted
+        // Reset inventory status if the deal was deleted and no other active deals remain
         if (deal.inventoryId) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' });
+            const activeDeals = await Deal.countDocuments({
+                inventoryId: deal.inventoryId,
+                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+            });
+            if (activeDeals === 0) {
+                const Lookup = mongoose.model('Lookup');
+                const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+                const availableId = availableLookup ? availableLookup._id : 'Available';
+                await Inventory.findByIdAndUpdate(deal.inventoryId, { status: availableId });
+            }
         }
 
         res.json({ success: true, message: "Deal deleted successfully" });
@@ -2582,7 +2645,19 @@ export const bulkDeleteDeals = async (req, res) => {
 
         const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
         if (inventoryIds.length > 0) {
-            await Inventory.updateMany({ _id: { $in: inventoryIds }, ...tenantFilter }, { status: 'Available' });
+            const Lookup = mongoose.model('Lookup');
+            const availableLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
+            const availableId = availableLookup ? availableLookup._id : 'Available';
+            for (const invId of inventoryIds) {
+                const remainingActive = await Deal.countDocuments({
+                    _id: { $nin: allowedIds },
+                    inventoryId: invId,
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                });
+                if (remainingActive === 0) {
+                    await Inventory.updateOne({ _id: invId, ...tenantFilter }, { status: availableId });
+                }
+            }
         }
 
         await Deal.deleteMany({ _id: { $in: allowedIds }, ...tenantFilter });
@@ -2662,7 +2737,7 @@ export const importDeals = async (req, res) => {
 export const closeDeal = async (req, res) => {
     try {
         const { id } = req.params;
-        const { checklist, closingDate, remarks } = req.body;
+        const { checklist, closingDate, remarks, closedPrice } = req.body;
 
         const deal = await Deal.findById(id).populate('inventoryId owner associatedContact partyStructure.buyer');
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
@@ -2700,6 +2775,7 @@ export const closeDeal = async (req, res) => {
 
         // Update Deal
         deal.stage = 'Closed';
+        deal.stageChangedAt = new Date();
         deal.closingDetails = {
             isClosed: true,
             closingDate: closingDate || new Date(),
@@ -2707,11 +2783,17 @@ export const closeDeal = async (req, res) => {
             remarks: remarks,
             feedbackStatus: { buyerContacted: false, sellerContacted: false }
         };
+        if (closedPrice !== undefined && closedPrice !== null && !isNaN(Number(closedPrice))) {
+            deal.closedPrice = Number(closedPrice);
+        }
         await deal.save();
 
         // Update Inventory Status
         if (deal.inventoryId) {
-            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' });
+            const Lookup = mongoose.model('Lookup');
+            const soldOutLookup = await Lookup.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+            const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: soldOutId });
         }
 
         // TODO: Notification trigger
@@ -3205,13 +3287,19 @@ export const verifyDeal = async (req, res) => {
         try {
             const Activity = mongoose.model('Activity');
             await Activity.create({
-                entityType: 'deal',
+                entityType: 'Deal',
                 entityId: deal._id,
-                type: 'Deal Verified',
+                type: 'Task',
+                subject: 'Deal Verified',
+                dueDate: new Date(),
                 action: 'Deal Verified',
                 description: `Deal #${deal.dealId || deal._id} verified via ${verificationMethod} by ${userName}`,
-                performedBy: req.user._id,
-                performedAt: new Date()
+                performedBy: userName,
+                createdBy: req.user?._id || req.user?.id || null,
+                performedAt: new Date(),
+                status: 'Completed',
+                priority: 'Normal',
+                completedAt: new Date()
             });
         } catch (actErr) {
             console.error('[DealController] Error creating verification Activity:', actErr.message);
