@@ -132,10 +132,71 @@ export class WorkflowEngine {
                     ? `delay-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`
                     : `imm-${action.automatedActionId}-${entityData._id || entityData.id}-${entityUpdatedTime}`;
 
-                const existingLog = await AutomationLog.findOne({ idempotencyKey });
-                if (existingLog) {
-                    console.log(`[WorkflowEngine] Action already executed for key: ${idempotencyKey}. Skipping.`);
-                    return;
+                const crypto = (await import('crypto')).default;
+                const autoClaimToken = crypto.randomUUID();
+                const autoLeaseDuration = executionOptions.leaseDurationMs || 120000;
+                const autoLeaseUntil = new Date(Date.now() + autoLeaseDuration);
+                let autoClaimAcquired = false;
+
+                try {
+                    await AutomationLog.create({
+                        ruleType: 'AutomatedAction',
+                        ruleId: autoAction._id,
+                        targetEntityId: entityData._id || entityData.id,
+                        targetModule: trigger?.module || autoAction.module || 'general',
+                        status: 'pending',
+                        idempotencyKey,
+                        claimToken: autoClaimToken,
+                        leaseUntil: autoLeaseUntil,
+                        companyId: companyId || entityData.companyId || null,
+                        tenantId: entityData.tenantId || trigger?.tenantId || null
+                    });
+                    autoClaimAcquired = true;
+                } catch (autoErr) {
+                    if (autoErr.code === 11000) {
+                        const existing = await AutomationLog.findOne({ idempotencyKey });
+                        const existingDoc = existing?.lean ? await existing.lean() : existing;
+                        if (existingDoc && existingDoc.status === 'success') {
+                            console.log(`[WorkflowEngine] Action already executed for key: ${idempotencyKey}. Skipping.`);
+                            return;
+                        }
+                        if (existingDoc && existingDoc.status === 'failed') {
+                            if (existingDoc.details?.retryable === true) {
+                                const updated = await AutomationLog.findOneAndUpdate(
+                                    { idempotencyKey, status: 'failed' },
+                                    { $set: { status: 'pending', claimToken: autoClaimToken, leaseUntil: autoLeaseUntil } },
+                                    { new: true }
+                                );
+                                if (updated) {
+                                    autoClaimAcquired = true;
+                                } else {
+                                    console.log(`[WorkflowEngine] Lost retry claim race for key: ${idempotencyKey}. Skipping.`);
+                                    return;
+                                }
+                            } else {
+                                console.log(`[WorkflowEngine] Action previously reached terminal failure for key: ${idempotencyKey}. Skipping.`);
+                                return;
+                            }
+                        } else if (existingDoc && existingDoc.status === 'pending') {
+                            if (existingDoc.leaseUntil && new Date(existingDoc.leaseUntil) > new Date()) {
+                                console.log(`[WorkflowEngine] Active claim held for key: ${idempotencyKey}. Skipping.`);
+                                return;
+                            }
+                            const updated = await AutomationLog.findOneAndUpdate(
+                                { idempotencyKey, status: 'pending', leaseUntil: { $lte: new Date() } },
+                                { $set: { claimToken: autoClaimToken, leaseUntil: autoLeaseUntil } },
+                                { new: true }
+                            );
+                            if (updated) {
+                                autoClaimAcquired = true;
+                            } else {
+                                console.log(`[WorkflowEngine] Lost claim race for key: ${idempotencyKey}. Skipping.`);
+                                return;
+                            }
+                        }
+                    } else {
+                        throw autoErr;
+                    }
                 }
 
                 try {
@@ -193,30 +254,38 @@ export class WorkflowEngine {
                         await Inventory.findByIdAndUpdate(entityData._id || entityData.id, { $set: { status: 'Locked' } }, { new: true });
                     }
 
-                    // Log success
-                    await AutomationLog.create({
-                        ruleType: 'AutomatedAction',
-                        ruleId: autoAction._id,
-                        targetEntityId: entityData._id || entityData.id,
-                        targetModule: trigger.module,
-                        status: 'success',
-                        idempotencyKey,
-                        companyId,
-                        tenantId: entityData.tenantId || trigger.tenantId || null
-                    });
+                    // Finalize success with claim fencing
+                    if (autoClaimAcquired) {
+                        const finalizeResult = await AutomationLog.updateOne(
+                            { idempotencyKey, claimToken: autoClaimToken },
+                            { $set: { status: 'success', executedAt: new Date() } }
+                        );
+                        if (finalizeResult.modifiedCount !== 1) {
+                            console.warn(`[WorkflowEngine] Ownership lost during finalization for automated action key: ${idempotencyKey}`);
+                            if (executionOptions.propagateError || executionOptions.rethrowErrors) {
+                                throw new Error(`Automation execution ownership lost during automated action finalization: ${idempotencyKey}`);
+                            }
+                        }
+                    } else {
+                        await AutomationLog.create({
+                            ruleType: 'AutomatedAction',
+                            ruleId: autoAction._id,
+                            targetEntityId: entityData._id || entityData.id,
+                            targetModule: trigger?.module || autoAction.module || 'general',
+                            status: 'success',
+                            idempotencyKey,
+                            companyId: companyId || entityData.companyId || null,
+                            tenantId: entityData.tenantId || trigger?.tenantId || null
+                        });
+                    }
                 } catch (execError) {
                     console.error(`[WorkflowEngine] Automated Action Execution failed:`, execError);
-                    await AutomationLog.create({
-                        ruleType: 'AutomatedAction',
-                        ruleId: autoAction._id,
-                        targetEntityId: entityData._id || entityData.id,
-                        targetModule: trigger.module,
-                        status: 'failed',
-                        details: { error: execError.message },
-                        idempotencyKey,
-                        companyId,
-                        tenantId: entityData.tenantId || trigger.tenantId || null
-                    });
+                    if (autoClaimAcquired) {
+                        await AutomationLog.updateOne(
+                            { idempotencyKey, claimToken: autoClaimToken },
+                            { $set: { status: 'failed', details: { error: execError.message, retryable: true } } }
+                        );
+                    }
                     throw execError;
                 }
 
@@ -224,11 +293,24 @@ export class WorkflowEngine {
             }
 
             // ─── Native Raw Trigger Actions ───
-            if (isDealCreatedNative) {
-                const targetEntityId = String(entityData._id || entityData.id);
-                const triggerId = String(trigger._id);
+            const isNativeRawAction = Boolean(trigger && action?.type !== 'fire_automated_action' && !executionOptions.skipLogging);
+            if (isNativeRawAction) {
+                const targetEntityId = String(entityData._id || entityData.id || '');
+                const triggerId = String(trigger._id || 'direct');
                 const actionId = action._id ? String(action._id) : (executionOptions.actionIndex !== undefined ? String(executionOptions.actionIndex) : '0');
-                canonicalKey = `canonical-deal_created-${targetEntityId}-${triggerId}-${actionId}`;
+
+                if (isDealCreatedNative) {
+                    canonicalKey = executionOptions.idempotencyKey || `canonical-deal_created-${targetEntityId}-${triggerId}-${actionId}`;
+                } else if (executionOptions.idempotencyKey) {
+                    canonicalKey = executionOptions.idempotencyKey;
+                } else {
+                    const normalizedMod = String(trigger.module || 'general').toLowerCase();
+                    const normalizedEv = String(trigger.event || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+                    const stagePart = (normalizedEv.includes('stage') && entityData.stage)
+                        ? `-${String(entityData.stage).toLowerCase().replace(/[^a-z0-9_]/g, '')}`
+                        : '';
+                    canonicalKey = `canonical-${normalizedMod}-${normalizedEv}-${targetEntityId}${stagePart}-${triggerId}-${actionId}`;
+                }
 
                 if (executionOptions.callerManagedClaim && executionOptions.canonicalClaimAcquired) {
                     claimAcquired = true;
@@ -245,17 +327,18 @@ export class WorkflowEngine {
 
                     const crypto = (await import('crypto')).default;
                     claimToken = crypto.randomUUID();
-                    leaseUntil = new Date(Date.now() + 120000);
+                    const leaseDuration = executionOptions.leaseDurationMs || 120000;
+                    leaseUntil = new Date(Date.now() + leaseDuration);
 
                     try {
                         await AutomationLog.create({
                             ruleType: 'Trigger',
-                            ruleId: trigger._id,
+                            ruleId: trigger._id || null,
                             targetEntityId,
-                            targetModule: trigger.module,
+                            targetModule: trigger.module || 'general',
                             status: 'pending',
                             idempotencyKey: canonicalKey,
-                            companyId,
+                            companyId: companyId || entityData.companyId || null,
                             claimToken,
                             leaseUntil,
                             tenantId: entityData.tenantId || trigger.tenantId || null
@@ -269,22 +352,43 @@ export class WorkflowEngine {
                                 console.log(`[WorkflowEngine] Action already executed for canonical key: ${canonicalKey}. Skipping.`);
                                 return;
                             }
-                            if (existingDoc && existingDoc.status === 'pending' && existingDoc.leaseUntil && new Date(existingDoc.leaseUntil) > new Date()) {
-                                console.log(`[WorkflowEngine] Active claim held for canonical key: ${canonicalKey}. Skipping.`);
-                                return;
-                            }
-                            // Stale lease acquisition
-                            const updated = await AutomationLog.findOneAndUpdate(
-                                { idempotencyKey: canonicalKey, status: 'pending', leaseUntil: { $lte: new Date() } },
-                                { $set: { claimToken, leaseUntil } },
-                                { new: true }
-                            );
-                            if (updated) {
-                                claimAcquired = true;
-                                leaseUntil = updated.leaseUntil || leaseUntil;
-                            } else {
-                                console.log(`[WorkflowEngine] Lost claim race for canonical key: ${canonicalKey}. Skipping.`);
-                                return;
+                            if (existingDoc && existingDoc.status === 'failed') {
+                                if (existingDoc.details?.retryable === true) {
+                                    // Retryable transient failure re-acquisition
+                                    const updated = await AutomationLog.findOneAndUpdate(
+                                        { idempotencyKey: canonicalKey, status: 'failed' },
+                                        { $set: { status: 'pending', claimToken, leaseUntil } },
+                                        { new: true }
+                                    );
+                                    if (updated) {
+                                        claimAcquired = true;
+                                        leaseUntil = updated.leaseUntil || leaseUntil;
+                                    } else {
+                                        console.log(`[WorkflowEngine] Lost retry claim race for canonical key: ${canonicalKey}. Skipping.`);
+                                        return;
+                                    }
+                                } else {
+                                    console.log(`[WorkflowEngine] Action previously reached terminal failure for canonical key: ${canonicalKey}. Skipping.`);
+                                    return;
+                                }
+                            } else if (existingDoc && existingDoc.status === 'pending') {
+                                if (existingDoc.leaseUntil && new Date(existingDoc.leaseUntil) > new Date()) {
+                                    console.log(`[WorkflowEngine] Active claim held for canonical key: ${canonicalKey}. Skipping.`);
+                                    return;
+                                }
+                                // Stale lease acquisition
+                                const updated = await AutomationLog.findOneAndUpdate(
+                                    { idempotencyKey: canonicalKey, status: 'pending', leaseUntil: { $lte: new Date() } },
+                                    { $set: { claimToken, leaseUntil } },
+                                    { new: true }
+                                );
+                                if (updated) {
+                                    claimAcquired = true;
+                                    leaseUntil = updated.leaseUntil || leaseUntil;
+                                } else {
+                                    console.log(`[WorkflowEngine] Lost claim race for canonical key: ${canonicalKey}. Skipping.`);
+                                    return;
+                                }
                             }
                         } else {
                             throw claimErr;
@@ -340,7 +444,7 @@ export class WorkflowEngine {
                             );
 
                             // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
-                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                            if (claimAcquired && leaseUntil && new Date() >= leaseUntil) {
                                 throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp template dispatch for canonical key: ${canonicalKey}`);
                             }
 
@@ -360,7 +464,7 @@ export class WorkflowEngine {
                             const resolvedMessage = VariableResolver.resolve(action.message || '', entityData);
 
                             // Pre-dispatch fencing check (Stage 1 Safety Questions 2 & 4)
-                            if (isDealCreatedNative && claimAcquired && leaseUntil && new Date() >= leaseUntil) {
+                            if (claimAcquired && leaseUntil && new Date() >= leaseUntil) {
                                 throw new Error(`[WorkflowEngine] Lease expired prior to external WhatsApp text dispatch for canonical key: ${canonicalKey}`);
                             }
 
@@ -421,7 +525,7 @@ export class WorkflowEngine {
                 await Model.findByIdAndUpdate(entityData._id || entityData.id, { $set: { [action.field]: action.value } }, { new: true });
             }
 
-            if (isDealCreatedNative && claimAcquired) {
+            if (claimAcquired) {
                 if (!executionOptions.callerManagedClaim) {
                     const finalizeResult = await AutomationLog.updateOne(
                         { idempotencyKey: canonicalKey, claimToken },
@@ -429,39 +533,43 @@ export class WorkflowEngine {
                     );
                     if (finalizeResult.modifiedCount !== 1) {
                         console.warn(`[WorkflowEngine] Ownership lost during finalization for canonical key: ${canonicalKey}`);
+                        if (executionOptions.propagateError || executionOptions.rethrowErrors) {
+                            throw new Error(`Automation execution ownership lost during canonical success finalization: ${canonicalKey}`);
+                        }
                     }
                 }
-            } else {
+            } else if (!isNativeRawAction) {
                 await AutomationLog.create({
                     ruleType: 'Trigger',
-                    ruleId: trigger._id,
+                    ruleId: trigger?._id || null,
                     targetEntityId: entityData._id || entityData.id,
-                    targetModule: trigger.module,
+                    targetModule: trigger?.module || 'general',
                     status: 'success',
-                    companyId,
-                    tenantId: entityData.tenantId || trigger.tenantId || null
+                    companyId: companyId || entityData.companyId || null,
+                    tenantId: entityData.tenantId || trigger?.tenantId || null
                 });
             }
         } catch (error) {
             console.error(`[WorkflowEngine] Action failed:`, error);
-            if (isDealCreatedNative && claimAcquired && !executionOptions.callerManagedClaim) {
+            if (claimAcquired && !executionOptions.callerManagedClaim) {
+                const isRetryable = executionOptions.isRetryable !== false;
                 await AutomationLog.updateOne(
                     { idempotencyKey: canonicalKey, claimToken },
-                    { $set: { status: 'failed', details: { error: error.message } } }
+                    { $set: { status: 'failed', details: { error: error.message, retryable: isRetryable } } }
                 );
-            } else if (!isDealCreatedNative) {
+            } else if (!claimAcquired && !isNativeRawAction) {
                 await AutomationLog.create({
                     ruleType: 'Trigger',
-                    ruleId: trigger._id,
+                    ruleId: trigger?._id || null,
                     targetEntityId: entityData._id || entityData.id,
-                    targetModule: trigger.module,
+                    targetModule: trigger?.module || 'general',
                     status: 'failed',
                     details: { error: error.message },
-                    companyId,
-                    tenantId: entityData.tenantId || trigger.tenantId || null
+                    companyId: companyId || entityData.companyId || null,
+                    tenantId: entityData.tenantId || trigger?.tenantId || null
                 });
             }
-            if (executionOptions.rethrowErrors) {
+            if (executionOptions.rethrowErrors || executionOptions.propagateError) {
                 throw error;
             }
         }
