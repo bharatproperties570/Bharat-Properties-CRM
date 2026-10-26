@@ -171,6 +171,7 @@ const DealSchema = new mongoose.Schema({
 
     flexiblePercentage: { type: Number, default: 50 },
     source: { type: String, default: 'Walk-in' },
+    attributedTouchId: { type: mongoose.Schema.Types.ObjectId, ref: 'MarketingTouch', index: true },
 
 
     isOwnerSelected: { type: Boolean, default: false },

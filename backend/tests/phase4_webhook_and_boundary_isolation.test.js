@@ -308,6 +308,80 @@ describe('Phase 4 — Webhook Attribution, Core Boundaries & Historical Migratio
                 TenantWebhookConfig.findOne = originalFindOne;
             }
         });
+
+        it('WH-06: Single-organisation fallback routes unmapped webhook to null tenant without spoofing', async () => {
+            const originalFindOne = TenantWebhookConfig.findOne;
+            TenantWebhookConfig.findOne = () => ({
+                lean: () => Promise.resolve(null)
+            });
+
+            try {
+                const middleware = verifyWebhookAttribution({ requireTimestamp: false });
+                const req = {
+                    headers: {},
+                    query: {},
+                    body: { firstName: 'Ramesh', mobile: '9999988888', leadSource: 'Landing Page' },
+                    originalUrl: '/api/v1/webhook/lead',
+                    ip: '127.0.0.1'
+                };
+
+                let nextCalled = false;
+                await middleware(req, {}, () => { nextCalled = true; });
+
+                assert.strictEqual(nextCalled, true);
+                assert.strictEqual(req.resolvedTenantId, null);
+                assert.strictEqual(req.webhookAttribution.provider, 'SINGLE_ORGANISATION_DEFAULT');
+                assert.strictEqual(req.body.tenantId, null);
+            } finally {
+                TenantWebhookConfig.findOne = originalFindOne;
+            }
+        });
+
+        it('WH-07: Unauthenticated tenant claim without matching config is rejected as spoofing with 403', async () => {
+            const originalFindOne = TenantWebhookConfig.findOne;
+            TenantWebhookConfig.findOne = () => ({
+                lean: () => Promise.resolve(null)
+            });
+
+            const originalAuditCreate = AuditLog.create;
+            let auditLogged = null;
+            AuditLog.create = (doc) => {
+                auditLogged = Array.isArray(doc) ? doc[0] : doc;
+                return Promise.resolve(auditLogged);
+            };
+
+            try {
+                const middleware = verifyWebhookAttribution({ requireTimestamp: false });
+                const req = {
+                    headers: {},
+                    query: { tenantId: 'unverified-arbitrary-tenant' },
+                    body: { firstName: 'Spoofer', mobile: '9999988888' },
+                    originalUrl: '/api/v1/webhook/lead',
+                    ip: '127.0.0.1'
+                };
+
+                let statusSent = null;
+                let jsonSent = null;
+                const res = {
+                    status: (code) => {
+                        statusSent = code;
+                        return { json: (data) => { jsonSent = data; } };
+                    }
+                };
+                let nextCalled = false;
+
+                await middleware(req, res, () => { nextCalled = true; });
+
+                assert.strictEqual(statusSent, 403);
+                assert.strictEqual(jsonSent.code, 'TENANT_IDENTITY_SPOOF_DETECTED');
+                assert.strictEqual(nextCalled, false);
+                assert(auditLogged, 'Security audit log must be written on spoof attempt');
+                assert.strictEqual(auditLogged.metadata.reason, 'SPOOFED_TENANT_ID');
+            } finally {
+                TenantWebhookConfig.findOne = originalFindOne;
+                AuditLog.create = originalAuditCreate;
+            }
+        });
     });
 
     // ─────────────────────────────────────────────────────────────
