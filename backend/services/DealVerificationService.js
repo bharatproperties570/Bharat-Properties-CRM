@@ -158,6 +158,10 @@ class DealVerificationService {
             // Log activity on deal
             await Activity.create({
                 deal:        deal._id,
+                entityType:  'Deal',
+                entityId:    deal._id,
+                subject:     `Verification message sent to ${mobile}`,
+                dueDate:     new Date(),
                 type:        'WhatsApp',
                 direction:   'Outbound',
                 description: `Verification message sent to ${mobile}`,
@@ -365,6 +369,10 @@ class DealVerificationService {
                 // Activity log
                 await Activity.create({
                     deal:        deal._id,
+                    entityType:  'Deal',
+                    entityId:    deal._id,
+                    subject:     `Verification reply: ${intent}`,
+                    dueDate:     new Date(),
                     type:        'WhatsApp',
                     direction:   'Inbound',
                     description: `Verification reply: ${intent}`,

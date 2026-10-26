@@ -204,11 +204,11 @@ const InventorySchema = new mongoose.Schema({
     longitude: { type: String },
     geoPoint: {
         type: { type: String, enum: ['Point'] },
-        coordinates: { type: [Number] }
+        coordinates: { type: [Number], default: undefined }
     },
     geoPolygon: {
         type: { type: String, enum: ['Polygon'] },
-        coordinates: { type: [[[Number]]] }
+        coordinates: { type: [[[Number]]], default: undefined }
     },
     gpsPerimeter: { type: Number }, // in meters or feet
 

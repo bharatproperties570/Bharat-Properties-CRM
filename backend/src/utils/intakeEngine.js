@@ -46,7 +46,7 @@ const getDistributeEntity = async () => {
 const CONFIG = {
     BUYER_SIGNALS:  (process.env.INTAKE_BUYER_SIGNALS  || 'buy,price of,available,booking,interested,visit,site visit,location of,cost,chahiye,rate,bhk,sqyd,sq.yd,price,plan,brochure').split(','),
     SELLER_SIGNALS: (process.env.INTAKE_SELLER_SIGNALS || 'sell,resale,my unit,my flat,my plot,my house,offering,listing,owner,bechna,bikau,available for sale,for sale,plot for sale,mere pass').split(','),
-    UNIT_REGEX:   /(?:unit|flat|plot|shop|house|h\.no|hno|plot no|flat no)\s*(?:[#:\-])?\s*([a-z0-9\-]+)/i,
+    UNIT_REGEX:   /(?:unit\s*no\.?|flat\s*no\.?|plot\s*no\.?|flat\s*unit|unit|flat|plot|shop|house|h\.no|hno)\s*(?:[#:\-])?\s*([a-z0-9\-]+)/i,
     PRICE_REGEX:  /(?:price|rate|budget|cost|offering|asking|value|demand)\s*(?:is|of|around|at)?\s*(?:rs\.?|inr)?\s*(\d+(?:\.\d+)?\s*(?:cr|l|k|lac|lakh|thousand|hundred)?)/i,
     // Idempotency window — ignore duplicate intake within N ms
     DEDUP_WINDOW_MS: Number(process.env.INTAKE_DEDUP_WINDOW_MS || 60_000),
@@ -181,12 +181,16 @@ const extractEntities = async (text) => {
     }
 
     const unitMatch  = text.match(CONFIG.UNIT_REGEX);
+    const rawUnit    = unitMatch?.[1] ?? null;
+    const STOP_WORDS = new Set(['in', 'at', 'for', 'of', 'to', 'is', 'with', 'near', 'the', 'a', 'an', 'and', 'or', 'on', 'by']);
+    const unitNumber = rawUnit && !STOP_WORDS.has(rawUnit.toLowerCase()) ? rawUnit : null;
+
     const priceMatch = text.match(CONFIG.PRICE_REGEX);
     const rawPrice   = priceMatch?.[1] ?? null;
 
     return {
         project:    detectedProject,
-        unitNumber: unitMatch?.[1] ?? null,
+        unitNumber,
         price:      parsePrice(rawPrice),
         rawPrice,
     };
@@ -277,7 +281,7 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
         { upsert: true, new: true, session }
     );
 
-    // Resolve contac
+    // Resolve contact
     let contact = await Contact.findOne({ 'phones.number': normalizedMobile }).session(session);
 
     if (!contact) {
@@ -292,6 +296,22 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
             }], { session });
             contact = Array.isArray(contact) ? contact[0] : contact;
             log.info(traceId, 'Lead promoted to Contact', { contactId: contact._id });
+        } else {
+            const { resolveContactIdentity } = await import('../../services/contactIdentity.service.js');
+            const contactRes = await resolveContactIdentity({
+                mobile: normalizedMobile,
+                session,
+                createIfMissing: true,
+                contactData: {
+                    name: name || 'Seller Contact',
+                    source: 'IntakeEngine Seller',
+                    phones: [{ number: normalizedMobile, type: 'Mobile', primary: true }]
+                }
+            });
+            if (contactRes.success && contactRes.contact) {
+                contact = contactRes.contact;
+                log.info(traceId, 'Seller Contact resolved/created', { contactId: contact._id });
+            }
         }
     }
 
@@ -308,10 +328,7 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
 
     // Create Deal only when price is known
     if (price > 0) {
-        const [stage, src] = await Promise.all([
-            cachedResolveLeadLookup('DealStage', 'New'),
-            cachedResolveLeadLookup('Source', source),
-        ]);
+        const src = await cachedResolveLeadLookup('Source', source);
 
         const { createStandardizedDeal } = await import('../../services/DealCreationEngine.js');
 
@@ -332,7 +349,7 @@ const handleSellerIntent = async (session, traceId, entities, normalizedMobile, 
                 name: `Resale: ${project.name} - ${unitNumber}`,
                 price,
                 projectName: project.name,
-                stage: typeof stage === 'object' && stage ? stage._id : stage, // Map lookup ID
+                stage: 'Open',
                 source: typeof src === 'object' && src ? src._id : src,
                 remarks: `Auto-created via Enterprise Intake Engine v2. Price: ${rawPrice}`,
                 attributedTouchId: touchId || undefined
@@ -380,10 +397,8 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
     const firstName = nameParts[0] || 'Website';
     const lastName  = nameParts.slice(1).join(' ') || 'Visitor';
 
-    const [resolvedSource, resolvedStatus] = await Promise.all([
-        cachedResolveLeadLookup('Source', source),
-        cachedResolveLeadLookup('Status', 'New'),
-    ]);
+    const resolvedSource = await cachedResolveLeadLookup('Source', source);
+    const resolvedStatus = await cachedResolveLeadLookup('Status', 'New');
 
     // Attribution for Lead
     let touchId = null;
@@ -394,34 +409,47 @@ const handleNewLead = async (session, traceId, normalizedMobile, name, email, me
         log.error(traceId, 'Attribution failed', { err: e.message });
     }
 
-    const lead = await Lead.create([{
+    const { createStandardizedLead } = await import('../../services/LeadCreationEngine.js');
+
+    const leadPayload = {
         _id:          dummyId,
         firstName,
         lastName,
+        fullName:     (name || `${firstName} ${lastName}`).trim(),
         mobile:       normalizedMobile,
         email:        email || undefined,
-        source:       resolvedSource,
-        status:       resolvedStatus,
+        source:       typeof resolvedSource === 'object' && resolvedSource ? resolvedSource._id : resolvedSource,
+        status:       typeof resolvedStatus === 'object' && resolvedStatus ? resolvedStatus._id : resolvedStatus,
         description:  message,
         intent_index: intent === 'BUYER' ? 70 : (intent === 'UNKNOWN' ? 30 : 40),
         attributedTouchId: touchId || undefined
-    }], { session });
+    };
 
-    const leadDoc = Array.isArray(lead) ? lead[0] : lead;
+    const cleanSource = (source || 'Website').replace(/[^a-zA-Z0-9]/g, '');
+    const context = {
+        session,
+        source: 'WEBHOOK',
+        actorType: 'SYSTEM',
+        correlationId: traceId,
+        triggerEvent: `on${cleanSource}Capture`
+    };
 
-    // Distribution runs outside transaction
-    setImmediate(async () => {
+    const resObj = await createStandardizedLead(leadPayload, context);
+    const leadDoc = resObj.lead;
+    const postCommitTasks = [];
+
+    // Schedule distribution to run post-commit (safe against transaction aborts)
+    postCommitTasks.push(async () => {
         try {
             const distributeEntity = await getDistributeEntity();
-            const cleanSource = source.replace(/[^a-zA-Z0-9]/g, '');
             await distributeEntity(leadDoc, `on${cleanSource}Capture`);
         } catch (distErr) {
             log.error(null, 'Distribution failed', { leadId: leadDoc._id, err: distErr.message });
         }
     });
 
-    log.info(traceId, 'New lead created', { leadId: leadDoc._id, intent });
-    return { type: 'LEAD', data: leadDoc };
+    log.info(traceId, 'New lead created via LeadCreationEngine', { leadId: leadDoc._id, intent });
+    return { type: 'LEAD', data: leadDoc, postCommitTasks };
 };
 
 // ─── MAIN INTAKE PROCESSOR ────────────────────────────────────────────────────
@@ -492,11 +520,9 @@ export const processIntake = async (payload, options = {}) => {
                 return;
             }
 
-            // ── Resolve existing identity ──
-            const [existingLead, existingContact] = await Promise.all([
-                Lead.findOne({ mobile: normalizedMobile }).session(session).lean(),
-                Contact.findOne({ 'phones.number': normalizedMobile }).session(session).lean(),
-            ]);
+            // ── Resolve existing identity sequentially (avoid concurrent session queries) ──
+            const existingLead = await Lead.findOne({ mobile: normalizedMobile }).session(session).lean();
+            const existingContact = existingLead ? null : await Contact.findOne({ 'phones.number': normalizedMobile }).session(session).lean();
 
             // ── Scenario B: Known identity — return existing record ──
             if (existingLead || existingContact) {
