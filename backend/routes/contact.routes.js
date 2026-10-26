@@ -1,5 +1,5 @@
 import express from "express";
-import { getContacts, getContactStats, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, getContactDependencies, syncAllContacts, mergeContacts } from "../controllers/contact.controller.js";
+import { getContacts, getContactStats, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, getContactDependencies, syncAllContacts, mergeContacts, rollbackContactMerge } from "../controllers/contact.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
@@ -15,6 +15,7 @@ router.post("/import", importContacts);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/sync-all", syncAllContacts);
 router.post("/merge", mergeContacts);
+router.post("/merge/:mergeOperationId/rollback", rollbackContactMerge);
 router.post("/", validateBusinessRules('contacts'), createContact);
 router.get("/:id", getContact);
 router.get("/:id/usage", getContactUsage);

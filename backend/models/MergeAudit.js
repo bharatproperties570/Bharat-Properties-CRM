@@ -23,6 +23,7 @@ const MergeAuditSchema = new mongoose.Schema({
     completedAt: { type: Date },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     rollbackAvailable: { type: Boolean, default: true },
+    flattenedContactIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
     
     fieldChanges: [FieldChangeSchema],
     referenceRewires: [ReferenceRewireSchema],
