@@ -36,6 +36,19 @@ jobs:
           cd backend
           npm ci --legacy-peer-deps
 
+      - name: Cache MongoDB binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: ${{ runner.os }}-mongodb-binaries-8.2.6
+          restore-keys: |
+            ${{ runner.os }}-mongodb-binaries-
+
+      - name: Pre-download MongoDB binary for tests
+        run: |
+          cd backend
+          node -e "import('mongodb-memory-server').then(m => m.MongoMemoryServer.create().then(s => s.stop()))"
+
       - name: Run Phase 1 & 1.1 Discovery Engine Tests
         run: |
           cd backend
