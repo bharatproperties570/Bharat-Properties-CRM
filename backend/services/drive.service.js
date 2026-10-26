@@ -80,7 +80,14 @@ export const getStructuredFolder = async (pathSegments = []) => {
 export const uploadFileToDrive = async (file, options = {}) => {
     if (!IntegrationGuard.canExecuteWebhooks()) {
         IntegrationGuard.logBlock("Google Drive Upload", file.originalname || "file");
-        return { fileId: "staging-mock-file-id", webViewLink: "https://mock.drive/file", webContentLink: "https://mock.drive/dl" };
+        return {
+            id: "staging-mock-file-id",
+            fileId: "staging-mock-file-id",
+            url: "https://mock.drive/file",
+            webViewLink: "https://mock.drive/file",
+            downloadUrl: "https://mock.drive/dl",
+            webContentLink: "https://mock.drive/dl"
+        };
     }
 
     let { folderId, entityType, entityName, docCategory, docType } = options;
@@ -194,6 +201,76 @@ export const downloadFileBuffer = async (fileId) => {
         };
     } catch (error) {
         console.error(`[DriveService] Download Error for ${fileId}:`, error.message);
+        throw error;
+    }
+};
+
+/**
+ * Delete a file from Google Drive
+ * @param {string} fileId - The Google Drive file ID
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export const deleteFileFromDrive = async (fileId) => {
+    if (!IntegrationGuard.canExecuteWebhooks()) {
+        IntegrationGuard.logBlock("Google Drive Delete", fileId);
+        return { success: true, message: "Mock delete: Google Drive mutations blocked in staging/test." };
+    }
+
+    if (!fileId) {
+        throw new Error("File ID is required for deletion.");
+    }
+
+    const driveService = await getDriveService();
+    if (!driveService) {
+        throw new Error("Google Drive authentication failed or is not configured.");
+    }
+
+    try {
+        await driveService.files.delete({
+            fileId,
+            supportsAllDrives: true,
+            supportsTeamDrives: true
+        });
+        return { success: true, message: `File ${fileId} deleted successfully from Google Drive.` };
+    } catch (error) {
+        console.error(`[DriveService] Delete Error for ${fileId}:`, error.response?.data || error.message);
+        throw error;
+    }
+};
+
+/**
+ * Retrieve metadata for a file in Google Drive
+ * @param {string} fileId - The Google Drive file ID
+ * @returns {Promise<Object>} - Metadata object
+ */
+export const getFileMetadata = async (fileId) => {
+    if (!IntegrationGuard.canExecuteWebhooks()) {
+        IntegrationGuard.logBlock("Google Drive Metadata", fileId);
+        return { id: fileId, name: "mock-file", mimeType: "application/pdf", size: 1024, storage: "google_drive" };
+    }
+
+    if (!fileId) {
+        throw new Error("File ID is required to fetch metadata.");
+    }
+
+    const driveService = await getDriveService();
+    if (!driveService) {
+        throw new Error("Google Drive authentication failed or is not configured.");
+    }
+
+    try {
+        const response = await driveService.files.get({
+            fileId,
+            fields: 'id, name, mimeType, size, createdTime, modifiedTime, webViewLink, webContentLink',
+            supportsAllDrives: true,
+            supportsTeamDrives: true
+        });
+        return {
+            ...response.data,
+            storage: 'google_drive'
+        };
+    } catch (error) {
+        console.error(`[DriveService] Metadata Error for ${fileId}:`, error.response?.data || error.message);
         throw error;
     }
 };
