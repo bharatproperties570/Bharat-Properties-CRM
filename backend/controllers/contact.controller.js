@@ -1880,3 +1880,25 @@ export const mergeContacts = async (req, res, next) => {
         next(error);
     }
 };
+
+export const rollbackContactMerge = async (req, res, next) => {
+    try {
+        const { mergeOperationId } = req.params;
+        if (!mergeOperationId) {
+            return res.status(400).json({ success: false, message: 'mergeOperationId is required' });
+        }
+        const { rollbackMerge } = await import('../services/contactMerge.service.js');
+        const audit = await rollbackMerge(mergeOperationId);
+        res.status(200).json({
+            success: true,
+            message: `Merge operation ${mergeOperationId} rolled back successfully.`,
+            audit
+        });
+    } catch (error) {
+        console.error('[RollbackContactMerge] Error:', error);
+        if (error.message.includes('Invalid or uncompleted') || error.message.includes('not available')) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        next(error);
+    }
+};
