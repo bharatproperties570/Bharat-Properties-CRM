@@ -333,7 +333,7 @@ export const PropertyConfigProvider = ({ children }) => {
         frontOnRoads: [],
         soilTypes: ['Sandy', 'Clay', 'Silt', 'Loam'],
         currentCrops: ['Wheat', 'Rice', 'Sugarcane', 'Cotton', 'Mustard', 'Maize', 'None'],
-        ownerships: ['Freehold', 'Leasehold', 'Co-operative Society', 'Power of Attorney'],
+        ownerships: ['Freehold', 'Leasehold', 'Individual Ownership', 'Power of Attorney', 'Co-operative Society'],
         numberOfOwners: [],
         unitTypes: [],
         relations: [],
@@ -1748,7 +1748,7 @@ export const PropertyConfigProvider = ({ children }) => {
         'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline', 'PossessionStatus',
         'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type',
         'WaterSource', 'WaterLevel', 'WaterPumpType', 'FrontOnRoad', 'NumberOfOwner', 'ZoneName', 'FloorLevel', 'FloorPlan',
-        'SoilType', 'CurrentCrop'
+        'SoilType', 'CurrentCrop', 'Ownership'
     ];
 
     const { data: rawLookups } = useLookups(REQUIRED_LOOKUP_TYPES);
@@ -1796,7 +1796,9 @@ export const PropertyConfigProvider = ({ children }) => {
             zoneNames: getValues('ZoneName'),
             soilTypes: getValues('SoilType'),
             currentCrops: getValues('CurrentCrop'),
-            ownerships: getValues('Ownership'),
+            ownerships: getValues('Ownership').length > 0
+                ? getValues('Ownership')
+                : (prev?.ownerships?.length > 0 ? prev.ownerships : ['Freehold', 'Leasehold', 'Individual Ownership', 'Power of Attorney', 'Co-operative Society']),
             pincodes: getValues('Pincode'),
             titles: helperGet(newLookups, 'Title') || [],
             relations: helperGet(newLookups, 'Relation')?.map(l => ({
@@ -2167,7 +2169,8 @@ export const PropertyConfigProvider = ({ children }) => {
             floorLevels: 'FloorLevel',
             floorPlans: 'FloorPlan',
             soilTypes: 'SoilType',
-            currentCrops: 'CurrentCrop'
+            currentCrops: 'CurrentCrop',
+            ownerships: 'Ownership'
         };
 
         const lookupType = fieldToLookupType[field];

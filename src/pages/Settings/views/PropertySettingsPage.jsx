@@ -1086,8 +1086,19 @@ const PropertySettingsPage = () => {
             facings: 'Facing',
             directions: 'Direction',
             roadWidths: 'RoadWidth',
+            waterSources: 'WaterSource',
+            waterLevels: 'WaterLevel',
+            waterPumpTypes: 'WaterPumpType',
+            frontOnRoads: 'FrontOnRoad',
             unitTypes: 'UnitType',
-            relations: 'Relation'
+            relations: 'Relation',
+            zoneNames: 'ZoneName',
+            numberOfOwners: 'NumberOfOwner',
+            floorLevels: 'FloorLevel',
+            floorPlans: 'FloorPlan',
+            soilTypes: 'SoilType',
+            currentCrops: 'CurrentCrop',
+            ownerships: 'Ownership'
         };
 
         const lookupType = fieldToLookupType[activeOrientationField] || activeOrientationField;
@@ -1103,7 +1114,8 @@ const PropertySettingsPage = () => {
     };
 
     const handleAddMasterItem = () => {
-        openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
+        const singularLabel = activeOrientationField === 'ownerships' ? 'ownership' : activeOrientationField.slice(0, -1);
+        openInputModal(`Enter new ${singularLabel}`, '', (value) => {
             if (value) {
                 const currentList = masterFields[activeOrientationField] || [];
                 const itemExists = currentList.some(item => {
@@ -1911,7 +1923,7 @@ const PropertySettingsPage = () => {
                                     {masterFields && ['facings', 'roadWidths', 'directions', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'numberOfOwners', 'unitTypes', 'relations', 'floorLevels', 'floorPlans', 'zoneNames', 'soilTypes', 'currentCrops', 'ownerships']
                                         .map(field => (
                                             <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : 'var(--text-main)', background: activeOrientationField === field ? 'var(--bg-card)' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
-                                                {field === 'zoneNames' ? 'Zone' : field.replace(/([A-Z])/g, ' $1').trim()}
+                                                {field === 'zoneNames' ? 'Zone' : field === 'ownerships' ? 'Ownership' : field.replace(/([A-Z])/g, ' $1').trim()}
                                             </div>
                                         ))}
                                 </div>
