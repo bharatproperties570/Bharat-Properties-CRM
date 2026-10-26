@@ -6,6 +6,7 @@ import Lead from '../models/Lead.js';
 import AuditLog from '../models/AuditLog.js';
 import SystemSetting from '../models/SystemSetting.js';
 import OutboxEvent from '../models/OutboxEvent.js';
+import { withMongoTransaction } from '../utils/withMongoTransaction.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const syncInventoryStatus = async (deal, opts = {}, forceTransition = false) => {
@@ -17,12 +18,16 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
 
     const availableLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: 'Available' }).lean();
     const activeLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: 'Active' }).lean();
+    const soldOutLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Sold Out', 'Sold'] } }).lean();
+    const blockedLookup = await LookupModel.findOne({ lookup_type: 'Status', lookup_value: { $in: ['Blocked', 'Booked'] } }).lean();
 
     const availableId = availableLookup ? availableLookup._id : 'Available';
     const activeId = activeLookup ? activeLookup._id : 'Active';
+    const soldOutId = soldOutLookup ? soldOutLookup._id : 'Sold Out';
+    const blockedId = blockedLookup ? blockedLookup._id : 'Blocked';
 
     if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
-        await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' }, opts);
+        await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: soldOutId }, opts);
         return;
     }
 
@@ -32,11 +37,13 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
             $or: [
                 { status: availableId },
                 { status: activeId },
+                { status: 'Available' },
+                { status: 'Active' },
                 { status: null },
                 { status: { $exists: false } }
             ]
         };
-        const result = await InventoryModel.findOneAndUpdate(filter, { status: 'Blocked' }, opts);
+        const result = await InventoryModel.findOneAndUpdate(filter, { status: blockedId }, opts);
         if (!result) {
             const err = new Error(`INVENTORY_UNAVAILABLE: Unit ${deal.inventoryId} cannot transition to Booked/Blocked. It may be reserved or in an invalid state.`);
             err.code = 'INVENTORY_UNAVAILABLE';
@@ -48,11 +55,12 @@ export const syncInventoryStatus = async (deal, opts = {}, forceTransition = fal
     if (['Cancelled', 'Closed Lost'].includes(deal.stage)) {
         const activeDeals = await DealModel.countDocuments({
             inventoryId: deal.inventoryId,
+            _id: { $ne: deal._id },
             stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
         }).session(opts.session || null);
 
         if (activeDeals === 0) {
-            await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: 'Available' }, opts);
+            await InventoryModel.findByIdAndUpdate(deal.inventoryId, { status: availableId }, opts);
         }
         return;
     }
@@ -82,18 +90,10 @@ export const createStandardizedDeal = async (input, options = {}) => {
     if (!source) throw new Error('Source is required');
     if (!dealData) throw new Error('dealData is required');
 
-    let deal = null;
-    let isIdempotentReplay = false;
-    let warnings = [];
-    const postCommitTasks = [];
-
-    const isExternalSession = !!parentSession;
-    const session = parentSession || await mongoose.startSession();
-
-    try {
-        if (!isExternalSession) {
-            session.startTransaction();
-        }
+    const executeInSession = async (session) => {
+        let deal = null;
+        let isIdempotentReplay = false;
+        let warnings = [];
 
         // 1. Idempotency Lock
         let activeIdK = null;
@@ -347,30 +347,18 @@ export const createStandardizedDeal = async (input, options = {}) => {
             await OutboxEvent.create([outboxEntry], { session });
         }
 
-        if (!isExternalSession) {
-            await session.commitTransaction();
-        }
-    } catch (err) {
-        if (!isExternalSession && session.inTransaction()) {
-            await session.abortTransaction();
-        }
-        if (err.code !== 'IDEMPOTENT_CONFLICT' && err.code !== 'DUPLICATE_DEAL' && err.code !== 'INVENTORY_UNAVAILABLE') {
-            err.code = 'TRANSACTION_FAILED';
-        }
-        throw err;
-    } finally {
-        if (!isExternalSession) {
-            session.endSession();
-        }
-    }
-
-    // R56 STAGE 2: Post-commit tasks are now durably queued in OutboxEvent.
-    // We return an empty postCommitTasks array to preserve controller contract.
-    return {
-        success: true,
-        deal,
-        isIdempotentReplay,
-        warnings,
-        postCommitTasks: []
+        return {
+            success: true,
+            deal,
+            isIdempotentReplay,
+            warnings,
+            postCommitTasks: []
+        };
     };
+
+    if (parentSession) {
+        return await executeInSession(parentSession);
+    } else {
+        return await withMongoTransaction(executeInSession);
+    }
 };
