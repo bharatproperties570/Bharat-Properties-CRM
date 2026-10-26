@@ -16,6 +16,9 @@ import Project from '../models/Project.js';
 import Lead  from '../models/Lead.js';
 import Inventory from '../models/Inventory.js';
 import MarketingContent from '../models/MarketingContent.js';
+import MarketingCampaign from '../models/MarketingCampaign.js';
+import CampaignRun from '../models/CampaignRun.js';
+import MarketingDelivery from '../models/MarketingDelivery.js';
 import Activity from '../models/Activity.js';
 import DispatchJob from '../models/DispatchJob.js';
 import NurtureBot from '../services/NurtureBot.js';
@@ -68,6 +71,118 @@ export const getMarketingStats = async (req, res) => {
         res.json({ success: true, data: stats });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// 🧠 P18-05C-R2: DURABLE CAMPAIGN ANALYTICS (RUNS FOR CAMPAIGN)
+export const getCampaignRunsForCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        if (!campaignId) return res.status(400).json({ error: 'campaignId is required' });
+
+        const campaign = await MarketingCampaign.findById(campaignId);
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+        const userRole = (req.user?.role || '').toLowerCase();
+        const isAdmin = userRole === 'admin' || userRole === 'super admin';
+        if (!isAdmin && campaign.ownerId.toString() !== (req.user?._id || req.user?.id || '').toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const runs = await CampaignRun.find({ campaignId }).sort({ createdAt: -1 });
+        return res.json(runs);
+    } catch (error) {
+        console.error('Error fetching campaign runs:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getCampaignRunMetrics = async (req, res) => {
+    try {
+        const { runId } = req.params;
+        const run = await CampaignRun.findById(runId);
+        if (!run) return res.status(404).json({ error: 'Campaign run not found' });
+
+        const campaign = await MarketingCampaign.findById(run.campaignId);
+        const userRole = (req.user?.role || '').toLowerCase();
+        const isAdmin = userRole === 'admin' || userRole === 'super admin';
+        if (!isAdmin && campaign && campaign.ownerId.toString() !== (req.user?._id || req.user?.id || '').toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const metrics = await MarketingDelivery.aggregate([
+            { $match: { campaignRunId: new mongoose.Types.ObjectId(runId) } },
+            { $group: {
+                _id: "$status",
+                count: { $sum: 1 }
+            }}
+        ]);
+
+        const formatted = {
+            total: 0,
+            IN_PROGRESS: 0,
+            SENT: 0,
+            FAILED_RETRYABLE: 0,
+            FAILED_FINAL: 0,
+        };
+
+        metrics.forEach(m => {
+            formatted[m._id] = m.count;
+            formatted.total += m.count;
+        });
+
+        res.json({
+            run,
+            metrics: formatted
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getCampaignSummary = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const campaign = await MarketingCampaign.findById(campaignId);
+        if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+        const userRole = (req.user?.role || '').toLowerCase();
+        const isAdmin = userRole === 'admin' || userRole === 'super admin';
+        if (!isAdmin && campaign.ownerId.toString() !== (req.user?._id || req.user?.id || '').toString()) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const runs = await CampaignRun.find({ campaignId }).select('_id');
+        const runIds = runs.map(r => r._id);
+
+        const metrics = await MarketingDelivery.aggregate([
+            { $match: { campaignRunId: { $in: runIds } } },
+            { $group: {
+                _id: "$status",
+                count: { $sum: 1 }
+            }}
+        ]);
+
+        const formatted = {
+            totalRuns: runs.length,
+            totalDeliveries: 0,
+            IN_PROGRESS: 0,
+            SENT: 0,
+            FAILED_RETRYABLE: 0,
+            FAILED_FINAL: 0,
+        };
+
+        metrics.forEach(m => {
+            formatted[m._id] = m.count;
+            formatted.totalDeliveries += m.count;
+        });
+
+        res.json({
+            campaign,
+            summary: formatted
+        });
+    } catch(error) {
+        res.status(500).json({ error: error.message });
     }
 };
 

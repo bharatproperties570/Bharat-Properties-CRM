@@ -534,16 +534,21 @@ class WhatsAppService {
                 template:          templatePayload,
             }, null, 2));
 
+            const reqHeaders = {
+                'Authorization': `Bearer ${metaConfig.token}`,
+                'Content-Type':  'application/json',
+            };
+            if (options && options.idempotencyKey) {
+                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
+            }
+
             const response = await axios.post(url, {
                 messaging_product: 'whatsapp',
                 to:                toNumber,
                 type:              'template',
                 template:          templatePayload,
             }, {
-                headers: {
-                    'Authorization': `Bearer ${metaConfig.token}`,
-                    'Content-Type':  'application/json',
-                },
+                headers: reqHeaders,
                 timeout: 20000,
             });
 

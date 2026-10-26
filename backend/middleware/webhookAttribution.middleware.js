@@ -143,20 +143,48 @@ export const verifyWebhookAttribution = (options = {}) => {
                 }
             }
 
-            // If no valid mapping could be found, reject unmapped source
+            // If no valid mapping could be found, determine whether to reject or use single-org default
             if (!matchedConfig) {
-                await recordAuditFailure({
-                    reason: 'UNMAPPED_WEBHOOK_SOURCE',
-                    details: { claimedTenantId },
-                    ip: req.ip,
-                    path: req.originalUrl
-                });
-                return res.status(401).json({
-                    success: false,
-                    error: 'UNMAPPED_SOURCE',
-                    code: 'UNMAPPED_WEBHOOK_SOURCE',
-                    message: 'No active tenant ingestion mapping could be resolved for this webhook.'
-                });
+                // Method E: Explicit ingestion key provided but not found in TenantWebhookConfig
+                if (ingestionKey || options.requireIngestionMapping) {
+                    await recordAuditFailure({
+                        reason: 'UNMAPPED_WEBHOOK_SOURCE',
+                        details: { claimedTenantId, ingestionKey },
+                        ip: req.ip,
+                        path: req.originalUrl
+                    });
+                    return res.status(401).json({
+                        success: false,
+                        error: 'UNMAPPED_SOURCE',
+                        code: 'UNMAPPED_WEBHOOK_SOURCE',
+                        message: 'No active tenant ingestion mapping could be resolved for this webhook.'
+                    });
+                }
+
+                // If tenant identity is explicitly claimed without authenticated credentials, reject spoof attempt
+                if (claimedTenantId) {
+                    await recordAuditFailure({
+                        reason: 'SPOOFED_TENANT_ID',
+                        claimedTenantId,
+                        details: { unauthenticatedClaim: true },
+                        ip: req.ip,
+                        path: req.originalUrl
+                    });
+                    return res.status(403).json({
+                        success: false,
+                        error: 'TENANT_SPOOFING_DETECTED',
+                        code: 'TENANT_IDENTITY_SPOOF_DETECTED',
+                        message: 'Claimed tenant identity does not match verified ingestion credentials.'
+                    });
+                }
+
+                // Single-organisation mode fallback (Bharat Properties CRM - single organisation scope)
+                matchedConfig = {
+                    tenantId: null,
+                    provider: 'SINGLE_ORGANISATION_DEFAULT',
+                    secret: process.env.WEBHOOK_SECRET || process.env.META_APP_SECRET || null
+                };
+                resolutionMethod = 'SINGLE_ORGANISATION_DEFAULT';
             }
 
             // ── 3. Cryptographic Signature Verification ──
