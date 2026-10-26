@@ -48,15 +48,31 @@ class NurtureBot {
         try {
             console.log(`[NurtureBot] Initiating for Lead: ${lead._id} (${lead.mobile})`);
 
-            // Set initial nurture state
-            await Lead.findByIdAndUpdate(lead._id, {
-                $set: {
-                    'customFields.nurtureState': 'LEAD_CREATED',
-                    'customFields.nurtureStartedAt': new Date(),
-                    'customFields.nurtureDealId': deal?._id?.toString(),
-                    'customFields.nurtureLastAdvancedAt': new Date(),
+            // Set initial nurture state atomically using CAS to prevent duplicate welcome triggers on webhook replay
+            const updated = await Lead.findOneAndUpdate(
+                {
+                    _id: lead._id,
+                    $or: [
+                        { 'customFields.nurtureState': { $exists: false } },
+                        { 'customFields.nurtureState': null },
+                        { 'customFields.nurtureState': '' }
+                    ]
                 },
-            });
+                {
+                    $set: {
+                        'customFields.nurtureState': 'LEAD_CREATED',
+                        'customFields.nurtureStartedAt': new Date(),
+                        'customFields.nurtureDealId': deal?._id?.toString(),
+                        'customFields.nurtureLastAdvancedAt': new Date(),
+                    },
+                },
+                { new: true }
+            );
+
+            if (!updated) {
+                console.log(`[NurtureBot] Lead ${lead._id} is already initialized or being nurtured. Skipping duplicate initiate.`);
+                return;
+            }
 
             // Immediately proceed to Step 1: Send WhatsApp & SMS
             await this._sendWelcomeMessages(lead, deal);
@@ -114,13 +130,25 @@ class NurtureBot {
 
         console.log(`[NurtureBot] Lead ${lead._id}: ${currentState} → ${nextState}`);
 
-        // Update state
-        await Lead.findByIdAndUpdate(lead._id, {
-            $set: {
-                'customFields.nurtureState': nextState,
-                'customFields.nurtureLastAdvancedAt': new Date(),
+        // Update state atomically checking current state before advancing
+        const updated = await Lead.findOneAndUpdate(
+            {
+                _id: lead._id,
+                'customFields.nurtureState': currentState
             },
-        });
+            {
+                $set: {
+                    'customFields.nurtureState': nextState,
+                    'customFields.nurtureLastAdvancedAt': new Date(),
+                },
+            },
+            { new: true }
+        );
+
+        if (!updated) {
+            console.log(`[NurtureBot] Lead ${lead._id} state was concurrently modified. Skipping advance.`);
+            return;
+        }
 
         // Perform action for the new state
         switch (nextState) {
