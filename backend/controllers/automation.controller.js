@@ -233,9 +233,15 @@ export const enrollEntityInSequence = async (req, res) => {
         if (!seq) return res.status(404).json({ error: 'Sequence not found' });
 
         const { SequenceEngine } = await import('../src/utils/SequenceEngine.js');
-        await SequenceEngine.enroll(seq, { _id: entityId }, module || seq.module || 'deals', companyId);
+        const result = await SequenceEngine.enroll(seq, { _id: entityId }, module || seq.module || 'deals', companyId);
 
-        res.status(200).json({ success: true, message: 'Enrolled successfully' });
+        res.status(200).json({
+            success: true,
+            enrolled: !!result?.enrolled,
+            alreadyEnrolled: !!result?.alreadyEnrolled,
+            message: result?.alreadyEnrolled ? 'Entity is already actively enrolled in this sequence' : 'Enrolled successfully',
+            data: result?.enrollment
+        });
     } catch (error) {
         console.error('[enrollEntityInSequence] Error:', error);
         res.status(500).json({ error: error.message });
