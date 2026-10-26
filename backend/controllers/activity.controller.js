@@ -915,7 +915,21 @@ export const addActivity = async (req, res) => {
 
         // 🚀 Team & Department Inheritance from Parent Entity
         if (activityData.entityType && activityData.entityId && mongoose.Types.ObjectId.isValid(activityData.entityId)) {
-            const ModelMap = { leads: Lead, contact: mongoose.model('Contact'), deal: Deal, project: mongoose.model('Project'), company: mongoose.model('Company'), inventory: mongoose.model('Inventory') };
+            const getModel = (name) => mongoose.models[name] || null;
+            const ModelMap = {
+                leads: Lead,
+                lead: Lead,
+                contacts: getModel('Contact'),
+                contact: getModel('Contact'),
+                deals: Deal,
+                deal: Deal,
+                projects: getModel('Project'),
+                project: getModel('Project'),
+                companies: getModel('Company'),
+                company: getModel('Company'),
+                inventories: getModel('Inventory'),
+                inventory: getModel('Inventory')
+            };
             const ParentModel = ModelMap[activityData.entityType.toLowerCase() + 's'] || ModelMap[activityData.entityType.toLowerCase()];
             if (ParentModel) {
                 const parent = await ParentModel.findById(activityData.entityId).select('teams department assignment.team').lean();
@@ -973,7 +987,7 @@ export const addActivity = async (req, res) => {
             const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
             const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
             if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(err => console.error("FIRST LEAD UPDATE ERROR", err));
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
             }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
@@ -990,7 +1004,7 @@ export const addActivity = async (req, res) => {
                 };
             }
 
-            await Deal.findByIdAndUpdate(activity.entityId, dealUpdate).catch(() => { });
+            await Deal.findByIdAndUpdate(activity.entityId, dealUpdate, { session }).catch(() => { });
         }
 
         // 🚀 Professionals Fix: Site Visit Sync to Deal
@@ -1019,7 +1033,6 @@ export const addActivity = async (req, res) => {
             }
         }
 
-        let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
             const outcome = activity.details?.completionResult || activity.details?.meetingOutcomeStatus || activity.details?.callOutcome || activity.details?.outcome || activity.completionResult || '';
             const reason = activity.details?.outcomeReason || activity.details?.reason || '';
@@ -1088,10 +1101,13 @@ export const updateActivity = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        if (!existingAct) {
+            return res.status(404).json({ success: false, error: "Activity not found" });
+        }
 
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
-            if (existingAct && String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
+            if (String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
                 await createNotification(
                     updateData.assignedTo,
                     'assignment',
@@ -1112,56 +1128,57 @@ export const updateActivity = async (req, res) => {
                 { new: true, runValidators: true, session }
             );
 
-        if (!activity) {
-            return res.status(404).json({ success: false, error: "Activity not found" });
-        }
-
-        // Auto-run Enrichment if entity is a Lead
-        if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
-            // Update lastActivityAt if not missed
-            const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
-            const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
-            if (!isMissed) {
-                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(err => console.error("FIRST LEAD UPDATE ERROR", err));
-            }
-        } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
-            // Update lastActivityAt for Deal
-            await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
-        }
-
-        let transition = null;
-        if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            const outcome = activity.details?.completionResult || activity.details?.meetingOutcomeStatus || activity.details?.callOutcome || activity.details?.outcome || activity.completionResult || '';
-            const reason = activity.details?.outcomeReason || activity.details?.reason || '';
-            const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
-
-            let resolvedOutcome = outcome;
-            const actTypeLower = activity.type?.toLowerCase();
-            if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
-                const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
-                resolvedOutcome = activity.details.visitedProperties
-                    .map(p => (p.result || '').toLowerCase())
-                    .filter(Boolean)
-                    .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
+            if (!activity) {
+                const notFoundErr = new Error("Activity not found");
+                notFoundErr.statusCode = 404;
+                throw notFoundErr;
             }
 
-            transition = await StageTransitionEngine.evaluateAndTransition(
-                activity.entityId,
-                activity.type,
-                resolvedOutcome,
-                reason,
-                {},
-                {
-                    activityId: activity._id,
-                    triggeredByUser: req.user?.id || req.user?._id || activity.assignedTo || null,
-                    purpose,
-                    status: activity.status,
-                    visitedProperties: activity.details?.visitedProperties || [],
-                    session
+            // Auto-run Enrichment if entity is a Lead
+            if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
+                await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+                // Update lastActivityAt if not missed
+                const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
+                const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
+                if (!isMissed) {
+                    await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
                 }
-            );
-        }
+            } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
+                // Update lastActivityAt for Deal with session
+                await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }, { session }).catch(() => { });
+            }
+
+            if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
+                const outcome = activity.details?.completionResult || activity.details?.meetingOutcomeStatus || activity.details?.callOutcome || activity.details?.outcome || activity.completionResult || '';
+                const reason = activity.details?.outcomeReason || activity.details?.reason || '';
+                const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
+
+                let resolvedOutcome = outcome;
+                const actTypeLower = activity.type?.toLowerCase();
+                if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
+                    const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
+                    resolvedOutcome = activity.details.visitedProperties
+                        .map(p => (p.result || '').toLowerCase())
+                        .filter(Boolean)
+                        .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
+                }
+
+                transition = await StageTransitionEngine.evaluateAndTransition(
+                    activity.entityId,
+                    activity.type,
+                    resolvedOutcome,
+                    reason,
+                    {},
+                    {
+                        activityId: activity._id,
+                        triggeredByUser: req.user?.id || req.user?._id || activity.assignedTo || null,
+                        purpose,
+                        status: activity.status,
+                        visitedProperties: activity.details?.visitedProperties || [],
+                        session
+                    }
+                );
+            }
 
             const statusChanged = existingAct.status !== activity.status;
             const assignmentChanged = String(existingAct.assignedTo) !== String(activity.assignedTo);
@@ -1172,7 +1189,8 @@ export const updateActivity = async (req, res) => {
             const descriptionChanged = existingAct.description !== activity.description;
 
             if (statusChanged || assignmentChanged || dateChanged || outcomeChanged || descriptionChanged) {
-                await OutboxEvent.create([{
+                const effectiveTenantId = req.user?.tenantId || req.user?.tenant || activity.tenantId || null;
+                const outboxEntry = {
                     eventType: 'ActivityUpdated',
                     aggregateType: 'Activity',
                     aggregateId: activity._id,
@@ -1189,17 +1207,21 @@ export const updateActivity = async (req, res) => {
                         descriptionChanged,
                         actorId: req.user?.id || req.user?._id || null
                     }
-                }], { session });
+                };
+                if (effectiveTenantId) {
+                    outboxEntry.tenantId = effectiveTenantId;
+                }
+                await OutboxEvent.create([outboxEntry], { session });
             }
         }); // end tx
-
-
-
 
         // Sync and Workflows moved to durable OutboxEvent (C8)
 
         res.json({ success: true, data: activity, transition });
     } catch (error) {
+        if (error.statusCode === 404) {
+            return res.status(404).json({ success: false, error: error.message });
+        }
         res.status(400).json({ success: false, error: error.message });
     }
 };

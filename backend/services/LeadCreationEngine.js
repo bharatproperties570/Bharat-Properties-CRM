@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const createStandardizedLead = async (data, context = {}) => {
     let createdLeadId;
+    let createdLeadDoc = null;
     let newContact = null;
 
     const isExternalSession = !!context.session;
@@ -69,6 +70,7 @@ export const createStandardizedLead = async (data, context = {}) => {
         const leadDoc = new Lead(data);
         await leadDoc.save({ session });
         createdLeadId = leadDoc._id;
+        createdLeadDoc = leadDoc;
 
         // R56 STAGE 1: Durable Outbox Integration with Multi-Tenancy & Provenance
         const outboxEntry = {
@@ -107,7 +109,9 @@ export const createStandardizedLead = async (data, context = {}) => {
         }
     }
 
-    const lead = await Lead.findById(createdLeadId);
+    const lead = isExternalSession
+        ? ((await Lead.findById(createdLeadId).session(session)) || createdLeadDoc)
+        : await Lead.findById(createdLeadId);
 
     // Return the exact same contract. Assignment is deferred to the domainEventWorker.
     return { success: true, lead, contact: newContact, assignment: null };
