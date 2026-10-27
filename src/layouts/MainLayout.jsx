@@ -1,26 +1,25 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useAddActivityMutation } from '../utils/crmHooks';
 import { useImport } from '../context/ImportContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 
-// Modals
-// Modals
-import AddContactModal from '../components/AddContactModal';
-import AddCompanyModal from '../components/AddCompanyModal';
-import CreateActivityModal from '../components/CreateActivityModal';
-import AddProjectModal from '../components/AddProjectModal';
-import AddInventoryModal from '../components/AddInventoryModal';
-import AddLeadModal from '../components/AddLeadModal';
-import AddDealModal from '../components/AddDealModal';
-import AddQuoteModal from '../components/AddQuoteModal';
-import AddOfferModal from '../components/AddOfferModal';
-import ClosingFormModal from '../components/ClosingFormModal';
-import AddBookingModal from '../components/AddBookingModal';
+// Lazy-loaded Global Modals to minimize main entry chunk
+const AddContactModal = lazy(() => import('../components/AddContactModal'));
+const AddCompanyModal = lazy(() => import('../components/AddCompanyModal'));
+const CreateActivityModal = lazy(() => import('../components/CreateActivityModal'));
+const AddProjectModal = lazy(() => import('../components/AddProjectModal'));
+const AddInventoryModal = lazy(() => import('../components/AddInventoryModal'));
+const AddLeadModal = lazy(() => import('../components/AddLeadModal'));
+const AddDealModal = lazy(() => import('../components/AddDealModal'));
+const AddQuoteModal = lazy(() => import('../components/AddQuoteModal'));
+const AddOfferModal = lazy(() => import('../components/AddOfferModal'));
+const ClosingFormModal = lazy(() => import('../components/ClosingFormModal'));
+const AddBookingModal = lazy(() => import('../components/AddBookingModal'));
 import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
 import { leadsAPI, dealsAPI } from '../utils/api';
-import JarvisWidget from '../components/jarvis/JarvisWidget';
+const JarvisWidget = lazy(() => import('../components/jarvis/JarvisWidget'));
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
     const navigate = useNavigate();
@@ -272,98 +271,113 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                 </div>
 
                 {/* Modals Rendered at Root of Layout */}
-                <AddContactModal
-                    isOpen={showAddContactModal}
-                    onClose={() => {
-                        setShowAddContactModal(false);
-                        setEditingContact(null);
-                    }}
-                    initialData={editingContact}
-                    mode={editingContact ? "edit" : "add"}
-                    entityType={modalEntityType}
-                    onAdd={() => {
-                        setShowAddContactModal(false);
-                        setEditingContact(null);
-                    }}
-                    onEdit={() => {
-                        setShowAddContactModal(false);
-                        setEditingContact(null);
-                    }}
-                />
+                <Suspense fallback={null}>
+                    {showAddContactModal && (
+                        <AddContactModal
+                            isOpen={showAddContactModal}
+                            onClose={() => {
+                                setShowAddContactModal(false);
+                                setEditingContact(null);
+                            }}
+                            initialData={editingContact}
+                            mode={editingContact ? "edit" : "add"}
+                            entityType={modalEntityType}
+                            onAdd={() => {
+                                setShowAddContactModal(false);
+                                setEditingContact(null);
+                            }}
+                            onEdit={() => {
+                                setShowAddContactModal(false);
+                                setEditingContact(null);
+                            }}
+                        />
+                    )}
 
-                <AddLeadModal
-                    isOpen={showAddLeadModal}
-                    onClose={() => {
-                        setShowAddLeadModal(false);
-                        setEditingLead(null);
-                        setInitialTab(null);
-                    }}
-                    onAdd={() => setShowAddLeadModal(false)}
-                    initialData={editingLead}
-                    initialTab={initialTab}
-                    mode={editingLead ? "edit" : "add"}
-                />
+                    {showAddLeadModal && (
+                        <AddLeadModal
+                            isOpen={showAddLeadModal}
+                            onClose={() => {
+                                setShowAddLeadModal(false);
+                                setEditingLead(null);
+                                setInitialTab(null);
+                            }}
+                            onAdd={() => setShowAddLeadModal(false)}
+                            initialData={editingLead}
+                            initialTab={initialTab}
+                            mode={editingLead ? "edit" : "add"}
+                        />
+                    )}
 
-                <AddCompanyModal
-                    isOpen={showAddCompanyModal}
-                    onClose={() => setShowAddCompanyModal(false)}
-                    initialData={editingCompany}
-                    onAdd={() => setShowAddCompanyModal(false)}
-                />
+                    {showAddCompanyModal && (
+                        <AddCompanyModal
+                            isOpen={showAddCompanyModal}
+                            onClose={() => setShowAddCompanyModal(false)}
+                            initialData={editingCompany}
+                            onAdd={() => setShowAddCompanyModal(false)}
+                        />
+                    )}
 
-                <CreateActivityModal
-                    isOpen={showActivityModal}
-                    onClose={() => setShowActivityModal(false)}
-                    initialData={activityInitialData}
-                    onSave={handleSaveGlobalActivity}
-                />
+                    {showActivityModal && (
+                        <CreateActivityModal
+                            isOpen={showActivityModal}
+                            onClose={() => setShowActivityModal(false)}
+                            initialData={activityInitialData}
+                            onSave={handleSaveGlobalActivity}
+                        />
+                    )}
 
-                <AddProjectModal
-                    isOpen={showAddProjectModal}
-                    onClose={handleCloseProjectModal}
-                    onSave={() => {
-                        handleCloseProjectModal();
-                        // Trigger global refresh
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new Event('project-updated'));
-                        }
-                    }}
-                    projectToEdit={editingProject}
-                />
+                    {showAddProjectModal && (
+                        <AddProjectModal
+                            isOpen={showAddProjectModal}
+                            onClose={handleCloseProjectModal}
+                            onSave={() => {
+                                handleCloseProjectModal();
+                                // Trigger global refresh
+                                if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new Event('project-updated'));
+                                }
+                            }}
+                            projectToEdit={editingProject}
+                        />
+                    )}
 
-                <AddInventoryModal
-                    isOpen={showAddInventoryModal}
-                    onClose={() => {
-                        setShowAddInventoryModal(false);
-                        setEditingInventory(null);
-                    }}
-                    property={editingInventory}
-                    onSave={() => {
-                        setShowAddInventoryModal(false);
-                        setEditingInventory(null);
-                        // Trigger global refresh for inventory list
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new Event('inventory-updated'));
-                        }
-                    }}
-                />
+                    {showAddInventoryModal && (
+                        <AddInventoryModal
+                            isOpen={showAddInventoryModal}
+                            onClose={() => {
+                                setShowAddInventoryModal(false);
+                                setEditingInventory(null);
+                            }}
+                            property={editingInventory}
+                            onSave={() => {
+                                setShowAddInventoryModal(false);
+                                setEditingInventory(null);
+                                // Trigger global refresh for inventory list
+                                if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new Event('inventory-updated'));
+                                }
+                            }}
+                        />
+                    )}
 
-                <AddDealModal
-                    isOpen={showAddDealModal}
-                    onClose={() => {
-                        setShowAddDealModal(false);
-                        setDealContext(null);
-                    }}
-                    deal={dealContext}
-                    onSave={() => {
-                        setShowAddDealModal(false);
-                        setDealContext(null);
-                        // Trigger global refresh for deals list
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new Event('deal-updated'));
-                        }
-                    }}
-                />
+                    {showAddDealModal && (
+                        <AddDealModal
+                            isOpen={showAddDealModal}
+                            onClose={() => {
+                                setShowAddDealModal(false);
+                                setDealContext(null);
+                            }}
+                            deal={dealContext}
+                            onSave={() => {
+                                setShowAddDealModal(false);
+                                setDealContext(null);
+                                // Trigger global refresh for deals list
+                                if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new Event('deal-updated'));
+                                }
+                            }}
+                        />
+                    )}
 
                 {showAddBookingModal && (
                     <AddBookingModal
@@ -421,6 +435,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         }}
                     />
                 )}
+                </Suspense>
                 {/* Background Import Tracking Widget */}
                 {activeImports.length > 0 && (
                     <>
@@ -617,7 +632,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     </>
                 )}
                 {/* 🤖 JARVIS Enterprise Voice Operating System Widget */}
-                <JarvisWidget />
+                <Suspense fallback={null}>
+                    <JarvisWidget />
+                </Suspense>
             </main>
         </div>
     );

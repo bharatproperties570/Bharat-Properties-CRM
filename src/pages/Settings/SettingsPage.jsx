@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useTeams, useUsers, useDeleteUserMutation, useToggleUserStatusMutation } from '../../utils/crmHooks';
 import { API_BASE_URL, api } from '../../utils/api';
 import Toast from '../../components/Toast';
@@ -12,43 +12,43 @@ import ErrorBoundary from '../../components/ErrorBoundary';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
 import { renderValue } from '../../utils/renderUtils';
-import SalesGoalsSettingsPage from './views/SalesGoalsSettingsPage';
-import NotificationSettingsPage from './views/NotificationSettingsPage';
-import EmailSettingsPage from './views/EmailSettingsPage';
-import VoiceSettingsPage from './views/VoiceSettingsPage';
-import MessagingSettingsPage from './views/MessagingSettingsPage';
-import IntegrationsSettingsPage from './views/IntegrationsSettingsPage';
-import ScoringSettingsPage from './views/ScoringSettingsPage';
-import PropertySettingsPage from './views/PropertySettingsPage';
-import ContactSettingsPage from './views/ContactSettingsPage';
-import CustomizeProjectPage from './views/CustomizeProjectPage';
-import CustomizeLeadPage from './views/CustomizeLeadPage';
 
-import CustomizeCompanyPage from './views/CustomizeCompanyPage';
-import DealSettingsPage from './views/DealSettingsPage';
-import DealDetailsPage from './views/DealDetailsPage';
-import ActivitySettingsPage from './views/ActivitySettingsPage';
-
-import TriggersSettingsPage from './views/TriggersSettingsPage';
-import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
-import DistributionRulesPage from './views/DistributionRulesPage';
-import SequencesSettingsPage from './views/SequencesSettingsPage';
-import AutomatedActionsSettingsPage from './views/AutomatedActionsSettingsPage';
-import ImportDataPage from './views/ImportDataPage';
-import ExportDataPage from './views/ExportDataPage';
-import ParsingRulesPage from './views/ParsingRulesPage';
-import DuplicationSettingsPage from './views/DuplicationSettingsPage';
-import EnrichmentSettingsPage from './views/EnrichmentSettingsPage';
-import LeadCaptureSettingsPage from './views/LeadCaptureSettingsPage';
-import DealCaptureSettingsPage from './views/DealCaptureSettingsPage';
-import FeedbackSettingsPage from './views/FeedbackSettingsPage';
-import FormsSettingsPage from './views/FormsSettingsPage';
-import StagePage from './views/StagePage';
-import AiAgentsSettingsPage from './views/AiAgentsSettingsPage';
-import SiteVisitSettingsPage from './views/SiteVisitSettingsPage';
-import CustomFormsSettingsPage from './views/CustomFormsSettingsPage';
-import DiscoverySettingsPage from './views/DiscoverySettingsPage';
-import AddressMasterSettingsPage from './views/AddressMasterSettingsPage';
+// Lazy-loaded settings subviews for optimal initial bundle splitting
+const SalesGoalsSettingsPage = lazy(() => import('./views/SalesGoalsSettingsPage'));
+const NotificationSettingsPage = lazy(() => import('./views/NotificationSettingsPage'));
+const EmailSettingsPage = lazy(() => import('./views/EmailSettingsPage'));
+const VoiceSettingsPage = lazy(() => import('./views/VoiceSettingsPage'));
+const MessagingSettingsPage = lazy(() => import('./views/MessagingSettingsPage'));
+const IntegrationsSettingsPage = lazy(() => import('./views/IntegrationsSettingsPage'));
+const ScoringSettingsPage = lazy(() => import('./views/ScoringSettingsPage'));
+const PropertySettingsPage = lazy(() => import('./views/PropertySettingsPage'));
+const ContactSettingsPage = lazy(() => import('./views/ContactSettingsPage'));
+const CustomizeProjectPage = lazy(() => import('./views/CustomizeProjectPage'));
+const CustomizeLeadPage = lazy(() => import('./views/CustomizeLeadPage'));
+const CustomizeCompanyPage = lazy(() => import('./views/CustomizeCompanyPage'));
+const DealSettingsPage = lazy(() => import('./views/DealSettingsPage'));
+const DealDetailsPage = lazy(() => import('./views/DealDetailsPage'));
+const ActivitySettingsPage = lazy(() => import('./views/ActivitySettingsPage'));
+const TriggersSettingsPage = lazy(() => import('./views/TriggersSettingsPage'));
+const FieldRulesSettingsPage = lazy(() => import('./views/FieldRulesSettingsPage'));
+const DistributionRulesPage = lazy(() => import('./views/DistributionRulesPage'));
+const SequencesSettingsPage = lazy(() => import('./views/SequencesSettingsPage'));
+const AutomatedActionsSettingsPage = lazy(() => import('./views/AutomatedActionsSettingsPage'));
+const ImportDataPage = lazy(() => import('./views/ImportDataPage'));
+const ExportDataPage = lazy(() => import('./views/ExportDataPage'));
+const ParsingRulesPage = lazy(() => import('./views/ParsingRulesPage'));
+const DuplicationSettingsPage = lazy(() => import('./views/DuplicationSettingsPage'));
+const EnrichmentSettingsPage = lazy(() => import('./views/EnrichmentSettingsPage'));
+const LeadCaptureSettingsPage = lazy(() => import('./views/LeadCaptureSettingsPage'));
+const DealCaptureSettingsPage = lazy(() => import('./views/DealCaptureSettingsPage'));
+const FeedbackSettingsPage = lazy(() => import('./views/FeedbackSettingsPage'));
+const FormsSettingsPage = lazy(() => import('./views/FormsSettingsPage'));
+const StagePage = lazy(() => import('./views/StagePage'));
+const AiAgentsSettingsPage = lazy(() => import('./views/AiAgentsSettingsPage'));
+const SiteVisitSettingsPage = lazy(() => import('./views/SiteVisitSettingsPage'));
+const CustomFormsSettingsPage = lazy(() => import('./views/CustomFormsSettingsPage'));
+const DiscoverySettingsPage = lazy(() => import('./views/DiscoverySettingsPage'));
+const AddressMasterSettingsPage = lazy(() => import('./views/AddressMasterSettingsPage'));
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -1096,6 +1096,13 @@ const SettingsPage = () => {
                 {/* Body Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <ErrorBoundary>
+                        <Suspense fallback={
+                            <div style={{ padding: '60px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', color: 'var(--text-muted)' }}>
+                                <div style={{ width: '32px', height: '32px', border: '3px solid var(--border-color)', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Loading settings view...</span>
+                                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                            </div>
+                        }>
                         {activeTab === 'users' ? (
                             <>
                                 {subTab === 'user-list' && <UserList
@@ -1211,6 +1218,7 @@ const SettingsPage = () => {
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}
+                        </Suspense>
                     </ErrorBoundary>
                 </div>
 

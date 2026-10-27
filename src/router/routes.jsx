@@ -4,14 +4,14 @@ import { AuthGuard } from './AuthGuard';
 import PublicChatWidget from '../components/PublicChatWidget';
 import ErrorBoundary from '../components/ErrorBoundary';
 
-// Public Pages
-import LoginPage from '../pages/Auth/LoginPage';
-import ForgotPasswordPage from '../pages/Auth/ForgotPasswordPage';
-import ResetPasswordPage from '../pages/Auth/ResetPasswordPage';
-import PublicLeadForm from '../pages/Public/PublicLeadForm';
-import PublicDealForm from '../pages/Public/PublicDealForm';
-import PublicFeedbackForm from '../pages/Public/PublicFeedbackForm';
-import CaptureFormPage from '../pages/Public/CaptureFormPage';
+// Lazy Loaded Public Pages
+const LoginPage = lazy(() => import('../pages/Auth/LoginPage'));
+const ForgotPasswordPage = lazy(() => import('../pages/Auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('../pages/Auth/ResetPasswordPage'));
+const PublicLeadForm = lazy(() => import('../pages/Public/PublicLeadForm'));
+const PublicDealForm = lazy(() => import('../pages/Public/PublicDealForm'));
+const PublicFeedbackForm = lazy(() => import('../pages/Public/PublicFeedbackForm'));
+const CaptureFormPage = lazy(() => import('../pages/Public/CaptureFormPage'));
 
 // Lazy Loaded Public Pages
 const MatchBrochure = lazy(() => import('../pages/Public/MatchBrochure'));
@@ -118,23 +118,27 @@ const WithNav = ({ Component }) => {
         contextualOnEdit = context?.onEditContact || context?.onEdit;
     }
 
-    return <Component 
-        {...context} 
-        onEdit={contextualOnEdit}
-        onEditContact={context?.onEditContact}
-        onEditCompany={context?.onEditCompany}
-        onAddActivity={context?.onAddActivity}
-        onAddProject={context?.onAddProject}
-        onEditProject={context?.onEditProject}
-        onAddInventory={context?.onAddInventory}
-        onAddDeal={context?.onAddDeal}
-        {...params} 
-        dealId={params?.id} 
-        projectId={params?.id} 
-        inventoryId={params?.id} 
-        contactId={params?.id} 
-        onBack={handleBack}
-    />;
+    return (
+        <Suspense fallback={<RouteLoading />}>
+            <Component
+                {...context}
+                onEdit={contextualOnEdit}
+                onEditContact={context?.onEditContact}
+                onEditCompany={context?.onEditCompany}
+                onAddActivity={context?.onAddActivity}
+                onAddProject={context?.onAddProject}
+                onEditProject={context?.onEditProject}
+                onAddInventory={context?.onAddInventory}
+                onAddDeal={context?.onAddDeal}
+                {...params}
+                dealId={params?.id}
+                projectId={params?.id}
+                inventoryId={params?.id}
+                contactId={params?.id}
+                onBack={handleBack}
+            />
+        </Suspense>
+    );
 };
 
 
