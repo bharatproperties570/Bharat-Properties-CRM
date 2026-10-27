@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DataTable } from '../DataTable';
 
-describe('DataTable Primitive (Phase 10.3.1 Keyboard Validity & Nested Interaction Hardening)', () => {
+describe('DataTable Primitive (Phase 10.3.2 Native Button Activation Review)', () => {
   const columns = [
     { header: 'Deal Name', accessor: 'name' },
     { header: 'Stage', accessor: 'stage' },
@@ -89,32 +89,44 @@ describe('DataTable Primitive (Phase 10.3.1 Keyboard Validity & Nested Interacti
     expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
   });
 
-  it('activates primary action button via native Enter keydown without manual click synthesis', () => {
+  it('renders native <button type="button"> for primary-action with accessible naming and native click activation', () => {
     const handleRowClick = vi.fn();
     render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
 
-    const primaryButton1 = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+    const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+    expect(primaryButton.tagName.toLowerCase()).toBe('button');
+    expect(primaryButton).toHaveAttribute('type', 'button');
 
-    // Focus primary button and dispatch native Enter keydown
-    primaryButton1.focus();
-    fireEvent.keyDown(primaryButton1, { key: 'Enter', code: 'Enter' });
-
+    // Native button activation triggers onClick directly and stops propagation to <tr>
+    fireEvent.click(primaryButton);
     expect(handleRowClick).toHaveBeenCalledTimes(1);
     expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
   });
 
-  it('activates primary action button via native Space keydown without manual click synthesis', () => {
+  it('does NOT intercept Enter or Space prematurely on keydown, preserving native browser activation and repeat semantics', () => {
     const handleRowClick = vi.fn();
     render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
 
-    const primaryButton2 = screen.getByRole('button', { name: /select m3m golf hills apt/i });
+    const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+    primaryButton.focus();
 
-    // Focus primary button and dispatch native Space keydown
-    primaryButton2.focus();
-    fireEvent.keyDown(primaryButton2, { key: ' ', code: 'Space' });
+    // In native HTML buttons, Space activates on keyup (not keydown), and Enter dispatches click via browser engine.
+    // DataTable does not synthesize custom keydown listeners, so dispatching keydown alone does not trigger row action.
+    fireEvent.keyDown(primaryButton, { key: 'Enter', code: 'Enter' });
+    expect(handleRowClick).not.toHaveBeenCalled();
 
+    fireEvent.keyDown(primaryButton, { key: ' ', code: 'Space' });
+    expect(handleRowClick).not.toHaveBeenCalled();
+
+    // Repeated keydown events (user holding key down) do NOT trigger multi-firing
+    fireEvent.keyDown(primaryButton, { key: 'Enter', code: 'Enter', repeat: true });
+    fireEvent.keyDown(primaryButton, { key: ' ', code: 'Space', repeat: true });
+    expect(handleRowClick).not.toHaveBeenCalled();
+
+    // When the browser engine activates the native button, it calls the button's click handler:
+    fireEvent.click(primaryButton);
     expect(handleRowClick).toHaveBeenCalledTimes(1);
-    expect(handleRowClick).toHaveBeenCalledWith(sampleData[1]);
+    expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
   });
 
   it('toggles nested checkbox with Space key without triggering onRowClick', () => {
@@ -390,7 +402,7 @@ describe('DataTable Primitive (Phase 10.3.1 Keyboard Validity & Nested Interacti
     expect(handleRowClick).not.toHaveBeenCalled();
   });
 
-  it('hardens isolation: supports custom components with onClick or data-prevent-row-click opt-out', () => {
+  it('hardens isolation: supports custom components with explicit opt-out contract', () => {
     const handleRowClick = vi.fn();
     const handleCustomComponentClick = vi.fn();
 
@@ -411,7 +423,7 @@ describe('DataTable Primitive (Phase 10.3.1 Keyboard Validity & Nested Interacti
       {
         key: 'customBadge',
         header: 'Custom Component',
-        // Explicit opt-out at column level or element level
+        // Explicit opt-out at column level
         disablePrimaryTrigger: true,
         render: (row) => (
           <CustomActionBadge

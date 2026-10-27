@@ -263,13 +263,6 @@ export const DataTable = ({
                             e.stopPropagation();
                             onRowClick(row);
                           }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              onRowClick(row);
-                            }
-                          }}
                           aria-label={
                             typeof getRowAriaLabel === 'function'
                               ? getRowAriaLabel(row, rowIndex)
