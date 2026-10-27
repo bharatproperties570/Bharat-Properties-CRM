@@ -29,8 +29,18 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['CLAIMED', 'DISPATCHED', 'FAILED'],
+        enum: ['CLAIMED', 'DISPATCHED', 'FAILED', 'AMBIGUOUS_TIMEOUT'],
         default: 'CLAIMED',
+        index: true
+    },
+    isAmbiguous: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    claimGeneration: {
+        type: Number,
+        default: 1,
         index: true
     },
     claimedAt: {
@@ -45,6 +55,10 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
         type: Date
     },
     providerMessageId: {
+        type: String,
+        index: true
+    },
+    requestPayloadHash: {
         type: String,
         index: true
     },

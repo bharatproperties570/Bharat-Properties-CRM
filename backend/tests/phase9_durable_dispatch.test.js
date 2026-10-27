@@ -3,7 +3,7 @@ process.env.NODE_ENV = 'test';
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
-import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import WhatsAppDispatch from '../models/WhatsAppDispatch.js';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
@@ -12,21 +12,14 @@ import Role from '../models/Role.js';
 import Lead from '../models/Lead.js';
 import WhatsAppService from '../services/WhatsAppService.js';
 
-describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test Suite', () => {
-    let replset;
+describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fencing Test Suite', () => {
+    let mongod;
     let testUser;
     let activeMetaIntegration;
 
     before(async () => {
-        replset = await MongoMemoryReplSet.create({
-            replSet: {
-                count: 1,
-                args: ['--setParameter', 'maxTransactionLockRequestTimeoutMillis=5000']
-            }
-        });
-        await replset.waitUntilRunning();
-
-        const uri = replset.getUri();
+        mongod = await MongoMemoryServer.create();
+        const uri = mongod.getUri();
         await mongoose.connect(uri, { autoIndex: false });
 
         // Ensure collections and unique indexes
@@ -77,8 +70,8 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         if (mongoose.connection) {
             await mongoose.disconnect();
         }
-        if (replset) {
-            await replset.stop();
+        if (mongod) {
+            await mongod.stop();
         }
     });
 
@@ -91,7 +84,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
     // ─────────────────────────────────────────────────────────────
     // TEST 1: Durable Ledger Persistence on Successful Dispatch
     // ─────────────────────────────────────────────────────────────
-    it('1. Durable Ledger Persistence: Outbound dispatch creates durable WhatsAppDispatch record with providerMessageId and null tenantId', async () => {
+    it('1. Durable Ledger Persistence: Outbound dispatch creates durable WhatsAppDispatch record with providerMessageId, claimGeneration, and null tenantId', async () => {
         const mobile = '919811122334';
         const idempotencyKey = 'durable_key_lead_welcome_001';
         const message = 'Welcome to Bharat Properties. Your inquiry has been received.';
@@ -106,10 +99,13 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         assert.equal(dispatchRecord.status, 'DISPATCHED');
         assert.equal(dispatchRecord.recipient, '919811122334');
         assert.equal(dispatchRecord.messageType, 'text');
+        assert.equal(dispatchRecord.claimGeneration, 1, 'Initial claim generation must be 1');
+        assert.equal(dispatchRecord.isAmbiguous, false);
         assert.equal(dispatchRecord.tenantId, null, 'Single-organisation tenantId must remain null');
         assert.ok(dispatchRecord.dispatchedAt);
         assert.ok(dispatchRecord.providerMessageId);
         assert.ok(dispatchRecord.claimWorkerId);
+        assert.ok(dispatchRecord.requestPayloadHash, 'Payload hash must be calculated');
         assert.equal(dispatchRecord.responsePayload.success, true);
     });
 
@@ -152,8 +148,8 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         const message = 'Payment receipt BP-REC-9081 generated.';
 
         // Execute 5 concurrent dispatch attempts simultaneously
-        const concurrentAttempts = Array.from({ length: 5 }, (_, idx) => 
-            WhatsAppService.sendMessage(mobile, message, { idempotencyKey, attemptIdx: idx })
+        const concurrentAttempts = Array.from({ length: 5 }, () =>
+            WhatsAppService.sendMessage(mobile, message, { idempotencyKey })
         );
 
         const results = await Promise.all(concurrentAttempts);
@@ -169,11 +165,174 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
     });
 
     // ─────────────────────────────────────────────────────────────
-    // TEST 4: Durable Template Dispatch Idempotency
+    // TEST 4: Fail-Closed Behavior When Database Is Unavailable
     // ─────────────────────────────────────────────────────────────
-    it('4. Template Dispatch Idempotency: sendTemplate persists durable record and suppresses replays across restarts', async () => {
+    it('4. Database Unavailable: Keyed dispatches fail-closed with DURABLE_LEDGER_UNAVAILABLE while un-keyed dispatches remain unblocked', async () => {
+        const mobile = '919811188990';
+        const idempotencyKey = 'durable_key_db_down_004';
+
+        // Simulate database disconnected
+        const originalReadyState = mongoose.connection.readyState;
+        Object.defineProperty(mongoose.connection, 'readyState', { value: 0, configurable: true });
+
+        try {
+            // Keyed send must fail closed
+            const keyedResult = await WhatsAppService.sendMessage(mobile, 'Critical booking alert', { idempotencyKey });
+            assert.equal(keyedResult.success, false);
+            assert.equal(keyedResult.code, 'DURABLE_LEDGER_UNAVAILABLE');
+            assert.ok(keyedResult.error.includes('fail-closed'));
+
+            // Un-keyed send must continue unblocked
+            const unkeyedResult = await WhatsAppService.sendMessage(mobile, 'Standard notification');
+            assert.equal(unkeyedResult.success, true);
+        } finally {
+            delete mongoose.connection.readyState;
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 5: Worker Generation Fencing & Stale Finalization Rejection
+    // ─────────────────────────────────────────────────────────────
+    it('5. Worker Fencing: Superseded worker cannot overwrite dispatch state after another worker re-claims', async () => {
+        const mobile = '919877733445';
+        const idempotencyKey = 'durable_key_fencing_005';
+
+        // Worker 1 claims at generation 1
+        const claim1 = await WhatsAppService._claimOrGetDurableDispatch({
+            idempotencyKey,
+            mobile,
+            messageType: 'text',
+            provider: 'META',
+            payload: { message: 'Generation test' }
+        });
+        assert.equal(claim1.canDispatch, true);
+        assert.equal(claim1.claimGeneration, 1);
+
+        // Fast-forward claim age to simulate 35-second slow external HTTP call
+        await WhatsAppDispatch.updateOne(
+            { idempotencyKey },
+            { $set: { claimedAt: new Date(Date.now() - 35000) } }
+        );
+
+        // Worker 2 re-claims the stale claim, advancing generation to 2
+        const claim2 = await WhatsAppService._claimOrGetDurableDispatch({
+            idempotencyKey,
+            mobile,
+            messageType: 'text',
+            provider: 'META',
+            payload: { message: 'Generation test' }
+        });
+        assert.equal(claim2.canDispatch, true);
+        assert.equal(claim2.claimGeneration, 2);
+
+        // Worker 2 successfully completes and finalizes
+        const worker2Finalize = await WhatsAppService._recordDurableSuccess({
+            idempotencyKey,
+            claimGeneration: claim2.claimGeneration,
+            result: { success: true, messageId: 'wamid.worker2.confirmed' },
+            providerMessageId: 'wamid.worker2.confirmed'
+        });
+        assert.equal(worker2Finalize.success, true);
+
+        // Now Worker 1 (stale) finally wakes up and tries to finalize with generation 1
+        const staleFinalize = await WhatsAppService._recordDurableSuccess({
+            idempotencyKey,
+            claimGeneration: claim1.claimGeneration, // 1 (superseded)
+            result: { success: true, messageId: 'wamid.worker1.stale' },
+            providerMessageId: 'wamid.worker1.stale'
+        });
+
+        // Worker 1 finalization MUST be rejected
+        assert.equal(staleFinalize.superseded, true, 'Superseded worker finalization must be rejected');
+
+        // Verify the database still has Worker 2's authoritative message ID
+        const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(finalDoc.providerMessageId, 'wamid.worker2.confirmed');
+        assert.equal(finalDoc.claimGeneration, 2);
+        assert.equal(finalDoc.status, 'DISPATCHED');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 6: Ambiguous Timeout Handling & Blocked Retries
+    // ─────────────────────────────────────────────────────────────
+    it('6. Ambiguous Timeout: Network timeout sets AMBIGUOUS_TIMEOUT, blocks blind automatic retries, and allows reconciliation', async () => {
+        const mobile = '919811144221';
+        const idempotencyKey = 'durable_key_timeout_006';
+
+        // Pre-create an initial claim
+        const claim = await WhatsAppService._claimOrGetDurableDispatch({
+            idempotencyKey,
+            mobile,
+            messageType: 'text',
+            provider: 'META',
+            payload: { mobile, message: 'Ambiguous test' }
+        });
+
+        // Simulate local network timeout (provider may have accepted, socket dropped)
+        await WhatsAppService._recordDurableFailure({
+            idempotencyKey,
+            claimGeneration: claim.claimGeneration,
+            error: 'Network connection timeout to Meta Graph API',
+            isAmbiguous: true
+        });
+
+        // Check document status is AMBIGUOUS_TIMEOUT
+        const timeoutDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(timeoutDoc.status, 'AMBIGUOUS_TIMEOUT');
+        assert.equal(timeoutDoc.isAmbiguous, true);
+
+        // Next automatic retry attempt MUST be blocked to prevent double delivery
+        const retryResult = await WhatsAppService.sendMessage(mobile, 'Ambiguous test', { idempotencyKey });
+        assert.equal(retryResult.success, false);
+        assert.equal(retryResult.code, 'AMBIGUOUS_TIMEOUT_BLOCKED');
+        assert.equal(retryResult.isAmbiguous, true);
+
+        // Now simulate reconciliation (e.g. Webhook arrives or operator confirms)
+        const reconciled = await WhatsAppService.reconcileAmbiguousDispatch(idempotencyKey, {
+            providerMessageId: 'wamid.meta.reconciled.999',
+            status: 'DISPATCHED',
+            resolutionReason: 'Meta delivery webhook confirmed receipt'
+        });
+        assert.ok(reconciled);
+        assert.equal(reconciled.status, 'DISPATCHED');
+        assert.equal(reconciled.isAmbiguous, false);
+        assert.equal(reconciled.providerMessageId, 'wamid.meta.reconciled.999');
+
+        // Subsequent send request now returns the reconciled idempotent response
+        const postReconciliation = await WhatsAppService.sendMessage(mobile, 'Ambiguous test', { idempotencyKey });
+        assert.equal(postReconciliation.success, true);
+        assert.equal(postReconciliation.alreadySent, true);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 7: Idempotency Key Recipient & Payload Mismatch Rejection
+    // ─────────────────────────────────────────────────────────────
+    it('7. Immutability Gate: Rejects key reuse when recipient or payload differs from initial claim', async () => {
+        const idempotencyKey = 'durable_key_immutability_007';
+
+        // 1. Initial valid send
+        const res1 = await WhatsAppService.sendMessage('919811100001', 'Original payload A', { idempotencyKey });
+        assert.equal(res1.success, true);
+
+        // 2. Attempt to use same key for a different recipient
+        const resMismatchRecipient = await WhatsAppService.sendMessage('919811199999', 'Original payload A', { idempotencyKey });
+        assert.equal(resMismatchRecipient.success, false);
+        assert.equal(resMismatchRecipient.code, 'IDEMPOTENCY_KEY_RECIPIENT_MISMATCH');
+        assert.ok(resMismatchRecipient.error.includes('already claimed for recipient'));
+
+        // 3. Attempt to use same key for same recipient with different payload
+        const resMismatchPayload = await WhatsAppService.sendMessage('919811100001', 'Tampered payload B', { idempotencyKey });
+        assert.equal(resMismatchPayload.success, false);
+        assert.equal(resMismatchPayload.code, 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH');
+        assert.ok(resMismatchPayload.error.includes('different payload'));
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 8: Durable Template Dispatch Idempotency
+    // ─────────────────────────────────────────────────────────────
+    it('8. Template Dispatch Idempotency: sendTemplate persists durable record and suppresses replays across restarts', async () => {
         const mobile = '919876543210';
-        const idempotencyKey = 'durable_template_key_brochure_004';
+        const idempotencyKey = 'durable_template_key_brochure_008';
 
         // 1. First template send
         const t1 = await WhatsAppService.sendTemplate(
@@ -190,6 +349,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         assert.ok(doc);
         assert.equal(doc.messageType, 'template');
         assert.equal(doc.status, 'DISPATCHED');
+        assert.equal(doc.claimGeneration, 1);
         assert.equal(doc.tenantId, null);
 
         // 2. Wipe L1 in-memory cache to simulate restart
@@ -209,11 +369,11 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
     });
 
     // ─────────────────────────────────────────────────────────────
-    // TEST 5: Durable Media Dispatch Idempotency
+    // TEST 9: Durable Media Dispatch Idempotency
     // ─────────────────────────────────────────────────────────────
-    it('5. Media Dispatch Idempotency: sendMedia creates durable record and avoids duplicate media send', async () => {
+    it('9. Media Dispatch Idempotency: sendMedia creates durable record and avoids duplicate media send', async () => {
         const mobile = '919811998877';
-        const idempotencyKey = 'durable_media_key_layout_plan_005';
+        const idempotencyKey = 'durable_media_key_layout_plan_009';
 
         const m1 = await WhatsAppService.sendMedia(
             mobile,
@@ -229,6 +389,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         assert.ok(record);
         assert.equal(record.messageType, 'image');
         assert.equal(record.status, 'DISPATCHED');
+        assert.equal(record.claimGeneration, 1);
 
         // Evict L1 cache
         WhatsAppService._idempotencyCache.clear();
@@ -246,11 +407,11 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
     });
 
     // ─────────────────────────────────────────────────────────────
-    // TEST 6: Failed Attempt Recovery & Atomic Re-claim
+    // TEST 10: Failed Attempt Recovery & Atomic Re-claim
     // ─────────────────────────────────────────────────────────────
-    it('6. Failed Attempt Recovery: A failed dispatch can be atomically re-claimed and retried to success', async () => {
+    it('10. Failed Attempt Recovery: A failed dispatch can be atomically re-claimed and retried to success', async () => {
         const mobile = '919877712345';
-        const idempotencyKey = 'durable_retry_recovery_006';
+        const idempotencyKey = 'durable_retry_recovery_010';
 
         // Pre-seed a FAILED dispatch record in MongoDB (e.g. from previous network timeout)
         await WhatsAppDispatch.create({
@@ -259,6 +420,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
             provider: 'META',
             messageType: 'text',
             status: 'FAILED',
+            claimGeneration: 1,
             claimedAt: new Date(Date.now() - 60000), // 1 min ago
             errorDetails: { message: 'Network connection timeout to Meta Graph API' },
             tenantId: null
@@ -268,10 +430,33 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency Test 
         const retryResult = await WhatsAppService.sendMessage(mobile, 'Retry message after transient recovery', { idempotencyKey });
         assert.equal(retryResult.success, true);
 
-        // Verify status transitioned from FAILED to DISPATCHED
+        // Verify status transitioned from FAILED to DISPATCHED and generation incremented
         const updatedRecord = await WhatsAppDispatch.findOne({ idempotencyKey });
         assert.equal(updatedRecord.status, 'DISPATCHED');
+        assert.equal(updatedRecord.claimGeneration, 2, 'Claim generation must increment on retry');
         assert.ok(updatedRecord.dispatchedAt);
         assert.equal(updatedRecord.tenantId, null);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 11: Secret Redaction & Single-Organisation Guardrails
+    // ─────────────────────────────────────────────────────────────
+    it('11. Secret Redaction: Secrets in request/response payloads are redacted and tenantId is strictly null', async () => {
+        const mobile = '919811199881';
+        const idempotencyKey = 'durable_redaction_011';
+
+        const result = await WhatsAppService.sendMessage(mobile, 'Confidential update', {
+            idempotencyKey,
+            authHeader: 'Bearer EAAG_top_secret_token_12345678',
+            systemUserToken: 'EAAG_system_user_secret_token_abcdef'
+        });
+        assert.equal(result.success, true);
+
+        const doc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(doc.tenantId, null, 'tenantId must strictly be null');
+
+        const serialized = JSON.stringify(doc);
+        assert.equal(serialized.includes('EAAG_top_secret_token'), false, 'Bearer token must be redacted');
+        assert.equal(serialized.includes('EAAG_system_user_secret'), false, 'System user token must be redacted');
     });
 });

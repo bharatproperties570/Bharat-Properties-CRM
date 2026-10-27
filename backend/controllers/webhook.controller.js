@@ -475,6 +475,24 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         { $set: activityUpdate }
                     );
 
+                    // 3. Synchronize status and reconcile ambiguous timeouts on WhatsAppDispatch ledger
+                    try {
+                        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+                        await WhatsAppDispatch.updateMany(
+                            { providerMessageId: status.id },
+                            {
+                                $set: {
+                                    status: statusVal === 'failed' ? 'FAILED' : 'DISPATCHED',
+                                    isAmbiguous: false,
+                                    'responsePayload.deliveryStatus': statusVal,
+                                    'responsePayload.deliveryStatusAt': statusTimestamp
+                                }
+                            }
+                        );
+                    } catch (dispatchSyncErr) {
+                        // Non-fatal
+                    }
+
                     RealtimeHub.emitStatusUpdate({
                         messageId: status.id,
                         status: statusVal,
