@@ -5,6 +5,8 @@ import OutboxEvent from '../../models/OutboxEvent.js';
 import Lead from '../../models/Lead.js';
 import Contact from '../../models/Contact.js';
 import intakeEngine from '../utils/intakeEngine.js';
+import { isOptOutMessage, isOptInMessage } from '../../utils/whatsappWebhook.utils.js';
+import { normalizePhone } from '../../utils/normalization.js';
 
 export const InboundMessageService = {
     /**
@@ -95,10 +97,20 @@ export const InboundMessageService = {
 
                 // 2. Atomic duplicate suppression and message push
                 const now = new Date();
+                const isOptOut = isOptOutMessage(text);
+                const isOptIn = isOptInMessage(text);
+
                 const updateSet = { 'metadata.lastMessageAt': now };
                 if (businessPhoneNumberId) updateSet.businessPhoneNumberId = businessPhoneNumberId;
                 if (integrationId) updateSet.whatsappIntegrationId = integrationId;
                 if (businessPhoneNumber) updateSet.businessPhoneNumber = businessPhoneNumber;
+                if (isOptOut) {
+                    updateSet.isOptedOut = true;
+                    updateSet.optedOutAt = now;
+                } else if (isOptIn) {
+                    updateSet.isOptedOut = false;
+                    updateSet.optedOutAt = null;
+                }
 
                 const updatedConversation = await Conversation.findOneAndUpdate(
                     { _id: conversation._id, 'messages.metadata.waId': { $ne: message.id }, 'messages.waId': { $ne: message.id } },
@@ -113,7 +125,9 @@ export const InboundMessageService = {
                                     attachment: attachment || null,
                                     businessPhoneNumberId: businessPhoneNumberId || null,
                                     integrationId: integrationId || null,
-                                    flowResponse: flowResponse || null
+                                    flowResponse: flowResponse || null,
+                                    isOptOut,
+                                    isOptIn
                                 }
                             }
                         },
@@ -136,12 +150,48 @@ export const InboundMessageService = {
                     metadata: { wa_id: message.from, profile_name: value?.contacts?.[0]?.profile?.name }
                 }, { session });
 
-                const phones = [mobile, mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile];
+                const normalizedMobile = normalizePhone(mobile);
+                const rawDigits = String(mobile).replace(/\D/g, '');
+                const clean10 = rawDigits.slice(-10);
+                const phones = Array.from(new Set([
+                    mobile,
+                    normalizedMobile,
+                    rawDigits,
+                    clean10,
+                    mobile.startsWith('+') ? mobile.slice(1) : '+' + mobile,
+                    `91${clean10}`,
+                    `+91${clean10}`
+                ].filter(Boolean)));
                 let lead = await Lead.findOne({ mobile: { $in: phones } }).session(session).lean();
                 let contact = await Contact.findOne({ 'phones.number': { $in: phones } }).session(session).lean();
 
                 if (!lead && intakeResult.type === 'LEAD') lead = intakeResult.data;
                 if (!contact && intakeResult.type === 'CONTACT') contact = intakeResult.data;
+
+                // Sync Opt-Out / Opt-In preference to Lead and Contact
+                if (isOptOut) {
+                    if (lead?._id) {
+                        await Lead.findByIdAndUpdate(lead._id, {
+                            $set: { whatsappOptOut: true, whatsappOptOutAt: now }
+                        }, { session });
+                    }
+                    if (contact?._id) {
+                        await Contact.findByIdAndUpdate(contact._id, {
+                            $set: { whatsappOptOut: true, whatsappOptOutAt: now }
+                        }, { session });
+                    }
+                } else if (isOptIn) {
+                    if (lead?._id) {
+                        await Lead.findByIdAndUpdate(lead._id, {
+                            $set: { whatsappOptOut: false, whatsappOptInAt: now }
+                        }, { session });
+                    }
+                    if (contact?._id) {
+                        await Contact.findByIdAndUpdate(contact._id, {
+                            $set: { whatsappOptOut: false, whatsappOptInAt: now }
+                        }, { session });
+                    }
+                }
 
                 const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
                 const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
@@ -170,7 +220,8 @@ export const InboundMessageService = {
                         from: mobile,
                         department: lead?.department || contact?.department || null,
                         businessPhoneNumberId: businessPhoneNumberId || null,
-                        integrationId: integrationId || null
+                        integrationId: integrationId || null,
+                        consentStatus: isOptOut ? 'OPTED_OUT' : (isOptIn ? 'OPTED_IN' : null)
                     }
                 }], { session });
 

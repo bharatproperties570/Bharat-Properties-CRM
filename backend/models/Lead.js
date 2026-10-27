@@ -121,6 +121,11 @@ const LeadSchema = new mongoose.Schema({
 
     customFields: mongoose.Schema.Types.Mixed,
 
+    // Communication & Consent Preferences (Phase 9)
+    whatsappOptOut: { type: Boolean, default: false, index: true },
+    whatsappOptOutAt: { type: Date },
+    whatsappOptInAt: { type: Date },
+
     // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },             // When stage last changed
     isArchived: { type: Boolean, default: false, index: true }, // [ENTERPRISE] Cold Storage flag
@@ -493,8 +498,9 @@ LeadSchema.post('save', async function (doc, next) {
     // We check if it was just created (approximate check via timestamps or custom flag)
     // In post-save, doc.isNew is false, but we can check if createdAt equals updatedAt
     const isNewLead = doc.createdAt && doc.updatedAt && doc.createdAt.getTime() === doc.updatedAt.getTime();
+    const hasSession = !!(this.$session && this.$session());
     
-    if (isNewLead) {
+    if (isNewLead && !hasSession) {
         try {
             // Lazy load NurtureBot to avoid circular dependency
             const { default: nurtureBot } = await import('../services/NurtureBot.js');
