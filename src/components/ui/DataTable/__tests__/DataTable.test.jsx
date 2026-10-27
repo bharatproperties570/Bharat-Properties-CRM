@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DataTable } from '../DataTable';
 
-describe('DataTable Primitive (Phase 10.3 Native Semantics & Accessibility)', () => {
+describe('DataTable Primitive (Phase 10.3.1 Keyboard Validity & Nested Interaction Hardening)', () => {
   const columns = [
     { header: 'Deal Name', accessor: 'name' },
     { header: 'Stage', accessor: 'stage' },
@@ -89,30 +89,123 @@ describe('DataTable Primitive (Phase 10.3 Native Semantics & Accessibility)', ()
     expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
   });
 
-  it('provides accessible keyboard navigation via primary-cell action button with Enter and Space', () => {
+  it('activates primary action button via native Enter keydown without manual click synthesis', () => {
     const handleRowClick = vi.fn();
     render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
 
-    // Primary action button should be rendered in the primary column ("Deal Name")
     const primaryButton1 = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+
+    // Focus primary button and dispatch native Enter keydown
+    primaryButton1.focus();
+    fireEvent.keyDown(primaryButton1, { key: 'Enter', code: 'Enter' });
+
+    expect(handleRowClick).toHaveBeenCalledTimes(1);
+    expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
+  });
+
+  it('activates primary action button via native Space keydown without manual click synthesis', () => {
+    const handleRowClick = vi.fn();
+    render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
+
     const primaryButton2 = screen.getByRole('button', { name: /select m3m golf hills apt/i });
 
-    expect(primaryButton1).toBeInTheDocument();
-    expect(primaryButton2).toBeInTheDocument();
+    // Focus primary button and dispatch native Space keydown
+    primaryButton2.focus();
+    fireEvent.keyDown(primaryButton2, { key: ' ', code: 'Space' });
 
-    // Click on primary button
-    fireEvent.click(primaryButton1);
-    expect(handleRowClick).toHaveBeenCalledWith(sampleData[0]);
-
-    // Keyboard Enter trigger on native button
-    fireEvent.keyDown(primaryButton2, { key: 'Enter', code: 'Enter' });
-    fireEvent.click(primaryButton2); // In standard browser/RTL, Enter on a button dispatches click
+    expect(handleRowClick).toHaveBeenCalledTimes(1);
     expect(handleRowClick).toHaveBeenCalledWith(sampleData[1]);
+  });
 
-    // Keyboard Space trigger on native button
-    fireEvent.keyDown(primaryButton1, { key: ' ', code: 'Space' });
-    fireEvent.click(primaryButton1);
-    expect(handleRowClick).toHaveBeenCalledTimes(3);
+  it('toggles nested checkbox with Space key without triggering onRowClick', () => {
+    const handleRowClick = vi.fn();
+    const handleCheckChange = vi.fn();
+
+    const checkboxColumns = [
+      {
+        key: 'select',
+        header: '',
+        isSelection: true,
+        render: (row) => (
+          <input
+            type="checkbox"
+            aria-label={`Select ${row.name}`}
+            onChange={(e) => handleCheckChange(e.target.checked)}
+          />
+        )
+      },
+      { header: 'Deal Name', accessor: 'name' }
+    ];
+
+    render(<DataTable columns={checkboxColumns} data={sampleData} onRowClick={handleRowClick} />);
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Select DLF Phase 5 Villa' });
+    expect(checkbox).not.toBeChecked();
+
+    // Focus checkbox and press Space (native checkbox keyboard activation)
+    checkbox.focus();
+    fireEvent.keyDown(checkbox, { key: ' ', code: 'Space' });
+    fireEvent.click(checkbox); // In standard DOM, Space on checkbox triggers click/change
+
+    expect(checkbox).toBeChecked();
+    expect(handleCheckChange).toHaveBeenCalledWith(true);
+    // Crucial assertion: onRowClick must NEVER be called by Space on checkbox
+    expect(handleRowClick).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger onRowClick when keyboard events fire on nested buttons, inputs, or selects', () => {
+    const handleRowClick = vi.fn();
+    const handleNestedButton = vi.fn();
+
+    const nestedColumns = [
+      { header: 'Deal Name', accessor: 'name' },
+      {
+        key: 'filterInput',
+        header: 'Note',
+        render: () => <input type="text" placeholder="Add quick tag" />
+      },
+      {
+        key: 'statusSelect',
+        header: 'Status',
+        render: () => (
+          <select aria-label="Status select" defaultValue="active">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        )
+      },
+      {
+        key: 'actionBtn',
+        header: 'Action',
+        isAction: true,
+        render: (row) => (
+          <button type="button" onClick={() => handleNestedButton(row)}>
+            Review
+          </button>
+        )
+      }
+    ];
+
+    render(<DataTable columns={nestedColumns} data={sampleData} onRowClick={handleRowClick} />);
+
+    // 1. Enter and Space on nested text input
+    const textInput = screen.getAllByPlaceholderText('Add quick tag')[0];
+    fireEvent.keyDown(textInput, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyDown(textInput, { key: ' ', code: 'Space' });
+    expect(handleRowClick).not.toHaveBeenCalled();
+
+    // 2. Enter and Space on nested select
+    const select = screen.getAllByRole('combobox', { name: 'Status select' })[0];
+    fireEvent.keyDown(select, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyDown(select, { key: ' ', code: 'Space' });
+    expect(handleRowClick).not.toHaveBeenCalled();
+
+    // 3. Enter and Space on nested action button
+    const reviewBtn = screen.getAllByRole('button', { name: 'Review' })[0];
+    fireEvent.keyDown(reviewBtn, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(reviewBtn);
+    expect(handleNestedButton).toHaveBeenCalledWith(sampleData[0]);
+    expect(handleRowClick).not.toHaveBeenCalled();
   });
 
   it('customizes primary action accessible name via getRowAriaLabel', () => {
@@ -146,9 +239,7 @@ describe('DataTable Primitive (Phase 10.3 Native Semantics & Accessibility)', ()
           <input
             type="checkbox"
             aria-label={`Select ${row.name}`}
-            onClick={(e) => {
-              handleCheckbox(row);
-            }}
+            onClick={() => handleCheckbox(row)}
           />
         )
       },
@@ -170,7 +261,7 @@ describe('DataTable Primitive (Phase 10.3 Native Semantics & Accessibility)', ()
       {
         key: 'statusSelect',
         header: 'Status',
-        render: (row) => (
+        render: () => (
           <select aria-label="Update status" defaultValue="open">
             <option value="open">Open</option>
             <option value="closed">Closed</option>
@@ -236,6 +327,113 @@ describe('DataTable Primitive (Phase 10.3 Native Semantics & Accessibility)', ()
     // 6. Click explicit opt-out element
     const optOutBadges = screen.getAllByTestId('opt-out-badge');
     fireEvent.click(optOutBadges[0]);
+    expect(handleRowClick).not.toHaveBeenCalled();
+  });
+
+  it('hardens isolation: does not wrap wrapper elements containing nested buttons, links, or fragments', () => {
+    const handleRowClick = vi.fn();
+    const handleInnerAction = vi.fn();
+
+    const complexColumns = [
+      {
+        key: 'wrappedButton',
+        header: 'Wrapper with Button',
+        // Primary column candidate returning a wrapper containing a button
+        render: (row) => (
+          <div className="button-wrapper">
+            <span className="label-prefix">Owner:</span>
+            <button type="button" onClick={() => handleInnerAction(row)}>
+              Contact {row.name}
+            </button>
+          </div>
+        )
+      },
+      {
+        key: 'wrappedLink',
+        header: 'Wrapper with Link',
+        render: (row) => (
+          <div className="link-wrapper">
+            <a href="#/info">Direct Link</a>
+          </div>
+        )
+      },
+      {
+        key: 'fragmentCol',
+        header: 'Fragment with Interactive',
+        render: (row) => (
+          <React.Fragment>
+            <span>Tag:</span>
+            <button type="button" onClick={() => handleInnerAction(row)}>
+              Tag {row.id}
+            </button>
+          </React.Fragment>
+        )
+      }
+    ];
+
+    const { container } = render(
+      <DataTable columns={complexColumns} data={sampleData} onRowClick={handleRowClick} />
+    );
+
+    // Verify: DataTable should NOT have wrapped the outer div in a .ui-datatable-primary-action button
+    expect(container.querySelectorAll('.ui-datatable-primary-action').length).toBe(0);
+
+    // Verify: No button is nested inside another button
+    const buttons = container.querySelectorAll('tbody button');
+    buttons.forEach((btn) => {
+      expect(btn.parentElement.closest('button')).toBeNull();
+    });
+
+    // Clicking the inner button calls only its own handler
+    fireEvent.click(screen.getByRole('button', { name: 'Contact DLF Phase 5 Villa' }));
+    expect(handleInnerAction).toHaveBeenCalledWith(sampleData[0]);
+    expect(handleRowClick).not.toHaveBeenCalled();
+  });
+
+  it('hardens isolation: supports custom components with onClick or data-prevent-row-click opt-out', () => {
+    const handleRowClick = vi.fn();
+    const handleCustomComponentClick = vi.fn();
+
+    // Custom non-native component rendering a styled card/badge with explicit opt-out
+    const CustomActionBadge = ({ label, onBadgeClick }) => (
+      <div
+        role="button"
+        tabIndex={0}
+        data-prevent-row-click
+        onClick={onBadgeClick}
+        style={{ cursor: 'pointer' }}
+      >
+        Badge: {label}
+      </div>
+    );
+
+    const customColumns = [
+      {
+        key: 'customBadge',
+        header: 'Custom Component',
+        // Explicit opt-out at column level or element level
+        disablePrimaryTrigger: true,
+        render: (row) => (
+          <CustomActionBadge
+            label={row.name}
+            onBadgeClick={() => handleCustomComponentClick(row)}
+          />
+        )
+      },
+      { header: 'Stage', accessor: 'stage' }
+    ];
+
+    const { container } = render(
+      <DataTable columns={customColumns} data={sampleData} onRowClick={handleRowClick} />
+    );
+
+    // Verify no primary action button was rendered around custom badge
+    expect(container.querySelectorAll('.ui-datatable-primary-action').length).toBe(0);
+
+    const badge = screen.getAllByRole('button', { name: /badge: dlf phase 5 villa/i })[0];
+    fireEvent.click(badge);
+
+    expect(handleCustomComponentClick).toHaveBeenCalledWith(sampleData[0]);
     expect(handleRowClick).not.toHaveBeenCalled();
   });
 

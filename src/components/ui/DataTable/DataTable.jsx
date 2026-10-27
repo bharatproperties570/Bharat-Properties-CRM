@@ -1,45 +1,90 @@
 import React from 'react';
 
 /**
+ * Interactive selector matching native interactive HTML elements, ARIA interactive roles,
+ * and explicit opt-out markers.
+ */
+const INTERACTIVE_SELECTOR = [
+  'button',
+  'a',
+  'input',
+  'select',
+  'textarea',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="menuitem"]',
+  '[role="switch"]',
+  '[role="tab"]',
+  '[role="combobox"]',
+  '[data-prevent-row-click]',
+  '[data-interactive]'
+].join(', ');
+
+/**
  * DOM-safe interactive target detection.
  * Inspects target and its ancestors to identify buttons, links, inputs, and opt-outs.
+ * Handles text node targets safely (nodeType === 3) without assuming target is an Element.
  */
 const isInteractiveTarget = (target) => {
   if (!target) return false;
   const element = target.nodeType === 1 ? target : (target.parentElement || null);
   if (!element || typeof element.closest !== 'function') return false;
 
-  return Boolean(
-    element.closest(
-      'button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"], [role="switch"], [data-prevent-row-click]'
-    )
-  );
+  return Boolean(element.closest(INTERACTIVE_SELECTOR));
 };
 
 /**
- * Checks whether a rendered React element is already interactive.
+ * Recursively inspects a React node and its descendants to detect whether it contains
+ * native interactive elements, links, fragments with interactive children, or explicit
+ * action handlers. This avoids wrapping custom interactive renderers inside another button.
  */
-const isReactElementInteractive = (element) => {
-  if (!React.isValidElement(element)) return false;
+const hasInteractiveDescendant = (node) => {
+  if (!node) return false;
 
-  const type = element.type;
+  if (Array.isArray(node)) {
+    return node.some(hasInteractiveDescendant);
+  }
+
+  if (!React.isValidElement(node)) return false;
+
+  const type = node.type;
+
+  // 1. Native interactive HTML tags
   if (typeof type === 'string') {
-    if (['a', 'button', 'input', 'select', 'textarea'].includes(type.toLowerCase())) {
+    const lowerType = type.toLowerCase();
+    if (['a', 'button', 'input', 'select', 'textarea'].includes(lowerType)) {
       return true;
     }
   }
 
-  const props = element.props;
+  // 2. React Fragment (<React.Fragment> or <></>)
+  if (type === React.Fragment) {
+    if (node.props && node.props.children) {
+      return React.Children.toArray(node.props.children).some(hasInteractiveDescendant);
+    }
+    return false;
+  }
+
+  const props = node.props;
   if (!props) return false;
 
+  // 3. Interactive props, custom handlers, or ARIA roles on custom components/wrappers
   if (
     typeof props.onClick === 'function' ||
     props.href !== undefined ||
     props.to !== undefined ||
-    ['button', 'link', 'checkbox', 'menuitem'].includes(props.role) ||
-    props['data-prevent-row-click'] !== undefined
+    ['button', 'link', 'checkbox', 'radio', 'menuitem', 'switch', 'tab'].includes(props.role) ||
+    props['data-prevent-row-click'] !== undefined ||
+    props['data-interactive'] !== undefined
   ) {
     return true;
+  }
+
+  // 4. Inspect nested children of wrapper containers (div, span, etc.)
+  if (props.children) {
+    return React.Children.toArray(props.children).some(hasInteractiveDescendant);
   }
 
   return false;
@@ -205,7 +250,7 @@ export const DataTable = ({
                     cellContent !== null &&
                     cellContent !== undefined &&
                     cellContent !== '' &&
-                    !isReactElementInteractive(cellContent);
+                    !hasInteractiveDescendant(cellContent);
 
                   return (
                     <td key={cellKey} style={{ ...tdStyle, ...(col.cellStyle || {}) }}>
@@ -217,6 +262,13 @@ export const DataTable = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             onRowClick(row);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onRowClick(row);
+                            }
                           }}
                           aria-label={
                             typeof getRowAriaLabel === 'function'
