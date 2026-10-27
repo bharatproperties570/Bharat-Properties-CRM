@@ -21,7 +21,7 @@ export const Button = ({
     borderRadius: '8px',
     fontWeight: 600,
     cursor: disabled || loading ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
+    opacity: disabled ? 0.6 : (loading ? 0.8 : 1),
     transition: 'all 0.2s ease',
     border: '1px solid transparent',
   };
@@ -52,32 +52,88 @@ export const Button = ({
     }
   };
 
+  const resolvedSize = sizeStyles[size] || sizeStyles.md;
+  const resolvedVariant = variantStyles[variant] || variantStyles.primary;
+
   const combinedStyle = {
     ...baseStyle,
-    ...sizeStyles[size],
-    ...variantStyles[variant],
+    ...resolvedSize,
+    ...resolvedVariant,
     ...style
+  };
+
+  const handleClick = (e) => {
+    if (disabled || loading) {
+      e.preventDefault();
+      return;
+    }
+    if (onClick) {
+      onClick(e);
+    }
+  };
+
+  const renderIcon = () => {
+    if (loading) {
+      return <i className="fas fa-spinner fa-spin" aria-hidden="true" data-testid="button-spinner"></i>;
+    }
+    if (!icon) return null;
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+    if (typeof icon === 'string') {
+      return <i className={icon} aria-hidden="true"></i>;
+    }
+    return null;
   };
 
   return (
     <button
       type={type}
-      onClick={onClick}
+      onClick={handleClick}
       disabled={disabled || loading}
+      aria-busy={loading ? 'true' : undefined}
+      aria-disabled={disabled || loading ? 'true' : undefined}
       style={combinedStyle}
       className={`ui-button ${className}`}
       {...props}
     >
-      {loading ? (
-        <i className="fas fa-spinner fa-spin"></i>
-      ) : icon ? (
-        <i className={icon}></i>
-      ) : null}
+      {renderIcon()}
       {children}
     </button>
   );
 };
 
-export const IconButton = ({ icon, ...props }) => {
-    return <Button icon={icon} {...props}>{''}</Button>
-}
+export const IconButton = ({
+  icon,
+  'aria-label': ariaLabel,
+  title,
+  size = 'md',
+  style = {},
+  ...props
+}) => {
+  const accessibleName = ariaLabel || title || (typeof icon === 'string' ? icon.replace(/fa[srb]? fa-/, '').replace(/-/g, ' ') : 'button');
+
+  const iconSizeStyles = {
+    sm: { padding: '6px', minWidth: '32px', minHeight: '32px' },
+    md: { padding: '10px', minWidth: '40px', minHeight: '40px' },
+    lg: { padding: '12px', minWidth: '48px', minHeight: '48px' }
+  };
+
+  const combinedIconStyle = {
+    ...(iconSizeStyles[size] || iconSizeStyles.md),
+    ...style
+  };
+
+  return (
+    <Button
+      icon={icon}
+      size={size}
+      style={combinedIconStyle}
+      aria-label={accessibleName}
+      title={title || ariaLabel}
+      {...props}
+    >
+      {''}
+    </Button>
+  );
+};
