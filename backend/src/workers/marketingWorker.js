@@ -810,7 +810,12 @@ if (name === 'bna-broadcast') {
                                 contextMap
                             );
                         }
-                        waRes = await waService.sendMessage(recipient.mobile, text, { integrationId });
+                        waRes = await waService.sendMessage(recipient.mobile, text, { 
+                            integrationId,
+                            useBaileys: Boolean(isBaileys),
+                            provider: isBaileys ? 'BAILEYS' : 'META',
+                            channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                        });
                     }
                     results.push({ 
                         channel: 'whatsapp', 

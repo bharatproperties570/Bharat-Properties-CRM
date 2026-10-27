@@ -123,39 +123,41 @@ class WhatsAppService {
         if (integrationIdOrPhoneId && integrationIdOrPhoneId !== 'legacy_default') {
             const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
             const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
-                ? { _id: integrationIdOrPhoneId, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }
-                : { phoneNumberId: String(integrationIdOrPhoneId), provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' };
+                ? { _id: integrationIdOrPhoneId }
+                : { phoneNumberId: String(integrationIdOrPhoneId) };
 
-            let integration = await WhatsAppIntegration.findOne(query).lean();
+            const integration = await WhatsAppIntegration.findOne(query).lean();
             if (!integration) {
-                // If explicit ID was not an active Meta account (e.g. was Baileys ID passed during cross-channel toggle), fall back to default Meta account
-                console.warn(`[WhatsAppService] Explicit account '${integrationIdOrPhoneId}' is not an active Meta account. Falling back to default Meta integration.`);
-                integration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+                throw new Error(`Target Meta WhatsApp account '${integrationIdOrPhoneId}' was not found.`);
+            }
+            if (integration.status !== 'ACTIVE') {
+                throw new Error(`Target Meta WhatsApp account '${integration.accountLabel || integrationIdOrPhoneId}' is not active (${integration.status}).`);
+            }
+            if (integration.provider === 'BAILEYS') {
+                throw new Error(`Target account '${integration.accountLabel || integrationIdOrPhoneId}' is a WhatsApp Web (Baileys) line, not a Meta Cloud API account.`);
             }
 
-            if (integration) {
-                if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
-                    throw new Error(`Target WhatsApp account '${integration.accountLabel || integration._id}' has no valid credentials`);
-                }
-                return {
-                    integrationId: integration._id,
-                    token: integration.credentials?.systemUserToken,
-                    phoneId: integration.phoneNumberId,
-                    businessId: integration.wabaId,
-                    appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
-                    displayPhoneNumber: integration.displayPhoneNumber,
-                    accountLabel: integration.accountLabel || 'WhatsApp Account',
-                    connectionType: integration.connectionType,
-                    provider: integration.provider || 'META'
-                };
+            if (!integration.credentials?.systemUserToken || isPlaceholder(integration.credentials.systemUserToken)) {
+                throw new Error(`Target WhatsApp account '${integration.accountLabel || integration._id}' has no valid credentials`);
             }
+            return {
+                integrationId: integration._id,
+                token: integration.credentials.systemUserToken,
+                phoneId: integration.phoneNumberId,
+                businessId: integration.wabaId,
+                appId: process.env.FB_GRAPH_APP_ID || process.env.META_WA_APP_ID,
+                displayPhoneNumber: integration.displayPhoneNumber,
+                accountLabel: integration.accountLabel || 'WhatsApp Account',
+                connectionType: integration.connectionType,
+                provider: integration.provider || 'META'
+            };
         }
 
         // 2. Try default active WhatsAppIntegration (e.g. if configured as default)
         try {
             const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
-            const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
-            if (defaultIntegration && (defaultIntegration.provider === 'BAILEYS' || (defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)))) {
+            const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, provider: { $ne: 'BAILEYS' }, status: 'ACTIVE' }).lean();
+            if (defaultIntegration && defaultIntegration.credentials?.systemUserToken && !isPlaceholder(defaultIntegration.credentials.systemUserToken)) {
                 return {
                     integrationId: defaultIntegration._id,
                     token: defaultIntegration.credentials?.systemUserToken,
@@ -212,11 +214,17 @@ class WhatsAppService {
         let integration = null;
         if (integrationIdOrPhoneId) {
             const query = mongoose.Types.ObjectId.isValid(integrationIdOrPhoneId)
-                ? { _id: integrationIdOrPhoneId, provider: 'BAILEYS', status: 'ACTIVE' }
-                : { phoneNumberId: String(integrationIdOrPhoneId), provider: 'BAILEYS', status: 'ACTIVE' };
+                ? { _id: integrationIdOrPhoneId }
+                : { phoneNumberId: String(integrationIdOrPhoneId) };
             integration = await WhatsAppIntegration.findOne(query).lean();
             if (!integration) {
-                throw new Error(`Requested WhatsApp Web line (${integrationIdOrPhoneId}) is not active or not found.`);
+                throw new Error(`Requested WhatsApp Web line (${integrationIdOrPhoneId}) was not found.`);
+            }
+            if (integration.status !== 'ACTIVE') {
+                throw new Error(`Requested WhatsApp Web line '${integration.accountLabel || integration.displayPhoneNumber || integrationIdOrPhoneId}' is not active (${integration.status}).`);
+            }
+            if (integration.provider !== 'BAILEYS') {
+                throw new Error(`Requested account '${integration.accountLabel || integrationIdOrPhoneId}' is a Meta Cloud API account, not a WhatsApp Web (Baileys) line.`);
             }
         } else {
             integration = await WhatsAppIntegration.findOne({ provider: 'BAILEYS', status: 'ACTIVE' }).lean();
@@ -231,6 +239,91 @@ class WhatsAppService {
             connectionType: integration.connectionType,
             provider: 'BAILEYS'
         };
+    }
+
+    /**
+     * 🛡️ Strict Enterprise Channel Resolver (Zero Cross-Provider Fallback)
+     * If WhatsApp Web (Baileys) is requested or targeted, it routes ONLY to Baileys.
+     * If Meta Cloud API is requested or targeted, it routes ONLY to Meta.
+     * Never silently fails over from Baileys to Meta or vice-versa.
+     */
+    async _resolveAccountConfig(mobile, options = {}) {
+        const WhatsAppIntegration = mongoose.models.WhatsAppIntegration || (await import('../models/WhatsAppIntegration.js')).default;
+        const targetAccount = typeof options === 'string' ? options : (options?.integrationId || options?.phoneId || null);
+        const isGroupTarget = String(mobile || '').includes('@g.us');
+        const opt = typeof options === 'object' ? (options || {}) : {};
+        const isBaileysRequested = opt.provider === 'BAILEYS' || 
+            opt.channel === 'whatsapp_web' || 
+            opt.useBaileys === true ||
+            opt.platform === 'WhatsApp Web';
+        const isMetaRequested = opt.provider === 'META' || 
+            opt.channel === 'whatsapp_api' || 
+            opt.useMeta === true ||
+            opt.platform === 'Direct' ||
+            opt.platform === 'WhatsApp Cloud API';
+
+        // 1. WhatsApp Groups (@g.us) MUST ALWAYS use WhatsApp Web (Meta Cloud API has no group chat capability)
+        if (isGroupTarget) {
+            return await this._getBaileysConfig(targetAccount);
+        }
+
+        // 2. Explicit target account ID provided: lookup that exact integration to determine provider strictly
+        if (targetAccount && targetAccount !== 'legacy_default') {
+            const query = mongoose.Types.ObjectId.isValid(targetAccount)
+                ? { _id: targetAccount }
+                : { phoneNumberId: String(targetAccount) };
+            
+            const integration = await WhatsAppIntegration.findOne(query).lean();
+            if (!integration) {
+                throw new Error(`Requested WhatsApp account (${targetAccount}) was not found.`);
+            }
+            if (integration.status !== 'ACTIVE') {
+                throw new Error(`Requested WhatsApp line '${integration.accountLabel || integration.displayPhoneNumber || targetAccount}' is not active (${integration.status}).`);
+            }
+
+            // Route strictly by the integration's own configured provider without cross-provider fallback
+            if (integration.provider === 'BAILEYS') {
+                return await this._getBaileysConfig(integration._id);
+            } else {
+                return await this._getMetaConfig(integration._id);
+            }
+        }
+
+        // 3. Explicit provider requested without specific account ID
+        if (isBaileysRequested && !isMetaRequested) {
+            // Strictly Baileys — NO FALLBACK TO META
+            return await this._getBaileysConfig(null);
+        }
+        if (isMetaRequested && !isBaileysRequested) {
+            // Strictly Meta — NO FALLBACK TO BAILEYS
+            return await this._getMetaConfig(null);
+        }
+
+        // 4. Neither account nor provider specified: Route to the system's default active integration
+        const defaultIntegration = await WhatsAppIntegration.findOne({ isDefault: true, status: 'ACTIVE' }).lean();
+        if (defaultIntegration) {
+            if (defaultIntegration.provider === 'BAILEYS') {
+                return await this._getBaileysConfig(defaultIntegration._id);
+            } else {
+                return await this._getMetaConfig(defaultIntegration._id);
+            }
+        }
+
+        // 5. If no default marked: Route to any active integration
+        const anyActive = await WhatsAppIntegration.findOne({ status: 'ACTIVE' }).lean();
+        if (anyActive) {
+            if (anyActive.provider === 'BAILEYS') {
+                return await this._getBaileysConfig(anyActive._id);
+            } else {
+                return await this._getMetaConfig(anyActive._id);
+            }
+        }
+
+        // 6. Check env var fallback for Meta in development/test
+        const envMeta = await this._getMetaConfig(null);
+        if (envMeta) return envMeta;
+
+        throw new Error("No active WhatsApp integration found. Please connect your WhatsApp account in Settings.");
     }
 
     /**
@@ -275,35 +368,10 @@ class WhatsAppService {
             opt.channel === 'whatsapp_web' || 
             opt.useBaileys === true ||
             opt.platform === 'WhatsApp Web';
-        const isMetaRequested = opt.provider === 'META' || 
-            opt.channel === 'whatsapp_api' || 
-            opt.useMeta === true ||
-            opt.platform === 'Direct' ||
-            opt.platform === 'WhatsApp Cloud API';
 
         let config;
         try {
-            if (isGroupTarget) {
-                // WhatsApp Groups are strictly routed to WhatsApp Web (Baileys)
-                config = await this._getBaileysConfig(targetAccount);
-            } else if (isBaileysRequested && !isMetaRequested) {
-                // Explicitly routed to WhatsApp Web (Baileys scanner)
-                config = await this._getBaileysConfig(targetAccount);
-            } else if (isMetaRequested && !isBaileysRequested) {
-                // Explicitly routed to Meta Cloud API
-                config = await this._getMetaConfig(targetAccount);
-            } else {
-                // Fallback: try Meta first, but if not configured/fails, fallback to Baileys
-                try {
-                    config = await this._getMetaConfig(targetAccount);
-                } catch (metaErr) {
-                    try {
-                        config = await this._getBaileysConfig(targetAccount);
-                    } catch (_) {
-                        throw metaErr;
-                    }
-                }
-            }
+            config = await this._resolveAccountConfig(mobile, options);
         } catch (err) {
             console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
             return { success: false, error: err.message, provider: (isGroupTarget || isBaileysRequested) ? 'baileys' : 'meta' };
@@ -323,9 +391,11 @@ class WhatsAppService {
                 sourcePhone: process.env.GUPSHUP_SOURCE,
                 appName: process.env.GUPSHUP_APP_NAME
             });
-        } else {
+        } else if (process.env.NODE_ENV === 'test' || process.env.MOCK_MODE === 'true') {
             console.log(`[WhatsApp] MOCK message to ${mobile}: ${message}`);
             sendResult = { success: true, mock: true, provider: 'mock' };
+        } else {
+            sendResult = { success: false, error: 'No active WhatsApp channel configured', provider: 'none' };
         }
 
         if (idempotencyKey && sendResult && sendResult.success) {
@@ -867,31 +937,10 @@ class WhatsAppService {
             opt.channel === 'whatsapp_web' || 
             opt.useBaileys === true ||
             opt.platform === 'WhatsApp Web';
-        const isMetaRequested = opt.provider === 'META' || 
-            opt.channel === 'whatsapp_api' || 
-            opt.useMeta === true ||
-            opt.platform === 'Direct' ||
-            opt.platform === 'WhatsApp Cloud API';
 
         let metaConfig;
         try {
-            if (isGroupTarget) {
-                metaConfig = await this._getBaileysConfig(targetAccount);
-            } else if (isBaileysRequested && !isMetaRequested) {
-                metaConfig = await this._getBaileysConfig(targetAccount);
-            } else if (isMetaRequested && !isBaileysRequested) {
-                metaConfig = await this._getMetaConfig(targetAccount);
-            } else {
-                try {
-                    metaConfig = await this._getMetaConfig(targetAccount);
-                } catch (metaErr) {
-                    try {
-                        metaConfig = await this._getBaileysConfig(targetAccount);
-                    } catch (_) {
-                        throw metaErr;
-                    }
-                }
-            }
+            metaConfig = await this._resolveAccountConfig(mobile, extraOptions);
         } catch (err) {
             console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
             return { success: false, error: err.message, provider: (isGroupTarget || isBaileysRequested) ? 'baileys' : 'meta' };

@@ -1492,6 +1492,7 @@ export const getDeals = async (req, res) => {
         const dealListProjection = {
             _id: 1, dealId: 1, projectName: 1, unitNo: 1, unitType: 1, propertyType: 1,
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
+            sizeConfig: 1, sizeUnit: 1, width: 1, length: 1, widthMetric: 1, lengthMetric: 1, block: 1,
             price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
             dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
             owner: 1, associatedContact: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1,
@@ -1503,7 +1504,7 @@ export const getDeals = async (req, res) => {
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification direction facing roadWidth orientation builtupType latitude longitude lat lng builtUpArea ageOfConstruction constructionAge owners associates' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification direction facing roadWidth orientation builtupType latitude longitude lat lng builtUpArea ageOfConstruction constructionAge owners associates width length widthMetric lengthMetric dimensionMetric' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
             { path: 'owner', select: 'name phones emails mobile phone email', model: 'Contact' },
             { path: 'associatedContact', select: 'name phones emails mobile phone email', model: 'Contact' },
@@ -1669,7 +1670,9 @@ export const getDeals = async (req, res) => {
             else if (typeof val === 'object' && val._id && isValidObjectId(val._id)) lookupIdSet.add(String(val._id));
         };
 
+        const projectNamesForSize = new Set();
         results.records.forEach(deal => {
+            if (deal.projectName) projectNamesForSize.add(deal.projectName);
             extractRef(deal.category);
             extractRef(deal.subCategory);
             extractRef(deal.propertyType);
@@ -1678,6 +1681,7 @@ export const getDeals = async (req, res) => {
             extractRef(deal.location);
             extractRef(deal.unitType);
             extractRef(deal.sizeConfig);
+            extractRef(deal.sizeLabel);
             extractRef(deal.direction);
             extractRef(deal.roadWidth);
             extractRef(deal.facing);
@@ -1691,6 +1695,7 @@ export const getDeals = async (req, res) => {
                 extractRef(deal.unitSpecification.builtupType);
                 extractRef(deal.unitSpecification.orientation);
                 extractRef(deal.unitSpecification.sizeConfig);
+                extractRef(deal.unitSpecification.sizeLabel);
             }
 
             const invId = deal.inventoryId?._id || deal.inventoryId;
@@ -1704,11 +1709,13 @@ export const getDeals = async (req, res) => {
             }
 
             if (inventory) {
+                if (inventory.projectName) projectNamesForSize.add(inventory.projectName);
                 extractRef(inventory.location);
                 extractRef(inventory.category);
                 extractRef(inventory.propertyType);
                 extractRef(inventory.unitType);
                 extractRef(inventory.sizeConfig);
+                extractRef(inventory.sizeLabel);
                 extractRef(inventory.direction);
                 extractRef(inventory.roadWidth);
                 extractRef(inventory.facing);
@@ -1721,6 +1728,7 @@ export const getDeals = async (req, res) => {
                     extractRef(inventory.unitSpecification.builtupType);
                     extractRef(inventory.unitSpecification.orientation);
                     extractRef(inventory.unitSpecification.sizeConfig);
+                    extractRef(inventory.unitSpecification.sizeLabel);
                 }
             }
         });
@@ -1734,11 +1742,20 @@ export const getDeals = async (req, res) => {
             const regexes = Array.from(lookupStringSet).map(s => new RegExp(`^\\s*${escapeRegExp(s)}\\s*$`, 'i'));
             conditions.push({ lookup_value: { $in: regexes } });
         }
+        if (projectNamesForSize.size > 0) {
+            conditions.push({
+                lookup_type: 'Size',
+                $or: [
+                    { 'metadata.project': { $in: Array.from(projectNamesForSize) } },
+                    { 'metadata.projectMappings.project': { $in: Array.from(projectNamesForSize) } }
+                ]
+            });
+        }
 
         let allLookups = [];
         if (conditions.length > 0) {
             lookupQuery.$or = conditions;
-            allLookups = await Lookup.find(lookupQuery).select('_id lookup_type lookup_value').lean();
+            allLookups = await Lookup.find(lookupQuery).select('_id lookup_type lookup_value metadata').lean();
         }
 
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
@@ -1813,6 +1830,10 @@ export const getDeals = async (req, res) => {
                 dealObj.sizeUnit = sizeUnit;
                 dealObj.sizeLabel = sizeLabel;
                 dealObj.sizeConfig = sizeConfig;
+                dealObj.width = dealObj.width || inventory.width || inventory.unitSpecification?.width;
+                dealObj.length = dealObj.length || inventory.length || inventory.unitSpecification?.length;
+                dealObj.widthMetric = dealObj.widthMetric || inventory.widthMetric || inventory.dimensionMetric || inventory.unitSpecification?.widthMetric || 'Feet';
+                dealObj.lengthMetric = dealObj.lengthMetric || inventory.lengthMetric || inventory.dimensionMetric || inventory.unitSpecification?.lengthMetric || 'Feet';
                 dealObj.unitSpecification = unitSpec;
 
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
@@ -1827,6 +1848,10 @@ export const getDeals = async (req, res) => {
                     inv.sizeConfig = sizeConfig;
                     inv.size = size;
                     inv.sizeUnit = sizeUnit;
+                    inv.width = dealObj.width;
+                    inv.length = dealObj.length;
+                    inv.widthMetric = dealObj.widthMetric;
+                    inv.lengthMetric = dealObj.lengthMetric;
                     inv.unitSpecification = unitSpec;
                 }
             }
@@ -1848,6 +1873,7 @@ export const getDeals = async (req, res) => {
             enrichWithLookup(dealObj, 'location');
             enrichWithLookup(dealObj, 'unitType');
             enrichWithLookup(dealObj, 'sizeConfig');
+            enrichWithLookup(dealObj, 'sizeLabel');
             enrichWithLookup(dealObj, 'direction');
             enrichWithLookup(dealObj, 'roadWidth');
             enrichWithLookup(dealObj, 'facing');
@@ -1861,6 +1887,7 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.unitSpecification, 'builtupType');
                 enrichWithLookup(dealObj.unitSpecification, 'orientation');
                 enrichWithLookup(dealObj.unitSpecification, 'sizeConfig');
+                enrichWithLookup(dealObj.unitSpecification, 'sizeLabel');
             }
 
             if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
@@ -1869,11 +1896,80 @@ export const getDeals = async (req, res) => {
                 enrichWithLookup(dealObj.inventoryId, 'propertyType');
                 enrichWithLookup(dealObj.inventoryId, 'unitType');
                 enrichWithLookup(dealObj.inventoryId, 'sizeConfig');
+                enrichWithLookup(dealObj.inventoryId, 'sizeLabel');
                 enrichWithLookup(dealObj.inventoryId, 'direction');
                 enrichWithLookup(dealObj.inventoryId, 'roadWidth');
                 enrichWithLookup(dealObj.inventoryId, 'facing');
                 enrichWithLookup(dealObj.inventoryId, 'builtupType');
                 enrichWithLookup(dealObj.inventoryId, 'orientation');
+            }
+
+            // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string
+            const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+            const extractDisplayLabel = (val) => {
+                if (!val) return null;
+                if (typeof val === 'object') {
+                    const lkVal = val.lookup_value || val.name || val.label;
+                    if (lkVal && !isHex(lkVal)) return String(lkVal);
+                    if (val._id && lookupMap.has(String(val._id))) {
+                        return lookupMap.get(String(val._id)).lookup_value;
+                    }
+                    return null;
+                }
+                if (typeof val === 'string') {
+                    if (isHex(val)) {
+                        const lk = lookupMap.get(val);
+                        return lk ? lk.lookup_value : null;
+                    }
+                    return val.trim() !== '-' ? val : null;
+                }
+                return null;
+            };
+
+            let finalSizeName = 
+                extractDisplayLabel(dealObj.sizeLabel) ||
+                extractDisplayLabel(dealObj.sizeConfig) ||
+                extractDisplayLabel(dealObj.unitSpecification?.sizeLabel) ||
+                extractDisplayLabel(dealObj.unitSpecification?.sizeConfig) ||
+                extractDisplayLabel(inventory?.sizeLabel) ||
+                extractDisplayLabel(inventory?.sizeConfig);
+
+            const dealWidth = dealObj.width || dealObj.unitSpecification?.width || inventory?.width;
+            const dealLength = dealObj.length || dealObj.unitSpecification?.length || inventory?.length;
+            const dealMetric = dealObj.widthMetric || dealObj.unitSpecification?.widthMetric || inventory?.widthMetric || 'Meter';
+
+            // Match by dimensions in allLookups if still unassigned
+            if (!finalSizeName && dealWidth && dealLength) {
+                const matchedLk = allLookups.find(lk => 
+                    lk.lookup_type === 'Size' &&
+                    lk.metadata &&
+                    Number(lk.metadata.width) === Number(dealWidth) &&
+                    Number(lk.metadata.length) === Number(dealLength)
+                );
+                if (matchedLk && matchedLk.lookup_value) {
+                    finalSizeName = matchedLk.lookup_value;
+                } else {
+                    finalSizeName = `${dealWidth} x ${dealLength} ${dealMetric}`;
+                }
+            }
+
+            // Fallback to deal.size number and unit
+            if (!finalSizeName) {
+                const sVal = typeof dealObj.size === 'object' ? dealObj.size?.value : dealObj.size;
+                const sUnit = typeof dealObj.size === 'object' ? dealObj.size?.unit : (dealObj.sizeUnit || 'Sq.Ft.');
+                if (sVal && sVal !== '0' && sVal !== 0) {
+                    finalSizeName = `${sVal} ${sUnit}`;
+                }
+            }
+
+            if (finalSizeName) {
+                dealObj.sizeLabel = {
+                    lookup_value: finalSizeName,
+                    name: finalSizeName,
+                    value: finalSizeName
+                };
+            } else if (isHex(dealObj.sizeLabel)) {
+                dealObj.sizeLabel = null;
             }
 
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -2073,12 +2169,12 @@ export const getDealById = async (req, res) => {
         const resolveLookupInDoc = async (doc) => {
             if (!doc) return;
             const fields = [
-                'category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig',
+                'category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig', 'sizeLabel',
                 'direction', 'roadWidth', 'facing', 'builtupType', 'orientation'
             ];
             const lookupTypeMap = {
                 category: 'Category', subCategory: 'SubCategory', intent: 'Intent',
-                status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size',
+                status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size', sizeLabel: 'Size',
                 direction: 'Direction', roadWidth: 'RoadWidth', facing: 'Facing', builtupType: 'BuiltupType', orientation: 'Orientation'
             };
             for (const field of fields) {
@@ -2100,7 +2196,7 @@ export const getDealById = async (req, res) => {
             }
 
             if (doc.unitSpecification && typeof doc.unitSpecification === 'object') {
-                for (const field of ['direction', 'roadWidth', 'facing', 'builtupType', 'orientation', 'sizeConfig']) {
+                for (const field of ['direction', 'roadWidth', 'facing', 'builtupType', 'orientation', 'sizeConfig', 'sizeLabel']) {
                     const val = doc.unitSpecification[field];
                     if (!val) continue;
                     if (typeof val === 'string' && !isValidObjectId(val)) {
@@ -2122,6 +2218,41 @@ export const getDealById = async (req, res) => {
         await resolveLookupInDoc(dealObj);
         if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
             await resolveLookupInDoc(dealObj.inventoryId);
+        }
+
+        // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string in getDealById
+        const isHexId = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+        let finalDealSizeLabel = null;
+        if (dealObj.sizeLabel) {
+            if (typeof dealObj.sizeLabel === 'object') {
+                const lv = dealObj.sizeLabel.lookup_value || dealObj.sizeLabel.name || dealObj.sizeLabel.label;
+                if (lv && !isHexId(lv)) finalDealSizeLabel = lv;
+            } else if (!isHexId(dealObj.sizeLabel) && dealObj.sizeLabel !== '-') {
+                finalDealSizeLabel = dealObj.sizeLabel;
+            }
+        }
+        if (!finalDealSizeLabel && dealObj.sizeConfig) {
+            if (typeof dealObj.sizeConfig === 'object') {
+                const lv = dealObj.sizeConfig.lookup_value || dealObj.sizeConfig.name;
+                if (lv && !isHexId(lv)) finalDealSizeLabel = lv;
+            } else if (!isHexId(dealObj.sizeConfig)) {
+                finalDealSizeLabel = dealObj.sizeConfig;
+            }
+        }
+        if (!finalDealSizeLabel && (dealObj.width || dealObj.unitSpecification?.width) && (dealObj.length || dealObj.unitSpecification?.length)) {
+            const dw = dealObj.width || dealObj.unitSpecification?.width;
+            const dl = dealObj.length || dealObj.unitSpecification?.length;
+            const dm = dealObj.widthMetric || dealObj.unitSpecification?.widthMetric || 'Meter';
+            finalDealSizeLabel = `${dw} x ${dl} ${dm}`;
+        }
+        if (finalDealSizeLabel) {
+            dealObj.sizeLabel = {
+                lookup_value: finalDealSizeLabel,
+                name: finalDealSizeLabel,
+                value: finalDealSizeLabel
+            };
+        } else if (isHexId(dealObj.sizeLabel)) {
+            dealObj.sizeLabel = null;
         }
 
         const responseData = {

@@ -586,7 +586,17 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             setFormData(prev => {
                 const matchedSize = findMatchedSize(unit, null, sizes);
-                const inheritedSizeLabel = unit.sizeLabel || unit.unitSpecification?.sizeLabel || matchedSize?.name || prev.sizeLabel;
+                let rawSizeLabel = unit.sizeLabel || unit.unitSpecification?.sizeLabel;
+                if (rawSizeLabel && typeof rawSizeLabel === 'object') {
+                    rawSizeLabel = rawSizeLabel.lookup_value || rawSizeLabel.name || rawSizeLabel.label;
+                }
+                if (rawSizeLabel && /^[0-9a-fA-F]{24}$/.test(String(rawSizeLabel).trim())) {
+                    const resolved = getLookupValue('Size', rawSizeLabel);
+                    rawSizeLabel = (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) ? resolved : null;
+                }
+                const inheritedSizeLabel = (rawSizeLabel && !/^[0-9a-fA-F]{24}$/.test(String(rawSizeLabel)))
+                    ? rawSizeLabel
+                    : (matchedSize?.name || (prev.sizeLabel && !/^[0-9a-fA-F]{24}$/.test(String(prev.sizeLabel)) ? prev.sizeLabel : ''));
                 const parsedBracket = extractAreaFromLabel(inheritedSizeLabel) || extractAreaFromLabel(matchedSize?.name);
 
                 // Enterprise: Prioritize the bracket count in sizeLabel as the true total area
@@ -1636,8 +1646,31 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             getLookupValue
                         });
 
-                        // Resolve Master Size Label
-                        const resolvedSizeLabel = formData.sizeLabel || dimData.sizeLabel || linkedUnit?.sizeLabel || '-';
+                        // Resolve Master Size Label (Never display a raw 24-char ObjectId hex string)
+                        const isHexId = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+                        const resolveLabel = (val) => {
+                            if (!val || val === '-') return null;
+                            if (typeof val === 'object') {
+                                const lk = val.lookup_value || val.name || val.label;
+                                if (lk && !isHexId(lk)) return lk;
+                                val = val._id || val.id;
+                            }
+                            if (isHexId(val)) {
+                                const lookup = getLookupValue('Size', val);
+                                if (lookup && !isHexId(lookup)) return lookup;
+                                return null;
+                            }
+                            return val;
+                        };
+
+                        const resolvedSizeLabel = 
+                            resolveLabel(dimData.sizeLabel) ||
+                            resolveLabel(formData.sizeLabel) ||
+                            resolveLabel(linkedUnit?.sizeLabel) ||
+                            resolveLabel(formData.unitSpecification?.sizeLabel) ||
+                            resolveLabel(linkedUnit?.unitSpecification?.sizeLabel) ||
+                            (dimData.fullSizeText && !isHexId(dimData.fullSizeText) ? dimData.fullSizeText : null) ||
+                            '-';
 
                         // Resolve Raw Dimensions
                         const rawWidth = (formData.width !== undefined && formData.width !== null && formData.width !== '' && formData.width !== '-')
@@ -1942,7 +1975,18 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
         const effective = resolveEffectiveArea(formData);
         const activeUnitDisplay = getUnitDisplayName(formData.priceUnit);
         const activeUnitShort = getUnitShortName(formData.priceUnit);
-        const activeSizeLabel = formData.sizeLabel || (formData.unitSpecification?.sizeLabel) || '-';
+        const rawCommercialSizeLabel = formData.sizeLabel || (formData.unitSpecification?.sizeLabel);
+        let activeSizeLabel = '-';
+        if (rawCommercialSizeLabel) {
+            if (typeof rawCommercialSizeLabel === 'object') {
+                activeSizeLabel = rawCommercialSizeLabel.lookup_value || rawCommercialSizeLabel.name || '-';
+            } else if (!/^[0-9a-fA-F]{24}$/.test(String(rawCommercialSizeLabel).trim())) {
+                activeSizeLabel = rawCommercialSizeLabel;
+            } else {
+                activeSizeLabel = getLookupValue('Size', rawCommercialSizeLabel) || '-';
+            }
+        }
+        if (/^[0-9a-fA-F]{24}$/.test(String(activeSizeLabel))) activeSizeLabel = '-';
 
         const targetFactor = getFactorInSqYard(formData.priceUnit);
         const effectiveAreaInTarget = (effective && effective.areaInSqYard > 0)

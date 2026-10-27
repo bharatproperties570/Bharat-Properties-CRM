@@ -1410,7 +1410,12 @@ async function _dispatchBNADirectly(data) {
                             contextMap
                         );
                     }
-                    waRes = await waService.sendMessage(recipient.mobile, text, { integrationId: data.integrationId });
+                    waRes = await waService.sendMessage(recipient.mobile, text, { 
+                        integrationId: data.integrationId,
+                        useBaileys: Boolean(data.isBaileys),
+                        provider: data.isBaileys ? 'BAILEYS' : 'META',
+                        channel: data.isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                    });
                 }
                 results.push({ 
                     channel: 'whatsapp', 

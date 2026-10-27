@@ -312,6 +312,50 @@ function DealsPage({ onNavigate, onAddActivity }) {
         return resolved;
     }, [getLookupValue]);
 
+    // 🧠 SENIOR PROFESSIONAL: Universal Deal Size & Dimension Resolver
+    const resolveDealSizeDisplay = useCallback((deal, fallback = 'Size TBA') => {
+        if (!deal) return fallback;
+
+        const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+
+        // 1. Try resolving via lookups (sizeConfig or sizeLabel)
+        const sizeConfigLookup = resolveDealLookup(deal.sizeConfig, 'Size') || resolveDealLookup(deal.inventoryId?.sizeConfig, 'Size');
+        if (sizeConfigLookup && !isHex(sizeConfigLookup)) {
+            return renderValue(sizeConfigLookup);
+        }
+
+        const sizeLabelLookup = resolveDealLookup(deal.sizeLabel, 'Size') || resolveDealLookup(deal.inventoryId?.sizeLabel, 'Size');
+        if (sizeLabelLookup && !isHex(sizeLabelLookup)) {
+            return renderValue(sizeLabelLookup);
+        }
+
+        // 2. Direct string or object sizeLabel if not a raw hex ID
+        const rawLabel = deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.inventoryId?.sizeLabel;
+        if (rawLabel) {
+            const labelStr = typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || rawLabel.label) : rawLabel;
+            if (labelStr && !isHex(labelStr) && labelStr !== '-') {
+                return String(labelStr);
+            }
+        }
+
+        // 3. Fallback to dimensions
+        const w = deal.width || deal.unitSpecification?.width || deal.inventoryId?.width || deal.inventoryId?.unitSpecification?.width;
+        const l = deal.length || deal.unitSpecification?.length || deal.inventoryId?.length || deal.inventoryId?.unitSpecification?.length;
+        const metric = deal.widthMetric || deal.dimensionMetric || deal.unitSpecification?.widthMetric || deal.inventoryId?.widthMetric || 'Meter';
+        if (w && l) {
+            return `${w} x ${l} ${metric}`;
+        }
+
+        // 4. Fallback to size value and unit if non-zero
+        const szVal = typeof deal.size === 'object' ? deal.size?.value : deal.size;
+        const szUnit = typeof deal.size === 'object' ? deal.size?.unit : (deal.sizeUnit || 'Sq.Ft.');
+        if (szVal && szVal !== '0' && szVal !== 0 && szVal !== '0 Sq.Ft.') {
+            return `${szVal} ${szUnit}`;
+        }
+
+        return fallback;
+    }, [resolveDealLookup]);
+
     const handleSaveUploads = async (mediaData) => {
         try {
             const dealId = selectedIds[0];
@@ -1184,13 +1228,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? '#60a5fa' : '#2563eb' }}></i>
                                                     <span style={{ fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb' }}>
-                                                        {(() => {
-                                                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
-                                                            if (sizeFromLookup) return renderValue(sizeFromLookup);
-                                                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
-                                                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
-                                                            return 'Size N/A';
-                                                        })()}
+                                                        {resolveDealSizeDisplay(deal, 'Size N/A')}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1787,13 +1825,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     </div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                        {(() => {
-                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
-                            if (sizeFromLookup) return renderValue(sizeFromLookup);
-                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
-                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
-                            return 'N/A';
-                        })()}
+                        {resolveDealSizeDisplay(deal, 'N/A')}
                     </div>
                 </div>
             </div>
@@ -1837,10 +1869,10 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 
                 {(() => {
                     if (!deal.price) return null;
-                    const sizeId = typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : deal.sizeConfig;
-                    const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : null;
-                    const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : deal.size;
-                    const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : deal.sizeUnit || 'sq.ft.';
+                    const sizeId = typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : (deal.sizeConfig || deal.sizeLabel?._id || (typeof deal.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(deal.sizeLabel) ? deal.sizeLabel : null));
+                    const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : (deal.sizeLabel ? sizes?.find(s => s.name === (typeof deal.sizeLabel === 'object' ? deal.sizeLabel.lookup_value : deal.sizeLabel)) : null);
+                    const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : (typeof deal.size === 'object' ? parseFloat(deal.size?.value) : parseFloat(deal.size));
+                    const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : (typeof deal.size === 'object' ? deal.size?.unit : deal.sizeUnit || 'sq.ft.');
                     
                     if (calcArea && calcArea > 0) {
                         return (

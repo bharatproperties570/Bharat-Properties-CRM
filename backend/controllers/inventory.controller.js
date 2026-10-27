@@ -20,6 +20,7 @@ import { normalizePhone } from "../utils/normalization.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 import { WorkflowEngine } from "../src/utils/WorkflowEngine.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
+import PricingBenchmark from "../models/PricingBenchmark.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import { createNotification } from "./notification.controller.js";
 import AddressParsingService from '../services/AddressParsingService.js';
@@ -836,6 +837,32 @@ export const getInventory = async (req, res) => {
                 }
             });
 
+            // 🛡️ [ENTERPRISE RESOLUTION]: Ensure sizeLabel is never a raw 24-char ObjectId hex string
+            const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+            if (itemObj.sizeLabel) {
+                if (typeof itemObj.sizeLabel === 'object') {
+                    const lkVal = itemObj.sizeLabel.lookup_value || itemObj.sizeLabel.name || itemObj.sizeLabel.label;
+                    if (lkVal && !isHex(lkVal)) {
+                        itemObj.sizeLabel = lkVal;
+                    }
+                } else if (isHex(itemObj.sizeLabel)) {
+                    const lk = lookupMap.get(itemObj.sizeLabel);
+                    if (lk && lk.lookup_value) {
+                        itemObj.sizeLabel = lk.lookup_value;
+                    } else if (itemObj.sizeConfig && typeof itemObj.sizeConfig === 'object' && itemObj.sizeConfig.lookup_value) {
+                        itemObj.sizeLabel = itemObj.sizeConfig.lookup_value;
+                    } else if (itemObj.width && itemObj.length) {
+                        itemObj.sizeLabel = `${itemObj.width} x ${itemObj.length} ${itemObj.widthMetric || 'Meter'}`;
+                    } else {
+                        itemObj.sizeLabel = null;
+                    }
+                }
+            } else if (itemObj.sizeConfig && typeof itemObj.sizeConfig === 'object' && itemObj.sizeConfig.lookup_value) {
+                itemObj.sizeLabel = itemObj.sizeConfig.lookup_value;
+            } else if (itemObj.width && itemObj.length) {
+                itemObj.sizeLabel = `${itemObj.width} x ${itemObj.length} ${itemObj.widthMetric || 'Meter'}`;
+            }
+
             // Hydrate Address
             const hydrateAddr = (addrObj) => {
                 if (!addrObj || typeof addrObj !== 'object') return;
@@ -980,7 +1007,8 @@ export const getInventoryById = async (req, res) => {
             { field: 'intent', type: 'Intent' },
             { field: 'builtupType', type: 'BuiltupType' },
             { field: 'roadWidth', type: 'RoadWidth' },
-            { field: 'sizeConfig', type: 'Size' }
+            { field: 'sizeConfig', type: 'Size' },
+            { field: 'sizeLabel', type: 'Size' }
         ];
 
         for (const { field, type } of mixedFields) {
