@@ -889,7 +889,59 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         });
         assert.equal(unauthRes.success, false);
         assert.ok(unauthRes.error.includes('AUTHORIZATION_DENIED'));
-        assert.ok(unauthRes.error.includes('lacks reconciliation privilege'));
+        assert.ok(unauthRes.error.includes('lacks \'whatsapp.dispatch.reconcile\' permission'));
+
+        // 3c. Rejects an unrelated system role lacking the explicit reconciliation permission
+        const unrelatedSystemRole = await Role.create({
+            name: 'System Auditor',
+            department: 'accounts',
+            isSystemRole: true // Marked as system role, but does NOT have reconciliation authority!
+        });
+        const systemAuditorUser = await User.create({
+            fullName: 'System Auditor',
+            email: 'auditor_unrelated@bharatproperties.co',
+            password: 'hashed_password_secure',
+            role: unrelatedSystemRole._id,
+            department: 'accounts',
+            isActive: true,
+            status: 'active'
+        });
+        const unrelatedSysRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: systemAuditorUser._id.toString()
+        });
+        assert.equal(unrelatedSysRes.success, false);
+        assert.ok(unrelatedSysRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(unrelatedSysRes.error.includes('lacks \'whatsapp.dispatch.reconcile\' permission'));
+
+        // 3d. Rejects client impersonation (authenticated context does not match requested actorId)
+        const impersonationRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorContext: { _id: salesLeadUser._id },
+            actorId: testUser._id.toString() // Trying to claim admin ID while authenticated as sales lead!
+        });
+        assert.equal(impersonationRes.success, false);
+        assert.ok(impersonationRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(impersonationRes.error.includes('Client cannot impersonate another actorId'));
+
+        // 3e. Rejects untrusted service context
+        const untrustedServiceRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'MaliciousService',
+                serviceSecret: 'invalid_secret'
+            }
+        });
+        assert.equal(untrustedServiceRes.success, false);
+        assert.ok(untrustedServiceRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(untrustedServiceRes.error.includes('Untrusted service context'));
 
         // 4. Rejects if recipient does not match immutable dispatch recipient
         const badRecipient = await WhatsAppService.manualReconcileDispatch({
@@ -982,6 +1034,38 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         assert.equal(replay.success, true);
         assert.equal(replay.alreadySent, true);
         assert.equal(replay.messageId, 'wamid.manual.019');
+
+        // 9. Legitimate service-to-service reconciliation succeeds through explicit trusted serviceContext
+        const serviceRecKey = 'durable_service_rec_019';
+        await WhatsAppDispatch.create({
+            idempotencyKey: serviceRecKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+        const serviceSuccessRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: serviceRecKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.service.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'WhatsAppDispatchReconcilerWorker',
+                serviceSecret: 'trusted_internal_service_secret'
+            },
+            reason: 'Automated reconcile worker recovered from Meta API check',
+            recipient: mobile
+        });
+        assert.equal(serviceSuccessRes.success, true);
+        assert.equal(serviceSuccessRes.reconciled, true);
+        assert.equal(serviceSuccessRes.reconciledBy, 'service:WhatsAppDispatchReconcilerWorker');
+
+        const serviceDoc = await WhatsAppDispatch.findOne({ idempotencyKey: serviceRecKey }).lean();
+        assert.equal(serviceDoc.status, 'DISPATCHED');
+        assert.equal(serviceDoc.reconciledBy, 'service:WhatsAppDispatchReconcilerWorker');
     });
 
     // ─────────────────────────────────────────────────────────────
@@ -1153,25 +1237,36 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             tenantId: null
         });
 
-        // Two operators concurrently attempt manual reconciliation with different provider IDs
-        const [op1, op2] = await Promise.all([
-            WhatsAppService.manualReconcileDispatch({
+        // Use a controlled synchronization barrier to force genuine overlap
+        let releaseBarrier;
+        const barrier = new Promise(resolve => { releaseBarrier = resolve; });
+
+        const task1 = (async () => {
+            await barrier;
+            return await WhatsAppService.manualReconcileDispatch({
                 idempotencyKey,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: 'wamid.race.op1.022',
                 actorId: testUser._id.toString(),
                 reason: 'Operator 1 confirmed via Meta log',
                 recipient: mobile
-            }),
-            WhatsAppService.manualReconcileDispatch({
+            });
+        })();
+
+        const task2 = (async () => {
+            await barrier;
+            return await WhatsAppService.manualReconcileDispatch({
                 idempotencyKey,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: 'wamid.race.op2.022',
                 actorId: testUser._id.toString(),
                 reason: 'Operator 2 confirmed via Meta log',
                 recipient: mobile
-            })
-        ]);
+            });
+        })();
+
+        releaseBarrier();
+        const [op1, op2] = await Promise.all([task1, task2]);
 
         // Exactly one operator must succeed in atomically modifying the record
         const successes = [op1, op2].filter(r => r.success && !r.alreadyReconciled);
@@ -1207,35 +1302,47 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             tenantId: null
         });
 
-        // 1. Webhook arrives and reconciles dispatch to delivered
-        const webhookPayload = {
-            id: providerMessageId,
-            status: 'delivered',
-            timestamp: '1720000600',
-            recipient_id: mobile,
-            biz_opaque_callback_data: idempotencyKey
-        };
-        const whResult = await WhatsAppService.reconcileWebhookStatus(webhookPayload);
-        assert.equal(whResult.reconciled, true);
-        assert.equal(whResult.deliveryStatus, 'delivered');
+        // Use a controlled synchronization barrier to force genuine overlap
+        let releaseBarrier;
+        const barrier = new Promise(resolve => { releaseBarrier = resolve; });
 
-        // 2. Operator attempts to reconcile dispatch to FAILED
-        const opResult = await WhatsAppService.manualReconcileDispatch({
-            idempotencyKey,
-            targetStatus: 'FAILED',
-            actorId: testUser._id.toString(),
-            reason: 'Mistaken operator assumption of delivery failure',
-            recipient: mobile
-        });
+        const webhookTask = (async () => {
+            await barrier;
+            return await WhatsAppService.reconcileWebhookStatus({
+                id: providerMessageId,
+                status: 'delivered',
+                timestamp: '1720000600',
+                recipient_id: mobile,
+                biz_opaque_callback_data: idempotencyKey
+            });
+        })();
 
-        assert.equal(opResult.success, false);
-        assert.ok(opResult.error.includes('REGRESSIVE_STATUS_FORBIDDEN'));
+        const operatorTask = (async () => {
+            await barrier;
+            return await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey,
+                targetStatus: 'FAILED',
+                actorId: testUser._id.toString(),
+                reason: 'Operator attempting failed reconciliation during webhook transit',
+                recipient: mobile
+            });
+        })();
 
-        // Document must preserve DISPATCHED status and delivered deliveryStatus
+        // Release barrier simultaneously so both operations hit MongoDB in parallel
+        releaseBarrier();
+        const [whResult, opResult] = await Promise.all([webhookTask, operatorTask]);
+
+        // CRITICAL INVARIANT: A confirmed delivered message must NEVER end up marked FAILED
         const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
-        assert.equal(finalDoc.status, 'DISPATCHED');
-        assert.equal(finalDoc.deliveryStatus, 'delivered');
+        assert.notEqual(finalDoc.status, 'FAILED', 'Dispatch must never be FAILED if delivered was confirmed');
+        assert.equal(finalDoc.status, 'DISPATCHED', 'Dispatch must be DISPATCHED once delivered');
+        assert.equal(finalDoc.deliveryStatus, 'delivered', 'Delivery status must be delivered');
         assert.equal(finalDoc.isAmbiguous, false);
+
+        // One of the operations must have safely resolved conflict
+        if (whResult.reconciled) {
+            assert.equal(opResult.success, false, 'Operator FAILED update must be rejected when webhook delivered');
+        }
     });
 
     // ─────────────────────────────────────────────────────────────
@@ -1271,22 +1378,34 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             }
         ]);
 
-        const [res1, res2] = await Promise.all([
-            WhatsAppService.manualReconcileDispatch({
+        // Use a controlled synchronization barrier to force genuine overlap
+        let releaseBarrier;
+        const barrier = new Promise(resolve => { releaseBarrier = resolve; });
+
+        const task1 = (async () => {
+            await barrier;
+            return await WhatsAppService.manualReconcileDispatch({
                 idempotencyKey: key1,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: sharedMsgId,
                 actorId: testUser._id.toString(),
                 recipient: mobile1
-            }),
-            WhatsAppService.manualReconcileDispatch({
+            });
+        })();
+
+        const task2 = (async () => {
+            await barrier;
+            return await WhatsAppService.manualReconcileDispatch({
                 idempotencyKey: key2,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: sharedMsgId,
                 actorId: testUser._id.toString(),
                 recipient: mobile2
-            })
-        ]);
+            });
+        })();
+
+        releaseBarrier();
+        const [res1, res2] = await Promise.all([task1, task2]);
 
         const successes = [res1, res2].filter(r => r.success);
         const collisions = [res1, res2].filter(r => !r.success && r.error.includes('PROVIDER_ID_COLLISION'));
@@ -1300,9 +1419,9 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
     });
 
     // ─────────────────────────────────────────────────────────────
-    // TEST 25: Multi-Webhook Concurrent Storm Monotonic Progression
+    // TEST 25: Multi-Webhook Concurrent Storm Monotonic Progression & Stale Event Protection
     // ─────────────────────────────────────────────────────────────
-    it('25. Multi-Webhook Concurrent Storm: Concurrent sent, delivered, read, and failed webhooks preserve monotonic progression without regression', async () => {
+    it('25. Multi-Webhook Concurrent Storm: Concurrent sent, delivered, read, and late events preserve monotonic progression without regression', async () => {
         const mobile = '919811100026';
         const idempotencyKey = 'durable_storm_025';
         const providerMessageId = 'wamid.storm.025';
@@ -1317,21 +1436,117 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             tenantId: null
         });
 
-        // Fire sent, delivered, read, and late failed webhooks concurrently
+        // Storm of concurrent lifecycle webhooks: sent, delivered, read, and out-of-order duplicates
         const webhooks = [
             { id: providerMessageId, status: 'sent', timestamp: '1720000700', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
             { id: providerMessageId, status: 'delivered', timestamp: '1720000705', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
             { id: providerMessageId, status: 'read', timestamp: '1720000710', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
-            { id: providerMessageId, status: 'failed', timestamp: '1720000715', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey, errors: [{ code: 131053, message: 'Delayed failure' }] }
+            { id: providerMessageId, status: 'sent', timestamp: '1720000699', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey }, // Stale duplicate sent
+            { id: providerMessageId, status: 'delivered', timestamp: '1720000704', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey } // Stale duplicate delivered
         ];
 
-        // Run all webhooks concurrently
-        await Promise.all(webhooks.map(wh => WhatsAppService.reconcileWebhookStatus(wh)));
+        // Controlled synchronization barrier to force all webhooks in the storm to hit MongoDB concurrently
+        let releaseBarrier;
+        const barrier = new Promise(resolve => { releaseBarrier = resolve; });
 
-        // Final state must reflect the monotonic invariant: read status cannot regress to failed or sent
+        const tasks = webhooks.map(wh => (async () => {
+            await barrier;
+            return await WhatsAppService.reconcileWebhookStatus(wh);
+        })());
+
+        releaseBarrier();
+        await Promise.all(tasks);
+
+        // Final state must reflect the monotonic invariant: status monotonically advanced to 'read'
+        const docAfterStorm = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(docAfterStorm.deliveryStatus, 'read', 'Final state in storm must be monotonically preserved as read');
+        assert.equal(docAfterStorm.status, 'DISPATCHED', 'Dispatch status must remain DISPATCHED once read');
+        assert.equal(docAfterStorm.tenantId, null);
+
+        // Subsequent late/stale 'failed' webhook cannot regress confirmed read status
+        const lateFailedWebhook = {
+            id: providerMessageId,
+            status: 'failed',
+            timestamp: '1720000720',
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey,
+            errors: [{ code: 131053, message: 'Delayed out-of-order failure message' }]
+        };
+        const lateFailedRes = await WhatsAppService.reconcileWebhookStatus(lateFailedWebhook);
+        assert.equal(lateFailedRes.reconciled, false);
+        assert.equal(lateFailedRes.reason, 'REGRESSIVE_STATUS_IGNORED', 'Late failure must be safely ignored as regressive');
+
         const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
-        assert.equal(finalDoc.deliveryStatus, 'read', 'Final state must be monotonically preserved as read');
-        assert.equal(finalDoc.status, 'DISPATCHED', 'Dispatch status must remain DISPATCHED once read');
-        assert.equal(finalDoc.tenantId, null);
+        assert.equal(finalDoc.deliveryStatus, 'read', 'Delivery status must remain read');
+        assert.equal(finalDoc.status, 'DISPATCHED', 'Dispatch status must remain DISPATCHED');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 26: State-Transition Invariants, Ambiguity Bypasses & Provider Rebinding Guards
+    // ─────────────────────────────────────────────────────────────
+    it('26. State-Transition Invariants & Rebinding Gates: Enforces allowed source statuses, prevents ambiguity bypass, and rejects provider ID rebinding', async () => {
+        const mobile = '919811100027';
+
+        // 1. Ambiguity flag on DISPATCHED record CANNOT bypass allowed source status to transition to FAILED
+        const keyDispatched = 'durable_dispatched_ambiguous_026';
+        await WhatsAppDispatch.create({
+            idempotencyKey: keyDispatched,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'DISPATCHED',
+            providerMessageId: 'wamid.confirmed.026',
+            isAmbiguous: true, // Flag is true, but status is DISPATCHED!
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        const bypassAttempt = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: keyDispatched,
+            targetStatus: 'FAILED',
+            actorId: testUser._id.toString(),
+            recipient: mobile
+        });
+        assert.equal(bypassAttempt.success, false);
+        assert.ok(bypassAttempt.error.includes('INVALID_SOURCE_STATUS'), 'Ambiguity flag must not allow DISPATCHED record to transition to FAILED');
+
+        // Verify status remained DISPATCHED
+        const docBypass = await WhatsAppDispatch.findOne({ idempotencyKey: keyDispatched }).lean();
+        assert.equal(docBypass.status, 'DISPATCHED');
+
+        // 2. Cannot rebind a dispatch with an already confirmed providerMessageId to a different providerMessageId
+        const rebindAttempt = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: keyDispatched,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.tampered_new_id.026', // Different from confirmed 'wamid.confirmed.026'
+            actorId: testUser._id.toString(),
+            recipient: mobile
+        });
+        assert.equal(rebindAttempt.success, false);
+        assert.ok(rebindAttempt.error.includes('PROVIDER_ID_REBIND_FORBIDDEN'), 'Confirmed provider message ID cannot be rebound to another ID');
+
+        // 3. Webhook opaque correlation cannot rebind confirmed providerMessageId to a different providerMessageId
+        const rebindWebhook = {
+            id: 'wamid.tampered_webhook_id.026', // Different providerMessageId
+            status: 'delivered',
+            timestamp: '1720000800',
+            recipient_id: mobile,
+            biz_opaque_callback_data: keyDispatched
+        };
+        const whRebindRes = await WhatsAppService.reconcileWebhookStatus(rebindWebhook);
+        assert.equal(whRebindRes.reconciled, false);
+        assert.equal(whRebindRes.reason, 'PROVIDER_ID_REBIND_FORBIDDEN');
+
+        // 4. Idempotent re-reconciliation with matching state and matching providerMessageId returns alreadyReconciled: true
+        const idempotentRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: keyDispatched,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.confirmed.026', // Exact match
+            actorId: testUser._id.toString(),
+            recipient: mobile
+        });
+        assert.equal(idempotentRes.success, true);
+        assert.equal(idempotentRes.alreadyReconciled, true);
+        assert.equal(idempotentRes.status, 'DISPATCHED');
     });
 });

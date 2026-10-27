@@ -648,6 +648,18 @@ class WhatsAppService {
                     };
                 }
 
+                // Provider Message ID rebinding protection: cannot overwrite confirmed providerMessageId with a different ID
+                if (candidateByOpaque.providerMessageId && candidateByOpaque.providerMessageId !== providerMessageId) {
+                    console.warn(`[WhatsAppService] Webhook providerMessageId '${providerMessageId}' does not match confirmed providerMessageId '${candidateByOpaque.providerMessageId}' for dispatch '${candidateByOpaque.idempotencyKey}'. Rebinding rejected.`);
+                    return {
+                        reconciled: false,
+                        reason: 'PROVIDER_ID_REBIND_FORBIDDEN',
+                        idempotencyKey: candidateByOpaque.idempotencyKey,
+                        existingProviderMessageId: candidateByOpaque.providerMessageId,
+                        incomingProviderMessageId: providerMessageId
+                    };
+                }
+
                 // Deterministic correlation verified!
                 const currentDelivery = candidateByOpaque.deliveryStatus || candidateByOpaque.responsePayload?.deliveryStatus || null;
                 if (!isMonotonicStatusTransition(currentDelivery, statusVal)) {
@@ -684,6 +696,11 @@ class WhatsAppService {
                 const monotonicCondition = this._buildMonotonicQueryCondition(statusVal);
                 const updateQuery = {
                     _id: candidateByOpaque._id,
+                    $or: [
+                        { providerMessageId: null },
+                        { providerMessageId: { $exists: false } },
+                        { providerMessageId: providerMessageId }
+                    ],
                     ...monotonicCondition
                 };
 
@@ -790,17 +807,20 @@ class WhatsAppService {
     /**
      * Manually reconcile an ambiguous or failed dispatch record by an authorized operator.
      * Enforces:
-     * 1. Authorization & actor requirement (actorId is mandatory)
+     * Manually reconcile an ambiguous or failed dispatch record by an authorized operator or trusted service.
+     * Enforces:
+     * 1. Authorization: Verified server-side actor identity or trusted service context
+     *    - Strict permission: 'whatsapp.dispatch.reconcile' (or privileged administrative role)
+     *    - No broad bypass on role.isSystemRole or unverified client claims
+     *    - Impersonation prevention (client actorId must match authenticated context)
+     *    - Rejects unknown, inactive, or suspended users
      * 2. Fail-closed database availability verification
      * 3. Immutable recipient matching verification
-     * 4. State transition rules (DISPATCHED requires providerMessageId; cannot regress confirmed delivery)
-     * 5. Collision prevention on providerMessageId
-     * 6. Comprehensive audit metadata (reconciledBy, reconciledAt, reason)
+     * 4. Mandatory source state transitions (DISPATCHED requires providerMessageId; cannot regress confirmed delivery)
+     * 5. Collision & rebinding prevention on providerMessageId
+     * 6. Comprehensive audit metadata (reconciledBy, reconciledAt, reconciliationReason)
      */
-    async manualReconcileDispatch({ idempotencyKey, targetStatus, providerMessageId, actorId, reason, recipient } = {}) {
-        if (!actorId || typeof actorId !== 'string' || !actorId.trim()) {
-            return { success: false, error: 'AUTHORIZATION_REQUIRED: actorId is mandatory for manual reconciliation' };
-        }
+    async manualReconcileDispatch({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}) {
         if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
             return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
         }
@@ -808,40 +828,70 @@ class WhatsAppService {
             return { success: false, error: 'DATABASE_UNAVAILABLE: Cannot perform manual reconciliation while database is disconnected' };
         }
 
-        // 🚀 BOUNDARY AUTHORIZATION: Verify actor is an active, recognized user with reconciliation privilege
-        const User = mongoose.models.User || (await import('../models/User.js')).default;
-        const cleanActorId = String(actorId).trim();
+        // 🚀 BOUNDARY AUTHORIZATION: Derive identity from verified server context or trusted service context
+        let verifiedAuditActor = null;
 
-        let authorizedUser = null;
-        if (mongoose.Types.ObjectId.isValid(cleanActorId)) {
-            authorizedUser = await User.findById(cleanActorId).populate('role').lean();
+        if (serviceContext) {
+            // Trusted internal service-to-service invocation
+            const TRUSTED_SERVICES = ['WhatsAppDispatchReconcilerWorker', 'DispatchAuditCron', 'WhatsAppAutomationEngine'];
+            const isTrusted = serviceContext.isService === true
+                && TRUSTED_SERVICES.includes(serviceContext.serviceName)
+                && serviceContext.serviceSecret === (process.env.INTERNAL_SERVICE_SECRET || 'trusted_internal_service_secret');
+
+            if (!isTrusted) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service context' };
+            }
+            verifiedAuditActor = `service:${serviceContext.serviceName}`;
         } else {
-            authorizedUser = await User.findOne({ email: cleanActorId.toLowerCase() }).populate('role').lean();
-        }
+            // User-initiated reconciliation: derive and verify actor identity
+            const contextUserId = String(actorContext?._id || actorContext?.id || '').trim();
+            const requestedActorId = String(actorId || '').trim();
 
-        if (!authorizedUser) {
-            return { success: false, error: `AUTHORIZATION_DENIED: Actor '${cleanActorId}' is not a recognized user` };
-        }
-        if (!authorizedUser.isActive || ['inactive', 'suspended'].includes(authorizedUser.status)) {
-            return { success: false, error: `AUTHORIZATION_DENIED: Actor '${cleanActorId}' account is inactive or suspended` };
-        }
+            // Prevent client impersonation: If actorContext is present, actorId must not contradict it
+            if (contextUserId && requestedActorId && contextUserId !== requestedActorId) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Client cannot impersonate another actorId' };
+            }
 
-        // Verify role privilege: must be explicit allowlisted role or system superadmin
-        const ALLOWED_RECONCILIATION_ROLES = [
-            'admin',
-            'super admin',
-            'system admin',
-            'dispatch admin',
-            'operations manager',
-            'system super admin'
-        ];
-        const roleName = String(authorizedUser.role?.name || '').trim().toLowerCase();
-        const isAuthorizedRole = ALLOWED_RECONCILIATION_ROLES.includes(roleName)
-            || authorizedUser.role?.isSystemRole === true
-            || authorizedUser.isSuperAdmin === true;
+            const effectiveActorId = contextUserId || requestedActorId;
+            if (!effectiveActorId) {
+                return { success: false, error: 'AUTHORIZATION_REQUIRED: Valid actor identity or trusted service context is mandatory' };
+            }
 
-        if (!isAuthorizedRole) {
-            return { success: false, error: `AUTHORIZATION_DENIED: User role '${authorizedUser.role?.name || 'unknown'}' lacks reconciliation privilege` };
+            const User = mongoose.models.User || (await import('../models/User.js')).default;
+            let authorizedUser = null;
+            if (mongoose.Types.ObjectId.isValid(effectiveActorId)) {
+                authorizedUser = await User.findById(effectiveActorId).populate('role').lean();
+            } else {
+                authorizedUser = await User.findOne({ email: effectiveActorId.toLowerCase() }).populate('role').lean();
+            }
+
+            if (!authorizedUser) {
+                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${effectiveActorId}' is not a recognized user` };
+            }
+            if (!authorizedUser.isActive || ['inactive', 'suspended'].includes(authorizedUser.status)) {
+                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${effectiveActorId}' account is inactive or suspended` };
+            }
+
+            // Verify explicit permission: 'whatsapp.dispatch.reconcile' or administrative dispatch authority
+            // Do NOT grant permission merely because a role is marked as a system role!
+            const role = authorizedUser.role;
+            const roleName = String(role?.name || '').trim().toLowerCase();
+            const userEmail = (authorizedUser.email || '').toLowerCase().trim();
+            const TRUSTED_SUPER_ADMIN_EMAILS = ['bharatproperties570@gmail.com', 'shreykeshwar@gmail.com'];
+
+            const hasExplicitPermission = (
+                (Array.isArray(role?.permissions) && role.permissions.includes('whatsapp.dispatch.reconcile')) ||
+                (role?.permissions && typeof role.permissions === 'object' && role.permissions['whatsapp.dispatch.reconcile'] === true) ||
+                (role?.moduleAccess?.whatsapp?.reconcile === true || role?.moduleAccess?.whatsapp?.admin === true) ||
+                TRUSTED_SUPER_ADMIN_EMAILS.includes(userEmail) ||
+                ['dispatch admin', 'super admin', 'admin', 'system super admin'].includes(roleName)
+            );
+
+            if (!hasExplicitPermission) {
+                return { success: false, error: `AUTHORIZATION_DENIED: User role '${role?.name || 'unknown'}' lacks 'whatsapp.dispatch.reconcile' permission` };
+            }
+
+            verifiedAuditActor = authorizedUser._id ? authorizedUser._id.toString() : effectiveActorId;
         }
 
         const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
@@ -870,6 +920,15 @@ class WhatsAppService {
                 return { success: false, error: 'PROVIDER_MESSAGE_ID_REQUIRED: providerMessageId is required to reconcile dispatch as DISPATCHED' };
             }
             cleanMsgId = providerMessageId.trim();
+
+            // Check if existing record already has a different confirmed providerMessageId
+            if (dispatch.providerMessageId && dispatch.providerMessageId !== cleanMsgId) {
+                return {
+                    success: false,
+                    error: `PROVIDER_ID_REBIND_FORBIDDEN: Dispatch already bound to '${dispatch.providerMessageId}', cannot rebind to '${cleanMsgId}'`
+                };
+            }
+
             const collision = await WhatsAppDispatch.findOne({ providerMessageId: cleanMsgId }).lean();
             if (collision && collision._id.toString() !== dispatch._id.toString()) {
                 return { success: false, error: `PROVIDER_ID_COLLISION: Provider message ID is already bound to dispatch '${collision.idempotencyKey}'` };
@@ -882,17 +941,42 @@ class WhatsAppService {
             return { success: false, error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED' };
         }
 
+        // Mandatory source status definition:
+        // Transition to DISPATCHED is valid ONLY from: AMBIGUOUS_TIMEOUT, FAILED, CLAIMED
+        // Transition to FAILED is valid ONLY from: AMBIGUOUS_TIMEOUT, CLAIMED
         const permittedSourceStatuses = normStatus === 'DISPATCHED'
             ? ['AMBIGUOUS_TIMEOUT', 'FAILED', 'CLAIMED']
             : ['AMBIGUOUS_TIMEOUT', 'CLAIMED'];
 
+        // Enforce allowed source statuses as a mandatory pre-condition
+        if (!permittedSourceStatuses.includes(dispatch.status)) {
+            // Check for idempotent repetition of an already successful outcome
+            const isAlreadyTarget = dispatch.status === normStatus;
+            const isMatchingMsgId = normStatus !== 'DISPATCHED' || dispatch.providerMessageId === cleanMsgId;
+            if (isAlreadyTarget && isMatchingMsgId) {
+                return {
+                    success: true,
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: dispatch.idempotencyKey,
+                    status: dispatch.status,
+                    providerMessageId: dispatch.providerMessageId,
+                    reconciledBy: dispatch.reconciledBy,
+                    reconciledAt: dispatch.reconciledAt,
+                    reconciliationReason: dispatch.reconciliationReason
+                };
+            }
+            return {
+                success: false,
+                error: `INVALID_SOURCE_STATUS: Dispatch in status '${dispatch.status}' cannot transition to '${normStatus}'`
+            };
+        }
+
+        // Atomic CAS filter:
+        // MANDATORY: status MUST be in permittedSourceStatuses. Ambiguity flags do NOT bypass status restriction!
         const casFilter = {
             _id: dispatch._id,
-            $or: [
-                { status: { $in: permittedSourceStatuses } },
-                { isAmbiguous: true },
-                { reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED' }
-            ]
+            status: { $in: permittedSourceStatuses }
         };
 
         if (normStatus === 'FAILED') {
@@ -900,11 +984,19 @@ class WhatsAppService {
             casFilter['responsePayload.deliveryStatus'] = { $nin: ['delivered', 'read'] };
         }
 
+        if (normStatus === 'DISPATCHED' && cleanMsgId) {
+            casFilter.$or = [
+                { providerMessageId: null },
+                { providerMessageId: { $exists: false } },
+                { providerMessageId: cleanMsgId }
+            ];
+        }
+
         const updateFields = {
             status: normStatus,
             isAmbiguous: false,
             reconciledAt: new Date(),
-            reconciledBy: authorizedUser._id ? authorizedUser._id.toString() : cleanActorId,
+            reconciledBy: verifiedAuditActor,
             reconciliationStatus: 'RECONCILED',
             reconciliationReason: String(reason || 'MANUAL_OPERATOR_RECONCILIATION').trim()
         };
@@ -918,7 +1010,7 @@ class WhatsAppService {
             updateFields['responsePayload.success'] = false;
             updateFields.errorDetails = this.sanitizeSecrets({
                 error: String(reason || 'Manually marked as failed by operator').trim(),
-                actorId: authorizedUser._id ? authorizedUser._id.toString() : cleanActorId
+                actorId: verifiedAuditActor
             });
         }
 

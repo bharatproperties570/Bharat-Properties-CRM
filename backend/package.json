@@ -7,6 +7,9 @@
         "start": "node src/server.js",
         "dev": "nodemon src/server.js",
         "test": "node --test --test-concurrency=1 tests/discovery_area_units.test.js tests/discovery_price_url_seller.test.js tests/phase1_deal_discovery.test.js tests/phase1_pipeline_integration.test.js tests/phase1_2_connectors.test.js tests/phase1_2_1_authorization_enforcement.test.js tests/phase1_2_2_security_remediation.test.js tests/phase1_2_3_domain_governance.test.js",
+        "test:phase9.1": "node --test tests/phase9_durable_dispatch.test.js",
+        "test:phase9": "node --test tests/phase9_whatsapp_automation_reliability.test.js",
+        "test:regression": "node --test --test-force-exit --test-concurrency=1 tests/phase7_lead_distribution_concurrency.test.js tests/phase8_intake_activity_durability.test.js",
         "test:feedback-security": "node tests/feedbackSecurity.test.js"
     },
     "dependencies": {
