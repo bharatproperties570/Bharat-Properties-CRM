@@ -834,64 +834,108 @@ class WhatsAppService {
         if (serviceContext) {
             // Trusted internal service-to-service invocation
             const TRUSTED_SERVICES = ['WhatsAppDispatchReconcilerWorker', 'DispatchAuditCron', 'WhatsAppAutomationEngine'];
-            const isTrusted = serviceContext.isService === true
-                && TRUSTED_SERVICES.includes(serviceContext.serviceName)
-                && serviceContext.serviceSecret === (process.env.INTERNAL_SERVICE_SECRET || 'trusted_internal_service_secret');
 
-            if (!isTrusted) {
+            const configuredSecret = process.env.INTERNAL_SERVICE_SECRET;
+            if (!configuredSecret || typeof configuredSecret !== 'string' || !configuredSecret.trim()) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Service secret not configured' };
+            }
+
+            if (!serviceContext || typeof serviceContext !== 'object') {
                 return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service context' };
             }
-            verifiedAuditActor = `service:${serviceContext.serviceName}`;
-        } else {
-            // User-initiated reconciliation: derive and verify actor identity
-            const contextUserId = String(actorContext?._id || actorContext?.id || '').trim();
-            const requestedActorId = String(actorId || '').trim();
 
-            // Prevent client impersonation: If actorContext is present, actorId must not contradict it
-            if (contextUserId && requestedActorId && contextUserId !== requestedActorId) {
-                return { success: false, error: 'AUTHORIZATION_DENIED: Client cannot impersonate another actorId' };
+            const { isService, serviceName, serviceSecret } = serviceContext;
+
+            if (isService !== true) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service context' };
             }
 
-            const effectiveActorId = contextUserId || requestedActorId;
-            if (!effectiveActorId) {
-                return { success: false, error: 'AUTHORIZATION_REQUIRED: Valid actor identity or trusted service context is mandatory' };
+            if (!serviceName || typeof serviceName !== 'string' || !TRUSTED_SERVICES.includes(serviceName.trim())) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service name' };
+            }
+
+            if (!serviceSecret || typeof serviceSecret !== 'string' || !serviceSecret.trim()) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Missing service secret' };
+            }
+
+            // Timing-safe secret comparison
+            const providedBuf = Buffer.from(serviceSecret.trim());
+            const configuredBuf = Buffer.from(configuredSecret.trim());
+            const isSecretMatch = providedBuf.length === configuredBuf.length && crypto.timingSafeEqual(providedBuf, configuredBuf);
+
+            if (!isSecretMatch) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Invalid service secret' };
+            }
+
+            verifiedAuditActor = `service:${serviceName.trim()}`;
+        } else {
+            // User-initiated reconciliation: require verified server-side authentication context
+            if (!actorContext || typeof actorContext !== 'object') {
+                return {
+                    success: false,
+                    error: 'AUTHENTICATION_REQUIRED: Verified server-side actorContext is required for user reconciliation'
+                };
+            }
+
+            const contextUserId = String(actorContext._id || actorContext.id || '').trim();
+            if (!contextUserId) {
+                return {
+                    success: false,
+                    error: 'AUTHENTICATION_REQUIRED: actorContext must contain a valid user identity (_id or id)'
+                };
+            }
+
+            // If caller passes actorId, require it to match authenticated context; never use it as a substitute for that context
+            if (actorId !== undefined && actorId !== null) {
+                const requestedActorId = String(actorId).trim();
+                if (requestedActorId && requestedActorId !== contextUserId) {
+                    return {
+                        success: false,
+                        error: 'AUTHORIZATION_DENIED: Client actorId does not match authenticated context'
+                    };
+                }
             }
 
             const User = mongoose.models.User || (await import('../models/User.js')).default;
             let authorizedUser = null;
-            if (mongoose.Types.ObjectId.isValid(effectiveActorId)) {
-                authorizedUser = await User.findById(effectiveActorId).populate('role').lean();
+            if (mongoose.Types.ObjectId.isValid(contextUserId)) {
+                authorizedUser = await User.findById(contextUserId).populate('role').lean();
             } else {
-                authorizedUser = await User.findOne({ email: effectiveActorId.toLowerCase() }).populate('role').lean();
+                authorizedUser = await User.findOne({ email: contextUserId.toLowerCase() }).populate('role').lean();
             }
 
             if (!authorizedUser) {
-                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${effectiveActorId}' is not a recognized user` };
+                return { success: false, error: `AUTHORIZATION_DENIED: Authenticated user '${contextUserId}' not found in database` };
             }
             if (!authorizedUser.isActive || ['inactive', 'suspended'].includes(authorizedUser.status)) {
-                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${effectiveActorId}' account is inactive or suspended` };
+                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${contextUserId}' account is inactive or suspended` };
             }
 
-            // Verify explicit permission: 'whatsapp.dispatch.reconcile' or administrative dispatch authority
-            // Do NOT grant permission merely because a role is marked as a system role!
+            // 🚀 ESTABLISHED RBAC PERMISSION CHECK: Require explicit 'whatsapp.dispatch.reconcile'
+            // Enforce explicit permission on Role or User.
+            // Do NOT grant access merely because an email matches an allowlist or a role has a broad name (e.g. 'Admin', 'Super Admin')
             const role = authorizedUser.role;
-            const roleName = String(role?.name || '').trim().toLowerCase();
-            const userEmail = (authorizedUser.email || '').toLowerCase().trim();
-            const TRUSTED_SUPER_ADMIN_EMAILS = ['bharatproperties570@gmail.com', 'shreykeshwar@gmail.com'];
 
-            const hasExplicitPermission = (
+            const hasRolePermission = Boolean(
                 (Array.isArray(role?.permissions) && role.permissions.includes('whatsapp.dispatch.reconcile')) ||
                 (role?.permissions && typeof role.permissions === 'object' && role.permissions['whatsapp.dispatch.reconcile'] === true) ||
-                (role?.moduleAccess?.whatsapp?.reconcile === true || role?.moduleAccess?.whatsapp?.admin === true) ||
-                TRUSTED_SUPER_ADMIN_EMAILS.includes(userEmail) ||
-                ['dispatch admin', 'super admin', 'admin', 'system super admin'].includes(roleName)
+                (role?.moduleAccess?.whatsapp?.reconcile === true || role?.moduleAccess?.whatsapp?.admin === true)
             );
 
-            if (!hasExplicitPermission) {
-                return { success: false, error: `AUTHORIZATION_DENIED: User role '${role?.name || 'unknown'}' lacks 'whatsapp.dispatch.reconcile' permission` };
+            const hasUserPermission = Boolean(
+                (Array.isArray(authorizedUser.permissions) && authorizedUser.permissions.includes('whatsapp.dispatch.reconcile')) ||
+                (authorizedUser.permissions && typeof authorizedUser.permissions === 'object' && authorizedUser.permissions['whatsapp.dispatch.reconcile'] === true) ||
+                (authorizedUser.moduleAccess?.whatsapp?.reconcile === true || authorizedUser.moduleAccess?.whatsapp?.admin === true)
+            );
+
+            if (!hasRolePermission && !hasUserPermission) {
+                return {
+                    success: false,
+                    error: `AUTHORIZATION_DENIED: Actor '${contextUserId}' lacks explicit 'whatsapp.dispatch.reconcile' permission`
+                };
             }
 
-            verifiedAuditActor = authorizedUser._id ? authorizedUser._id.toString() : effectiveActorId;
+            verifiedAuditActor = authorizedUser._id ? authorizedUser._id.toString() : contextUserId;
         }
 
         const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;

@@ -31,11 +31,14 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         await Role.createCollection();
         await Lead.createCollection();
 
-        // Seed Role & User
+        process.env.INTERNAL_SERVICE_SECRET = 'test_internal_service_secret_phase91';
+
+        // Seed Role & User with explicit 'whatsapp.dispatch.reconcile' permission
         const role = await Role.create({
             name: 'Dispatch Admin',
             department: 'sales',
-            isSystemRole: true
+            isSystemRole: true,
+            permissions: ['whatsapp.dispatch.reconcile']
         });
 
         testUser = await User.create({
@@ -828,21 +831,31 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             tenantId: null
         });
 
-        // 1. Rejects if actorId is missing (authorization check)
+        // 1. Rejects if actorContext is missing (strict authentication required)
         const noAuth = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019'
         });
         assert.equal(noAuth.success, false);
-        assert.ok(noAuth.error.includes('AUTHORIZATION_REQUIRED'));
+        assert.ok(noAuth.error.includes('AUTHENTICATION_REQUIRED'));
 
-        // 2. Rejects if actorId does not resolve to an active recognized user
+        // 1b. Rejects if caller passes actorId without server-side actorContext (actorId cannot substitute context)
+        const actorIdOnly = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: testUser._id.toString()
+        });
+        assert.equal(actorIdOnly.success, false);
+        assert.ok(actorIdOnly.error.includes('AUTHENTICATION_REQUIRED'));
+
+        // 2. Rejects if actorContext does not resolve to a recognized user in database
         const invalidActor = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: 'non_existent_actor_id_999'
+            actorContext: { _id: new mongoose.Types.ObjectId() }
         });
         assert.equal(invalidActor.success, false);
         assert.ok(invalidActor.error.includes('AUTHORIZATION_DENIED'));
@@ -861,12 +874,12 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: suspendedUser._id.toString()
+            actorContext: suspendedUser
         });
         assert.equal(suspendedRes.success, false);
         assert.ok(suspendedRes.error.includes('AUTHORIZATION_DENIED'));
 
-        // 3b. Rejects if actor has an unauthorized ordinary role (e.g. Sales Lead / Sales Agent)
+        // 3b. Rejects if actor has an unauthorized ordinary role (e.g. Sales Lead) lacking permission
         const unauthRole = await Role.create({
             name: 'Sales Lead',
             department: 'sales',
@@ -885,69 +898,154 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: salesLeadUser._id.toString()
+            actorContext: salesLeadUser
         });
         assert.equal(unauthRes.success, false);
         assert.ok(unauthRes.error.includes('AUTHORIZATION_DENIED'));
-        assert.ok(unauthRes.error.includes('lacks \'whatsapp.dispatch.reconcile\' permission'));
+        assert.ok(unauthRes.error.includes('lacks explicit \'whatsapp.dispatch.reconcile\' permission'));
 
-        // 3c. Rejects an unrelated system role lacking the explicit reconciliation permission
-        const unrelatedSystemRole = await Role.create({
-            name: 'System Auditor',
-            department: 'accounts',
-            isSystemRole: true // Marked as system role, but does NOT have reconciliation authority!
+        // 3c. Rejects a user with role named 'Super Admin' if it lacks explicit permission (proves role-name grants removed)
+        const superAdminRoleNoPerm = await Role.create({
+            name: 'Super Admin',
+            department: 'sales',
+            isSystemRole: true,
+            permissions: []
         });
-        const systemAuditorUser = await User.create({
-            fullName: 'System Auditor',
-            email: 'auditor_unrelated@bharatproperties.co',
+        const superAdminNoPermUser = await User.create({
+            fullName: 'Super Admin Without Permission',
+            email: 'superadmin_noperm@bharatproperties.co',
             password: 'hashed_password_secure',
-            role: unrelatedSystemRole._id,
-            department: 'accounts',
+            role: superAdminRoleNoPerm._id,
+            department: 'sales',
             isActive: true,
             status: 'active'
         });
-        const unrelatedSysRes = await WhatsAppService.manualReconcileDispatch({
+        const superAdminNoPermRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: systemAuditorUser._id.toString()
+            actorContext: superAdminNoPermUser
         });
-        assert.equal(unrelatedSysRes.success, false);
-        assert.ok(unrelatedSysRes.error.includes('AUTHORIZATION_DENIED'));
-        assert.ok(unrelatedSysRes.error.includes('lacks \'whatsapp.dispatch.reconcile\' permission'));
+        assert.equal(superAdminNoPermRes.success, false);
+        assert.ok(superAdminNoPermRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(superAdminNoPermRes.error.includes('lacks explicit \'whatsapp.dispatch.reconcile\' permission'));
 
-        // 3d. Rejects client impersonation (authenticated context does not match requested actorId)
+        // 3d. Rejects an email on previously hard-coded list lacking explicit permission (proves email grants removed)
+        const emailAllowlistUser = await User.create({
+            fullName: 'Former Email Allowlist User',
+            email: 'bharatproperties570@gmail.com',
+            password: 'hashed_password_secure',
+            role: unauthRole._id, // ordinary sales lead role without reconcile permission
+            department: 'sales',
+            isActive: true,
+            status: 'active'
+        });
+        const emailAllowlistRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorContext: emailAllowlistUser
+        });
+        assert.equal(emailAllowlistRes.success, false);
+        assert.ok(emailAllowlistRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(emailAllowlistRes.error.includes('lacks explicit \'whatsapp.dispatch.reconcile\' permission'));
+
+        // 3e. Rejects client impersonation (actorContext does not match requested actorId)
         const impersonationRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorContext: { _id: salesLeadUser._id },
-            actorId: testUser._id.toString() // Trying to claim admin ID while authenticated as sales lead!
+            actorContext: salesLeadUser,
+            actorId: testUser._id.toString() // Trying to forge admin ID while authenticated as sales lead!
         });
         assert.equal(impersonationRes.success, false);
         assert.ok(impersonationRes.error.includes('AUTHORIZATION_DENIED'));
-        assert.ok(impersonationRes.error.includes('Client cannot impersonate another actorId'));
+        assert.ok(impersonationRes.error.includes('Client actorId does not match authenticated context'));
 
-        // 3e. Rejects untrusted service context
-        const untrustedServiceRes = await WhatsAppService.manualReconcileDispatch({
+        // 3f. ServiceContext Security:
+        // Case A: Missing configured secret in environment
+        const savedEnvSecret = process.env.INTERNAL_SERVICE_SECRET;
+        delete process.env.INTERNAL_SERVICE_SECRET;
+        const missingEnvRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'WhatsAppDispatchReconcilerWorker',
+                serviceSecret: 'any_secret'
+            }
+        });
+        assert.equal(missingEnvRes.success, false);
+        assert.ok(missingEnvRes.error.includes('AUTHORIZATION_DENIED: Service secret not configured'));
+
+        // Case B: Empty configured secret in environment
+        process.env.INTERNAL_SERVICE_SECRET = '   ';
+        const emptyEnvRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'WhatsAppDispatchReconcilerWorker',
+                serviceSecret: 'any_secret'
+            }
+        });
+        assert.equal(emptyEnvRes.success, false);
+        assert.ok(emptyEnvRes.error.includes('AUTHORIZATION_DENIED: Service secret not configured'));
+
+        // Case C: Untrusted service name
+        process.env.INTERNAL_SERVICE_SECRET = 'secure_internal_dispatch_secret_phase91';
+        const untrustedNameRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
             serviceContext: {
                 isService: true,
                 serviceName: 'MaliciousService',
-                serviceSecret: 'invalid_secret'
+                serviceSecret: 'secure_internal_dispatch_secret_phase91'
             }
         });
-        assert.equal(untrustedServiceRes.success, false);
-        assert.ok(untrustedServiceRes.error.includes('AUTHORIZATION_DENIED'));
-        assert.ok(untrustedServiceRes.error.includes('Untrusted service context'));
+        assert.equal(untrustedNameRes.success, false);
+        assert.ok(untrustedNameRes.error.includes('AUTHORIZATION_DENIED: Untrusted service name'));
+
+        // Case D: Missing / empty service secret in serviceContext
+        const missingSecretRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'WhatsAppDispatchReconcilerWorker',
+                serviceSecret: ''
+            }
+        });
+        assert.equal(missingSecretRes.success, false);
+        assert.ok(missingSecretRes.error.includes('AUTHORIZATION_DENIED: Missing service secret'));
+
+        // Case E: Incorrect service secret (timing-safe rejected)
+        const wrongSecretRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            serviceContext: {
+                isService: true,
+                serviceName: 'WhatsAppDispatchReconcilerWorker',
+                serviceSecret: 'wrong_secret_12345'
+            }
+        });
+        assert.equal(wrongSecretRes.success, false);
+        assert.ok(wrongSecretRes.error.includes('AUTHORIZATION_DENIED: Invalid service secret'));
+
+        // Restore configured secret
+        process.env.INTERNAL_SERVICE_SECRET = savedEnvSecret || 'secure_internal_dispatch_secret_phase91';
 
         // 4. Rejects if recipient does not match immutable dispatch recipient
         const badRecipient = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: '919800000000'
         });
@@ -958,6 +1056,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const noMsgId = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
+            actorContext: testUser,
             actorId: testUser._id.toString()
         });
         assert.equal(noMsgId.success, false);
@@ -979,6 +1078,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.existing.collision.019',
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: mobile
         });
@@ -1001,17 +1101,19 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const regressiveRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey: 'durable_delivered_immutable_019',
             targetStatus: 'FAILED',
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: mobile
         });
         assert.equal(regressiveRes.success, false);
         assert.ok(regressiveRes.error.includes('REGRESSIVE_STATUS_FORBIDDEN'));
 
-        // 8. Successful manual reconciliation with complete audit trail
+        // 8. Successful manual reconciliation with complete audit trail using explicit permission
         const successRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             reason: 'Verified in Meta Business Manager message log',
             recipient: mobile
@@ -1035,7 +1137,43 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         assert.equal(replay.alreadySent, true);
         assert.equal(replay.messageId, 'wamid.manual.019');
 
-        // 9. Legitimate service-to-service reconciliation succeeds through explicit trusted serviceContext
+        // 8b. Successful manual reconciliation via role.permissions object map
+        const objectPermRole = await Role.create({
+            name: 'Operations Manager',
+            department: 'sales',
+            permissions: { 'whatsapp.dispatch.reconcile': true }
+        });
+        const moduleUser = await User.create({
+            fullName: 'Module Ops User',
+            email: 'ops_module@bharatproperties.co',
+            password: 'hashed_password_secure',
+            role: objectPermRole._id,
+            department: 'sales',
+            isActive: true,
+            status: 'active'
+        });
+        const moduleKey = 'durable_module_rec_019';
+        await WhatsAppDispatch.create({
+            idempotencyKey: moduleKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+        const moduleRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: moduleKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.module.019',
+            actorContext: moduleUser,
+            recipient: mobile
+        });
+        assert.equal(moduleRes.success, true);
+        assert.equal(moduleRes.reconciled, true);
+
+        // 9. Legitimate service-to-service reconciliation succeeds through explicit trusted serviceContext and configured secret
         const serviceRecKey = 'durable_service_rec_019';
         await WhatsAppDispatch.create({
             idempotencyKey: serviceRecKey,
@@ -1054,7 +1192,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             serviceContext: {
                 isService: true,
                 serviceName: 'WhatsAppDispatchReconcilerWorker',
-                serviceSecret: 'trusted_internal_service_secret'
+                serviceSecret: process.env.INTERNAL_SERVICE_SECRET
             },
             reason: 'Automated reconcile worker recovered from Meta API check',
             recipient: mobile
@@ -1247,6 +1385,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
                 idempotencyKey,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: 'wamid.race.op1.022',
+                actorContext: testUser,
                 actorId: testUser._id.toString(),
                 reason: 'Operator 1 confirmed via Meta log',
                 recipient: mobile
@@ -1259,6 +1398,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
                 idempotencyKey,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: 'wamid.race.op2.022',
+                actorContext: testUser,
                 actorId: testUser._id.toString(),
                 reason: 'Operator 2 confirmed via Meta log',
                 recipient: mobile
@@ -1322,6 +1462,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             return await WhatsAppService.manualReconcileDispatch({
                 idempotencyKey,
                 targetStatus: 'FAILED',
+                actorContext: testUser,
                 actorId: testUser._id.toString(),
                 reason: 'Operator attempting failed reconciliation during webhook transit',
                 recipient: mobile
@@ -1388,6 +1529,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
                 idempotencyKey: key1,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: sharedMsgId,
+                actorContext: testUser,
                 actorId: testUser._id.toString(),
                 recipient: mobile1
             });
@@ -1399,6 +1541,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
                 idempotencyKey: key2,
                 targetStatus: 'DISPATCHED',
                 providerMessageId: sharedMsgId,
+                actorContext: testUser,
                 actorId: testUser._id.toString(),
                 recipient: mobile2
             });
@@ -1504,6 +1647,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const bypassAttempt = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey: keyDispatched,
             targetStatus: 'FAILED',
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: mobile
         });
@@ -1519,6 +1663,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey: keyDispatched,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.tampered_new_id.026', // Different from confirmed 'wamid.confirmed.026'
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: mobile
         });
@@ -1542,6 +1687,7 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey: keyDispatched,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.confirmed.026', // Exact match
+            actorContext: testUser,
             actorId: testUser._id.toString(),
             recipient: mobile
         });
