@@ -69,8 +69,11 @@ export const STATUS_WEIGHTS = {
  */
 export const isMonotonicStatusTransition = (currentStatus, newStatus) => {
     if (!currentStatus) return true;
-    if (newStatus === 'failed') return true; // Failure is terminal/authoritative
     if (currentStatus === 'failed') return false; // Once marked failed, do not regress to sent/delivered
+    if (newStatus === 'failed') {
+        // A message confirmed delivered or read cannot subsequently regress to failed
+        return currentStatus !== 'read' && currentStatus !== 'delivered';
+    }
     const currentWeight = STATUS_WEIGHTS[currentStatus] ?? 0;
     const newWeight = STATUS_WEIGHTS[newStatus] ?? 0;
     return newWeight >= currentWeight;

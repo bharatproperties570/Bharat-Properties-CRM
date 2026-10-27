@@ -54,6 +54,21 @@ jobs:
           cd backend
           npm test
 
+      - name: Run Phase 9.1 Durable Outbound WhatsApp Dispatch Idempotency Tests
+        run: |
+          cd backend
+          npm run test:phase9.1
+
+      - name: Run Phase 9 WhatsApp Automation Reliability Tests
+        run: |
+          cd backend
+          npm run test:phase9
+
+      - name: Run Phase 7 & 8 Concurrency & Intake Regression Tests
+        run: |
+          cd backend
+          npm run test:regression
+
   build-frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest

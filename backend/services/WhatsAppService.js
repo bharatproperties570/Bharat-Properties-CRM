@@ -3,6 +3,8 @@ import IntegrationGuard from "../src/utils/IntegrationGuard.js";
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
+import { isMonotonicStatusTransition } from '../utils/whatsappWebhook.utils.js';
 
 // 🧠 SENIOR PROFESSIONAL: Resilience Layer
 // Configure automated retries for transient failures (Network, 5xx, 429)
@@ -30,10 +32,10 @@ class WhatsAppService {
             this._idempotencyCache.delete(key);
             return null;
         }
-        return entry.result;
+        return entry;
     }
 
-    _setIdempotentResult(key, result) {
+    _setIdempotentResult(key, result, recipient = null, payloadHash = null) {
         if (!key || !result) return;
         if (this._idempotencyCache.size > 2000) {
             const now = Date.now();
@@ -43,7 +45,1091 @@ class WhatsAppService {
                 }
             }
         }
-        this._idempotencyCache.set(key, { result, timestamp: Date.now() });
+        this._idempotencyCache.set(key, { result, recipient, payloadHash, timestamp: Date.now() });
+    }
+
+    _computePayloadHash(payload) {
+        if (!payload) return null;
+        try {
+            if (typeof payload === 'string') {
+                return crypto.createHash('sha256').update(payload).digest('hex');
+            }
+            const sortedKeys = Object.keys(payload).sort();
+            const normalized = {};
+            for (const k of sortedKeys) {
+                normalized[k] = payload[k];
+            }
+            return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async _claimOrGetDurableDispatch({ idempotencyKey, mobile, messageType, provider, payload, options = {} }) {
+        if (!idempotencyKey) {
+            return { canDispatch: true, isReplay: false };
+        }
+
+        const normalizedMobile = this._normalizeTarget(mobile) || String(mobile || '');
+        const payloadHash = this._computePayloadHash(payload);
+
+        // L1 fast in-memory check with immutability enforcement
+        const l1Entry = this._getIdempotentResult(idempotencyKey);
+        if (l1Entry) {
+            // Validate recipient and payload immutability on L1 cache hit
+            if (l1Entry.recipient && normalizedMobile && l1Entry.recipient !== normalizedMobile) {
+                console.error(`[WhatsAppService] L1 cache: Recipient mismatch on idempotency key '${idempotencyKey}': cached='${l1Entry.recipient}', requested='${normalizedMobile}'`);
+                return {
+                    canDispatch: false,
+                    error: `Idempotency key '${idempotencyKey}' was already claimed for recipient '${l1Entry.recipient}', cannot reuse for '${normalizedMobile}'. Keys must be unique per message intent.`,
+                    code: 'IDEMPOTENCY_KEY_RECIPIENT_MISMATCH'
+                };
+            }
+            if (l1Entry.payloadHash && payloadHash && l1Entry.payloadHash !== payloadHash) {
+                console.error(`[WhatsAppService] L1 cache: Payload mismatch on idempotency key '${idempotencyKey}'`);
+                return {
+                    canDispatch: false,
+                    error: `Idempotency key '${idempotencyKey}' was previously claimed with a different payload. Changing payload with the same idempotency key is prohibited.`,
+                    code: 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH'
+                };
+            }
+            return {
+                canDispatch: false,
+                isReplay: true,
+                result: {
+                    ...(typeof l1Entry.result === 'object' ? l1Entry.result : {}),
+                    alreadySent: true,
+                    duplicate: true
+                }
+            };
+        }
+
+        // Check if mongoose is connected — FAIL CLOSED for keyed dispatches
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            console.error(`[WhatsAppService] Keyed dispatch for '${idempotencyKey}' failed-closed: Database is unavailable.`);
+            return {
+                canDispatch: false,
+                error: 'Durable dispatch ledger is unavailable (database disconnected). Keyed dispatches fail-closed to prevent duplicate delivery.',
+                code: 'DURABLE_LEDGER_UNAVAILABLE'
+            };
+        }
+
+        const workerId = `pid_${process.pid}_${Math.random().toString(36).substring(2, 8)}`;
+        const now = new Date();
+
+        try {
+            const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+            const existing = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+
+            if (existing) {
+                // 1. Recipient Immutability Check
+                if (existing.recipient && existing.recipient !== normalizedMobile) {
+                    console.error(`[WhatsAppService] Recipient mismatch on idempotency key '${idempotencyKey}': existing='${existing.recipient}', requested='${normalizedMobile}'`);
+                    return {
+                        canDispatch: false,
+                        error: `Idempotency key '${idempotencyKey}' was already claimed for recipient '${existing.recipient}', cannot reuse for '${normalizedMobile}'. Keys must be unique per message intent.`,
+                        code: 'IDEMPOTENCY_KEY_RECIPIENT_MISMATCH'
+                    };
+                }
+
+                // 2. Payload Immutability Check
+                if (existing.requestPayloadHash && payloadHash && existing.requestPayloadHash !== payloadHash) {
+                    console.error(`[WhatsAppService] Payload mismatch on idempotency key '${idempotencyKey}'`);
+                    return {
+                        canDispatch: false,
+                        error: `Idempotency key '${idempotencyKey}' was previously claimed with a different payload. Changing payload with the same idempotency key is prohibited.`,
+                        code: 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH'
+                    };
+                }
+
+                // 3. Already Dispatched (Replay)
+                if (existing.status === 'DISPATCHED') {
+                    this._setIdempotentResult(idempotencyKey, existing.responsePayload);
+                    return {
+                        canDispatch: false,
+                        isReplay: true,
+                        result: {
+                            ...(existing.responsePayload || {}),
+                            alreadySent: true,
+                            duplicate: true,
+                            durableLedgerId: existing._id,
+                            providerMessageId: existing.providerMessageId
+                        }
+                    };
+                }
+
+                // 4. Ambiguous Timeout (Block blind automatic retries)
+                if (existing.status === 'AMBIGUOUS_TIMEOUT') {
+                    if (!options?.forceRetryAmbiguous) {
+                        console.warn(`[WhatsAppService] Automatic retry blocked for key '${idempotencyKey}': Previous attempt ended in ambiguous provider timeout.`);
+                        return {
+                            canDispatch: false,
+                            isAmbiguousBlocked: true,
+                            result: {
+                                success: false,
+                                error: 'Dispatch outcome is ambiguous due to provider network timeout. Automatic retry blocked to prevent duplicate message dispatch. Awaiting webhook reconciliation or administrative override.',
+                                code: 'AMBIGUOUS_TIMEOUT_BLOCKED',
+                                isAmbiguous: true,
+                                durableLedgerId: existing._id
+                            }
+                        };
+                    }
+                }
+
+                // 5. In-flight claim (CLAIMED)
+                if (existing.status === 'CLAIMED') {
+                    const claimAgeMs = now.getTime() - new Date(existing.claimedAt || existing.createdAt).getTime();
+                    if (claimAgeMs < 30000) {
+                        // In-flight by another active worker: Poll up to 2 seconds for completion
+                        for (let poll = 0; poll < 10; poll++) {
+                            await new Promise(r => setTimeout(r, 200));
+                            const polled = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                            if (polled && polled.status === 'DISPATCHED') {
+                                this._setIdempotentResult(idempotencyKey, polled.responsePayload);
+                                return {
+                                    canDispatch: false,
+                                    isReplay: true,
+                                    result: {
+                                        ...(typeof polled.responsePayload === 'object' ? polled.responsePayload : {}),
+                                        alreadySent: true,
+                                        duplicate: true,
+                                        durableLedgerId: polled._id,
+                                        providerMessageId: polled.providerMessageId
+                                    }
+                                };
+                            }
+                            if (polled && (polled.status === 'FAILED' || polled.status === 'AMBIGUOUS_TIMEOUT')) {
+                                break;
+                            }
+                        }
+                        const finalCheck = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                        if (finalCheck && finalCheck.status === 'DISPATCHED') {
+                            this._setIdempotentResult(idempotencyKey, finalCheck.responsePayload);
+                            return {
+                                canDispatch: false,
+                                isReplay: true,
+                                result: {
+                                    ...(typeof finalCheck.responsePayload === 'object' ? finalCheck.responsePayload : {}),
+                                    alreadySent: true,
+                                    duplicate: true,
+                                    durableLedgerId: finalCheck._id,
+                                    providerMessageId: finalCheck.providerMessageId
+                                }
+                            };
+                        }
+                        return {
+                            canDispatch: false,
+                            inFlight: true,
+                            result: {
+                                success: false,
+                                error: `Concurrent dispatch attempt detected for key '${idempotencyKey}'. In-flight by worker ${existing.claimWorkerId}`,
+                                code: 'CONCURRENT_DISPATCH_IN_FLIGHT'
+                            }
+                        };
+                    }
+
+                    // Stale claim (>=30s): Reclaim atomically with generation fencing!
+                    const nextGen = (existing.claimGeneration || 1) + 1;
+                    const reclaimed = await WhatsAppDispatch.findOneAndUpdate(
+                        {
+                            idempotencyKey,
+                            status: 'CLAIMED',
+                            claimGeneration: existing.claimGeneration || 1
+                        },
+                        {
+                            $set: {
+                                claimedAt: now,
+                                claimWorkerId: workerId,
+                                claimGeneration: nextGen,
+                                provider: provider || 'META',
+                                requestPayload: payload,
+                                requestPayloadHash: payloadHash
+                            }
+                        },
+                        { new: true }
+                    );
+                    if (reclaimed) {
+                        return {
+                            canDispatch: true,
+                            isReplay: false,
+                            dispatchId: reclaimed._id,
+                            claimGeneration: nextGen
+                        };
+                    }
+
+                    // If CAS update missed (refreshed by concurrent worker)
+                    const refreshed = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                    if (refreshed && refreshed.status === 'DISPATCHED') {
+                        this._setIdempotentResult(idempotencyKey, refreshed.responsePayload);
+                        return {
+                            canDispatch: false,
+                            isReplay: true,
+                            result: {
+                                ...(refreshed.responsePayload || {}),
+                                alreadySent: true,
+                                duplicate: true,
+                                durableLedgerId: refreshed._id,
+                                providerMessageId: refreshed.providerMessageId
+                            }
+                        };
+                    }
+                }
+
+                // 6. Failed claim (or AMBIGUOUS_TIMEOUT with explicit forceRetryAmbiguous)
+                if (existing.status === 'FAILED' || (existing.status === 'AMBIGUOUS_TIMEOUT' && options?.forceRetryAmbiguous)) {
+                    const nextGen = (existing.claimGeneration || 1) + 1;
+                    const reclaimed = await WhatsAppDispatch.findOneAndUpdate(
+                        {
+                            idempotencyKey,
+                            status: existing.status,
+                            claimGeneration: existing.claimGeneration || 1
+                        },
+                        {
+                            $set: {
+                                status: 'CLAIMED',
+                                isAmbiguous: false,
+                                claimedAt: now,
+                                claimWorkerId: workerId,
+                                claimGeneration: nextGen,
+                                provider: provider || 'META',
+                                requestPayload: payload,
+                                requestPayloadHash: payloadHash
+                            }
+                        },
+                        { new: true }
+                    );
+                    if (reclaimed) {
+                        return {
+                            canDispatch: true,
+                            isReplay: false,
+                            dispatchId: reclaimed._id,
+                            claimGeneration: nextGen
+                        };
+                    }
+                }
+            }
+
+            // Fresh claim
+            try {
+                const newRecord = await WhatsAppDispatch.create({
+                    idempotencyKey,
+                    recipient: normalizedMobile,
+                    provider: provider || 'META',
+                    messageType: messageType || 'text',
+                    status: 'CLAIMED',
+                    claimGeneration: 1,
+                    claimedAt: now,
+                    claimWorkerId: workerId,
+                    correlationId: String(idempotencyKey).slice(0, 512),
+                    requestPayload: payload,
+                    requestPayloadHash: payloadHash,
+                    tenantId: null
+                });
+                return {
+                    canDispatch: true,
+                    isReplay: false,
+                    dispatchId: newRecord._id,
+                    claimGeneration: 1
+                };
+            } catch (createErr) {
+                if (createErr.code === 11000) {
+                    // Poll for completion by racing worker
+                    for (let poll = 0; poll < 10; poll++) {
+                        await new Promise(r => setTimeout(r, 200));
+                        const polled = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                        if (polled && polled.status === 'DISPATCHED') {
+                            this._setIdempotentResult(idempotencyKey, polled.responsePayload);
+                            return {
+                                canDispatch: false,
+                                isReplay: true,
+                                result: {
+                                    ...(polled.responsePayload || {}),
+                                    alreadySent: true,
+                                    duplicate: true,
+                                    durableLedgerId: polled._id,
+                                    providerMessageId: polled.providerMessageId
+                                }
+                            };
+                        }
+                        if (polled && (polled.status === 'FAILED' || polled.status === 'AMBIGUOUS_TIMEOUT')) {
+                            break;
+                        }
+                    }
+                    const raced = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                    if (raced && raced.status === 'DISPATCHED') {
+                        this._setIdempotentResult(idempotencyKey, raced.responsePayload);
+                        return {
+                            canDispatch: false,
+                            isReplay: true,
+                            result: {
+                                ...(raced.responsePayload || {}),
+                                alreadySent: true,
+                                duplicate: true,
+                                durableLedgerId: raced._id,
+                                providerMessageId: raced.providerMessageId
+                            }
+                        };
+                    }
+                    return {
+                        canDispatch: false,
+                        inFlight: true,
+                        result: {
+                            success: false,
+                            error: `Concurrent dispatch attempt detected for key '${idempotencyKey}'. In-flight by worker ${raced?.claimWorkerId}`,
+                            code: 'CONCURRENT_DISPATCH_IN_FLIGHT'
+                        }
+                    };
+                }
+                throw createErr;
+            }
+        } catch (err) {
+            console.error(`[WhatsAppService] Durable dispatch claim check failed for key '${idempotencyKey}':`, err.message);
+            return {
+                canDispatch: false,
+                error: `Durable dispatch ledger failure: ${err.message}. Keyed dispatches fail-closed to prevent duplicate delivery.`,
+                code: 'DURABLE_LEDGER_ERROR'
+            };
+        }
+    }
+
+    async _recordDurableSuccess({ idempotencyKey, claimGeneration, result, providerMessageId, recipient, payloadHash }) {
+        if (!idempotencyKey) return { success: true };
+        this._setIdempotentResult(idempotencyKey, result, recipient, payloadHash);
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) return { success: true };
+        try {
+            const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+            const query = { idempotencyKey };
+            if (claimGeneration !== undefined && claimGeneration !== null) {
+                query.claimGeneration = claimGeneration;
+            }
+            const update = {
+                $set: {
+                    status: 'DISPATCHED',
+                    isAmbiguous: false,
+                    dispatchedAt: new Date(),
+                    providerMessageId: providerMessageId || result?.messageId || result?.messages?.[0]?.id,
+                    responsePayload: this.sanitizeSecrets(result)
+                }
+            };
+            const updated = await WhatsAppDispatch.findOneAndUpdate(query, update, { new: true });
+            if (updated) {
+                this._setIdempotentResult(idempotencyKey, result, updated.recipient || recipient, updated.requestPayloadHash || payloadHash);
+            }
+            if (!updated && claimGeneration) {
+                console.warn(`[WhatsAppService] Stale worker finalization rejected for key '${idempotencyKey}' (generation ${claimGeneration} was superseded).`);
+                return { superseded: true };
+            }
+            return { success: true };
+        } catch (err) {
+            console.warn(`[WhatsAppService] Failed to record durable success for key '${idempotencyKey}':`, err.message);
+            return { success: false, error: err.message };
+        }
+    }
+
+    async _recordDurableFailure({ idempotencyKey, claimGeneration, error, rawError, isAmbiguous = false }) {
+        if (!idempotencyKey) return { success: true };
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) return { success: true };
+        try {
+            const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+            const query = { idempotencyKey };
+            if (claimGeneration !== undefined && claimGeneration !== null) {
+                query.claimGeneration = claimGeneration;
+            }
+            const status = isAmbiguous ? 'AMBIGUOUS_TIMEOUT' : 'FAILED';
+            const update = {
+                $set: {
+                    status,
+                    isAmbiguous,
+                    errorDetails: {
+                        message: typeof error === 'string' ? error : (error?.message || String(error)),
+                        raw: rawError || null,
+                        failedAt: new Date(),
+                        isAmbiguous
+                    }
+                }
+            };
+            const updated = await WhatsAppDispatch.findOneAndUpdate(query, update, { new: true });
+            if (!updated && claimGeneration) {
+                console.warn(`[WhatsAppService] Stale worker failure rejected for key '${idempotencyKey}' (generation ${claimGeneration} was superseded).`);
+                return { superseded: true };
+            }
+            return { success: true };
+        } catch (err) {
+            console.warn(`[WhatsAppService] Failed to record durable failure for key '${idempotencyKey}':`, err.message);
+            return { success: false, error: err.message };
+        }
+    }
+
+    async reconcileAmbiguousDispatch(idempotencyKey, { providerMessageId, status = 'DISPATCHED', resolutionReason = 'Webhook reconciliation' } = {}) {
+        if (!idempotencyKey) throw new Error('idempotencyKey is required for reconciliation');
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            throw new Error('Database is unavailable for reconciliation');
+        }
+        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+        const targetStatus = status === 'FAILED' ? 'FAILED' : 'DISPATCHED';
+        const update = {
+            $set: {
+                status: targetStatus,
+                isAmbiguous: false,
+                reconciledAt: new Date(),
+                reconciliationStatus: 'RECONCILED',
+                reconciliationReason: resolutionReason
+            }
+        };
+        if (providerMessageId) {
+            update.$set.providerMessageId = providerMessageId;
+        }
+        const reconciled = await WhatsAppDispatch.findOneAndUpdate(
+            { idempotencyKey, status: 'AMBIGUOUS_TIMEOUT' },
+            update,
+            { new: true }
+        );
+        if (reconciled && targetStatus === 'DISPATCHED') {
+            this._setIdempotentResult(idempotencyKey, reconciled.responsePayload || { messageId: providerMessageId, success: true }, reconciled.recipient, reconciled.requestPayloadHash);
+        }
+        return reconciled;
+    }
+
+    _buildMonotonicQueryCondition(newStatus) {
+        const s = String(newStatus || '').toLowerCase();
+        if (s === 'read') {
+            return { deliveryStatus: { $ne: 'failed' } };
+        }
+        if (s === 'delivered') {
+            return { deliveryStatus: { $nin: ['read', 'failed'] } };
+        }
+        if (s === 'sent') {
+            return { deliveryStatus: { $nin: ['delivered', 'read', 'failed'] } };
+        }
+        if (s === 'failed') {
+            return { deliveryStatus: { $nin: ['delivered', 'read', 'failed'] } };
+        }
+        return {};
+    }
+
+    /**
+     * Reconcile outbound WhatsAppDispatch records with incoming status webhook
+     * Enforces deterministic correlation, monotonic status progression, and
+     * explicit manual reconciliation flagging when correlation data is ambiguous.
+     */
+    async reconcileWebhookStatus(statusObj) {
+        if (!statusObj || !statusObj.id) {
+            return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
+        }
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            console.error('[WhatsAppService] Database unavailable during webhook status reconciliation');
+            return { reconciled: false, reason: 'DATABASE_UNAVAILABLE' };
+        }
+
+        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+        const providerMessageId = statusObj.id;
+        const statusVal = String(statusObj.status || '').toLowerCase();
+        const statusTimestamp = statusObj.timestamp
+            ? new Date(parseInt(statusObj.timestamp, 10) * 1000)
+            : new Date();
+        const rawRecipient = statusObj.recipient_id;
+        const normalizedRecipient = this._normalizeTarget(rawRecipient) || String(rawRecipient || '');
+        const opaqueCallbackData = statusObj.biz_opaque_callback_data || null;
+
+        // 1. Direct Match: Check if a dispatch record already possesses this providerMessageId
+        let dispatch = await WhatsAppDispatch.findOne({ providerMessageId }).lean();
+
+        if (dispatch) {
+            // Check monotonic delivery status transition
+            const currentDeliveryStatus = dispatch.deliveryStatus || dispatch.responsePayload?.deliveryStatus || null;
+            if (!isMonotonicStatusTransition(currentDeliveryStatus, statusVal)) {
+                console.log(`[WhatsAppService] Regressive status '${statusVal}' ignored for dispatch ${dispatch.idempotencyKey} (current: '${currentDeliveryStatus}')`);
+                return {
+                    reconciled: false,
+                    reason: 'REGRESSIVE_STATUS_IGNORED',
+                    idempotencyKey: dispatch.idempotencyKey,
+                    currentStatus: currentDeliveryStatus,
+                    attemptedStatus: statusVal
+                };
+            }
+
+            // Check if repeated webhook delivery (idempotency check)
+            if (currentDeliveryStatus === statusVal && dispatch.status !== 'AMBIGUOUS_TIMEOUT') {
+                return {
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: dispatch.idempotencyKey,
+                    status: dispatch.status,
+                    deliveryStatus: statusVal
+                };
+            }
+
+            // Update dispatch atomically with monotonic race condition guard
+            const updateFields = {
+                deliveryStatus: statusVal,
+                deliveryStatusAt: statusTimestamp,
+                isAmbiguous: false,
+                'responsePayload.deliveryStatus': statusVal,
+                'responsePayload.deliveryStatusAt': statusTimestamp,
+                reconciledAt: new Date(),
+                reconciliationStatus: 'RECONCILED',
+                reconciliationReason: 'DIRECT_PROVIDER_MESSAGE_ID'
+            };
+            if (statusVal === 'failed') {
+                updateFields.status = 'FAILED';
+                updateFields['responsePayload.success'] = false;
+                if (statusObj.errors && statusObj.errors.length > 0) {
+                    updateFields.errorDetails = this.sanitizeSecrets(statusObj.errors[0]);
+                }
+            } else if (dispatch.status !== 'DISPATCHED') {
+                updateFields.status = 'DISPATCHED';
+                updateFields['responsePayload.success'] = true;
+            }
+
+            const monotonicCondition = this._buildMonotonicQueryCondition(statusVal);
+            const updateQuery = {
+                _id: dispatch._id,
+                ...monotonicCondition
+            };
+
+            const updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
+            if (!updated) {
+                // A concurrent worker already advanced the document or recorded conflicting status
+                const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
+                if (currentDoc) {
+                    if (currentDoc.deliveryStatus === statusVal && currentDoc.status !== 'AMBIGUOUS_TIMEOUT') {
+                        return {
+                            reconciled: true,
+                            alreadyReconciled: true,
+                            idempotencyKey: currentDoc.idempotencyKey,
+                            status: currentDoc.status,
+                            deliveryStatus: currentDoc.deliveryStatus
+                        };
+                    }
+                    if (!isMonotonicStatusTransition(currentDoc.deliveryStatus, statusVal)) {
+                        return {
+                            reconciled: false,
+                            reason: 'REGRESSIVE_STATUS_IGNORED',
+                            idempotencyKey: currentDoc.idempotencyKey,
+                            currentStatus: currentDoc.deliveryStatus,
+                            attemptedStatus: statusVal
+                        };
+                    }
+                }
+            }
+
+            if (updated && updated.status === 'DISPATCHED') {
+                const cachedRes = {
+                    ...(updated.responsePayload || {}),
+                    success: true,
+                    messageId: providerMessageId,
+                    providerMessageId
+                };
+                this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+            }
+            return {
+                reconciled: true,
+                idempotencyKey: updated?.idempotencyKey || dispatch.idempotencyKey,
+                status: updated?.status || dispatch.status,
+                deliveryStatus: statusVal
+            };
+        }
+
+        // 2. Deterministic Correlation via biz_opaque_callback_data (idempotencyKey / correlationId)
+        if (opaqueCallbackData) {
+            const candidateByOpaque = await WhatsAppDispatch.findOne({
+                $or: [{ idempotencyKey: opaqueCallbackData }, { correlationId: opaqueCallbackData }]
+            }).lean();
+
+            if (candidateByOpaque) {
+                // Verified safety check: recipient must match
+                const candidateRecipient = this._normalizeTarget(candidateByOpaque.recipient) || candidateByOpaque.recipient;
+                if (candidateRecipient !== normalizedRecipient && candidateByOpaque.recipient !== rawRecipient) {
+                    console.error(`[WhatsAppService] Security mismatch: biz_opaque_callback_data '${opaqueCallbackData}' recipient '${candidateRecipient}' does not match webhook recipient '${normalizedRecipient}'`);
+                    return {
+                        reconciled: false,
+                        reason: 'SECURITY_RECIPIENT_MISMATCH',
+                        idempotencyKey: opaqueCallbackData
+                    };
+                }
+
+                // Provider Message ID rebinding protection: cannot overwrite confirmed providerMessageId with a different ID
+                if (candidateByOpaque.providerMessageId && candidateByOpaque.providerMessageId !== providerMessageId) {
+                    console.warn(`[WhatsAppService] Webhook providerMessageId '${providerMessageId}' does not match confirmed providerMessageId '${candidateByOpaque.providerMessageId}' for dispatch '${candidateByOpaque.idempotencyKey}'. Rebinding rejected.`);
+                    return {
+                        reconciled: false,
+                        reason: 'PROVIDER_ID_REBIND_FORBIDDEN',
+                        idempotencyKey: candidateByOpaque.idempotencyKey,
+                        existingProviderMessageId: candidateByOpaque.providerMessageId,
+                        incomingProviderMessageId: providerMessageId
+                    };
+                }
+
+                // Deterministic correlation verified!
+                const currentDelivery = candidateByOpaque.deliveryStatus || candidateByOpaque.responsePayload?.deliveryStatus || null;
+                if (!isMonotonicStatusTransition(currentDelivery, statusVal)) {
+                    return {
+                        reconciled: false,
+                        reason: 'REGRESSIVE_STATUS_IGNORED',
+                        idempotencyKey: candidateByOpaque.idempotencyKey
+                    };
+                }
+
+                const updateFields = {
+                    providerMessageId,
+                    deliveryStatus: statusVal,
+                    deliveryStatusAt: statusTimestamp,
+                    isAmbiguous: false,
+                    'responsePayload.success': true,
+                    'responsePayload.deliveryStatus': statusVal,
+                    'responsePayload.deliveryStatusAt': statusTimestamp,
+                    'responsePayload.messageId': providerMessageId,
+                    reconciledAt: new Date(),
+                    reconciliationStatus: 'RECONCILED',
+                    reconciliationReason: 'DETERMINISTIC_OPAQUE_CALLBACK_DATA'
+                };
+                if (statusVal === 'failed') {
+                    updateFields.status = 'FAILED';
+                    updateFields['responsePayload.success'] = false;
+                    if (statusObj.errors && statusObj.errors.length > 0) {
+                        updateFields.errorDetails = this.sanitizeSecrets(statusObj.errors[0]);
+                    }
+                } else {
+                    updateFields.status = 'DISPATCHED';
+                }
+
+                const monotonicCondition = this._buildMonotonicQueryCondition(statusVal);
+                const updateQuery = {
+                    _id: candidateByOpaque._id,
+                    $or: [
+                        { providerMessageId: null },
+                        { providerMessageId: { $exists: false } },
+                        { providerMessageId: providerMessageId }
+                    ],
+                    ...monotonicCondition
+                };
+
+                let updated;
+                try {
+                    updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
+                } catch (dbErr) {
+                    if (dbErr.code === 11000 && String(dbErr.message).includes('providerMessageId')) {
+                        console.warn(`[WhatsAppService] Provider message ID collision for '${providerMessageId}': already bound to another dispatch.`);
+                        return {
+                            reconciled: false,
+                            reason: 'PROVIDER_ID_COLLISION',
+                            providerMessageId,
+                            idempotencyKey: candidateByOpaque.idempotencyKey
+                        };
+                    }
+                    throw dbErr;
+                }
+
+                if (!updated) {
+                    const currentDoc = await WhatsAppDispatch.findById(candidateByOpaque._id).lean();
+                    if (currentDoc) {
+                        if (currentDoc.deliveryStatus === statusVal && currentDoc.status !== 'AMBIGUOUS_TIMEOUT') {
+                            return {
+                                reconciled: true,
+                                alreadyReconciled: true,
+                                idempotencyKey: currentDoc.idempotencyKey,
+                                status: currentDoc.status,
+                                deliveryStatus: currentDoc.deliveryStatus
+                            };
+                        }
+                        if (!isMonotonicStatusTransition(currentDoc.deliveryStatus, statusVal)) {
+                            return {
+                                reconciled: false,
+                                reason: 'REGRESSIVE_STATUS_IGNORED',
+                                idempotencyKey: currentDoc.idempotencyKey,
+                                currentStatus: currentDoc.deliveryStatus,
+                                attemptedStatus: statusVal
+                            };
+                        }
+                    }
+                }
+
+                if (updated && updated.status === 'DISPATCHED') {
+                    const cachedRes = {
+                        ...(updated.responsePayload || {}),
+                        success: true,
+                        messageId: providerMessageId,
+                        providerMessageId
+                    };
+                    this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+                }
+                return {
+                    reconciled: true,
+                    correlatedViaOpaqueData: true,
+                    idempotencyKey: updated?.idempotencyKey || candidateByOpaque.idempotencyKey,
+                    providerMessageId,
+                    status: updated?.status || candidateByOpaque.status,
+                    deliveryStatus: statusVal
+                };
+            }
+        }
+
+        // 3. Fallback / Ambiguous Safety Gate:
+        // Provider message ID is unknown, and biz_opaque_callback_data is missing or unmapped.
+        // Check if there are any AMBIGUOUS_TIMEOUT dispatches for this recipient.
+        const ambiguousForRecipient = await WhatsAppDispatch.find({
+            recipient: { $in: [normalizedRecipient, rawRecipient] },
+            $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }]
+        }).lean();
+
+        if (ambiguousForRecipient.length > 0) {
+            // DO NOT GUESS! DO NOT ARBITRARILY BIND TO ANY DISPATCH!
+            // Retain ambiguous state and flag records as requiring manual reconciliation.
+            await WhatsAppDispatch.updateMany(
+                { _id: { $in: ambiguousForRecipient.map(d => d._id) } },
+                {
+                    $set: {
+                        reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED',
+                        reconciliationReason: `INSUFFICIENT_CORRELATION_DATA: Webhook ${providerMessageId} arrived without matching opaque correlation token. ${ambiguousForRecipient.length} ambiguous dispatch(es) exist for recipient.`
+                    }
+                }
+            );
+
+            console.warn(`[WhatsAppService] Webhook ${providerMessageId} cannot be safely correlated: Missing deterministic correlation token. Flagged ${ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
+
+            return {
+                reconciled: false,
+                reason: 'MANUAL_RECONCILIATION_REQUIRED',
+                ambiguousCount: ambiguousForRecipient.length,
+                providerMessageId,
+                recipient: normalizedRecipient
+            };
+        }
+
+        // No matching dispatch found and no ambiguous records exist
+        return {
+            reconciled: false,
+            reason: 'NO_MATCHING_DISPATCH',
+            providerMessageId
+        };
+    }
+
+    /**
+     * Manually reconcile an ambiguous or failed dispatch record by an authorized operator.
+     * Enforces:
+     * Manually reconcile an ambiguous or failed dispatch record by an authorized operator or trusted service.
+     * Enforces:
+     * 1. Authorization: Verified server-side actor identity or trusted service context
+     *    - Strict permission: 'whatsapp.dispatch.reconcile' (or privileged administrative role)
+     *    - No broad bypass on role.isSystemRole or unverified client claims
+     *    - Impersonation prevention (client actorId must match authenticated context)
+     *    - Rejects unknown, inactive, or suspended users
+     * 2. Fail-closed database availability verification
+     * 3. Immutable recipient matching verification
+     * 4. Mandatory source state transitions (DISPATCHED requires providerMessageId; cannot regress confirmed delivery)
+     * 5. Collision & rebinding prevention on providerMessageId
+     * 6. Comprehensive audit metadata (reconciledBy, reconciledAt, reconciliationReason)
+     */
+    async manualReconcileDispatch({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}) {
+        if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+            return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
+        }
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return { success: false, error: 'DATABASE_UNAVAILABLE: Cannot perform manual reconciliation while database is disconnected' };
+        }
+
+        // 🚀 BOUNDARY AUTHORIZATION: Derive identity from verified server context or trusted service context
+        let verifiedAuditActor = null;
+
+        if (serviceContext) {
+            // Trusted internal service-to-service invocation
+            const TRUSTED_SERVICES = ['WhatsAppDispatchReconcilerWorker', 'DispatchAuditCron', 'WhatsAppAutomationEngine'];
+
+            const configuredSecret = process.env.INTERNAL_SERVICE_SECRET;
+            if (!configuredSecret || typeof configuredSecret !== 'string' || !configuredSecret.trim()) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Service secret not configured' };
+            }
+
+            if (!serviceContext || typeof serviceContext !== 'object') {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service context' };
+            }
+
+            const { isService, serviceName, serviceSecret } = serviceContext;
+
+            if (isService !== true) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service context' };
+            }
+
+            if (!serviceName || typeof serviceName !== 'string' || !TRUSTED_SERVICES.includes(serviceName.trim())) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Untrusted service name' };
+            }
+
+            if (!serviceSecret || typeof serviceSecret !== 'string' || !serviceSecret.trim()) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Missing service secret' };
+            }
+
+            // Timing-safe secret comparison
+            const providedBuf = Buffer.from(serviceSecret.trim());
+            const configuredBuf = Buffer.from(configuredSecret.trim());
+            const isSecretMatch = providedBuf.length === configuredBuf.length && crypto.timingSafeEqual(providedBuf, configuredBuf);
+
+            if (!isSecretMatch) {
+                return { success: false, error: 'AUTHORIZATION_DENIED: Invalid service secret' };
+            }
+
+            verifiedAuditActor = `service:${serviceName.trim()}`;
+        } else {
+            // User-initiated reconciliation: require verified server-side authentication context
+            if (!actorContext || typeof actorContext !== 'object') {
+                return {
+                    success: false,
+                    error: 'AUTHENTICATION_REQUIRED: Verified server-side actorContext is required for user reconciliation'
+                };
+            }
+
+            const contextUserId = String(actorContext._id || actorContext.id || '').trim();
+            if (!contextUserId) {
+                return {
+                    success: false,
+                    error: 'AUTHENTICATION_REQUIRED: actorContext must contain a valid user identity (_id or id)'
+                };
+            }
+
+            // If caller passes actorId, require it to match authenticated context; never use it as a substitute for that context
+            if (actorId !== undefined && actorId !== null) {
+                const requestedActorId = String(actorId).trim();
+                if (requestedActorId && requestedActorId !== contextUserId) {
+                    return {
+                        success: false,
+                        error: 'AUTHORIZATION_DENIED: Client actorId does not match authenticated context'
+                    };
+                }
+            }
+
+            const User = mongoose.models.User || (await import('../models/User.js')).default;
+            let authorizedUser = null;
+            if (mongoose.Types.ObjectId.isValid(contextUserId)) {
+                authorizedUser = await User.findById(contextUserId).populate('role').lean();
+            } else {
+                authorizedUser = await User.findOne({ email: contextUserId.toLowerCase() }).populate('role').lean();
+            }
+
+            if (!authorizedUser) {
+                return { success: false, error: `AUTHORIZATION_DENIED: Authenticated user '${contextUserId}' not found in database` };
+            }
+            if (!authorizedUser.isActive || ['inactive', 'suspended'].includes(authorizedUser.status)) {
+                return { success: false, error: `AUTHORIZATION_DENIED: Actor '${contextUserId}' account is inactive or suspended` };
+            }
+
+            // 🚀 ESTABLISHED RBAC PERMISSION CHECK: Require explicit 'whatsapp.dispatch.reconcile'
+            // Enforce explicit permission on Role or User.
+            // Do NOT grant access merely because an email matches an allowlist or a role has a broad name (e.g. 'Admin', 'Super Admin')
+            const role = authorizedUser.role;
+
+            const hasRolePermission = Boolean(
+                (Array.isArray(role?.permissions) && role.permissions.includes('whatsapp.dispatch.reconcile')) ||
+                (role?.permissions && typeof role.permissions === 'object' && role.permissions['whatsapp.dispatch.reconcile'] === true) ||
+                (role?.moduleAccess?.whatsapp?.reconcile === true || role?.moduleAccess?.whatsapp?.admin === true)
+            );
+
+            const hasUserPermission = Boolean(
+                (Array.isArray(authorizedUser.permissions) && authorizedUser.permissions.includes('whatsapp.dispatch.reconcile')) ||
+                (authorizedUser.permissions && typeof authorizedUser.permissions === 'object' && authorizedUser.permissions['whatsapp.dispatch.reconcile'] === true) ||
+                (authorizedUser.moduleAccess?.whatsapp?.reconcile === true || authorizedUser.moduleAccess?.whatsapp?.admin === true)
+            );
+
+            if (!hasRolePermission && !hasUserPermission) {
+                return {
+                    success: false,
+                    error: `AUTHORIZATION_DENIED: Actor '${contextUserId}' lacks explicit 'whatsapp.dispatch.reconcile' permission`
+                };
+            }
+
+            verifiedAuditActor = authorizedUser._id ? authorizedUser._id.toString() : contextUserId;
+        }
+
+        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+        const dispatch = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        if (!dispatch) {
+            return { success: false, error: 'DISPATCH_NOT_FOUND' };
+        }
+
+        // Immutable recipient check
+        if (recipient) {
+            const normProvided = this._normalizeTarget(recipient) || String(recipient);
+            const normDispatch = this._normalizeTarget(dispatch.recipient) || String(dispatch.recipient);
+            if (normProvided !== normDispatch && dispatch.recipient !== recipient) {
+                return { success: false, error: 'SECURITY_RECIPIENT_MISMATCH: Provided recipient does not match dispatch record' };
+            }
+        }
+
+        const normStatus = String(targetStatus || '').toUpperCase();
+        if (!['DISPATCHED', 'FAILED'].includes(normStatus)) {
+            return { success: false, error: 'INVALID_STATUS: Manual reconciliation targetStatus must be DISPATCHED or FAILED' };
+        }
+
+        let cleanMsgId = null;
+        if (normStatus === 'DISPATCHED') {
+            if (!providerMessageId || typeof providerMessageId !== 'string' || !providerMessageId.trim()) {
+                return { success: false, error: 'PROVIDER_MESSAGE_ID_REQUIRED: providerMessageId is required to reconcile dispatch as DISPATCHED' };
+            }
+            cleanMsgId = providerMessageId.trim();
+
+            // Check if existing record already has a different confirmed providerMessageId
+            if (dispatch.providerMessageId && dispatch.providerMessageId !== cleanMsgId) {
+                return {
+                    success: false,
+                    error: `PROVIDER_ID_REBIND_FORBIDDEN: Dispatch already bound to '${dispatch.providerMessageId}', cannot rebind to '${cleanMsgId}'`
+                };
+            }
+
+            const collision = await WhatsAppDispatch.findOne({ providerMessageId: cleanMsgId }).lean();
+            if (collision && collision._id.toString() !== dispatch._id.toString()) {
+                return { success: false, error: `PROVIDER_ID_COLLISION: Provider message ID is already bound to dispatch '${collision.idempotencyKey}'` };
+            }
+        }
+
+        // Prevent regressive transition from confirmed delivered states to failed
+        const currentDelivery = dispatch.deliveryStatus || dispatch.responsePayload?.deliveryStatus;
+        if (['delivered', 'read'].includes(currentDelivery) && normStatus === 'FAILED') {
+            return { success: false, error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED' };
+        }
+
+        // Mandatory source status definition:
+        // Transition to DISPATCHED is valid ONLY from: AMBIGUOUS_TIMEOUT, FAILED, CLAIMED
+        // Transition to FAILED is valid ONLY from: AMBIGUOUS_TIMEOUT, CLAIMED
+        const permittedSourceStatuses = normStatus === 'DISPATCHED'
+            ? ['AMBIGUOUS_TIMEOUT', 'FAILED', 'CLAIMED']
+            : ['AMBIGUOUS_TIMEOUT', 'CLAIMED'];
+
+        // Enforce allowed source statuses as a mandatory pre-condition
+        if (!permittedSourceStatuses.includes(dispatch.status)) {
+            // Check for idempotent repetition of an already successful outcome
+            const isAlreadyTarget = dispatch.status === normStatus;
+            const isMatchingMsgId = normStatus !== 'DISPATCHED' || dispatch.providerMessageId === cleanMsgId;
+            if (isAlreadyTarget && isMatchingMsgId) {
+                return {
+                    success: true,
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: dispatch.idempotencyKey,
+                    status: dispatch.status,
+                    providerMessageId: dispatch.providerMessageId,
+                    reconciledBy: dispatch.reconciledBy,
+                    reconciledAt: dispatch.reconciledAt,
+                    reconciliationReason: dispatch.reconciliationReason
+                };
+            }
+            return {
+                success: false,
+                error: `INVALID_SOURCE_STATUS: Dispatch in status '${dispatch.status}' cannot transition to '${normStatus}'`
+            };
+        }
+
+        // Atomic CAS filter:
+        // MANDATORY: status MUST be in permittedSourceStatuses. Ambiguity flags do NOT bypass status restriction!
+        const casFilter = {
+            _id: dispatch._id,
+            status: { $in: permittedSourceStatuses }
+        };
+
+        if (normStatus === 'FAILED') {
+            casFilter.deliveryStatus = { $nin: ['delivered', 'read'] };
+            casFilter['responsePayload.deliveryStatus'] = { $nin: ['delivered', 'read'] };
+        }
+
+        if (normStatus === 'DISPATCHED' && cleanMsgId) {
+            casFilter.$or = [
+                { providerMessageId: null },
+                { providerMessageId: { $exists: false } },
+                { providerMessageId: cleanMsgId }
+            ];
+        }
+
+        const updateFields = {
+            status: normStatus,
+            isAmbiguous: false,
+            reconciledAt: new Date(),
+            reconciledBy: verifiedAuditActor,
+            reconciliationStatus: 'RECONCILED',
+            reconciliationReason: String(reason || 'MANUAL_OPERATOR_RECONCILIATION').trim()
+        };
+
+        if (normStatus === 'DISPATCHED') {
+            updateFields.providerMessageId = cleanMsgId;
+            updateFields['responsePayload.success'] = true;
+            updateFields['responsePayload.messageId'] = cleanMsgId;
+            updateFields['responsePayload.providerMessageId'] = cleanMsgId;
+        } else {
+            updateFields['responsePayload.success'] = false;
+            updateFields.errorDetails = this.sanitizeSecrets({
+                error: String(reason || 'Manually marked as failed by operator').trim(),
+                actorId: verifiedAuditActor
+            });
+        }
+
+        let updated;
+        try {
+            updated = await WhatsAppDispatch.findOneAndUpdate(casFilter, { $set: updateFields }, { new: true });
+        } catch (dbErr) {
+            if (dbErr.code === 11000 || String(dbErr.message).includes('11000')) {
+                return { success: false, error: 'PROVIDER_ID_COLLISION: Provider message ID is already bound to another dispatch' };
+            }
+            throw dbErr;
+        }
+
+        if (!updated) {
+            const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
+            if (!currentDoc) {
+                return { success: false, error: 'DISPATCH_NOT_FOUND' };
+            }
+
+            // Check if already in target status with matching providerMessageId (idempotent success)
+            const isAlreadyTarget = currentDoc.status === normStatus;
+            const isMatchingMsgId = normStatus !== 'DISPATCHED' || currentDoc.providerMessageId === cleanMsgId;
+
+            if (isAlreadyTarget && isMatchingMsgId) {
+                return {
+                    success: true,
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: currentDoc.idempotencyKey,
+                    status: currentDoc.status,
+                    providerMessageId: currentDoc.providerMessageId,
+                    reconciledBy: currentDoc.reconciledBy,
+                    reconciledAt: currentDoc.reconciledAt,
+                    reconciliationReason: currentDoc.reconciliationReason
+                };
+            }
+
+            const activeDelivery = currentDoc.deliveryStatus || currentDoc.responsePayload?.deliveryStatus;
+            if (['delivered', 'read'].includes(activeDelivery) && normStatus === 'FAILED') {
+                return {
+                    success: false,
+                    error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED',
+                    currentStatus: currentDoc.status,
+                    deliveryStatus: activeDelivery
+                };
+            }
+
+            return {
+                success: false,
+                error: `STATE_TRANSITION_CONFLICT: Dispatch status is '${currentDoc.status}' (deliveryStatus: '${activeDelivery || 'none'}') and cannot be transitioned to '${normStatus}'`,
+                currentStatus: currentDoc.status,
+                deliveryStatus: activeDelivery
+            };
+        }
+
+        if (updated && updated.status === 'DISPATCHED') {
+            const cachedRes = {
+                ...(updated.responsePayload || {}),
+                success: true,
+                messageId: updated.providerMessageId,
+                providerMessageId: updated.providerMessageId
+            };
+            this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+        }
+
+        return {
+            success: true,
+            reconciled: true,
+            idempotencyKey: updated.idempotencyKey,
+            status: updated.status,
+            providerMessageId: updated.providerMessageId,
+            reconciledBy: updated.reconciledBy,
+            reconciledAt: updated.reconciledAt,
+            reconciliationReason: updated.reconciliationReason
+        };
     }
 
     async isRecipientOptedOut(mobile) {
@@ -102,14 +1188,23 @@ class WhatsAppService {
         }
     }
 
-    sanitizeSecrets(str) {
-        if (!str) return str;
-        const text = typeof str === 'string' ? str : JSON.stringify(str);
-        return text
+    sanitizeSecrets(input) {
+        if (!input) return input;
+        const isObj = typeof input === 'object';
+        const text = isObj ? JSON.stringify(input) : String(input);
+        const redacted = text
             .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{8,}/gi, '$1[REDACTED]')
             .replace(/((?:access_)?token=)[a-zA-Z0-9_\-\.]{8,}/gi, '$1[REDACTED]')
             .replace(/(systemUserToken":\s*")[^"]+/gi, '$1[REDACTED]')
             .replace(/(appSecret":\s*")[^"]+/gi, '$1[REDACTED]');
+        if (isObj) {
+            try {
+                return JSON.parse(redacted);
+            } catch (_) {
+                return redacted;
+            }
+        }
+        return redacted;
     }
     /**
      * Resolve configuration from DB or Env
@@ -258,13 +1353,33 @@ class WhatsAppService {
             };
         }
 
-        // 2. Idempotency Check
+        // 2. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = options?.idempotencyKey;
+        let dispatchClaim = null;
         if (idempotencyKey) {
-            const cached = this._getIdempotentResult(idempotencyKey);
-            if (cached) {
-                console.log(`[WhatsAppService] Idempotent replay for key '${idempotencyKey}'. Returning cached result.`);
-                return { ...cached, alreadySent: true, duplicate: true };
+            const normalizedMobile = this._normalizeTarget(mobile) || mobile;
+            dispatchClaim = await this._claimOrGetDurableDispatch({
+                idempotencyKey,
+                mobile,
+                messageType: 'text',
+                provider: options?.provider || 'META',
+                payload: { mobile: normalizedMobile, message },
+                options
+            });
+
+            if (!dispatchClaim.canDispatch) {
+                if (dispatchClaim.isReplay) {
+                    console.log(`[WhatsAppService] Idempotent replay for key '${idempotencyKey}'. Returning cached result.`);
+                    return dispatchClaim.result;
+                }
+                if (dispatchClaim.inFlight || dispatchClaim.isAmbiguousBlocked) {
+                    return dispatchClaim.result;
+                }
+                return {
+                    success: false,
+                    error: dispatchClaim.error,
+                    code: dispatchClaim.code
+                };
             }
         }
 
@@ -328,8 +1443,27 @@ class WhatsAppService {
             sendResult = { success: true, mock: true, provider: 'mock' };
         }
 
-        if (idempotencyKey && sendResult && sendResult.success) {
-            this._setIdempotentResult(idempotencyKey, sendResult);
+        if (idempotencyKey) {
+            if (sendResult && sendResult.success) {
+                await this._recordDurableSuccess({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    result: sendResult,
+                    providerMessageId: sendResult.messageId || sendResult.messages?.[0]?.id
+                });
+            } else {
+                const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
+                    ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
+                    String(sendResult?.error || '').toLowerCase().includes('timeout');
+
+                await this._recordDurableFailure({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    error: sendResult?.error || 'Send failed',
+                    rawError: sendResult?.raw || null,
+                    isAmbiguous: isAmbiguousTimeout
+                });
+            }
         }
 
         return sendResult;
@@ -568,11 +1702,17 @@ class WhatsAppService {
                 payload.contacts = options.contacts; // Array of contact objects
             }
 
+            const reqHeaders = {
+                'Authorization': `Bearer ${config.token}`,
+                'Content-Type':  'application/json',
+            };
+            if (options && options.idempotencyKey) {
+                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
+                payload.biz_opaque_callback_data = String(options.idempotencyKey).slice(0, 512);
+            }
+
             const response = await axios.post(url, payload, {
-                headers: {
-                    'Authorization': `Bearer ${config.token}`,
-                    'Content-Type':  'application/json',
-                },
+                headers: reqHeaders,
                 timeout: 20000,
             });
 
@@ -688,13 +1828,33 @@ class WhatsAppService {
             };
         }
 
-        // 2. Idempotency Check
+        // 2. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = options?.idempotencyKey;
+        let dispatchClaim = null;
         if (idempotencyKey) {
-            const cached = this._getIdempotentResult(idempotencyKey);
-            if (cached) {
-                console.log(`[WhatsAppService] Idempotent template replay for key '${idempotencyKey}'. Returning cached result.`);
-                return { ...cached, alreadySent: true, duplicate: true };
+            const normalizedMobile = this._normalizeTarget(mobile) || mobile;
+            dispatchClaim = await this._claimOrGetDurableDispatch({
+                idempotencyKey,
+                mobile,
+                messageType: 'template',
+                provider: 'META',
+                payload: { mobile: normalizedMobile, templateName, languageCode, components },
+                options
+            });
+
+            if (!dispatchClaim.canDispatch) {
+                if (dispatchClaim.isReplay) {
+                    console.log(`[WhatsAppService] Idempotent template replay for key '${idempotencyKey}'. Returning cached result.`);
+                    return dispatchClaim.result;
+                }
+                if (dispatchClaim.inFlight || dispatchClaim.isAmbiguousBlocked) {
+                    return dispatchClaim.result;
+                }
+                return {
+                    success: false,
+                    error: dispatchClaim.error,
+                    code: dispatchClaim.code
+                };
             }
         }
 
@@ -709,7 +1869,13 @@ class WhatsAppService {
         if (!metaConfig) {
             console.log(`[WhatsApp/Meta] MOCK template to ${mobile}: ${templateName}`);
             const mockResult = { success: true, mock: true, provider: 'mock', template: templateName };
-            if (idempotencyKey) this._setIdempotentResult(idempotencyKey, mockResult);
+            if (idempotencyKey) {
+                await this._recordDurableSuccess({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    result: mockResult
+                });
+            }
             return mockResult;
         }
 
@@ -732,7 +1898,12 @@ class WhatsAppService {
                 mock: true
             };
             if (idempotencyKey) {
-                this._setIdempotentResult(idempotencyKey, result);
+                await this._recordDurableSuccess({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    result,
+                    providerMessageId: msgId
+                });
             }
             return result;
         }
@@ -759,16 +1930,18 @@ class WhatsAppService {
                 'Authorization': `Bearer ${metaConfig.token}`,
                 'Content-Type':  'application/json',
             };
-            if (options && options.idempotencyKey) {
-                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
-            }
-
-            const response = await axios.post(url, {
+            const postBody = {
                 messaging_product: 'whatsapp',
                 to:                toNumber,
                 type:              'template',
                 template:          templatePayload,
-            }, {
+            };
+            if (options && options.idempotencyKey) {
+                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
+                postBody.biz_opaque_callback_data = String(options.idempotencyKey).slice(0, 512);
+            }
+
+            const response = await axios.post(url, postBody, {
                 headers: reqHeaders,
                 timeout: 20000,
             });
@@ -784,7 +1957,12 @@ class WhatsAppService {
             };
 
             if (idempotencyKey) {
-                this._setIdempotentResult(idempotencyKey, result);
+                await this._recordDurableSuccess({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    result,
+                    providerMessageId: msgId
+                });
             }
 
             return result;
@@ -819,15 +1997,31 @@ class WhatsAppService {
 
             const sanitized = this.sanitizeSecrets(detail);
             console.error(`[WhatsApp/Meta] ❌ TEMPLATE ERROR for ${toNumber} [${category}]:`, sanitized);
-            return {
+
+            const isAmbiguousTimeout = category === 'NETWORK_ERROR' ||
+                ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(err.code) ||
+                String(detail || '').toLowerCase().includes('timeout');
+
+            const errResult = {
                 success: false,
                 error: sanitized,
                 category,
                 isRetryable,
                 code,
                 httpStatus,
-                provider: 'meta'
+                provider: 'meta',
+                isAmbiguous: isAmbiguousTimeout
             };
+            if (idempotencyKey) {
+                await this._recordDurableFailure({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    error: sanitized,
+                    rawError: metaError || null,
+                    isAmbiguous: isAmbiguousTimeout
+                });
+            }
+            return errResult;
         }
     }
 
@@ -850,13 +2044,33 @@ class WhatsAppService {
             };
         }
 
-        // 2. Idempotency Check
+        // 2. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = extraOptions?.idempotencyKey;
+        let dispatchClaim = null;
         if (idempotencyKey) {
-            const cached = this._getIdempotentResult(idempotencyKey);
-            if (cached) {
-                console.log(`[WhatsAppService] Idempotent media replay for key '${idempotencyKey}'. Returning cached result.`);
-                return { ...cached, alreadySent: true, duplicate: true };
+            const normalizedMobile = this._normalizeTarget(mobile) || mobile;
+            dispatchClaim = await this._claimOrGetDurableDispatch({
+                idempotencyKey,
+                mobile,
+                messageType: type || 'media',
+                provider: extraOptions?.provider || 'META',
+                payload: { mobile: normalizedMobile, type, mediaUrl, caption, filename },
+                options: extraOptions
+            });
+
+            if (!dispatchClaim.canDispatch) {
+                if (dispatchClaim.isReplay) {
+                    console.log(`[WhatsAppService] Idempotent media replay for key '${idempotencyKey}'. Returning cached result.`);
+                    return dispatchClaim.result;
+                }
+                if (dispatchClaim.inFlight || dispatchClaim.isAmbiguousBlocked) {
+                    return dispatchClaim.result;
+                }
+                return {
+                    success: false,
+                    error: dispatchClaim.error,
+                    code: dispatchClaim.code
+                };
             }
         }
 
@@ -896,59 +2110,88 @@ class WhatsAppService {
             console.error(`[WhatsAppService] Account resolution error for target '${targetAccount}':`, err.message);
             return { success: false, error: err.message, provider: (isGroupTarget || isBaileysRequested) ? 'baileys' : 'meta' };
         }
+        let sendResult;
         if (metaConfig) {
             if (metaConfig.provider === 'BAILEYS') {
-                return this._sendViaBaileys(mobile, caption, metaConfig, { type, mediaUrl, caption, filename, ...extraOptions });
-            }
-            let mediaId = null;
+                sendResult = await this._sendViaBaileys(mobile, caption, metaConfig, { type, mediaUrl, caption, filename, ...extraOptions });
+            } else {
+                let mediaId = null;
 
-            // 🚀 SENIOR LOGIC: If mediaUrl is local or from our server, upload to Meta first for reliability
-            if (mediaUrl && (mediaUrl.startsWith('/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'))) {
-                try {
-                    const path = await import('path');
-                    const fs = await import('fs');
-                    
-                    // Resolve absolute path
-                    let localPath = '';
-                    if (mediaUrl.startsWith('/uploads/')) {
-                        localPath = path.resolve(mediaUrl.substring(1)); // remove leading slash
-                    } else if (mediaUrl.includes('/uploads/')) {
-                        const parts = mediaUrl.split('/uploads/');
-                        localPath = path.resolve('uploads', parts[1]);
-                    }
+                // 🚀 SENIOR LOGIC: If mediaUrl is local or from our server, upload to Meta first for reliability
+                if (mediaUrl && (mediaUrl.startsWith('/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'))) {
+                    try {
+                        const path = await import('path');
+                        const fs = await import('fs');
 
-                    if (localPath && fs.existsSync(localPath)) {
-                        console.log(`[WhatsApp/Meta] Local file detected. Uploading to Meta storage...`);
-                        const uploadRes = await this.uploadToMeta(localPath, type, targetAccount);
-                        if (uploadRes.success) {
-                            mediaId = uploadRes.mediaId;
-                        } else {
-                            // If upload failed and it's a local file, we CANNOT send it via link
-                            console.error(`[WhatsApp/Meta] Failed to upload local media to Meta:`, uploadRes.error);
-                            return { 
-                                success: false, 
-                                error: `Meta Media Upload Failed: ${uploadRes.error}. (Make sure your WhatsApp API Token and Phone ID are correct in settings or .env)`, 
-                                provider: 'meta' 
-                            };
+                        // Resolve absolute path
+                        let localPath = '';
+                        if (mediaUrl.startsWith('/uploads/')) {
+                            localPath = path.resolve(mediaUrl.substring(1)); // remove leading slash
+                        } else if (mediaUrl.includes('/uploads/')) {
+                            const parts = mediaUrl.split('/uploads/');
+                            localPath = path.resolve('uploads', parts[1]);
                         }
+
+                        if (localPath && fs.existsSync(localPath)) {
+                            console.log(`[WhatsApp/Meta] Local file detected. Uploading to Meta storage...`);
+                            const uploadRes = await this.uploadToMeta(localPath, type, targetAccount);
+                            if (uploadRes.success) {
+                                mediaId = uploadRes.mediaId;
+                            } else {
+                                // If upload failed and it's a local file, we CANNOT send it via link
+                                console.error(`[WhatsApp/Meta] Failed to upload local media to Meta:`, uploadRes.error);
+                                sendResult = {
+                                    success: false,
+                                    error: `Meta Media Upload Failed: ${uploadRes.error}. (Make sure your WhatsApp API Token and Phone ID are correct in settings or .env)`,
+                                    provider: 'meta'
+                                };
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`[WhatsApp/Meta] Local upload bypass failed:`, e.message);
                     }
-                } catch (e) {
-                    console.error(`[WhatsApp/Meta] Local upload bypass failed:`, e.message);
+                }
+
+                if (!sendResult) {
+                    sendResult = await this._sendViaMeta(mobile, caption, metaConfig, {
+                        type,
+                        mediaUrl,
+                        mediaId,
+                        caption,
+                        filename,
+                        ...extraOptions
+                    });
                 }
             }
-
-            return this._sendViaMeta(mobile, caption, metaConfig, { 
-                type, 
-                mediaUrl, 
-                mediaId,
-                caption, 
-                filename,
-                ...extraOptions 
-            });
+        } else {
+            console.log(`[WhatsApp] MOCK ${type} to ${mobile}: ${mediaUrl}`);
+            sendResult = { success: true, mock: true, provider: 'mock' };
         }
-        
-        console.log(`[WhatsApp] MOCK ${type} to ${mobile}: ${mediaUrl}`);
-        return { success: true, mock: true, provider: 'mock' };
+
+        if (idempotencyKey) {
+            if (sendResult && sendResult.success) {
+                await this._recordDurableSuccess({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    result: sendResult,
+                    providerMessageId: sendResult.messageId || sendResult.messages?.[0]?.id
+                });
+            } else {
+                const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
+                    ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
+                    String(sendResult?.error || '').toLowerCase().includes('timeout');
+
+                await this._recordDurableFailure({
+                    idempotencyKey,
+                    claimGeneration: dispatchClaim?.claimGeneration,
+                    error: sendResult?.error || 'Media send failed',
+                    rawError: sendResult?.raw || null,
+                    isAmbiguous: isAmbiguousTimeout
+                });
+            }
+        }
+
+        return sendResult;
     }
 
     /**

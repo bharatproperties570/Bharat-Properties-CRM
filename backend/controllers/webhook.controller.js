@@ -475,6 +475,20 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         { $set: activityUpdate }
                     );
 
+                    // 3. Synchronize status and reconcile ambiguous timeouts on WhatsAppDispatch ledger
+                    try {
+                        await WhatsAppService.reconcileWebhookStatus({
+                            id: status.id,
+                            status: statusVal,
+                            timestamp: status.timestamp,
+                            recipient_id: status.recipient_id,
+                            biz_opaque_callback_data: status.biz_opaque_callback_data,
+                            errors: status.errors
+                        });
+                    } catch (dispatchSyncErr) {
+                        console.error('[WhatsApp Webhook] Dispatch status reconciliation error:', dispatchSyncErr.message);
+                    }
+
                     RealtimeHub.emitStatusUpdate({
                         messageId: status.id,
                         status: statusVal,
