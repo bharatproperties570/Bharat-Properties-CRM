@@ -31,7 +31,7 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
 import fs from 'fs';
 import DealVerificationService from '../services/DealVerificationService.js';
-import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage } from '../utils/whatsappWebhook.utils.js';
+import { extractWhatsAppChanges, extractCoexistenceChanges, isValidMetaSignature, isValidVerifyToken, normalizeTextMessage, isMonotonicStatusTransition } from '../utils/whatsappWebhook.utils.js';
 import { autoTriggerStageChange } from './activity.controller.js';
 import RealtimeHub from '../services/RealtimeHub.js';
 
@@ -432,13 +432,52 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
         setImmediate(async () => {
             try {
                 for (const { status } of statuses) {
-                    await Conversation.updateOne(
-                        { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] },
-                        { $set: { 'messages.$.metadata.status': status.status, 'messages.$.metadata.statusAt': new Date(Number(status.timestamp || 0) * 1000) } }
+                    const statusVal = status.status;
+                    const statusTimestamp = new Date(Number(status.timestamp || 0) * 1000);
+
+                    // 1. Monotonic status progression on Conversation message
+                    const conv = await Conversation.findOne(
+                        { $or: [{ 'messages.metadata.waId': status.id }, { 'messages.waId': status.id }] }
+                    ).lean();
+
+                    if (conv && conv.messages) {
+                        const targetMsg = conv.messages.find(m => m.metadata?.waId === status.id || m.waId === status.id);
+                        if (targetMsg) {
+                            const currentStatus = targetMsg.metadata?.status || targetMsg.status;
+                            if (isMonotonicStatusTransition(currentStatus, statusVal)) {
+                                const updateFields = {
+                                    'messages.$.metadata.status': statusVal,
+                                    'messages.$.metadata.statusAt': statusTimestamp
+                                };
+                                if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                                    updateFields['messages.$.metadata.error'] = status.errors[0];
+                                }
+                                await Conversation.updateOne(
+                                    { _id: conv._id, 'messages._id': targetMsg._id },
+                                    { $set: updateFields }
+                                );
+                            } else {
+                                console.log(`[WhatsApp Webhook] Regressive status '${statusVal}' ignored for message ${status.id} (current: '${currentStatus}')`);
+                            }
+                        }
+                    }
+
+                    // 2. Synchronize delivery status onto Activity timeline
+                    const activityUpdate = {
+                        'details.status': statusVal,
+                        'details.statusAt': statusTimestamp
+                    };
+                    if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                        activityUpdate['details.error'] = status.errors[0];
+                    }
+                    await Activity.updateMany(
+                        { 'details.waId': status.id },
+                        { $set: activityUpdate }
                     );
+
                     RealtimeHub.emitStatusUpdate({
                         messageId: status.id,
-                        status: status.status,
+                        status: statusVal,
                         phone: status.recipient_id
                     });
                 }

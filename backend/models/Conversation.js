@@ -80,6 +80,15 @@ const conversationSchema = new mongoose.Schema({
         enum: ['active', 'handed_off', 'resolved'],
         default: 'active'
     },
+    isOptedOut: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    optedOutAt: {
+        type: Date,
+        default: null
+    },
     currentUseCase: {
         type: String,
         default: 'whatsapp_live'

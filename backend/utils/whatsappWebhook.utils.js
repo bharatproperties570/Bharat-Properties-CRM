@@ -48,3 +48,58 @@ export const extractCoexistenceChanges = (body) => (body?.entry || []).flatMap(e
         change?.field === 'history'
     ).map(change => ({ field: change.field, value: change.value || {} }))
 );
+
+/**
+ * Canonical status hierarchy for WhatsApp outbound messages.
+ * Higher number indicates further along in the message lifecycle.
+ */
+export const STATUS_WEIGHTS = {
+    'queued': 0,
+    'accepted': 1,
+    'sent': 2,
+    'delivered': 3,
+    'read': 4,
+    'failed': -1
+};
+
+/**
+ * Checks whether an incoming status transition is monotonic.
+ * Prevents late or out-of-order 'sent' or 'delivered' events from regressing
+ * a message that has already been recorded as 'read' or 'delivered'.
+ */
+export const isMonotonicStatusTransition = (currentStatus, newStatus) => {
+    if (!currentStatus) return true;
+    if (newStatus === 'failed') return true; // Failure is terminal/authoritative
+    if (currentStatus === 'failed') return false; // Once marked failed, do not regress to sent/delivered
+    const currentWeight = STATUS_WEIGHTS[currentStatus] ?? 0;
+    const newWeight = STATUS_WEIGHTS[newStatus] ?? 0;
+    return newWeight >= currentWeight;
+};
+
+export const OPT_OUT_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'optout', 'opt-out', 'halt', 'roko', 'band karo'];
+export const OPT_IN_KEYWORDS = ['start', 'unstop', 'optin', 'opt-in', 'subscribe', 'shuru karo'];
+
+export const isOptOutMessage = (text) => {
+    if (!text || typeof text !== 'string') return false;
+    const clean = text.trim().toLowerCase();
+    return OPT_OUT_KEYWORDS.includes(clean);
+};
+
+export const isOptInMessage = (text) => {
+    if (!text || typeof text !== 'string') return false;
+    const clean = text.trim().toLowerCase();
+    return OPT_IN_KEYWORDS.includes(clean);
+};
+
+/**
+ * Redacts tokens, keys, and authorization headers from strings or objects.
+ */
+export const sanitizeSecrets = (str) => {
+    if (!str) return str;
+    const text = typeof str === 'string' ? str : JSON.stringify(str);
+    return text
+        .replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{8,}/gi, '$1[REDACTED]')
+        .replace(/((?:access_)?token=)[a-zA-Z0-9_\-\.]{8,}/gi, '$1[REDACTED]')
+        .replace(/(systemUserToken":\s*")[^"]+/gi, '$1[REDACTED]')
+        .replace(/(appSecret":\s*")[^"]+/gi, '$1[REDACTED]');
+};

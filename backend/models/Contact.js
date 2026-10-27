@@ -128,6 +128,11 @@ const ContactSchema = new mongoose.Schema({
     stage: { type: String, default: "New" },
     status: { type: String, default: "Active" },
     addOn: [String],
+
+    // Communication & Consent Preferences (Phase 9)
+    whatsappOptOut: { type: Boolean, default: false, index: true },
+    whatsappOptOutAt: { type: Date },
+    whatsappOptInAt: { type: Date },
     groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ContactGroup', index: true }],
     isActionable: { type: Boolean, default: false },
     googleContactId: { type: String, index: true },
