@@ -35,6 +35,47 @@ describe('ConfirmDialog Primitive', () => {
     expect(handleCancel).toHaveBeenCalledTimes(1);
   });
 
+  // --- Fix 3: Accessible description and title binding on role="alertdialog" ---
+
+  it('associates both title (aria-labelledby) and message (aria-describedby) with role="alertdialog"', () => {
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Archive Inventory Unit"
+        message="This action will remove the property from active public searches."
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    );
+
+    const dialog = screen.getByRole('alertdialog');
+    const title = screen.getByText('Archive Inventory Unit');
+    const message = screen.getByText('This action will remove the property from active public searches.');
+
+    expect(dialog).toHaveAttribute('aria-labelledby', title.id);
+    expect(dialog).toHaveAttribute('aria-describedby', message.id);
+    expect(title.id).toBeTruthy();
+    expect(message.id).toBeTruthy();
+  });
+
+  it('preserves caller-provided aria-describedby and aria-labelledby overrides', () => {
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Custom Title"
+        message="Custom Message"
+        aria-labelledby="custom-title-id"
+        aria-describedby="custom-desc-id"
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    );
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveAttribute('aria-labelledby', 'custom-title-id');
+    expect(dialog).toHaveAttribute('aria-describedby', 'custom-desc-id');
+  });
+
   it('renders danger variant button for destructive confirmations', () => {
     render(
       <ConfirmDialog

@@ -12,7 +12,9 @@ export const ConfirmDialog = ({
   cancelText = 'Cancel',
   confirmVariant = 'primary', // primary, danger
   isLoading = false,
-  icon = 'fas fa-exclamation-triangle'
+  icon = 'fas fa-exclamation-triangle',
+  'aria-describedby': callerAriaDescribedBy,
+  'aria-labelledby': callerAriaLabelledBy
 }) => {
   const titleId = useId();
   const descId = useId();
@@ -53,7 +55,8 @@ export const ConfirmDialog = ({
       closeOnEscape={!isLoading}
       closeOnBackdrop={!isLoading}
       role="alertdialog"
-      aria-labelledby={titleId}
+      aria-labelledby={callerAriaLabelledBy || titleId}
+      aria-describedby={callerAriaDescribedBy || descId}
       footer={footer}
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px', paddingTop: '12px' }}>
