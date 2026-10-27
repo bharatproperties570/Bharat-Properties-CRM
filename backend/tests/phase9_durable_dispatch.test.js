@@ -2,6 +2,7 @@ process.env.NODE_ENV = 'test';
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import axios from 'axios';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
@@ -755,5 +756,260 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const serialized = JSON.stringify(doc);
         assert.equal(serialized.includes('EAAG_super_sensitive_live_token'), false, 'Sensitive token must be redacted');
         assert.equal(serialized.includes('[REDACTED]'), true, 'Token must be replaced with [REDACTED]');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 18: Security Check: Rejects Correlation on Recipient or Token Mismatch
+    // ─────────────────────────────────────────────────────────────
+    it('18. Security Correlation Gate: Rejects correlation when callback token recipient does not match webhook recipient', async () => {
+        const mobile = '919811100018';
+        const idempotencyKey = 'durable_sec_test_018';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 1. Webhook arrives with valid opaque token BUT different recipient
+        const mismatchedWebhook = {
+            id: 'wamid.sec.spoof.018',
+            status: 'delivered',
+            timestamp: '1720000400',
+            recipient_id: '919899999999',
+            biz_opaque_callback_data: idempotencyKey
+        };
+
+        const mismatchRes = await WhatsAppService.reconcileWebhookStatus(mismatchedWebhook);
+        assert.equal(mismatchRes.reconciled, false);
+        assert.equal(mismatchRes.reason, 'SECURITY_RECIPIENT_MISMATCH');
+
+        // Verify dispatch was NOT bound or updated
+        const unchangedDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(unchangedDoc.status, 'AMBIGUOUS_TIMEOUT');
+        assert.equal(unchangedDoc.isAmbiguous, true);
+        assert.equal(unchangedDoc.providerMessageId, undefined);
+        assert.equal(unchangedDoc.reconciliationStatus, 'NONE');
+
+        // 2. Webhook arrives with non-existent token and unknown provider message ID
+        const unknownTokenWebhook = {
+            id: 'wamid.sec.unknown.018',
+            status: 'delivered',
+            timestamp: '1720000401',
+            recipient_id: '919899999999',
+            biz_opaque_callback_data: 'non_existent_unregistered_key'
+        };
+
+        const unknownRes = await WhatsAppService.reconcileWebhookStatus(unknownTokenWebhook);
+        assert.equal(unknownRes.reconciled, false);
+        assert.equal(unknownRes.reason, 'NO_MATCHING_DISPATCH');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 19: Manual Reconciliation Safety Gates & Audit Controls
+    // ─────────────────────────────────────────────────────────────
+    it('19. Manual Reconciliation Safety Gates: Enforces actorId, immutable recipient, collision prevention, and non-regression', async () => {
+        const mobile = '919811100019';
+        const idempotencyKey = 'durable_manual_rec_019';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 1. Rejects if actorId is missing (authorization check)
+        const noAuth = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019'
+        });
+        assert.equal(noAuth.success, false);
+        assert.ok(noAuth.error.includes('AUTHORIZATION_REQUIRED'));
+
+        // 2. Rejects if recipient does not match immutable dispatch recipient
+        const badRecipient = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: 'admin_usr_019',
+            recipient: '919800000000'
+        });
+        assert.equal(badRecipient.success, false);
+        assert.ok(badRecipient.error.includes('SECURITY_RECIPIENT_MISMATCH'));
+
+        // 3. Rejects targetStatus DISPATCHED without providerMessageId
+        const noMsgId = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            actorId: 'admin_usr_019'
+        });
+        assert.equal(noMsgId.success, false);
+        assert.ok(noMsgId.error.includes('PROVIDER_MESSAGE_ID_REQUIRED'));
+
+        // 4. Rejects providerMessageId collision with an existing dispatch
+        await WhatsAppDispatch.create({
+            idempotencyKey: 'durable_collision_donor_019',
+            recipient: '919811100099',
+            provider: 'META',
+            messageType: 'text',
+            status: 'DISPATCHED',
+            providerMessageId: 'wamid.existing.collision.019',
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        const collisionRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.existing.collision.019',
+            actorId: 'admin_usr_019',
+            recipient: mobile
+        });
+        assert.equal(collisionRes.success, false);
+        assert.ok(collisionRes.error.includes('PROVIDER_ID_COLLISION'));
+
+        // 5. Rejects regressive transition from confirmed delivered dispatch
+        await WhatsAppDispatch.create({
+            idempotencyKey: 'durable_delivered_immutable_019',
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'DISPATCHED',
+            deliveryStatus: 'delivered',
+            providerMessageId: 'wamid.confirmed.delivered.019',
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        const regressiveRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey: 'durable_delivered_immutable_019',
+            targetStatus: 'FAILED',
+            actorId: 'admin_usr_019',
+            recipient: mobile
+        });
+        assert.equal(regressiveRes.success, false);
+        assert.ok(regressiveRes.error.includes('REGRESSIVE_STATUS_FORBIDDEN'));
+
+        // 6. Successful manual reconciliation with complete audit trail
+        const successRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: 'admin_usr_019',
+            reason: 'Verified in Meta Business Manager message log',
+            recipient: mobile
+        });
+        assert.equal(successRes.success, true);
+        assert.equal(successRes.reconciled, true);
+        assert.equal(successRes.status, 'DISPATCHED');
+        assert.equal(successRes.reconciledBy, 'admin_usr_019');
+
+        const reconciledDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(reconciledDoc.status, 'DISPATCHED');
+        assert.equal(reconciledDoc.isAmbiguous, false);
+        assert.equal(reconciledDoc.reconciliationStatus, 'RECONCILED');
+        assert.equal(reconciledDoc.reconciledBy, 'admin_usr_019');
+        assert.equal(reconciledDoc.reconciliationReason, 'Verified in Meta Business Manager message log');
+        assert.equal(reconciledDoc.tenantId, null);
+
+        // Verify L1 cache is populated and subsequent replay succeeds
+        const replay = await WhatsAppService.sendMessage(mobile, 'Manual rec test', { idempotencyKey });
+        assert.equal(replay.success, true);
+        assert.equal(replay.alreadySent, true);
+        assert.equal(replay.messageId, 'wamid.manual.019');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 20: Outbound Callback Metadata Inclusion in All Send Methods
+    // ─────────────────────────────────────────────────────────────
+    it('20. Outbound Callback Metadata Inclusion: biz_opaque_callback_data is placed at root level for text, template, and media payloads', async () => {
+        const capturedCalls = [];
+        const originalPost = axios.post;
+        axios.post = async (url, payload, options) => {
+            capturedCalls.push({ url, payload, options });
+            return {
+                data: {
+                    messages: [{ id: `wamid.intercepted.${Date.now()}` }]
+                }
+            };
+        };
+
+        const prevMock = process.env.MOCK_MODE;
+        process.env.MOCK_MODE = 'false';
+
+        // Update active integration token so it does not trigger early mock return
+        await WhatsAppIntegration.updateOne(
+            { _id: activeMetaIntegration._id },
+            { $set: { 'credentials.systemUserToken': 'EAAG_valid_inspection_token' } }
+        );
+
+        try {
+            const config = {
+                phoneId: 'phone_durable_01',
+                token: 'EAAG_valid_inspection_token'
+            };
+
+            // 1. Text Dispatch via _sendViaMeta
+            await WhatsAppService._sendViaMeta('919811100020', 'Test text payload', config, {
+                idempotencyKey: 'key_outbound_text_020'
+            });
+
+            // 2. Template Dispatch via sendTemplate
+            await WhatsAppService.sendTemplate('919811100020', 'property_launch_alert', 'en_US', [], {
+                idempotencyKey: 'key_outbound_tpl_020'
+            });
+
+            // 3. Media Dispatch via _sendViaMeta
+            await WhatsAppService._sendViaMeta('919811100020', 'Layout Brochure', config, {
+                type: 'document',
+                mediaUrl: 'https://cdn.bharatproperties.co/brochures/sector10.pdf',
+                filename: 'sector10.pdf',
+                idempotencyKey: 'key_outbound_media_020'
+            });
+
+            assert.equal(capturedCalls.length, 3, 'All 3 send methods must call Meta messages endpoint');
+
+            // Verify Text Payload
+            const textCall = capturedCalls[0];
+            assert.equal(textCall.payload.messaging_product, 'whatsapp');
+            assert.equal(textCall.payload.type, 'text');
+            assert.equal(textCall.payload.to, '919811100020');
+            assert.equal(textCall.payload.biz_opaque_callback_data, 'key_outbound_text_020');
+            assert.equal(textCall.options.headers['Idempotency-Key'], 'key_outbound_text_020');
+
+            // Verify Template Payload
+            const tplCall = capturedCalls[1];
+            assert.equal(tplCall.payload.messaging_product, 'whatsapp');
+            assert.equal(tplCall.payload.type, 'template');
+            assert.equal(tplCall.payload.to, '919811100020');
+            assert.equal(tplCall.payload.biz_opaque_callback_data, 'key_outbound_tpl_020');
+            assert.equal(tplCall.options.headers['Idempotency-Key'], 'key_outbound_tpl_020');
+
+            // Verify Media Payload
+            const mediaCall = capturedCalls[2];
+            assert.equal(mediaCall.payload.messaging_product, 'whatsapp');
+            assert.equal(mediaCall.payload.type, 'document');
+            assert.equal(mediaCall.payload.to, '919811100020');
+            assert.equal(mediaCall.payload.biz_opaque_callback_data, 'key_outbound_media_020');
+            assert.equal(mediaCall.options.headers['Idempotency-Key'], 'key_outbound_media_020');
+        } finally {
+            axios.post = originalPost;
+            process.env.MOCK_MODE = prevMock;
+            await WhatsAppIntegration.updateOne(
+                { _id: activeMetaIntegration._id },
+                { $set: { 'credentials.systemUserToken': 'EAAG_test_durable_secret_token' } }
+            );
+        }
     });
 });

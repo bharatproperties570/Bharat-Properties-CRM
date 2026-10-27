@@ -694,6 +694,111 @@ class WhatsAppService {
         };
     }
 
+    /**
+     * Manually reconcile an ambiguous or failed dispatch record by an authorized operator.
+     * Enforces:
+     * 1. Authorization & actor requirement (actorId is mandatory)
+     * 2. Fail-closed database availability verification
+     * 3. Immutable recipient matching verification
+     * 4. State transition rules (DISPATCHED requires providerMessageId; cannot regress confirmed delivery)
+     * 5. Collision prevention on providerMessageId
+     * 6. Comprehensive audit metadata (reconciledBy, reconciledAt, reason)
+     */
+    async manualReconcileDispatch({ idempotencyKey, targetStatus, providerMessageId, actorId, reason, recipient } = {}) {
+        if (!actorId || typeof actorId !== 'string' || !actorId.trim()) {
+            return { success: false, error: 'AUTHORIZATION_REQUIRED: actorId is mandatory for manual reconciliation' };
+        }
+        if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+            return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
+        }
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return { success: false, error: 'DATABASE_UNAVAILABLE: Cannot perform manual reconciliation while database is disconnected' };
+        }
+
+        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+        const dispatch = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        if (!dispatch) {
+            return { success: false, error: 'DISPATCH_NOT_FOUND' };
+        }
+
+        // Immutable recipient check
+        if (recipient) {
+            const normProvided = this._normalizeTarget(recipient) || String(recipient);
+            const normDispatch = this._normalizeTarget(dispatch.recipient) || String(dispatch.recipient);
+            if (normProvided !== normDispatch && dispatch.recipient !== recipient) {
+                return { success: false, error: 'SECURITY_RECIPIENT_MISMATCH: Provided recipient does not match dispatch record' };
+            }
+        }
+
+        const normStatus = String(targetStatus || '').toUpperCase();
+        if (!['DISPATCHED', 'FAILED'].includes(normStatus)) {
+            return { success: false, error: 'INVALID_STATUS: Manual reconciliation targetStatus must be DISPATCHED or FAILED' };
+        }
+
+        if (normStatus === 'DISPATCHED') {
+            if (!providerMessageId || typeof providerMessageId !== 'string' || !providerMessageId.trim()) {
+                return { success: false, error: 'PROVIDER_MESSAGE_ID_REQUIRED: providerMessageId is required to reconcile dispatch as DISPATCHED' };
+            }
+            const cleanMsgId = providerMessageId.trim();
+            const collision = await WhatsAppDispatch.findOne({ providerMessageId: cleanMsgId }).lean();
+            if (collision && collision._id.toString() !== dispatch._id.toString()) {
+                return { success: false, error: `PROVIDER_ID_COLLISION: Provider message ID is already bound to dispatch '${collision.idempotencyKey}'` };
+            }
+        }
+
+        // Prevent regressive transition from confirmed delivered states to failed
+        const currentDelivery = dispatch.deliveryStatus || dispatch.responsePayload?.deliveryStatus;
+        if (['delivered', 'read'].includes(currentDelivery) && normStatus === 'FAILED') {
+            return { success: false, error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED' };
+        }
+
+        const updateFields = {
+            status: normStatus,
+            isAmbiguous: false,
+            reconciledAt: new Date(),
+            reconciledBy: String(actorId).trim(),
+            reconciliationStatus: 'RECONCILED',
+            reconciliationReason: String(reason || 'MANUAL_OPERATOR_RECONCILIATION').trim()
+        };
+
+        if (normStatus === 'DISPATCHED') {
+            const cleanMsgId = providerMessageId.trim();
+            updateFields.providerMessageId = cleanMsgId;
+            updateFields['responsePayload.success'] = true;
+            updateFields['responsePayload.messageId'] = cleanMsgId;
+            updateFields['responsePayload.providerMessageId'] = cleanMsgId;
+        } else {
+            updateFields['responsePayload.success'] = false;
+            updateFields.errorDetails = this.sanitizeSecrets({
+                error: String(reason || 'Manually marked as failed by operator').trim(),
+                actorId: String(actorId).trim()
+            });
+        }
+
+        const updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+
+        if (updated && updated.status === 'DISPATCHED') {
+            const cachedRes = {
+                ...(updated.responsePayload || {}),
+                success: true,
+                messageId: updated.providerMessageId,
+                providerMessageId: updated.providerMessageId
+            };
+            this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+        }
+
+        return {
+            success: true,
+            reconciled: true,
+            idempotencyKey: updated.idempotencyKey,
+            status: updated.status,
+            providerMessageId: updated.providerMessageId,
+            reconciledBy: updated.reconciledBy,
+            reconciledAt: updated.reconciledAt,
+            reconciliationReason: updated.reconciliationReason
+        };
+    }
+
     async isRecipientOptedOut(mobile) {
         if (!mobile) return false;
         const digits = String(mobile).replace(/\D/g, '');

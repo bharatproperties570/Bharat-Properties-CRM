@@ -85,6 +85,9 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
     reconciledAt: {
         type: Date
     },
+    reconciledBy: {
+        type: String
+    },
     reconciliationReason: {
         type: String
     },
