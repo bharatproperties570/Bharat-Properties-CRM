@@ -4,6 +4,7 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import { isMonotonicStatusTransition } from '../utils/whatsappWebhook.utils.js';
 
 // 🧠 SENIOR PROFESSIONAL: Resilience Layer
 // Configure automated retries for transient failures (Network, 5xx, 429)
@@ -319,6 +320,7 @@ class WhatsAppService {
                     claimGeneration: 1,
                     claimedAt: now,
                     claimWorkerId: workerId,
+                    correlationId: String(idempotencyKey).slice(0, 512),
                     requestPayload: payload,
                     requestPayloadHash: payloadHash,
                     tenantId: null
@@ -470,6 +472,7 @@ class WhatsAppService {
                 status: targetStatus,
                 isAmbiguous: false,
                 reconciledAt: new Date(),
+                reconciliationStatus: 'RECONCILED',
                 reconciliationReason: resolutionReason
             }
         };
@@ -482,9 +485,213 @@ class WhatsAppService {
             { new: true }
         );
         if (reconciled && targetStatus === 'DISPATCHED') {
-            this._setIdempotentResult(idempotencyKey, reconciled.responsePayload || { messageId: providerMessageId, success: true });
+            this._setIdempotentResult(idempotencyKey, reconciled.responsePayload || { messageId: providerMessageId, success: true }, reconciled.recipient, reconciled.requestPayloadHash);
         }
         return reconciled;
+    }
+
+    /**
+     * Reconcile outbound WhatsAppDispatch records with incoming status webhook
+     * Enforces deterministic correlation, monotonic status progression, and
+     * explicit manual reconciliation flagging when correlation data is ambiguous.
+     */
+    async reconcileWebhookStatus(statusObj) {
+        if (!statusObj || !statusObj.id) {
+            return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
+        }
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            console.error('[WhatsAppService] Database unavailable during webhook status reconciliation');
+            return { reconciled: false, reason: 'DATABASE_UNAVAILABLE' };
+        }
+
+        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+        const providerMessageId = statusObj.id;
+        const statusVal = String(statusObj.status || '').toLowerCase();
+        const statusTimestamp = statusObj.timestamp
+            ? new Date(parseInt(statusObj.timestamp, 10) * 1000)
+            : new Date();
+        const rawRecipient = statusObj.recipient_id;
+        const normalizedRecipient = this._normalizeTarget(rawRecipient) || String(rawRecipient || '');
+        const opaqueCallbackData = statusObj.biz_opaque_callback_data || null;
+
+        // 1. Direct Match: Check if a dispatch record already possesses this providerMessageId
+        let dispatch = await WhatsAppDispatch.findOne({ providerMessageId }).lean();
+
+        if (dispatch) {
+            // Check monotonic delivery status transition
+            const currentDeliveryStatus = dispatch.deliveryStatus || dispatch.responsePayload?.deliveryStatus || null;
+            if (!isMonotonicStatusTransition(currentDeliveryStatus, statusVal)) {
+                console.log(`[WhatsAppService] Regressive status '${statusVal}' ignored for dispatch ${dispatch.idempotencyKey} (current: '${currentDeliveryStatus}')`);
+                return {
+                    reconciled: false,
+                    reason: 'REGRESSIVE_STATUS_IGNORED',
+                    idempotencyKey: dispatch.idempotencyKey,
+                    currentStatus: currentDeliveryStatus,
+                    attemptedStatus: statusVal
+                };
+            }
+
+            // Check if repeated webhook delivery (idempotency check)
+            if (currentDeliveryStatus === statusVal && dispatch.status !== 'AMBIGUOUS_TIMEOUT') {
+                return {
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: dispatch.idempotencyKey,
+                    status: dispatch.status,
+                    deliveryStatus: statusVal
+                };
+            }
+
+            // Update dispatch
+            const updateFields = {
+                deliveryStatus: statusVal,
+                deliveryStatusAt: statusTimestamp,
+                isAmbiguous: false,
+                'responsePayload.deliveryStatus': statusVal,
+                'responsePayload.deliveryStatusAt': statusTimestamp,
+                reconciledAt: new Date(),
+                reconciliationStatus: 'RECONCILED',
+                reconciliationReason: 'DIRECT_PROVIDER_MESSAGE_ID'
+            };
+            if (statusVal === 'failed') {
+                updateFields.status = 'FAILED';
+                updateFields['responsePayload.success'] = false;
+                if (statusObj.errors && statusObj.errors.length > 0) {
+                    updateFields.errorDetails = this.sanitizeSecrets(statusObj.errors[0]);
+                }
+            } else if (dispatch.status !== 'DISPATCHED') {
+                updateFields.status = 'DISPATCHED';
+                updateFields['responsePayload.success'] = true;
+            }
+
+            const updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+            if (updated && updated.status === 'DISPATCHED') {
+                const cachedRes = {
+                    ...(updated.responsePayload || {}),
+                    success: true,
+                    messageId: providerMessageId,
+                    providerMessageId
+                };
+                this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+            }
+            return {
+                reconciled: true,
+                idempotencyKey: updated.idempotencyKey,
+                status: updated.status,
+                deliveryStatus: statusVal
+            };
+        }
+
+        // 2. Deterministic Correlation via biz_opaque_callback_data (idempotencyKey / correlationId)
+        if (opaqueCallbackData) {
+            const candidateByOpaque = await WhatsAppDispatch.findOne({
+                $or: [{ idempotencyKey: opaqueCallbackData }, { correlationId: opaqueCallbackData }]
+            }).lean();
+
+            if (candidateByOpaque) {
+                // Verified safety check: recipient must match
+                const candidateRecipient = this._normalizeTarget(candidateByOpaque.recipient) || candidateByOpaque.recipient;
+                if (candidateRecipient !== normalizedRecipient && candidateByOpaque.recipient !== rawRecipient) {
+                    console.error(`[WhatsAppService] Security mismatch: biz_opaque_callback_data '${opaqueCallbackData}' recipient '${candidateRecipient}' does not match webhook recipient '${normalizedRecipient}'`);
+                    return {
+                        reconciled: false,
+                        reason: 'SECURITY_RECIPIENT_MISMATCH',
+                        idempotencyKey: opaqueCallbackData
+                    };
+                }
+
+                // Deterministic correlation verified!
+                const currentDelivery = candidateByOpaque.deliveryStatus || candidateByOpaque.responsePayload?.deliveryStatus || null;
+                if (!isMonotonicStatusTransition(currentDelivery, statusVal)) {
+                    return {
+                        reconciled: false,
+                        reason: 'REGRESSIVE_STATUS_IGNORED',
+                        idempotencyKey: candidateByOpaque.idempotencyKey
+                    };
+                }
+
+                const updateFields = {
+                    providerMessageId,
+                    deliveryStatus: statusVal,
+                    deliveryStatusAt: statusTimestamp,
+                    isAmbiguous: false,
+                    'responsePayload.success': true,
+                    'responsePayload.deliveryStatus': statusVal,
+                    'responsePayload.deliveryStatusAt': statusTimestamp,
+                    'responsePayload.messageId': providerMessageId,
+                    reconciledAt: new Date(),
+                    reconciliationStatus: 'RECONCILED',
+                    reconciliationReason: 'DETERMINISTIC_OPAQUE_CALLBACK_DATA'
+                };
+                if (statusVal === 'failed') {
+                    updateFields.status = 'FAILED';
+                    updateFields['responsePayload.success'] = false;
+                    if (statusObj.errors && statusObj.errors.length > 0) {
+                        updateFields.errorDetails = this.sanitizeSecrets(statusObj.errors[0]);
+                    }
+                } else {
+                    updateFields.status = 'DISPATCHED';
+                }
+
+                const updated = await WhatsAppDispatch.findByIdAndUpdate(candidateByOpaque._id, { $set: updateFields }, { new: true });
+                if (updated && updated.status === 'DISPATCHED') {
+                    const cachedRes = {
+                        ...(updated.responsePayload || {}),
+                        success: true,
+                        messageId: providerMessageId,
+                        providerMessageId
+                    };
+                    this._setIdempotentResult(updated.idempotencyKey, cachedRes, updated.recipient, updated.requestPayloadHash);
+                }
+                return {
+                    reconciled: true,
+                    correlatedViaOpaqueData: true,
+                    idempotencyKey: updated.idempotencyKey,
+                    providerMessageId,
+                    status: updated.status,
+                    deliveryStatus: statusVal
+                };
+            }
+        }
+
+        // 3. Fallback / Ambiguous Safety Gate:
+        // Provider message ID is unknown, and biz_opaque_callback_data is missing or unmapped.
+        // Check if there are any AMBIGUOUS_TIMEOUT dispatches for this recipient.
+        const ambiguousForRecipient = await WhatsAppDispatch.find({
+            recipient: { $in: [normalizedRecipient, rawRecipient] },
+            $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }]
+        }).lean();
+
+        if (ambiguousForRecipient.length > 0) {
+            // DO NOT GUESS! DO NOT ARBITRARILY BIND TO ANY DISPATCH!
+            // Retain ambiguous state and flag records as requiring manual reconciliation.
+            await WhatsAppDispatch.updateMany(
+                { _id: { $in: ambiguousForRecipient.map(d => d._id) } },
+                {
+                    $set: {
+                        reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED',
+                        reconciliationReason: `INSUFFICIENT_CORRELATION_DATA: Webhook ${providerMessageId} arrived without matching opaque correlation token. ${ambiguousForRecipient.length} ambiguous dispatch(es) exist for recipient.`
+                    }
+                }
+            );
+
+            console.warn(`[WhatsAppService] Webhook ${providerMessageId} cannot be safely correlated: Missing deterministic correlation token. Flagged ${ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
+
+            return {
+                reconciled: false,
+                reason: 'MANUAL_RECONCILIATION_REQUIRED',
+                ambiguousCount: ambiguousForRecipient.length,
+                providerMessageId,
+                recipient: normalizedRecipient
+            };
+        }
+
+        // No matching dispatch found and no ambiguous records exist
+        return {
+            reconciled: false,
+            reason: 'NO_MATCHING_DISPATCH',
+            providerMessageId
+        };
     }
 
     async isRecipientOptedOut(mobile) {
@@ -1063,6 +1270,7 @@ class WhatsAppService {
             };
             if (options && options.idempotencyKey) {
                 reqHeaders['Idempotency-Key'] = options.idempotencyKey;
+                payload.biz_opaque_callback_data = String(options.idempotencyKey).slice(0, 512);
             }
 
             const response = await axios.post(url, payload, {
@@ -1284,16 +1492,18 @@ class WhatsAppService {
                 'Authorization': `Bearer ${metaConfig.token}`,
                 'Content-Type':  'application/json',
             };
-            if (options && options.idempotencyKey) {
-                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
-            }
-
-            const response = await axios.post(url, {
+            const postBody = {
                 messaging_product: 'whatsapp',
                 to:                toNumber,
                 type:              'template',
                 template:          templatePayload,
-            }, {
+            };
+            if (options && options.idempotencyKey) {
+                reqHeaders['Idempotency-Key'] = options.idempotencyKey;
+                postBody.biz_opaque_callback_data = String(options.idempotencyKey).slice(0, 512);
+            }
+
+            const response = await axios.post(url, postBody, {
                 headers: reqHeaders,
                 timeout: 20000,
             });

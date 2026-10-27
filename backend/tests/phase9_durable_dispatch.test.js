@@ -287,16 +287,25 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         assert.equal(retryResult.code, 'AMBIGUOUS_TIMEOUT_BLOCKED');
         assert.equal(retryResult.isAmbiguous, true);
 
-        // Now simulate reconciliation (e.g. Webhook arrives or operator confirms)
-        const reconciled = await WhatsAppService.reconcileAmbiguousDispatch(idempotencyKey, {
-            providerMessageId: 'wamid.meta.reconciled.999',
-            status: 'DISPATCHED',
-            resolutionReason: 'Meta delivery webhook confirmed receipt'
-        });
-        assert.ok(reconciled);
-        assert.equal(reconciled.status, 'DISPATCHED');
-        assert.equal(reconciled.isAmbiguous, false);
-        assert.equal(reconciled.providerMessageId, 'wamid.meta.reconciled.999');
+        // Now simulate reconciliation via incoming Meta delivery status webhook with biz_opaque_callback_data
+        const webhookStatus = {
+            id: 'wamid.meta.reconciled.999',
+            status: 'delivered',
+            timestamp: String(Math.floor(Date.now() / 1000)),
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey
+        };
+        const recResult = await WhatsAppService.reconcileWebhookStatus(webhookStatus);
+        assert.equal(recResult.reconciled, true);
+        assert.equal(recResult.correlatedViaOpaqueData, true);
+        assert.equal(recResult.providerMessageId, 'wamid.meta.reconciled.999');
+
+        const reconciledDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(reconciledDoc.status, 'DISPATCHED');
+        assert.equal(reconciledDoc.isAmbiguous, false);
+        assert.equal(reconciledDoc.providerMessageId, 'wamid.meta.reconciled.999');
+        assert.equal(reconciledDoc.deliveryStatus, 'delivered');
+        assert.equal(reconciledDoc.reconciliationStatus, 'RECONCILED');
 
         // Subsequent send request now returns the reconciled idempotent response
         const postReconciliation = await WhatsAppService.sendMessage(mobile, 'Ambiguous test', { idempotencyKey });
@@ -458,5 +467,293 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const serialized = JSON.stringify(doc);
         assert.equal(serialized.includes('EAAG_top_secret_token'), false, 'Bearer token must be redacted');
         assert.equal(serialized.includes('EAAG_system_user_secret'), false, 'System user token must be redacted');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 12: Webhook with Known Provider Message ID & Monotonic Progression
+    // ─────────────────────────────────────────────────────────────
+    it('12. Known Provider Message ID: Webhook status progression advances deliveryStatus monotonically', async () => {
+        const mobile = '919811100012';
+        const idempotencyKey = 'durable_rec_known_012';
+        const providerMessageId = 'wamid.known.012';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'DISPATCHED',
+            deliveryStatus: 'sent',
+            providerMessageId,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 1. Deliver webhook status 'delivered'
+        const deliveredWebhook = {
+            id: providerMessageId,
+            status: 'delivered',
+            timestamp: '1720000000',
+            recipient_id: mobile
+        };
+        const resDelivered = await WhatsAppService.reconcileWebhookStatus(deliveredWebhook);
+        assert.equal(resDelivered.reconciled, true);
+        assert.equal(resDelivered.deliveryStatus, 'delivered');
+
+        const docAfterDelivered = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(docAfterDelivered.deliveryStatus, 'delivered');
+        assert.equal(docAfterDelivered.reconciliationStatus, 'RECONCILED');
+
+        // 2. Deliver webhook status 'read'
+        const readWebhook = {
+            id: providerMessageId,
+            status: 'read',
+            timestamp: '1720000010',
+            recipient_id: mobile
+        };
+        const resRead = await WhatsAppService.reconcileWebhookStatus(readWebhook);
+        assert.equal(resRead.reconciled, true);
+        assert.equal(resRead.deliveryStatus, 'read');
+
+        const docAfterRead = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(docAfterRead.deliveryStatus, 'read');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 13: Multiple Ambiguous Records & Insufficient Correlation Webhook
+    // ─────────────────────────────────────────────────────────────
+    it('13. Insufficient Correlation Gate: Multiple ambiguous records for same recipient retain ambiguous state without guessing', async () => {
+        const mobile = '919811100013';
+
+        // Pre-seed 2 ambiguous timeout records for the same recipient
+        await WhatsAppDispatch.create({
+            idempotencyKey: 'durable_ambiguous_rec_13a',
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+        await WhatsAppDispatch.create({
+            idempotencyKey: 'durable_ambiguous_rec_13b',
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // Webhook arrives with unknown provider message ID and NO biz_opaque_callback_data
+        const unknownWebhook = {
+            id: 'wamid.unknown.ambiguous.013',
+            status: 'delivered',
+            timestamp: '1720000050',
+            recipient_id: mobile
+            // biz_opaque_callback_data is omitted!
+        };
+
+        const res = await WhatsAppService.reconcileWebhookStatus(unknownWebhook);
+        assert.equal(res.reconciled, false);
+        assert.equal(res.reason, 'MANUAL_RECONCILIATION_REQUIRED');
+        assert.equal(res.ambiguousCount, 2);
+
+        // Verify BOTH records retain AMBIGUOUS_TIMEOUT status and are flagged for manual review
+        const records = await WhatsAppDispatch.find({ recipient: mobile }).lean();
+        assert.equal(records.length, 2);
+        for (const rec of records) {
+            assert.equal(rec.status, 'AMBIGUOUS_TIMEOUT', 'Status must not be guessed or marked DISPATCHED');
+            assert.equal(rec.isAmbiguous, true, 'isAmbiguous must remain true');
+            assert.equal(rec.reconciliationStatus, 'MANUAL_RECONCILIATION_REQUIRED');
+            assert.equal(rec.providerMessageId, undefined, 'Provider ID must not be arbitrarily bound');
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 14: Duplicate and Out-of-Order Status Webhooks
+    // ─────────────────────────────────────────────────────────────
+    it('14. Webhook Idempotency & Out-of-Order Safety: Duplicate events are idempotent and regressive transitions are ignored', async () => {
+        const mobile = '919811100014';
+        const idempotencyKey = 'durable_rec_order_014';
+        const providerMessageId = 'wamid.order.014';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'DISPATCHED',
+            deliveryStatus: 'sent',
+            providerMessageId,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 1. First 'delivered' event
+        const res1 = await WhatsAppService.reconcileWebhookStatus({
+            id: providerMessageId,
+            status: 'delivered',
+            timestamp: '1720000100',
+            recipient_id: mobile
+        });
+        assert.equal(res1.reconciled, true);
+        assert.equal(res1.deliveryStatus, 'delivered');
+
+        // 2. Duplicate 'delivered' event (Idempotent replay)
+        const resDup = await WhatsAppService.reconcileWebhookStatus({
+            id: providerMessageId,
+            status: 'delivered',
+            timestamp: '1720000105',
+            recipient_id: mobile
+        });
+        assert.equal(resDup.reconciled, true);
+        assert.equal(resDup.alreadyReconciled, true);
+
+        // 3. Late out-of-order 'sent' event arriving after 'delivered'
+        const resRegressive = await WhatsAppService.reconcileWebhookStatus({
+            id: providerMessageId,
+            status: 'sent',
+            timestamp: '1720000090',
+            recipient_id: mobile
+        });
+        assert.equal(resRegressive.reconciled, false);
+        assert.equal(resRegressive.reason, 'REGRESSIVE_STATUS_IGNORED');
+
+        const docAfterSent = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(docAfterSent.deliveryStatus, 'delivered', 'Must remain delivered');
+
+        // 4. Advance to 'read'
+        const resRead = await WhatsAppService.reconcileWebhookStatus({
+            id: providerMessageId,
+            status: 'read',
+            timestamp: '1720000120',
+            recipient_id: mobile
+        });
+        assert.equal(resRead.reconciled, true);
+
+        // 5. Late out-of-order 'failed' event arriving after 'read'
+        const resFailedAfterRead = await WhatsAppService.reconcileWebhookStatus({
+            id: providerMessageId,
+            status: 'failed',
+            timestamp: '1720000125',
+            recipient_id: mobile
+        });
+        assert.equal(resFailedAfterRead.reconciled, false);
+        assert.equal(resFailedAfterRead.reason, 'REGRESSIVE_STATUS_IGNORED');
+
+        const docFinal = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(docFinal.deliveryStatus, 'read', 'Must remain read');
+        assert.equal(docFinal.status, 'DISPATCHED');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 15: Failed Delivery Webhook vs Ambiguous Provider Acceptance
+    // ─────────────────────────────────────────────────────────────
+    it('15. Delivery Failure Webhook: Explicit failure webhook transitions dispatch to FAILED with sanitized error', async () => {
+        const mobile = '919811100015';
+        const idempotencyKey = 'durable_rec_failed_015';
+
+        // Pre-create ambiguous timeout record
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // Webhook arrives from Meta indicating message was rejected/failed
+        const failureWebhook = {
+            id: 'wamid.failed.015',
+            status: 'failed',
+            timestamp: '1720000200',
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey,
+            errors: [{
+                code: 131026,
+                title: 'Message undeliverable',
+                message: 'Receiver is incapable of receiving this message'
+            }]
+        };
+
+        const res = await WhatsAppService.reconcileWebhookStatus(failureWebhook);
+        assert.equal(res.reconciled, true);
+        assert.equal(res.status, 'FAILED');
+        assert.equal(res.deliveryStatus, 'failed');
+
+        const doc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(doc.status, 'FAILED');
+        assert.equal(doc.isAmbiguous, false);
+        assert.equal(doc.deliveryStatus, 'failed');
+        assert.equal(doc.providerMessageId, 'wamid.failed.015');
+        assert.equal(doc.errorDetails.code, 131026);
+        assert.equal(doc.reconciliationStatus, 'RECONCILED');
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 16: Database Update Failure During Reconciliation
+    // ─────────────────────────────────────────────────────────────
+    it('16. Database Unavailable Gate: Fails safely with DATABASE_UNAVAILABLE when database is disconnected during reconciliation', async () => {
+        const originalReadyState = mongoose.connection.readyState;
+        Object.defineProperty(mongoose.connection, 'readyState', { value: 0, configurable: true });
+
+        try {
+            const res = await WhatsAppService.reconcileWebhookStatus({
+                id: 'wamid.db_down.016',
+                status: 'delivered',
+                recipient_id: '919811100016'
+            });
+            assert.equal(res.reconciled, false);
+            assert.equal(res.reason, 'DATABASE_UNAVAILABLE');
+        } finally {
+            delete mongoose.connection.readyState;
+        }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 17: Secret and PII Redaction During Webhook Reconciliation
+    // ─────────────────────────────────────────────────────────────
+    it('17. Webhook Secret Redaction: Errors containing bearer tokens are sanitized and tenantId is strictly null', async () => {
+        const mobile = '919811100017';
+        const idempotencyKey = 'durable_rec_redaction_017';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'CLAIMED',
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // Webhook error containing sensitive API token
+        const webhookWithError = {
+            id: 'wamid.redact.017',
+            status: 'failed',
+            timestamp: '1720000300',
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey,
+            errors: [{
+                code: 190,
+                message: 'Invalid authorization header: Bearer EAAG_super_sensitive_live_token_99999999'
+            }]
+        };
+
+        const res = await WhatsAppService.reconcileWebhookStatus(webhookWithError);
+        assert.equal(res.reconciled, true);
+
+        const doc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(doc.tenantId, null, 'tenantId must strictly remain null');
+
+        const serialized = JSON.stringify(doc);
+        assert.equal(serialized.includes('EAAG_super_sensitive_live_token'), false, 'Sensitive token must be redacted');
+        assert.equal(serialized.includes('[REDACTED]'), true, 'Token must be replaced with [REDACTED]');
     });
 });

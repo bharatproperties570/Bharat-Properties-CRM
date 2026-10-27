@@ -71,6 +71,29 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
     errorDetails: {
         type: mongoose.Schema.Types.Mixed
     },
+    correlationId: {
+        type: String,
+        index: true
+    },
+    deliveryStatus: {
+        type: String,
+        index: true
+    },
+    deliveryStatusAt: {
+        type: Date
+    },
+    reconciledAt: {
+        type: Date
+    },
+    reconciliationReason: {
+        type: String
+    },
+    reconciliationStatus: {
+        type: String,
+        enum: ['NONE', 'RECONCILED', 'MANUAL_RECONCILIATION_REQUIRED'],
+        default: 'NONE',
+        index: true
+    },
     tenantId: {
         type: mongoose.Schema.Types.ObjectId,
         default: null,
