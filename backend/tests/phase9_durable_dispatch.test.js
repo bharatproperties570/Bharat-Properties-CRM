@@ -837,27 +837,56 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         assert.equal(noAuth.success, false);
         assert.ok(noAuth.error.includes('AUTHORIZATION_REQUIRED'));
 
-        // 2. Rejects if recipient does not match immutable dispatch recipient
+        // 2. Rejects if actorId does not resolve to an active recognized user
+        const invalidActor = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: 'non_existent_actor_id_999'
+        });
+        assert.equal(invalidActor.success, false);
+        assert.ok(invalidActor.error.includes('AUTHORIZATION_DENIED'));
+
+        // 3. Rejects if actor account is suspended or inactive
+        const suspendedUser = await User.create({
+            fullName: 'Suspended Admin',
+            email: 'suspended_admin@bharatproperties.co',
+            password: 'hashed_password_secure',
+            role: testUser.role,
+            department: 'sales',
+            isActive: false,
+            status: 'suspended'
+        });
+        const suspendedRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: suspendedUser._id.toString()
+        });
+        assert.equal(suspendedRes.success, false);
+        assert.ok(suspendedRes.error.includes('AUTHORIZATION_DENIED'));
+
+        // 4. Rejects if recipient does not match immutable dispatch recipient
         const badRecipient = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: 'admin_usr_019',
+            actorId: testUser._id.toString(),
             recipient: '919800000000'
         });
         assert.equal(badRecipient.success, false);
         assert.ok(badRecipient.error.includes('SECURITY_RECIPIENT_MISMATCH'));
 
-        // 3. Rejects targetStatus DISPATCHED without providerMessageId
+        // 5. Rejects targetStatus DISPATCHED without providerMessageId
         const noMsgId = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
-            actorId: 'admin_usr_019'
+            actorId: testUser._id.toString()
         });
         assert.equal(noMsgId.success, false);
         assert.ok(noMsgId.error.includes('PROVIDER_MESSAGE_ID_REQUIRED'));
 
-        // 4. Rejects providerMessageId collision with an existing dispatch
+        // 6. Rejects providerMessageId collision with an existing dispatch
         await WhatsAppDispatch.create({
             idempotencyKey: 'durable_collision_donor_019',
             recipient: '919811100099',
@@ -873,13 +902,13 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.existing.collision.019',
-            actorId: 'admin_usr_019',
+            actorId: testUser._id.toString(),
             recipient: mobile
         });
         assert.equal(collisionRes.success, false);
         assert.ok(collisionRes.error.includes('PROVIDER_ID_COLLISION'));
 
-        // 5. Rejects regressive transition from confirmed delivered dispatch
+        // 7. Rejects regressive transition from confirmed delivered dispatch
         await WhatsAppDispatch.create({
             idempotencyKey: 'durable_delivered_immutable_019',
             recipient: mobile,
@@ -895,31 +924,31 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         const regressiveRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey: 'durable_delivered_immutable_019',
             targetStatus: 'FAILED',
-            actorId: 'admin_usr_019',
+            actorId: testUser._id.toString(),
             recipient: mobile
         });
         assert.equal(regressiveRes.success, false);
         assert.ok(regressiveRes.error.includes('REGRESSIVE_STATUS_FORBIDDEN'));
 
-        // 6. Successful manual reconciliation with complete audit trail
+        // 8. Successful manual reconciliation with complete audit trail
         const successRes = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
             targetStatus: 'DISPATCHED',
             providerMessageId: 'wamid.manual.019',
-            actorId: 'admin_usr_019',
+            actorId: testUser._id.toString(),
             reason: 'Verified in Meta Business Manager message log',
             recipient: mobile
         });
         assert.equal(successRes.success, true);
         assert.equal(successRes.reconciled, true);
         assert.equal(successRes.status, 'DISPATCHED');
-        assert.equal(successRes.reconciledBy, 'admin_usr_019');
+        assert.equal(successRes.reconciledBy, testUser._id.toString());
 
         const reconciledDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
         assert.equal(reconciledDoc.status, 'DISPATCHED');
         assert.equal(reconciledDoc.isAmbiguous, false);
         assert.equal(reconciledDoc.reconciliationStatus, 'RECONCILED');
-        assert.equal(reconciledDoc.reconciledBy, 'admin_usr_019');
+        assert.equal(reconciledDoc.reconciledBy, testUser._id.toString());
         assert.equal(reconciledDoc.reconciliationReason, 'Verified in Meta Business Manager message log');
         assert.equal(reconciledDoc.tenantId, null);
 
@@ -1011,5 +1040,73 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
                 { $set: { 'credentials.systemUserToken': 'EAAG_test_durable_secret_token' } }
             );
         }
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 21: Atomic Webhook Reconcile Concurrency & Uniqueness Collision Gate
+    // ─────────────────────────────────────────────────────────────
+    it('21. Atomic Webhook Reconcile Concurrency & Uniqueness Collision Gate: Monotonic query prevents concurrent race regression and MongoDB sparse unique index rejects duplicate provider IDs', async () => {
+        const mobile = '919811100021';
+        const idempotencyKey = 'durable_atomic_race_021';
+        const providerMessageId = 'wamid.atomic.race.021';
+
+        // 1. Pre-seed dispatch in AMBIGUOUS_TIMEOUT
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 2. Simulate concurrent arrival of 'delivered' webhook and late out-of-order 'sent' webhook
+        // Reconcile 'delivered' first
+        const deliveredWebhook = {
+            id: providerMessageId,
+            status: 'delivered',
+            timestamp: '1720000500',
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey
+        };
+        const deliveredRes = await WhatsAppService.reconcileWebhookStatus(deliveredWebhook);
+        assert.equal(deliveredRes.reconciled, true);
+        assert.equal(deliveredRes.deliveryStatus, 'delivered');
+
+        // Now late out-of-order 'sent' webhook arrives for the same dispatch
+        const lateSentWebhook = {
+            id: providerMessageId,
+            status: 'sent',
+            timestamp: '1720000490', // earlier timestamp
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey
+        };
+        const lateSentRes = await WhatsAppService.reconcileWebhookStatus(lateSentWebhook);
+        assert.equal(lateSentRes.reconciled, false);
+        assert.equal(lateSentRes.reason, 'REGRESSIVE_STATUS_IGNORED');
+
+        // Document must retain 'delivered' deliveryStatus
+        const postDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(postDoc.deliveryStatus, 'delivered', 'Atomic guard must prevent regressing delivered to sent');
+
+        // 3. Test MongoDB sparse unique index rejects duplicate providerMessageId across distinct dispatches
+        await assert.rejects(
+            async () => {
+                await WhatsAppDispatch.create({
+                    idempotencyKey: 'durable_unique_collision_021',
+                    recipient: '919811100099',
+                    provider: 'META',
+                    messageType: 'text',
+                    status: 'DISPATCHED',
+                    providerMessageId: providerMessageId, // DUPLICATE providerMessageId!
+                    claimGeneration: 1,
+                    tenantId: null
+                });
+            },
+            (err) => err.code === 11000,
+            'MongoDB sparse unique index must reject duplicate providerMessageId with E11000'
+        );
     });
 });

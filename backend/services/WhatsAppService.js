@@ -490,6 +490,23 @@ class WhatsAppService {
         return reconciled;
     }
 
+    _buildMonotonicQueryCondition(newStatus) {
+        const s = String(newStatus || '').toLowerCase();
+        if (s === 'read') {
+            return { deliveryStatus: { $ne: 'failed' } };
+        }
+        if (s === 'delivered') {
+            return { deliveryStatus: { $nin: ['read', 'failed'] } };
+        }
+        if (s === 'sent') {
+            return { deliveryStatus: { $nin: ['delivered', 'read', 'failed'] } };
+        }
+        if (s === 'failed') {
+            return { deliveryStatus: { $nin: ['delivered', 'read', 'failed'] } };
+        }
+        return {};
+    }
+
     /**
      * Reconcile outbound WhatsAppDispatch records with incoming status webhook
      * Enforces deterministic correlation, monotonic status progression, and
@@ -542,7 +559,7 @@ class WhatsAppService {
                 };
             }
 
-            // Update dispatch
+            // Update dispatch atomically with monotonic race condition guard
             const updateFields = {
                 deliveryStatus: statusVal,
                 deliveryStatusAt: statusTimestamp,
@@ -564,7 +581,38 @@ class WhatsAppService {
                 updateFields['responsePayload.success'] = true;
             }
 
-            const updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+            const monotonicCondition = this._buildMonotonicQueryCondition(statusVal);
+            const updateQuery = {
+                _id: dispatch._id,
+                ...monotonicCondition
+            };
+
+            const updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
+            if (!updated) {
+                // A concurrent worker already advanced the document or recorded conflicting status
+                const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
+                if (currentDoc) {
+                    if (currentDoc.deliveryStatus === statusVal && currentDoc.status !== 'AMBIGUOUS_TIMEOUT') {
+                        return {
+                            reconciled: true,
+                            alreadyReconciled: true,
+                            idempotencyKey: currentDoc.idempotencyKey,
+                            status: currentDoc.status,
+                            deliveryStatus: currentDoc.deliveryStatus
+                        };
+                    }
+                    if (!isMonotonicStatusTransition(currentDoc.deliveryStatus, statusVal)) {
+                        return {
+                            reconciled: false,
+                            reason: 'REGRESSIVE_STATUS_IGNORED',
+                            idempotencyKey: currentDoc.idempotencyKey,
+                            currentStatus: currentDoc.deliveryStatus,
+                            attemptedStatus: statusVal
+                        };
+                    }
+                }
+            }
+
             if (updated && updated.status === 'DISPATCHED') {
                 const cachedRes = {
                     ...(updated.responsePayload || {}),
@@ -576,8 +624,8 @@ class WhatsAppService {
             }
             return {
                 reconciled: true,
-                idempotencyKey: updated.idempotencyKey,
-                status: updated.status,
+                idempotencyKey: updated?.idempotencyKey || dispatch.idempotencyKey,
+                status: updated?.status || dispatch.status,
                 deliveryStatus: statusVal
             };
         }
@@ -633,7 +681,52 @@ class WhatsAppService {
                     updateFields.status = 'DISPATCHED';
                 }
 
-                const updated = await WhatsAppDispatch.findByIdAndUpdate(candidateByOpaque._id, { $set: updateFields }, { new: true });
+                const monotonicCondition = this._buildMonotonicQueryCondition(statusVal);
+                const updateQuery = {
+                    _id: candidateByOpaque._id,
+                    ...monotonicCondition
+                };
+
+                let updated;
+                try {
+                    updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
+                } catch (dbErr) {
+                    if (dbErr.code === 11000 && String(dbErr.message).includes('providerMessageId')) {
+                        console.warn(`[WhatsAppService] Provider message ID collision for '${providerMessageId}': already bound to another dispatch.`);
+                        return {
+                            reconciled: false,
+                            reason: 'PROVIDER_ID_COLLISION',
+                            providerMessageId,
+                            idempotencyKey: candidateByOpaque.idempotencyKey
+                        };
+                    }
+                    throw dbErr;
+                }
+
+                if (!updated) {
+                    const currentDoc = await WhatsAppDispatch.findById(candidateByOpaque._id).lean();
+                    if (currentDoc) {
+                        if (currentDoc.deliveryStatus === statusVal && currentDoc.status !== 'AMBIGUOUS_TIMEOUT') {
+                            return {
+                                reconciled: true,
+                                alreadyReconciled: true,
+                                idempotencyKey: currentDoc.idempotencyKey,
+                                status: currentDoc.status,
+                                deliveryStatus: currentDoc.deliveryStatus
+                            };
+                        }
+                        if (!isMonotonicStatusTransition(currentDoc.deliveryStatus, statusVal)) {
+                            return {
+                                reconciled: false,
+                                reason: 'REGRESSIVE_STATUS_IGNORED',
+                                idempotencyKey: currentDoc.idempotencyKey,
+                                currentStatus: currentDoc.deliveryStatus,
+                                attemptedStatus: statusVal
+                            };
+                        }
+                    }
+                }
+
                 if (updated && updated.status === 'DISPATCHED') {
                     const cachedRes = {
                         ...(updated.responsePayload || {}),
@@ -646,9 +739,9 @@ class WhatsAppService {
                 return {
                     reconciled: true,
                     correlatedViaOpaqueData: true,
-                    idempotencyKey: updated.idempotencyKey,
+                    idempotencyKey: updated?.idempotencyKey || candidateByOpaque.idempotencyKey,
                     providerMessageId,
-                    status: updated.status,
+                    status: updated?.status || candidateByOpaque.status,
                     deliveryStatus: statusVal
                 };
             }
@@ -715,6 +808,36 @@ class WhatsAppService {
             return { success: false, error: 'DATABASE_UNAVAILABLE: Cannot perform manual reconciliation while database is disconnected' };
         }
 
+        // 🚀 BOUNDARY AUTHORIZATION: Verify actor is an active, recognized user with reconciliation privilege
+        const User = mongoose.models.User || (await import('../models/User.js')).default;
+        const cleanActorId = String(actorId).trim();
+
+        let authorizedUser = null;
+        if (mongoose.Types.ObjectId.isValid(cleanActorId)) {
+            authorizedUser = await User.findById(cleanActorId).populate('role').lean();
+        } else {
+            authorizedUser = await User.findOne({ email: cleanActorId.toLowerCase() }).populate('role').lean();
+        }
+
+        if (!authorizedUser) {
+            return { success: false, error: `AUTHORIZATION_DENIED: Actor '${cleanActorId}' is not a recognized user` };
+        }
+        if (!authorizedUser.isActive || ['inactive', 'suspended'].includes(authorizedUser.status)) {
+            return { success: false, error: `AUTHORIZATION_DENIED: Actor '${cleanActorId}' account is inactive or suspended` };
+        }
+
+        // Verify role privilege: must be admin, manager, lead, or system role
+        const roleName = String(authorizedUser.role?.name || '').toLowerCase();
+        const isAuthorizedRole = roleName.includes('admin')
+            || roleName.includes('manager')
+            || roleName.includes('lead')
+            || authorizedUser.role?.isSystemRole === true
+            || authorizedUser.isSuperAdmin === true;
+
+        if (!isAuthorizedRole) {
+            return { success: false, error: `AUTHORIZATION_DENIED: User role '${authorizedUser.role?.name || 'unknown'}' lacks reconciliation privilege` };
+        }
+
         const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
         const dispatch = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
         if (!dispatch) {
@@ -756,7 +879,7 @@ class WhatsAppService {
             status: normStatus,
             isAmbiguous: false,
             reconciledAt: new Date(),
-            reconciledBy: String(actorId).trim(),
+            reconciledBy: authorizedUser._id ? authorizedUser._id.toString() : cleanActorId,
             reconciliationStatus: 'RECONCILED',
             reconciliationReason: String(reason || 'MANUAL_OPERATOR_RECONCILIATION').trim()
         };
@@ -771,11 +894,19 @@ class WhatsAppService {
             updateFields['responsePayload.success'] = false;
             updateFields.errorDetails = this.sanitizeSecrets({
                 error: String(reason || 'Manually marked as failed by operator').trim(),
-                actorId: String(actorId).trim()
+                actorId: authorizedUser._id ? authorizedUser._id.toString() : cleanActorId
             });
         }
 
-        const updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+        let updated;
+        try {
+            updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+        } catch (dbErr) {
+            if (dbErr.code === 11000 && String(dbErr.message).includes('providerMessageId')) {
+                return { success: false, error: 'PROVIDER_ID_COLLISION: Provider message ID is already bound to another dispatch' };
+            }
+            throw dbErr;
+        }
 
         if (updated && updated.status === 'DISPATCHED') {
             const cachedRes = {

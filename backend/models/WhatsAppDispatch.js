@@ -56,6 +56,8 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
     },
     providerMessageId: {
         type: String,
+        unique: true,
+        sparse: true,
         index: true
     },
     requestPayloadHash: {
