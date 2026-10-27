@@ -51,6 +51,9 @@ export default defineConfig(({ mode }) => {
                             ) {
                                 return 'vendor-react';
                             }
+                            if (normalizedId.includes('/node_modules/react-native-web/')) {
+                                return 'vendor-rnw';
+                            }
                             if (
                                 normalizedId.includes('/node_modules/apexcharts/')
                             ) {
