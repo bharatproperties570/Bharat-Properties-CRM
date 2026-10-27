@@ -60,6 +60,47 @@ describe('Button Primitive', () => {
     rerender(<Button icon={CustomIcon}>Add Contact</Button>);
     expect(screen.getByTestId('custom-react-icon')).toBeInTheDocument();
   });
+
+  // --- Phase 10.2.1 Hardening Tests ---
+
+  it('protects calculated aria-disabled and aria-busy against caller prop overrides', () => {
+    render(
+      <Button
+        loading={true}
+        disabled={true}
+        aria-busy="false"
+        aria-disabled="false"
+        data-testid="protected-btn"
+        id="custom-action-id"
+      >
+        Processing
+      </Button>
+    );
+
+    const button = screen.getByTestId('protected-btn');
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toBeDisabled();
+    // Unrelated caller props preserved
+    expect(button).toHaveAttribute('id', 'custom-action-id');
+  });
+
+  it('preserves caller aria-disabled when not disabled or loading', () => {
+    render(
+      <Button
+        disabled={false}
+        loading={false}
+        aria-disabled="true"
+        data-testid="passive-btn"
+      >
+        Passive Action
+      </Button>
+    );
+
+    const button = screen.getByTestId('passive-btn');
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toBeDisabled();
+  });
 });
 
 describe('IconButton Primitive', () => {
@@ -76,5 +117,33 @@ describe('IconButton Primitive', () => {
 
     rerender(<IconButton icon="fas fa-trash-alt" />);
     expect(screen.getByRole('button', { name: /trash alt/i })).toBeInTheDocument();
+  });
+
+  // --- Phase 10.2.1 Hardening Tests ---
+
+  it('supports explicitly labelled React element icons', () => {
+    const ReactTrashIcon = <span data-testid="react-trash">TrashIcon</span>;
+    render(<IconButton icon={ReactTrashIcon} aria-label="Delete Record" />);
+
+    const button = screen.getByRole('button', { name: /delete record/i });
+    expect(button).toBeInTheDocument();
+    expect(screen.getByTestId('react-trash')).toBeInTheDocument();
+  });
+
+  it('emits a development warning and provides fallback name when React icon lacks accessible name', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ReactSearchIcon = <span data-testid="react-search">SearchIcon</span>;
+
+    render(<IconButton icon={ReactSearchIcon} />);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('IconButton rendered with a React element icon but missing an "aria-label" or "title"')
+    );
+
+    const button = screen.getByRole('button', { name: /icon button/i });
+    expect(button).toBeInTheDocument();
+    expect(screen.getByTestId('react-search')).toBeInTheDocument();
+
+    warnSpy.mockRestore();
   });
 });

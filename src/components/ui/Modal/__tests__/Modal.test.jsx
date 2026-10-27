@@ -308,4 +308,104 @@ describe('Modal Primitive', () => {
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(activeLast);
   });
+
+  // --- Phase 10.2.1 Targeted Accessibility Hardening Tests ---
+
+  it('excludes contenteditable="false" from focusable elements unless explicitly given non-negative tabindex', () => {
+    const { rerender } = render(
+      <Modal isOpen={true} onClose={() => {}} hideCloseButton={true}>
+        <button data-testid="start-btn">Start</button>
+        <div contentEditable="false" suppressContentEditableWarning={true} data-testid="non-editable-div">Readonly text</div>
+        <button data-testid="end-btn">End</button>
+        <div contentEditable="false" suppressContentEditableWarning={true} data-testid="trailing-non-editable">Trailing non-editable</div>
+      </Modal>
+    );
+
+    const startBtn = screen.getByTestId('start-btn');
+    const endBtn = screen.getByTestId('end-btn');
+
+    // Because trailing-non-editable is contenteditable="false", endBtn must be the last focusable element
+    startBtn.focus();
+    expect(document.activeElement).toBe(startBtn);
+
+    // Shift+Tab from startBtn wraps to endBtn (skipping trailing-non-editable)
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(endBtn);
+
+    // Tab from endBtn wraps back to startBtn
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: false });
+    expect(document.activeElement).toBe(startBtn);
+
+    // Now test that contenteditable="true" is recognized as a focusable boundary element
+    rerender(
+      <Modal isOpen={true} onClose={() => {}} hideCloseButton={true}>
+        <button data-testid="start-btn">Start</button>
+        <div contentEditable="true" suppressContentEditableWarning={true} data-testid="editable-last">Editable Last</div>
+      </Modal>
+    );
+
+    const editableLast = screen.getByTestId('editable-last');
+    startBtn.focus();
+
+    // Shift+Tab from startBtn should wrap to editableLast
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(editableLast);
+
+    // Now test that contenteditable="false" WITH tabindex="0" is also recognized as focusable
+    rerender(
+      <Modal isOpen={true} onClose={() => {}} hideCloseButton={true}>
+        <button data-testid="start-btn">Start</button>
+        <div contentEditable="false" suppressContentEditableWarning={true} tabIndex={0} data-testid="tabindexed-last">Tabindexed Last</div>
+      </Modal>
+    );
+
+    const tabindexedLast = screen.getByTestId('tabindexed-last');
+    startBtn.focus();
+
+    // Shift+Tab from startBtn should wrap to tabindexedLast
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(tabindexedLast);
+  });
+
+  it('protects core accessibility contracts (aria-modal, tabIndex) against caller prop overrides', () => {
+    render(
+      <Modal
+        isOpen={true}
+        onClose={() => {}}
+        title="Protected Modal"
+        aria-modal="false"
+        tabIndex={0}
+        data-custom-attr="preserved-custom-prop"
+      >
+        <p>Protected body</p>
+      </Modal>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: /protected modal/i });
+    // aria-modal must remain "true"
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    // tabIndex must remain -1 for focus container management
+    expect(dialog).toHaveAttribute('tabIndex', '-1');
+    // Unrelated caller prop is preserved
+    expect(dialog).toHaveAttribute('data-custom-attr', 'preserved-custom-prop');
+  });
+
+  it('preserves caller onClick on dialog container while isolating backdrop clicks', () => {
+    const handleDialogClick = vi.fn();
+    const handleClose = vi.fn();
+
+    render(
+      <Modal isOpen={true} onClose={handleClose} onClick={handleDialogClick} title="Click Isolation">
+        <p>Dialog Body</p>
+      </Modal>
+    );
+
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(dialog);
+
+    // Caller dialog onClick fired
+    expect(handleDialogClick).toHaveBeenCalledTimes(1);
+    // Backdrop close handler was NOT triggered
+    expect(handleClose).not.toHaveBeenCalled();
+  });
 });

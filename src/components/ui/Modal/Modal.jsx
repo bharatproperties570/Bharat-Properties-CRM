@@ -11,7 +11,7 @@ const FOCUSABLE_SELECTOR = [
   'iframe',
   'object',
   'embed',
-  '[contenteditable]',
+  '[contenteditable]:not([contenteditable="false"])',
   '[tabindex]:not([tabindex^="-"])'
 ].join(', ');
 
@@ -257,18 +257,23 @@ export const Modal = ({
       data-testid="modal-overlay"
     >
       <div
+        style={modalStyle}
+        data-testid="modal-dialog"
+        className={`ui-modal-dialog ${className}`.trim()}
+        {...props}
+        ref={modalRef}
         role={role}
         aria-modal="true"
         aria-labelledby={computedAriaLabelledBy}
         aria-describedby={ariaDescribedBy}
         aria-label={ariaLabel}
         tabIndex={-1}
-        style={modalStyle}
-        onClick={(e) => e.stopPropagation()}
-        ref={modalRef}
-        data-testid="modal-dialog"
-        className={`ui-modal-dialog ${className}`.trim()}
-        {...props}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (typeof props.onClick === 'function') {
+            props.onClick(e);
+          }
+        }}
       >
         {title && (
           <div style={headerStyle}>

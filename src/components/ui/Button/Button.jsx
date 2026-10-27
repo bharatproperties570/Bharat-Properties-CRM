@@ -86,16 +86,22 @@ export const Button = ({
     return null;
   };
 
+  const isEffectivelyDisabled = Boolean(disabled || loading);
+  const isEffectivelyBusy = Boolean(loading);
+
+  const resolvedAriaDisabled = isEffectivelyDisabled ? 'true' : props['aria-disabled'];
+  const resolvedAriaBusy = isEffectivelyBusy ? 'true' : props['aria-busy'];
+
   return (
     <button
       type={type}
-      onClick={handleClick}
-      disabled={disabled || loading}
-      aria-busy={loading ? 'true' : undefined}
-      aria-disabled={disabled || loading ? 'true' : undefined}
       style={combinedStyle}
-      className={`ui-button ${className}`}
+      className={`ui-button ${className}`.trim()}
       {...props}
+      onClick={handleClick}
+      disabled={isEffectivelyDisabled}
+      aria-busy={resolvedAriaBusy}
+      aria-disabled={resolvedAriaDisabled}
     >
       {renderIcon()}
       {children}
@@ -111,7 +117,22 @@ export const IconButton = ({
   style = {},
   ...props
 }) => {
-  const accessibleName = ariaLabel || title || (typeof icon === 'string' ? icon.replace(/fa[srb]? fa-/, '').replace(/-/g, ' ') : 'button');
+  let accessibleName = ariaLabel || title;
+
+  if (!accessibleName) {
+    if (typeof icon === 'string') {
+      accessibleName = icon.replace(/fa[srb]? fa-/, '').replace(/-/g, ' ');
+    } else if (React.isValidElement(icon)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'Accessibility Warning: IconButton rendered with a React element icon but missing an "aria-label" or "title". An explicit accessible name is required for screen readers.'
+        );
+      }
+      accessibleName = 'icon button';
+    } else {
+      accessibleName = 'button';
+    }
+  }
 
   const iconSizeStyles = {
     sm: { padding: '6px', minWidth: '32px', minHeight: '32px' },
