@@ -826,11 +826,17 @@ class WhatsAppService {
             return { success: false, error: `AUTHORIZATION_DENIED: Actor '${cleanActorId}' account is inactive or suspended` };
         }
 
-        // Verify role privilege: must be admin, manager, lead, or system role
-        const roleName = String(authorizedUser.role?.name || '').toLowerCase();
-        const isAuthorizedRole = roleName.includes('admin')
-            || roleName.includes('manager')
-            || roleName.includes('lead')
+        // Verify role privilege: must be explicit allowlisted role or system superadmin
+        const ALLOWED_RECONCILIATION_ROLES = [
+            'admin',
+            'super admin',
+            'system admin',
+            'dispatch admin',
+            'operations manager',
+            'system super admin'
+        ];
+        const roleName = String(authorizedUser.role?.name || '').trim().toLowerCase();
+        const isAuthorizedRole = ALLOWED_RECONCILIATION_ROLES.includes(roleName)
             || authorizedUser.role?.isSystemRole === true
             || authorizedUser.isSuperAdmin === true;
 
@@ -858,11 +864,12 @@ class WhatsAppService {
             return { success: false, error: 'INVALID_STATUS: Manual reconciliation targetStatus must be DISPATCHED or FAILED' };
         }
 
+        let cleanMsgId = null;
         if (normStatus === 'DISPATCHED') {
             if (!providerMessageId || typeof providerMessageId !== 'string' || !providerMessageId.trim()) {
                 return { success: false, error: 'PROVIDER_MESSAGE_ID_REQUIRED: providerMessageId is required to reconcile dispatch as DISPATCHED' };
             }
-            const cleanMsgId = providerMessageId.trim();
+            cleanMsgId = providerMessageId.trim();
             const collision = await WhatsAppDispatch.findOne({ providerMessageId: cleanMsgId }).lean();
             if (collision && collision._id.toString() !== dispatch._id.toString()) {
                 return { success: false, error: `PROVIDER_ID_COLLISION: Provider message ID is already bound to dispatch '${collision.idempotencyKey}'` };
@@ -875,6 +882,24 @@ class WhatsAppService {
             return { success: false, error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED' };
         }
 
+        const permittedSourceStatuses = normStatus === 'DISPATCHED'
+            ? ['AMBIGUOUS_TIMEOUT', 'FAILED', 'CLAIMED']
+            : ['AMBIGUOUS_TIMEOUT', 'CLAIMED'];
+
+        const casFilter = {
+            _id: dispatch._id,
+            $or: [
+                { status: { $in: permittedSourceStatuses } },
+                { isAmbiguous: true },
+                { reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED' }
+            ]
+        };
+
+        if (normStatus === 'FAILED') {
+            casFilter.deliveryStatus = { $nin: ['delivered', 'read'] };
+            casFilter['responsePayload.deliveryStatus'] = { $nin: ['delivered', 'read'] };
+        }
+
         const updateFields = {
             status: normStatus,
             isAmbiguous: false,
@@ -885,7 +910,6 @@ class WhatsAppService {
         };
 
         if (normStatus === 'DISPATCHED') {
-            const cleanMsgId = providerMessageId.trim();
             updateFields.providerMessageId = cleanMsgId;
             updateFields['responsePayload.success'] = true;
             updateFields['responsePayload.messageId'] = cleanMsgId;
@@ -900,12 +924,54 @@ class WhatsAppService {
 
         let updated;
         try {
-            updated = await WhatsAppDispatch.findByIdAndUpdate(dispatch._id, { $set: updateFields }, { new: true });
+            updated = await WhatsAppDispatch.findOneAndUpdate(casFilter, { $set: updateFields }, { new: true });
         } catch (dbErr) {
-            if (dbErr.code === 11000 && String(dbErr.message).includes('providerMessageId')) {
+            if (dbErr.code === 11000 || String(dbErr.message).includes('11000')) {
                 return { success: false, error: 'PROVIDER_ID_COLLISION: Provider message ID is already bound to another dispatch' };
             }
             throw dbErr;
+        }
+
+        if (!updated) {
+            const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
+            if (!currentDoc) {
+                return { success: false, error: 'DISPATCH_NOT_FOUND' };
+            }
+
+            // Check if already in target status with matching providerMessageId (idempotent success)
+            const isAlreadyTarget = currentDoc.status === normStatus;
+            const isMatchingMsgId = normStatus !== 'DISPATCHED' || currentDoc.providerMessageId === cleanMsgId;
+
+            if (isAlreadyTarget && isMatchingMsgId) {
+                return {
+                    success: true,
+                    reconciled: true,
+                    alreadyReconciled: true,
+                    idempotencyKey: currentDoc.idempotencyKey,
+                    status: currentDoc.status,
+                    providerMessageId: currentDoc.providerMessageId,
+                    reconciledBy: currentDoc.reconciledBy,
+                    reconciledAt: currentDoc.reconciledAt,
+                    reconciliationReason: currentDoc.reconciliationReason
+                };
+            }
+
+            const activeDelivery = currentDoc.deliveryStatus || currentDoc.responsePayload?.deliveryStatus;
+            if (['delivered', 'read'].includes(activeDelivery) && normStatus === 'FAILED') {
+                return {
+                    success: false,
+                    error: 'REGRESSIVE_STATUS_FORBIDDEN: Cannot transition confirmed delivered dispatch to FAILED',
+                    currentStatus: currentDoc.status,
+                    deliveryStatus: activeDelivery
+                };
+            }
+
+            return {
+                success: false,
+                error: `STATE_TRANSITION_CONFLICT: Dispatch status is '${currentDoc.status}' (deliveryStatus: '${activeDelivery || 'none'}') and cannot be transitioned to '${normStatus}'`,
+                currentStatus: currentDoc.status,
+                deliveryStatus: activeDelivery
+            };
         }
 
         if (updated && updated.status === 'DISPATCHED') {

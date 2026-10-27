@@ -866,6 +866,31 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
         assert.equal(suspendedRes.success, false);
         assert.ok(suspendedRes.error.includes('AUTHORIZATION_DENIED'));
 
+        // 3b. Rejects if actor has an unauthorized ordinary role (e.g. Sales Lead / Sales Agent)
+        const unauthRole = await Role.create({
+            name: 'Sales Lead',
+            department: 'sales',
+            isSystemRole: false
+        });
+        const salesLeadUser = await User.create({
+            fullName: 'Ordinary Sales Lead',
+            email: 'saleslead@bharatproperties.co',
+            password: 'hashed_password_secure',
+            role: unauthRole._id,
+            department: 'sales',
+            isActive: true,
+            status: 'active'
+        });
+        const unauthRes = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'DISPATCHED',
+            providerMessageId: 'wamid.manual.019',
+            actorId: salesLeadUser._id.toString()
+        });
+        assert.equal(unauthRes.success, false);
+        assert.ok(unauthRes.error.includes('AUTHORIZATION_DENIED'));
+        assert.ok(unauthRes.error.includes('lacks reconciliation privilege'));
+
         // 4. Rejects if recipient does not match immutable dispatch recipient
         const badRecipient = await WhatsAppService.manualReconcileDispatch({
             idempotencyKey,
@@ -1108,5 +1133,205 @@ describe('Phase 9.1 — Durable Cross-Worker WhatsApp Dispatch Idempotency & Fen
             (err) => err.code === 11000,
             'MongoDB sparse unique index must reject duplicate providerMessageId with E11000'
         );
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 22: Concurrent Operator Manual Reconciliation CAS Race
+    // ─────────────────────────────────────────────────────────────
+    it('22. Manual Reconciliation CAS Concurrency: Two simultaneous manual reconciliation attempts against the same ambiguous record resolve deterministically without corruption', async () => {
+        const mobile = '919811100022';
+        const idempotencyKey = 'durable_cas_race_022';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // Two operators concurrently attempt manual reconciliation with different provider IDs
+        const [op1, op2] = await Promise.all([
+            WhatsAppService.manualReconcileDispatch({
+                idempotencyKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.race.op1.022',
+                actorId: testUser._id.toString(),
+                reason: 'Operator 1 confirmed via Meta log',
+                recipient: mobile
+            }),
+            WhatsAppService.manualReconcileDispatch({
+                idempotencyKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.race.op2.022',
+                actorId: testUser._id.toString(),
+                reason: 'Operator 2 confirmed via Meta log',
+                recipient: mobile
+            })
+        ]);
+
+        // Exactly one operator must succeed in atomically modifying the record
+        const successes = [op1, op2].filter(r => r.success && !r.alreadyReconciled);
+        const conflicts = [op1, op2].filter(r => !r.success && r.error.includes('STATE_TRANSITION_CONFLICT'));
+
+        assert.equal(successes.length, 1, 'Exactly one concurrent manual reconciliation must succeed');
+        assert.equal(conflicts.length, 1, 'The competing reconciliation must receive explicit STATE_TRANSITION_CONFLICT');
+
+        const winningResult = successes[0];
+        const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(finalDoc.status, 'DISPATCHED');
+        assert.equal(finalDoc.providerMessageId, winningResult.providerMessageId);
+        assert.equal(finalDoc.reconciliationStatus, 'RECONCILED');
+        assert.equal(finalDoc.isAmbiguous, false);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 23: Operator Racing Against Incoming Webhook Status Update
+    // ─────────────────────────────────────────────────────────────
+    it('23. Operator vs Webhook Race: Confirmed delivery webhook arriving concurrently blocks subsequent FAILED manual reconciliation', async () => {
+        const mobile = '919811100023';
+        const idempotencyKey = 'durable_op_vs_wh_023';
+        const providerMessageId = 'wamid.op_vs_wh.023';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'AMBIGUOUS_TIMEOUT',
+            isAmbiguous: true,
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // 1. Webhook arrives and reconciles dispatch to delivered
+        const webhookPayload = {
+            id: providerMessageId,
+            status: 'delivered',
+            timestamp: '1720000600',
+            recipient_id: mobile,
+            biz_opaque_callback_data: idempotencyKey
+        };
+        const whResult = await WhatsAppService.reconcileWebhookStatus(webhookPayload);
+        assert.equal(whResult.reconciled, true);
+        assert.equal(whResult.deliveryStatus, 'delivered');
+
+        // 2. Operator attempts to reconcile dispatch to FAILED
+        const opResult = await WhatsAppService.manualReconcileDispatch({
+            idempotencyKey,
+            targetStatus: 'FAILED',
+            actorId: testUser._id.toString(),
+            reason: 'Mistaken operator assumption of delivery failure',
+            recipient: mobile
+        });
+
+        assert.equal(opResult.success, false);
+        assert.ok(opResult.error.includes('REGRESSIVE_STATUS_FORBIDDEN'));
+
+        // Document must preserve DISPATCHED status and delivered deliveryStatus
+        const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(finalDoc.status, 'DISPATCHED');
+        assert.equal(finalDoc.deliveryStatus, 'delivered');
+        assert.equal(finalDoc.isAmbiguous, false);
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 24: Two Dispatches Racing to Bind the Same Provider Message ID
+    // ─────────────────────────────────────────────────────────────
+    it('24. Unique Provider ID Race: Two distinct dispatches racing to bind identical providerMessageId are rejected by sparse unique constraint', async () => {
+        const mobile1 = '919811100024';
+        const mobile2 = '919811100025';
+        const key1 = 'durable_unique_race_024a';
+        const key2 = 'durable_unique_race_024b';
+        const sharedMsgId = 'wamid.shared.race.id.024';
+
+        await WhatsAppDispatch.create([
+            {
+                idempotencyKey: key1,
+                recipient: mobile1,
+                provider: 'META',
+                messageType: 'text',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                claimGeneration: 1,
+                tenantId: null
+            },
+            {
+                idempotencyKey: key2,
+                recipient: mobile2,
+                provider: 'META',
+                messageType: 'text',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                claimGeneration: 1,
+                tenantId: null
+            }
+        ]);
+
+        const [res1, res2] = await Promise.all([
+            WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: key1,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: sharedMsgId,
+                actorId: testUser._id.toString(),
+                recipient: mobile1
+            }),
+            WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: key2,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: sharedMsgId,
+                actorId: testUser._id.toString(),
+                recipient: mobile2
+            })
+        ]);
+
+        const successes = [res1, res2].filter(r => r.success);
+        const collisions = [res1, res2].filter(r => !r.success && r.error.includes('PROVIDER_ID_COLLISION'));
+
+        assert.equal(successes.length, 1, 'Only one dispatch can claim the unique providerMessageId');
+        assert.equal(collisions.length, 1, 'The competing dispatch must receive PROVIDER_ID_COLLISION');
+
+        const boundDoc = await WhatsAppDispatch.findOne({ providerMessageId: sharedMsgId }).lean();
+        assert.ok(boundDoc);
+        assert.ok([key1, key2].includes(boundDoc.idempotencyKey));
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // TEST 25: Multi-Webhook Concurrent Storm Monotonic Progression
+    // ─────────────────────────────────────────────────────────────
+    it('25. Multi-Webhook Concurrent Storm: Concurrent sent, delivered, read, and failed webhooks preserve monotonic progression without regression', async () => {
+        const mobile = '919811100026';
+        const idempotencyKey = 'durable_storm_025';
+        const providerMessageId = 'wamid.storm.025';
+
+        await WhatsAppDispatch.create({
+            idempotencyKey,
+            recipient: mobile,
+            provider: 'META',
+            messageType: 'text',
+            status: 'CLAIMED',
+            claimGeneration: 1,
+            tenantId: null
+        });
+
+        // Fire sent, delivered, read, and late failed webhooks concurrently
+        const webhooks = [
+            { id: providerMessageId, status: 'sent', timestamp: '1720000700', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
+            { id: providerMessageId, status: 'delivered', timestamp: '1720000705', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
+            { id: providerMessageId, status: 'read', timestamp: '1720000710', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey },
+            { id: providerMessageId, status: 'failed', timestamp: '1720000715', recipient_id: mobile, biz_opaque_callback_data: idempotencyKey, errors: [{ code: 131053, message: 'Delayed failure' }] }
+        ];
+
+        // Run all webhooks concurrently
+        await Promise.all(webhooks.map(wh => WhatsAppService.reconcileWebhookStatus(wh)));
+
+        // Final state must reflect the monotonic invariant: read status cannot regress to failed or sent
+        const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+        assert.equal(finalDoc.deliveryStatus, 'read', 'Final state must be monotonically preserved as read');
+        assert.equal(finalDoc.status, 'DISPATCHED', 'Dispatch status must remain DISPATCHED once read');
+        assert.equal(finalDoc.tenantId, null);
     });
 });
