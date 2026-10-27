@@ -66,6 +66,52 @@ const DealStageChip = ({ stage }) => {
     );
 };
 
+// 🧠 SENIOR PROFESSIONAL: Universal Deal Size & Dimension Resolver (Module Scope)
+export const resolveDealSizeDisplay = (deal, fallback = 'Size TBA', resolveDealLookup = null) => {
+    if (!deal) return fallback;
+
+    const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
+
+    // 1. Try resolving via lookups (sizeConfig or sizeLabel)
+    if (resolveDealLookup && typeof resolveDealLookup === 'function') {
+        const sizeConfigLookup = resolveDealLookup(deal.sizeConfig, 'Size') || resolveDealLookup(deal.inventoryId?.sizeConfig, 'Size');
+        if (sizeConfigLookup && !isHex(sizeConfigLookup)) {
+            return renderValue(sizeConfigLookup);
+        }
+
+        const sizeLabelLookup = resolveDealLookup(deal.sizeLabel, 'Size') || resolveDealLookup(deal.inventoryId?.sizeLabel, 'Size');
+        if (sizeLabelLookup && !isHex(sizeLabelLookup)) {
+            return renderValue(sizeLabelLookup);
+        }
+    }
+
+    // 2. Direct string or object sizeLabel if not a raw hex ID
+    const rawLabel = deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.inventoryId?.sizeLabel;
+    if (rawLabel) {
+        const labelStr = typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || rawLabel.label) : rawLabel;
+        if (labelStr && !isHex(labelStr) && labelStr !== '-') {
+            return String(labelStr);
+        }
+    }
+
+    // 3. Fallback to dimensions
+    const w = deal.width || deal.unitSpecification?.width || deal.inventoryId?.width || deal.inventoryId?.unitSpecification?.width;
+    const l = deal.length || deal.unitSpecification?.length || deal.inventoryId?.length || deal.inventoryId?.unitSpecification?.length;
+    const metric = deal.widthMetric || deal.dimensionMetric || deal.unitSpecification?.widthMetric || deal.inventoryId?.widthMetric || 'Meter';
+    if (w && l) {
+        return `${w} x ${l} ${metric}`;
+    }
+
+    // 4. Fallback to size value and unit if non-zero
+    const szVal = typeof deal.size === 'object' ? deal.size?.value : deal.size;
+    const szUnit = typeof deal.size === 'object' ? deal.size?.unit : (deal.sizeUnit || 'Sq.Ft.');
+    if (szVal && szVal !== '0' && szVal !== 0 && szVal !== '0 Sq.Ft.') {
+        return `${szVal} ${szUnit}`;
+    }
+
+    return fallback;
+};
+
 function DealsPage({ onNavigate, onAddActivity }) {
     const { isDark } = useTheme();
     const queryClient = useQueryClient();
@@ -311,50 +357,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
         if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
         return resolved;
     }, [getLookupValue]);
-
-    // 🧠 SENIOR PROFESSIONAL: Universal Deal Size & Dimension Resolver
-    const resolveDealSizeDisplay = useCallback((deal, fallback = 'Size TBA') => {
-        if (!deal) return fallback;
-
-        const isHex = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val.trim());
-
-        // 1. Try resolving via lookups (sizeConfig or sizeLabel)
-        const sizeConfigLookup = resolveDealLookup(deal.sizeConfig, 'Size') || resolveDealLookup(deal.inventoryId?.sizeConfig, 'Size');
-        if (sizeConfigLookup && !isHex(sizeConfigLookup)) {
-            return renderValue(sizeConfigLookup);
-        }
-
-        const sizeLabelLookup = resolveDealLookup(deal.sizeLabel, 'Size') || resolveDealLookup(deal.inventoryId?.sizeLabel, 'Size');
-        if (sizeLabelLookup && !isHex(sizeLabelLookup)) {
-            return renderValue(sizeLabelLookup);
-        }
-
-        // 2. Direct string or object sizeLabel if not a raw hex ID
-        const rawLabel = deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.inventoryId?.sizeLabel;
-        if (rawLabel) {
-            const labelStr = typeof rawLabel === 'object' ? (rawLabel.lookup_value || rawLabel.name || rawLabel.label) : rawLabel;
-            if (labelStr && !isHex(labelStr) && labelStr !== '-') {
-                return String(labelStr);
-            }
-        }
-
-        // 3. Fallback to dimensions
-        const w = deal.width || deal.unitSpecification?.width || deal.inventoryId?.width || deal.inventoryId?.unitSpecification?.width;
-        const l = deal.length || deal.unitSpecification?.length || deal.inventoryId?.length || deal.inventoryId?.unitSpecification?.length;
-        const metric = deal.widthMetric || deal.dimensionMetric || deal.unitSpecification?.widthMetric || deal.inventoryId?.widthMetric || 'Meter';
-        if (w && l) {
-            return `${w} x ${l} ${metric}`;
-        }
-
-        // 4. Fallback to size value and unit if non-zero
-        const szVal = typeof deal.size === 'object' ? deal.size?.value : deal.size;
-        const szUnit = typeof deal.size === 'object' ? deal.size?.unit : (deal.sizeUnit || 'Sq.Ft.');
-        if (szVal && szVal !== '0' && szVal !== 0 && szVal !== '0 Sq.Ft.') {
-            return `${szVal} ${szUnit}`;
-        }
-
-        return fallback;
-    }, [resolveDealLookup]);
 
     const handleSaveUploads = async (mediaData) => {
         try {
@@ -1228,7 +1230,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? '#60a5fa' : '#2563eb' }}></i>
                                                     <span style={{ fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb' }}>
-                                                        {resolveDealSizeDisplay(deal, 'Size N/A')}
+                                                        {resolveDealSizeDisplay(deal, 'Size N/A', resolveDealLookup)}
                                                     </span>
                                                 </div>
                                             </div>
@@ -1825,7 +1827,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     </div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                        {resolveDealSizeDisplay(deal, 'N/A')}
+                        {resolveDealSizeDisplay(deal, 'N/A', resolveDealLookup)}
                     </div>
                 </div>
             </div>
