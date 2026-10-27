@@ -100,68 +100,61 @@ describe('Modal Primitive', () => {
     expect(handleClose).not.toHaveBeenCalled();
   });
 
-  it('restores focus to previous active element upon closing', () => {
-    const TestComponent = () => {
-      const [open, setOpen] = useState(false);
+  // --- Strengthened parent-rerender regression tests ---
+
+  it('does NOT jump focus or trigger premature focus restoration when parent rerenders with a new onClose identity', () => {
+    let triggerRef = null;
+
+    const ParentWrapper = ({ isOpen, onClose, iteration }) => {
       return (
         <div>
-          <button data-testid="trigger-btn" onClick={() => setOpen(true)}>
-            Open Dialog
+          <button
+            data-testid="external-trigger"
+            ref={(el) => { triggerRef = el; }}
+          >
+            Launch Dialog ({iteration})
           </button>
-          <Modal isOpen={open} onClose={() => setOpen(false)} title="Focus Restoration">
-            <button data-testid="close-btn" onClick={() => setOpen(false)}>
-              Close Inside
-            </button>
+          <Modal isOpen={isOpen} onClose={onClose} title="Deterministic Test">
+            <input data-testid="modal-field" placeholder="Active input field" />
+            <button data-testid="modal-save">Save</button>
           </Modal>
         </div>
       );
     };
 
-    render(<TestComponent />);
+    // Initial render with modal closed
+    const onCloseA = vi.fn();
+    const { rerender } = render(
+      <ParentWrapper isOpen={false} onClose={onCloseA} iteration={1} />
+    );
 
-    const trigger = screen.getByTestId('trigger-btn');
-    trigger.focus();
-    expect(document.activeElement).toBe(trigger);
+    triggerRef.focus();
+    expect(document.activeElement).toBe(triggerRef);
 
-    // Open modal
-    fireEvent.click(trigger);
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // Open the modal
+    const onCloseB = vi.fn();
+    rerender(<ParentWrapper isOpen={true} onClose={onCloseB} iteration={2} />);
 
-    // Close modal
-    fireEvent.click(screen.getByTestId('close-btn'));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(trigger);
-  });
+    // Explicitly focus the input inside the modal
+    const modalField = screen.getByTestId('modal-field');
+    modalField.focus();
+    expect(document.activeElement).toBe(modalField);
 
-  // --- Fix 1: Focus restoration stability on parent rerenders and DOM removal ---
+    // Cause parent to rerender while isOpen remains true and onClose receives a brand new function identity.
+    // Notice: NO simulated click is used, eliminating JSDOM synthetic click ambiguity.
+    const onCloseC = vi.fn();
+    rerender(<ParentWrapper isOpen={true} onClose={onCloseC} iteration={3} />);
 
-  it('does NOT jump focus or trigger focus restoration when parent rerenders with a new onClose identity', () => {
-    const TestRerender = () => {
-      const [count, setCount] = useState(0);
-      return (
-        <div>
-          <button data-testid="parent-counter" onClick={() => setCount((c) => c + 1)}>
-            Count: {count}
-          </button>
-          {/* New onClose function reference created on every render */}
-          <Modal isOpen={true} onClose={() => {}} title="Stable Modal">
-            <input data-testid="modal-input" placeholder="Type here" />
-          </Modal>
-        </div>
-      );
-    };
+    // 1. Verify the input remains document.activeElement after the rerender
+    expect(document.activeElement).toBe(modalField);
 
-    render(<TestRerender />);
+    // 2. Verify focus restoration has NOT occurred prematurely
+    expect(document.activeElement).not.toBe(triggerRef);
 
-    const modalInput = screen.getByTestId('modal-input');
-    modalInput.focus();
-    expect(document.activeElement).toBe(modalInput);
-
-    // Parent rerenders by triggering counter
-    fireEvent.click(screen.getByTestId('parent-counter'));
-
-    // Focus MUST remain inside the modal dialog on the input
-    expect(document.activeElement).toBe(modalInput);
+    // 3. Separately verify that closing the modal restores focus to the original trigger when connected
+    const onCloseD = vi.fn();
+    rerender(<ParentWrapper isOpen={false} onClose={onCloseD} iteration={4} />);
+    expect(document.activeElement).toBe(triggerRef);
   });
 
   it('handles closing gracefully without throwing exceptions when the original trigger was removed from DOM', () => {
@@ -208,7 +201,7 @@ describe('Modal Primitive', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  // --- Fix 2: Focus trapping and keyboard navigation ---
+  // --- Keyboard focus-trap boundary audit tests ---
 
   it('implements Tab and Shift+Tab focus trapping across focusable descendants', () => {
     render(
@@ -219,7 +212,7 @@ describe('Modal Primitive', () => {
       </Modal>
     );
 
-    // Notice: with title, the close button is the very first focusable element
+    // In a titled modal, the close button is the first focusable element
     const closeBtn = screen.getByRole('button', { name: /close modal/i });
     const firstField = screen.getByTestId('first-field');
     const middleField = screen.getByTestId('middle-field');
@@ -241,6 +234,32 @@ describe('Modal Primitive', () => {
     expect(middleField.value).toBe('Hello');
   });
 
+  it('wraps to last element when Shift+Tab is pressed while dialog container is focused', () => {
+    render(
+      <Modal isOpen={true} onClose={() => {}} title="Container Focus Dialog">
+        <input data-testid="solo-input" placeholder="Solo" />
+        <button data-testid="solo-button">Submit</button>
+      </Modal>
+    );
+
+    const dialog = screen.getByTestId('modal-dialog');
+    const soloButton = screen.getByTestId('solo-button');
+    const closeBtn = screen.getByRole('button', { name: /close modal/i });
+
+    // Focus the container itself
+    dialog.focus();
+    expect(document.activeElement).toBe(dialog);
+
+    // Shift+Tab from container wraps to last element (soloButton)
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(soloButton);
+
+    // Tab from container moves to first element (closeBtn)
+    dialog.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: false });
+    expect(document.activeElement).toBe(closeBtn);
+  });
+
   it('keeps focus on dialog container when no focusable descendants exist', () => {
     render(
       <Modal isOpen={true} onClose={() => {}} hideCloseButton={true}>
@@ -258,5 +277,35 @@ describe('Modal Primitive', () => {
     // Pressing Shift+Tab keeps focus on the dialog container
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(dialog);
+  });
+
+  it('excludes disabled, hidden, and aria-hidden descendants from focus trapping', () => {
+    render(
+      <Modal isOpen={true} onClose={() => {}} hideCloseButton={true}>
+        <button data-testid="active-first">Active First</button>
+        <button disabled data-testid="disabled-btn">Disabled</button>
+        <div style={{ display: 'none' }}>
+          <button data-testid="hidden-display-btn">Display None</button>
+        </div>
+        <div aria-hidden="true">
+          <button data-testid="aria-hidden-btn">Aria Hidden</button>
+        </div>
+        <button data-testid="active-last">Active Last</button>
+      </Modal>
+    );
+
+    const activeFirst = screen.getByTestId('active-first');
+    const activeLast = screen.getByTestId('active-last');
+
+    activeLast.focus();
+    expect(document.activeElement).toBe(activeLast);
+
+    // Tab from activeLast should skip disabled/hidden buttons and wrap directly to activeFirst
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: false });
+    expect(document.activeElement).toBe(activeFirst);
+
+    // Shift+Tab from activeFirst should wrap directly back to activeLast
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(activeLast);
   });
 });

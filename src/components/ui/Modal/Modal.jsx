@@ -17,11 +17,23 @@ const FOCUSABLE_SELECTOR = [
 
 const isElementVisible = (el) => {
   if (!el) return false;
+  if (el.disabled) return false;
   if (el.getAttribute('aria-hidden') === 'true') return false;
+  if (el.closest && el.closest('[aria-hidden="true"]')) return false;
+
   if (typeof window !== 'undefined' && window.getComputedStyle) {
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden') {
       return false;
+    }
+    // Check parent hierarchy for hidden containers
+    let parent = el.parentElement;
+    while (parent && parent !== el.ownerDocument?.body) {
+      const parentStyle = window.getComputedStyle(parent);
+      if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+        return false;
+      }
+      parent = parent.parentElement;
     }
   }
   return true;
@@ -138,16 +150,25 @@ export const Modal = ({
 
         const firstElement = focusables[0];
         const lastElement = focusables[focusables.length - 1];
+        const isInsideDialog = modalRef.current.contains(document.activeElement);
 
         if (e.shiftKey) {
-          // Shift + Tab: wrap from first element or container back to last element
-          if (document.activeElement === firstElement || document.activeElement === modalRef.current) {
+          // Shift + Tab: if on firstElement, dialog container, or outside, wrap back to lastElement
+          if (
+            !isInsideDialog ||
+            document.activeElement === firstElement ||
+            document.activeElement === modalRef.current
+          ) {
             e.preventDefault();
             lastElement.focus();
           }
         } else {
-          // Tab: wrap from last element back to first element
-          if (document.activeElement === lastElement) {
+          // Tab: if on lastElement, dialog container, or outside, wrap back to firstElement
+          if (
+            !isInsideDialog ||
+            document.activeElement === lastElement ||
+            document.activeElement === modalRef.current
+          ) {
             e.preventDefault();
             firstElement.focus();
           }
