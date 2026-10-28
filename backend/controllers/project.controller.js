@@ -143,6 +143,9 @@ export const getProjectById = async (req, res) => {
 export const addProject = async (req, res) => {
     try {
         const data = { ...req.body };
+        if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
+            return res.status(400).json({ success: false, error: "Project Name is required" });
+        }
         // 🔒 Enterprise RBAC & Visibility Synchronization
         if (data.team && (!data.teams || data.teams.length === 0)) {
             data.teams = Array.isArray(data.team) ? data.team : [data.team];

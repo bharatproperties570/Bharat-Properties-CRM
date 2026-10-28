@@ -239,6 +239,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     } = usePropertyConfig();
     const { data: usersData = [] } = useUsers();
     const { data: teamsData = [] } = useTeams();
+    const [nameError, setNameError] = useState(false);
     const [duplicateWarning, setDuplicateWarning] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
     const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
@@ -473,6 +474,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
 
     const modalRef = useRef(null);
+    const projectNameInputRef = useRef(null);
     const searchInputRef = useRef(null);
     const mapRef = useRef(null);
     const googleMapRef = useRef(null);
@@ -665,10 +667,12 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
             } else {
                 setFormData(DEFAULT_FORM_DATA);
             }
+            setNameError(false);
             setActiveTab(initialTab || 'Basic');
         } else {
             document.body.style.overflow = 'unset';
             setIsLoading(true);
+            setNameError(false);
             setActiveTab('Basic');
         }
         return () => { document.body.style.overflow = 'unset'; };
@@ -782,6 +786,14 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     ];
 
     const handleNext = () => {
+        if (activeTab === 'Basic' && (!formData.name || !formData.name.trim())) {
+            setNameError(true);
+            toast.error('Project Name is required');
+            if (projectNameInputRef.current) {
+                projectNameInputRef.current.focus();
+            }
+            return;
+        }
         const currentIndex = TABS.findIndex(t => t.id === activeTab);
         if (currentIndex < TABS.length - 1) {
             setActiveTab(TABS[currentIndex + 1].id);
@@ -796,6 +808,18 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     };
 
     const handleSave = async () => {
+        if (!formData.name || !formData.name.trim()) {
+            setNameError(true);
+            setActiveTab('Basic');
+            toast.error('Project Name is required. Please provide a name under Basic Info.');
+            setTimeout(() => {
+                if (projectNameInputRef.current) {
+                    projectNameInputRef.current.focus();
+                }
+            }, 100);
+            return;
+        }
+
         const toastId = toast.loading(projectToEdit ? 'Updating project...' : 'Creating project...');
         try {
             // Transform names to IDs for Lookup fields and synchronize RBAC fields
@@ -834,7 +858,12 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
         } catch (error) {
             console.error("Save Error:", error);
-            const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Failed to save project";
+            let errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Failed to save project";
+            if (typeof errorMsg === 'string' && errorMsg.includes("Path `name` is required")) {
+                errorMsg = "Project Name is required under Basic Info.";
+                setActiveTab('Basic');
+                setNameError(true);
+            }
             toast.error(errorMsg, { id: toastId });
         }
     };
@@ -918,11 +947,27 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     <div>
                         <label style={labelStyle}>Project Name <span style={{ color: '#ef4444' }}>*</span></label>
                         <input
-                            style={{ ...inputStyle, borderColor: duplicateWarning ? '#ef4444' : '#e2e8f0' }}
+                            ref={projectNameInputRef}
+                            style={{
+                                ...inputStyle,
+                                borderColor: (duplicateWarning || nameError) ? '#ef4444' : (isDark ? 'rgba(255, 255, 255, 0.12)' : '#e2e8f0'),
+                                boxShadow: nameError ? '0 0 0 1.5px rgba(239, 68, 68, 0.4)' : 'none'
+                            }}
                             placeholder="e.g. Green Valley Heights"
-                            value={formData.name}
-                            onChange={e => setFormData({ ...formData, name: e.target.value })}
+                            value={formData.name || ''}
+                            onChange={e => {
+                                setFormData({ ...formData, name: e.target.value });
+                                if (nameError && e.target.value.trim()) {
+                                    setNameError(false);
+                                }
+                            }}
                         />
+                        {nameError && (
+                            <p style={{ margin: '5px 0 0 0', fontSize: '0.74rem', color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <i className="fas fa-exclamation-circle"></i>
+                                Project Name is required
+                            </p>
+                        )}
                         {duplicateWarning && (
                             <div style={{
                                 marginTop: '8px',
@@ -1761,7 +1806,17 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             <button
                                 key={tab.id}
                                 type="button"
-                                onClick={() => setActiveTab(tab.id)}
+                                onClick={() => {
+                                    if (activeTab === 'Basic' && tab.id !== 'Basic' && (!formData.name || !formData.name.trim())) {
+                                        setNameError(true);
+                                        toast.error('Please enter a Project Name before switching tabs.');
+                                        if (projectNameInputRef.current) {
+                                            projectNameInputRef.current.focus();
+                                        }
+                                        return;
+                                    }
+                                    setActiveTab(tab.id);
+                                }}
                                 style={{
                                     display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px',
                                     borderRadius: '10px', border: 'none',
