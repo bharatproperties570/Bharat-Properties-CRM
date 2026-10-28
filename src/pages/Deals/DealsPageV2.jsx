@@ -499,11 +499,16 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const handleRemoveFilter = (key) => {
         const newFilters = { ...filters };
         delete newFilters[key];
+        if (key === 'category') {
+            delete newFilters.subCategory;
+        }
         setFilters(newFilters);
+        setCurrentPage(1);
     };
 
     const handleClearAll = () => {
         setFilters({});
+        setCurrentPage(1);
     };
 
     const handleCategoryFilter = (catName) => {
@@ -951,18 +956,38 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div style={{ position: 'relative', width: '380px' }}>
-                                    <input
-                                        type="text"
-                                        className="search-input-premium"
-                                        placeholder="Search deals by ID, property or owner..."
-                                        value={searchTerm}
-                                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                                    <div style={{ position: 'relative', width: '320px', minWidth: '240px', flexShrink: 0 }}>
+                                        <input
+                                            type="text"
+                                            className="search-input-premium"
+                                            placeholder="Search deals by ID, property or owner..."
+                                            value={searchTerm}
+                                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                        />
+                                        {searchTerm && (
+                                            <button
+                                                type="button"
+                                                className="search-clear-btn"
+                                                aria-label="Clear search"
+                                                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        )}
+                                        <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
+                                    </div>
+
+                                    {/* Active Filters Chips shown right in front of the search box in the same header */}
+                                    <ActiveFiltersChips
+                                        inline
+                                        filters={filters}
+                                        onRemoveFilter={handleRemoveFilter}
+                                        onClearAll={handleClearAll}
                                     />
-                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexShrink: 0 }}>
                                     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                                         Showing: <strong>{deals.length}</strong> /{" "}
                                         <strong>{totalRecords}</strong>
@@ -1148,12 +1173,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     </div>
 
 
-                    {/* Active Filters Chips */}
-                    <ActiveFiltersChips
-                        filters={filters}
-                        onRemoveFilter={handleRemoveFilter}
-                        onClearAll={handleClearAll}
-                    />
 
                     {/* Header */}
                     {currentView === 'list' && (

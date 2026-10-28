@@ -248,6 +248,23 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         setCurrentPage(1);
     }, [setStatusFilter, setFilters, setSearchTerm, setCurrentPage]);
 
+    const handleRemoveFilter = useCallback((key) => {
+        setFilters(prev => {
+            const next = { ...prev };
+            delete next[key];
+            if (key === 'category') {
+                delete next.subCategory;
+            }
+            return next;
+        });
+        setCurrentPage(1);
+    }, []);
+
+    const handleClearAll = useCallback(() => {
+        setFilters({});
+        setCurrentPage(1);
+    }, []);
+
     const handleCategoryFilter = useCallback((catName) => {
         if (!catName) {
             setFilters(prev => {
@@ -451,6 +468,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 isSortOpen={isSortOpen}
                                 setIsSortOpen={setIsSortOpen}
                                 filters={filters}
+                                onRemoveFilter={handleRemoveFilter}
+                                onClearAll={handleClearAll}
                                 setIsFilterPanelOpen={setIsFilterPanelOpen}
                             />
                     {viewMode === 'list' ? (
