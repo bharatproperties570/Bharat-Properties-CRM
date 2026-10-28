@@ -1,6 +1,7 @@
 import { useTheme } from '../../context/ThemeContext';
 import { PriceCard, TableContainer } from './DealCommon';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
+import { DataTable } from '../ui/DataTable/DataTable';
 
 const DealFinancialSection = ({ deal, setIsOfferModalOpen, isReadOnly }) => {
     const { isDark } = useTheme();
@@ -86,54 +87,79 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen, isReadOnly }) => {
                         )}
                     </div>
                     <div style={{ padding: '0' }}>
-                        {(deal.negotiationRounds || []).length > 0 ? (
-                            <TableContainer>
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0' }}>
-                                            <th style={thStyle}>Date</th>
-                                            <th style={thStyle}>Offer By</th>
-                                            <th style={thStyle}>Amount</th>
-                                            <th style={thStyle}>Counter</th>
-                                            <th style={thStyle}>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {deal.negotiationRounds.map((round, idx) => (
-                                            <tr key={idx} style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
-                                                <td style={tdStyle}>{new Date(round.date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-                                                <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569' }}>{round.offerBy || 'Buyer'}</span>
-                                                    {round.notes && <div style={{ fontSize: '0.65rem', color: '#94a3b8', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{round.notes}</div>}
-                                                </td>
-                                                <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
-                                                </td>
-                                                <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b' }}>{formatIndianCurrency(round.ownerCounter)}</span>
-                                                </td>
-                                                <td style={tdStyle}>
-                                                    <span style={{
-                                                        fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', borderRadius: '20px',
-                                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', textTransform: 'uppercase'
-                                                    }}>
-                                                        {round.status || 'Active'}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </TableContainer>
-                        ) : (
-                            <div style={{ padding: '40px', textAlign: 'center' }}>
-                                <div style={{ width: '48px', height: '48px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                                    <i className="fas fa-inbox text-slate-400" style={{ fontSize: '1.2rem' }}></i>
+                        <DataTable
+                            columns={[
+                                {
+                                    header: 'Date',
+                                    accessor: 'date',
+                                    render: (round) => (
+                                        <span style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#1e293b' }}>
+                                            {new Date(round.date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                        </span>
+                                    )
+                                },
+                                {
+                                    header: 'Offer By',
+                                    accessor: 'offerBy',
+                                    render: (round) => (
+                                        <div>
+                                            <span style={{ fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569' }}>
+                                                {round.offerBy || 'Buyer'}
+                                            </span>
+                                            {round.notes && (
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {round.notes}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                },
+                                {
+                                    header: 'Amount',
+                                    accessor: 'buyerOffer',
+                                    render: (round) => (
+                                        <span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>
+                                            {formatIndianCurrency(round.buyerOffer)}
+                                        </span>
+                                    )
+                                },
+                                {
+                                    header: 'Counter',
+                                    accessor: 'ownerCounter',
+                                    render: (round) => (
+                                        <span style={{ fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b' }}>
+                                            {formatIndianCurrency(round.ownerCounter)}
+                                        </span>
+                                    )
+                                },
+                                {
+                                    header: 'Status',
+                                    accessor: 'status',
+                                    render: (round) => (
+                                        <span style={{
+                                            fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', borderRadius: '20px',
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', textTransform: 'uppercase'
+                                        }}>
+                                            {round.status || 'Active'}
+                                        </span>
+                                    )
+                                }
+                            ]}
+                            data={(deal.negotiationRounds || []).map((round, idx) => ({
+                                ...round,
+                                id: round._id || round.id || `rnd-${idx}`
+                            }))}
+                            keyField="id"
+                            emptyMessage={
+                                <div style={{ padding: '40px', textAlign: 'center' }}>
+                                    <div style={{ width: '48px', height: '48px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                                        <i className="fas fa-inbox text-slate-400" style={{ fontSize: '1.2rem' }}></i>
+                                    </div>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', margin: '0 0 4px 0' }}>No Offers Yet</p>
+                                    <p style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Start the negotiation by adding the first offer.</p>
                                 </div>
-                                <p style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', margin: '0 0 4px 0' }}>No Offers Yet</p>
-                                <p style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Start the negotiation by adding the first offer.</p>
-                            </div>
-                        )}
+                            }
+                        />
                     </div>
                 </div>
             </div>

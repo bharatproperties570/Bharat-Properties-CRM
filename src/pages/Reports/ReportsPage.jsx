@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Chart from 'react-apexcharts';
 import toast from 'react-hot-toast';
 import { useDashboardStats } from '../../utils/crmHooks';
 import { pricingAPI, POSITIONING_CONFIG, TREND_CONFIG, formatINRFull } from '../../utils/pricingAPI';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 
 const ReportsPage = () => {
     const [activeTab, setActiveTab] = useState('insights');
@@ -673,6 +674,71 @@ const AREA_UNIT_LABELS = {
     PER_MARLA:  'per Marla',
 };
 
+const BENCHMARK_COLUMNS = [
+    {
+        header: 'Location',
+        accessor: 'location',
+        render: (m) => (
+            <span style={{ fontWeight: 700, color: '#1e293b' }}>{m.location}</span>
+        )
+    },
+    {
+        header: 'Sub-Category',
+        accessor: 'subCategory',
+        render: (m) => (
+            <span style={{ color: '#64748b' }}>{m.subCategory}</span>
+        )
+    },
+    {
+        header: 'Avg Rate',
+        accessor: 'avgRate',
+        render: (m) => (
+            <span style={{ fontWeight: 800, color: '#0f172a' }}>{formatINRFull(m.avgClosedRPU)}</span>
+        )
+    },
+    {
+        header: 'Unit',
+        accessor: 'unit',
+        render: (m) => (
+            <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{AREA_UNIT_LABELS[m.areaUnit] || ''}</span>
+        )
+    },
+    {
+        header: 'Trend',
+        accessor: 'trend',
+        render: (m) => (
+            <span style={{
+                padding: '3px 9px', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 800,
+                background: m.trend === 'upward' ? '#f0fdf4' : m.trend === 'downward' ? '#fef2f2' : '#fffbeb',
+                color: m.trend === 'upward' ? '#16a34a' : m.trend === 'downward' ? '#dc2626' : '#d97706',
+            }}>
+                {m.trendPct >= 0 ? '+' : ''}{m.trendPct?.toFixed(1)}%
+            </span>
+        )
+    },
+    {
+        header: 'Deals',
+        accessor: 'dealCount',
+        render: (m) => (
+            <span style={{ color: '#64748b' }}>{m.dealCount}</span>
+        )
+    },
+    {
+        header: 'Negotiation Gap',
+        accessor: 'negotiationGap',
+        render: (m) => (
+            <span style={{
+                color: m.avgNegotiationGapPct > 5 ? '#dc2626' : '#64748b',
+                fontWeight: m.avgNegotiationGapPct > 5 ? 700 : 400
+            }}>
+                {m.avgNegotiationGapPct !== null && m.avgNegotiationGapPct !== undefined
+                    ? `${m.avgNegotiationGapPct.toFixed(1)}%`
+                    : '—'}
+            </span>
+        )
+    }
+];
+
 const MarketAnalyticsSection = React.memo(function MarketAnalyticsSection({ active }) {
     const [pulse, setPulse] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -743,6 +809,12 @@ const MarketAnalyticsSection = React.memo(function MarketAnalyticsSection({ acti
         plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'Properties Analyzed', fontSize: '12px' } } } } },
         dataLabels: { enabled: false },
     };
+
+    const currentLocations = activeView === 'hot' ? hotLocations : activeView === 'stable' ? stableLocations : downLocations;
+    const benchmarkData = currentLocations.map((m, i) => ({
+        ...m,
+        id: m.id || m._id || `${m.location}-${m.subCategory}-${m.areaUnit || ''}-${i}`
+    }));
 
     return (
         <div className="report-grid animate-in">
@@ -867,47 +939,16 @@ const MarketAnalyticsSection = React.memo(function MarketAnalyticsSection({ acti
                         </div>
 
                         <div style={{ padding: '0 24px 20px' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                                <thead>
-                                    <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        {['Location', 'Sub-Category', 'Avg Rate', 'Unit', 'Trend', 'Deals', 'Negotiation Gap'].map(h => (
-                                            <th key={h} style={{ padding: '12px 0', textAlign: 'left', fontWeight: 700, fontSize: '0.67rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(activeView === 'hot' ? hotLocations : activeView === 'stable' ? stableLocations : downLocations).map((m, i) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                            <td style={{ padding: '12px 0', fontWeight: 700, color: '#1e293b' }}>{m.location}</td>
-                                            <td style={{ padding: '12px 0', color: '#64748b' }}>{m.subCategory}</td>
-                                            <td style={{ padding: '12px 0', fontWeight: 800, color: '#0f172a' }}>{formatINRFull(m.avgClosedRPU)}</td>
-                                            <td style={{ padding: '12px 0', color: '#94a3b8', fontSize: '0.72rem' }}>{AREA_UNIT_LABELS[m.areaUnit] || ''}</td>
-                                            <td style={{ padding: '12px 0' }}>
-                                                <span style={{
-                                                    padding: '3px 9px', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 800,
-                                                    background: m.trend === 'upward' ? '#f0fdf4' : m.trend === 'downward' ? '#fef2f2' : '#fffbeb',
-                                                    color: m.trend === 'upward' ? '#16a34a' : m.trend === 'downward' ? '#dc2626' : '#d97706',
-                                                }}>
-                                                    {m.trendPct >= 0 ? '+' : ''}{m.trendPct?.toFixed(1)}%
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '12px 0', color: '#64748b' }}>{m.dealCount}</td>
-                                            <td style={{ padding: '12px 0', color: m.avgNegotiationGapPct > 5 ? '#dc2626' : '#64748b', fontWeight: m.avgNegotiationGapPct > 5 ? 700 : 400 }}>
-                                                {m.avgNegotiationGapPct !== null && m.avgNegotiationGapPct !== undefined
-                                                    ? `${m.avgNegotiationGapPct.toFixed(1)}%`
-                                                    : '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {(activeView === 'hot' ? hotLocations : activeView === 'stable' ? stableLocations : downLocations).length === 0 && (
-                                        <tr>
-                                            <td colSpan={7} style={{ padding: '32px 0', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
-                                                No data for this category. Run "Refresh Benchmarks" first.
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                            <DataTable
+                                columns={BENCHMARK_COLUMNS}
+                                data={benchmarkData}
+                                keyField="id"
+                                emptyMessage={
+                                    <div style={{ padding: '32px 0', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
+                                        No data for this category. Run &quot;Refresh Benchmarks&quot; first.
+                                    </div>
+                                }
+                            />
                         </div>
                     </div>
                 </>
