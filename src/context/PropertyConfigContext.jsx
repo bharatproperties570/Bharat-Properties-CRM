@@ -1411,11 +1411,14 @@ export const PropertyConfigProvider = ({ children }) => {
             const responseData = sizesResponse?.data || (Array.isArray(sizesResponse) ? sizesResponse : []);
 
             if (isSuccess && Array.isArray(responseData)) {
-                lookupSizes = responseData.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
-                }));
+                lookupSizes = responseData.map(l => {
+                    const { id: _metaId, ...cleanMeta } = (l.metadata || {});
+                    return {
+                        ...cleanMeta,
+                        id: String(l._id || l.id),
+                        name: l.lookup_value
+                    };
+                });
             }
 
             // ✅ ENTERPRISE: Update state + localStorage cache together
@@ -1829,11 +1832,14 @@ export const PropertyConfigProvider = ({ children }) => {
 
         const sizesList = helperGet(newLookups, 'Size');
         if (sizesList) {
-            const normalizedSizes = sizesList.map(l => ({
-                id: l._id,
-                name: l.lookup_value,
-                ...l.metadata
-            }));
+            const normalizedSizes = sizesList.map(l => {
+                const { id: _metaId, ...cleanMeta } = (l.metadata || {});
+                return {
+                    ...cleanMeta,
+                    id: String(l._id || l.id),
+                    name: l.lookup_value
+                };
+            });
             setSizesWithCache(normalizedSizes);
         }
     }, [rawLookups, setMasterFields, setLeadMasterFields, setCompanyMasterFields, setSizesWithCache]);
@@ -2654,6 +2660,7 @@ export const PropertyConfigProvider = ({ children }) => {
             const cleanMetadata = { ...metadata, projectMappings: initialMappings };
             delete cleanMetadata.project;
             delete cleanMetadata.block;
+            delete cleanMetadata.id; // 🛡️ CRITICAL: Never store client/temporary ID in metadata
 
             const res = await createLookup.mutateAsync({
                 lookup_type: 'Size',
@@ -2662,10 +2669,11 @@ export const PropertyConfigProvider = ({ children }) => {
             });
 
             if (res && res.data) {
+                const { id: _metaId, ...cleanResMeta } = (res.data.metadata || {});
                 const sizeObj = {
-                    id: res.data._id,
-                    name: res.data.lookup_value,
-                    ...res.data.metadata
+                    ...cleanResMeta,
+                    id: String(res.data._id || res.data.id),
+                    name: res.data.lookup_value
                 };
 
                 // 🚀 ENTERPRISE FIX: If backend returned an existing/updated record,
@@ -2702,18 +2710,20 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateSize = async (updatedSize) => {
         try {
             const { id, name, ...metadata } = updatedSize;
+            delete metadata.id; // 🛡️ CRITICAL: Never store client/temporary ID in metadata
             const res = await updateLookup.mutateAsync({ id, data: {
                 lookup_value: name,
                 metadata: metadata
             }});
 
             if (res && res.data) {
+                const { id: _metaId, ...cleanResMeta } = (res.data.metadata || {});
                 const updated = {
-                    id: res.data._id,
-                    name: res.data.lookup_value,
-                    ...res.data.metadata
+                    ...cleanResMeta,
+                    id: String(res.data._id || res.data.id),
+                    name: res.data.lookup_value
                 };
-                setSizesWithCache(prev => prev.map(s => s.id === id ? updated : s));
+                setSizesWithCache(prev => prev.map(s => (s.id === id || s.id === updated.id) ? updated : s));
                 return updated;
             }
         } catch (error) {

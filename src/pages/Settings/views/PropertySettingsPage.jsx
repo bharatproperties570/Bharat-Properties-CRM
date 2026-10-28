@@ -1335,7 +1335,8 @@ const PropertySettingsPage = () => {
             setEditingSize(null);
         } catch (error) {
             console.error('Failed to save size:', error);
-            showToast('Error saving size configuration', 'error');
+            const errMsg = error?.response?.data?.message || error?.message || 'Error saving size configuration';
+            showToast(errMsg, 'error');
         }
     };
 
@@ -1563,7 +1564,7 @@ const PropertySettingsPage = () => {
                                 <button
                                     className="btn-primary"
                                     type="button"
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }}
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingSize(null); setIsModalOpen(true); }}
                                     style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#ffffff', border: 'none', cursor: 'pointer' }}
                                 >
                                     <i className="fas fa-plus"></i> Add Size

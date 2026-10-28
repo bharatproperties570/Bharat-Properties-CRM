@@ -129,6 +129,11 @@ export const addLookup = async (req, res) => {
     try {
         const { lookup_type, lookup_value, parent_lookup_id, metadata } = req.body;
         
+        // 🛡️ CRITICAL: Clean metadata so client-generated temporary IDs never pollute DB
+        if (req.body.metadata && typeof req.body.metadata === 'object') {
+            delete req.body.metadata.id;
+        }
+
         if (lookup_type && lookup_value) {
             // Case-insensitive duplicate check
             const escapedValue = lookup_value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
@@ -136,8 +141,8 @@ export const addLookup = async (req, res) => {
                 lookup_type, 
                 lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } 
             };
-            if (parent_lookup_id) {
-                filter.parent_lookup_id = parent_lookup_id;
+            if (parent_lookup_id && mongoose.Types.ObjectId.isValid(parent_lookup_id)) {
+                filter.parent_lookup_id = new mongoose.Types.ObjectId(parent_lookup_id);
             } else {
                 filter.parent_lookup_id = null;
             }
@@ -176,6 +181,7 @@ export const addLookup = async (req, res) => {
                         } : {}),
                         projectMappings: mergedMappings
                     };
+                    delete updatedMeta.id; // 🛡️ CRITICAL: Ensure no client-side id leaks into metadata
                     existing.metadata = updatedMeta;
                     existing.markModified('metadata');
                     await existing.save();
@@ -189,14 +195,20 @@ export const addLookup = async (req, res) => {
         }
 
         if (req.body.parent_lookup_id) {
-            const parent = await Lookup.findById(req.body.parent_lookup_id);
-            if (parent) {
-                req.body.parent_lookup_value = parent.lookup_value;
+            if (mongoose.Types.ObjectId.isValid(req.body.parent_lookup_id)) {
+                const parent = await Lookup.findById(req.body.parent_lookup_id);
+                if (parent) {
+                    req.body.parent_lookup_value = parent.lookup_value;
+                }
+            } else {
+                req.body.parent_lookup_id = null;
+                req.body.parent_lookup_value = null;
             }
         }
         const lookup = await Lookup.create(req.body);
         res.status(201).json({ status: "success", data: lookup });
     } catch (error) {
+        console.error("[LOOKUP_ADD] Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };
@@ -319,21 +331,52 @@ export const importLookups = async (req, res) => {
 export const updateLookup = async (req, res) => {
     try {
         const { id } = req.params;
-        const lookup = await Lookup.findById(id);
-        if (!lookup) return res.status(404).json({ status: "error", message: "Lookup not found" });
+        
+        let lookup = null;
+        if (id && mongoose.Types.ObjectId.isValid(id)) {
+            lookup = await Lookup.findById(id);
+        }
+
+        // 🛡️ ENTERPRISE SELF-HEALING: If ID was not a valid ObjectId (or not found),
+        // look it up via legacy metadata.id to gracefully handle stale cache or numeric timestamp IDs
+        if (!lookup && id) {
+            lookup = await Lookup.findOne({
+                $or: [
+                    { "metadata.id": id },
+                    { "metadata.id": Number(id) }
+                ]
+            });
+            if (lookup) {
+                console.warn(`[LOOKUP_UPDATE] Self-healing resolved legacy id "${id}" to ObjectId "${lookup._id}"`);
+            }
+        }
+
+        if (!lookup) {
+            return res.status(404).json({ status: "error", message: "Lookup not found" });
+        }
+
+        // 🛡️ CRITICAL: Never store client-generated temporary IDs in metadata
+        if (req.body.metadata && typeof req.body.metadata === 'object') {
+            delete req.body.metadata.id;
+        }
 
         // 1. If parent_lookup_id is updated, sync the new parent_lookup_value
         if (req.body.parent_lookup_id && String(req.body.parent_lookup_id) !== String(lookup.parent_lookup_id)) {
-            const parent = await Lookup.findById(req.body.parent_lookup_id);
-            if (parent) {
-                req.body.parent_lookup_value = parent.lookup_value;
+            if (mongoose.Types.ObjectId.isValid(req.body.parent_lookup_id)) {
+                const parent = await Lookup.findById(req.body.parent_lookup_id);
+                if (parent) {
+                    req.body.parent_lookup_value = parent.lookup_value;
+                }
+            } else {
+                req.body.parent_lookup_id = null;
+                req.body.parent_lookup_value = null;
             }
         }
 
         // 2. If the current lookup is renamed, update the parent_lookup_value reference in all child lookups
         if (req.body.lookup_value && req.body.lookup_value !== lookup.lookup_value) {
             const oldName = lookup.lookup_value;
-            await Lookup.updateMany({ parent_lookup_id: id }, { parent_lookup_value: req.body.lookup_value });
+            await Lookup.updateMany({ parent_lookup_id: lookup._id }, { parent_lookup_value: req.body.lookup_value });
             
             // Auto-save the old name as an alias so future data maps to the correct new name
             lookup.metadata = lookup.metadata || {};
@@ -348,9 +391,14 @@ export const updateLookup = async (req, res) => {
         }
 
         Object.assign(lookup, req.body);
+        if (lookup.metadata) {
+            delete lookup.metadata.id;
+            lookup.markModified('metadata');
+        }
         await lookup.save();
         res.json({ status: "success", data: lookup });
     } catch (error) {
+        console.error("[LOOKUP_UPDATE] Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };
@@ -358,9 +406,20 @@ export const updateLookup = async (req, res) => {
 export const deleteLookup = async (req, res) => {
     try {
         const { id } = req.params;
-        await Lookup.findByIdAndDelete(id);
-        res.json({ status: "success", message: "Lookup deleted" });
+        let deleted = null;
+        if (id && mongoose.Types.ObjectId.isValid(id)) {
+            deleted = await Lookup.findByIdAndDelete(id);
+        } else if (id) {
+            deleted = await Lookup.findOneAndDelete({
+                $or: [
+                    { "metadata.id": id },
+                    { "metadata.id": Number(id) }
+                ]
+            });
+        }
+        res.json({ status: "success", message: "Lookup deleted", data: deleted });
     } catch (error) {
+        console.error("[LOOKUP_DELETE] Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };
