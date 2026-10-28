@@ -52,6 +52,7 @@ const getCategoryColor = (catName) => {
 };
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
+    const { isDark } = useTheme();
     const { data: users = [] } = useUsers();
     
     const { data: teams = [] } = useTeams();
@@ -505,8 +506,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 className="summary-label" 
                                 onClick={() => handleCategoryFilter(null)}
                                 style={{ 
-                                    background: '#1e293b', 
-                                    color: '#cbd5e1', 
+                                    background: isDark ? '#1e293b' : '#ffffff', 
+                                    color: isDark ? '#cbd5e1' : '#1e293b', 
                                     borderRadius: '8px', 
                                     fontSize: '0.68rem', 
                                     padding: '5px 12px', 
@@ -516,8 +517,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '6px',
-                                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1',
+                                    boxShadow: isDark ? '0 2px 6px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.08)',
                                     transition: 'all 0.15s ease'
                                 }}
                                 title="Click to clear category and view all inventory"
@@ -542,9 +543,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             gap: '7px',
                                             padding: '4px 12px',
                                             borderRadius: '10px',
-                                            background: `${activeCatColor}18`,
+                                            background: isDark ? `${activeCatColor}18` : `${activeCatColor}14`,
                                             border: `1.5px solid ${activeCatColor}`,
-                                            boxShadow: `0 0 10px ${activeCatColor}33`,
+                                            boxShadow: isDark ? `0 0 10px ${activeCatColor}33` : `0 1px 4px ${activeCatColor}25`,
                                             fontSize: '0.75rem',
                                             fontWeight: 800,
                                             color: activeCatColor,
@@ -559,7 +560,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             style={{ 
                                                 fontSize: '1rem', 
                                                 fontWeight: 800, 
-                                                color: 'var(--text-primary, #ffffff)',
+                                                color: isDark ? '#f8fafc' : '#0f172a',
                                                 marginLeft: '2px' 
                                             }}
                                         >
@@ -580,7 +581,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 width: '16px',
                                                 height: '16px',
                                                 borderRadius: '50%',
-                                                background: `${activeCatColor}30`,
+                                                background: isDark ? `${activeCatColor}30` : `${activeCatColor}20`,
                                                 color: activeCatColor,
                                                 fontSize: '0.65rem',
                                                 fontWeight: 900,
@@ -595,7 +596,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                             })()}
 
                             {/* Subtle Divider */}
-                            <div style={{ height: '20px', width: '1px', background: 'var(--border-color, rgba(255, 255, 255, 0.15))', margin: '0 4px', flexShrink: 0 }} />
+                            <div style={{ height: '20px', width: '1px', background: isDark ? 'rgba(255, 255, 255, 0.15)' : '#cbd5e1', margin: '0 4px', flexShrink: 0 }} />
 
                             {/* Sub-Category Pills (Slightly smaller, refined enterprise pills) */}
                             {resolvedSubCategories.length > 0 ? (
@@ -619,13 +620,13 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 fontSize: '0.72rem',
                                                 fontWeight: isSubSelected ? 800 : 600,
                                                 background: isSubSelected 
-                                                    ? `${activeCatColor}28` 
-                                                    : 'var(--bg-subtle, rgba(255, 255, 255, 0.04))',
+                                                    ? (isDark ? `${activeCatColor}28` : `${activeCatColor}18`)
+                                                    : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff'),
                                                 border: isSubSelected 
                                                     ? `1.5px solid ${activeCatColor}` 
-                                                    : '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
-                                                boxShadow: isSubSelected ? `0 0 8px ${activeCatColor}40` : 'none',
-                                                color: isSubSelected ? activeCatColor : 'var(--text-secondary, #94a3b8)',
+                                                    : (isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid #cbd5e1'),
+                                                boxShadow: isSubSelected ? `0 0 8px ${activeCatColor}40` : (isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)'),
+                                                color: isSubSelected ? activeCatColor : (isDark ? '#cbd5e1' : '#475569'),
                                                 transition: 'all 0.15s ease-in-out',
                                                 transform: isSubSelected ? 'scale(1.02)' : 'scale(1)'
                                             }}
@@ -640,7 +641,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 style={{ 
                                                     fontWeight: 800, 
                                                     fontSize: '0.88rem',
-                                                    color: isSubSelected ? activeCatColor : 'var(--text-primary, #f1f5f9)'
+                                                    color: isSubSelected ? activeCatColor : (isDark ? '#f8fafc' : '#0f172a')
                                                 }}
                                             >
                                                 {sub.count.toLocaleString()}
@@ -660,9 +661,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 className="summary-label" 
                                 onClick={() => handleCategoryFilter(null)}
                                 style={{ 
-                                    background: '#334155', color: '#fff', borderRadius: '8px', 
-                                    fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, 
-                                    whiteSpace: 'nowrap', cursor: 'pointer',
+                                    background: isDark ? '#334155' : '#1e293b', 
+                                    color: '#fff', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.65rem', 
+                                    padding: '4px 12px', 
+                                    fontWeight: 800, 
+                                    whiteSpace: 'nowrap', 
+                                    cursor: 'pointer',
                                     boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
                                 }}
                                 title="Click to view all inventory"
@@ -685,6 +691,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                     fontSize: '0.7rem',
                                     fontWeight: 800,
                                     letterSpacing: '0.5px',
+                                    color: isDark ? '#e2e8f0' : '#1e293b',
                                     background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
                                     border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
                                     boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
@@ -693,7 +700,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 title={(!filters.category || !filters.category.length) ? "Showing all properties" : "Click to view all properties"}
                             >
                                 TOTAL 
-                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2ecc71' }}>
+                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>
                                     {(persistentTotalInventory.current || totalRecords).toLocaleString()}
                                 </span>
                             </div>
@@ -726,7 +733,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             title={`Filter by ${labelStr}`}
                                         >
                                             <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
-                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{renderValue(stat.count)}</span>
+                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: isDark ? '#f8fafc' : '#0f172a' }}>{renderValue(stat.count)}</span>
                                         </div>
                                     );
                                 })
