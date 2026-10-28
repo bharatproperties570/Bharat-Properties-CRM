@@ -1,9 +1,18 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTriggers } from '../../../context/TriggersContext';
 import CreateTriggerModal from '../../../components/CreateTriggerModal';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const TriggersSettingsPage = () => {
-    const { triggers, toggleTrigger, deleteTrigger, duplicateTrigger, getTriggerStats, stats } = useTriggers();
+    const {
+        triggers = [],
+        toggleTrigger,
+        deleteTrigger,
+        duplicateTrigger,
+        getTriggerStats,
+        stats = { totalFired: 0, successCount: 0 },
+        executionLogs = []
+    } = useTriggers();
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -14,6 +23,7 @@ const TriggersSettingsPage = () => {
     const [filterStatus, setFilterStatus] = useState('all');
     const [sortBy, setSortBy] = useState('priority');
     const [sortOrder, setSortOrder] = useState('asc');
+    const [activeTab, setActiveTab] = useState('list'); // list, logs
 
     // Filter triggers
     let filteredTriggers = triggers.filter(t => {
@@ -93,8 +103,220 @@ const TriggersSettingsPage = () => {
         return colors[module] || 'var(--text-muted)';
     };
 
-    const [activeTab, setActiveTab] = useState('list'); // list, logs
-    const { executionLogs } = useTriggers();
+    const triggerColumns = useMemo(() => [
+        {
+            key: 'name',
+            header: 'Trigger Name',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => (
+                <div>
+                    <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{trigger?.name || 'Untitled Trigger'}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        {trigger?.conditions?.rules?.length || 0} condition(s)
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'module',
+            header: 'Module',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => (
+                <span style={{
+                    fontSize: '13px',
+                    color: '#ffffff',
+                    background: getModuleColor(trigger?.module),
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    textTransform: 'capitalize'
+                }}>
+                    {trigger?.module}
+                </span>
+            )
+        },
+        {
+            key: 'event',
+            header: 'Event',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => (
+                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+                    {getEventLabel(trigger?.event)}
+                </div>
+            )
+        },
+        {
+            key: 'actions_count',
+            header: 'Actions',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => (
+                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+                    {trigger?.actions?.length || 0} action(s)
+                </div>
+            )
+        },
+        {
+            key: 'priority',
+            header: 'Priority',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => (
+                <div style={{
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    color: (trigger?.priority ?? 99) <= 3 ? '#ef4444' : (trigger?.priority ?? 99) <= 6 ? '#f59e0b' : 'var(--text-muted)'
+                }}>
+                    {trigger?.priority ?? '-'}
+                </div>
+            )
+        },
+        {
+            key: 'stats',
+            header: 'Stats',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => {
+                const triggerId = trigger?._id || trigger?.id;
+                const triggerStats = typeof getTriggerStats === 'function' ? getTriggerStats(triggerId) : { totalFired: 0, successRate: 0 };
+                return (
+                    <div style={{ fontSize: '12px', color: 'var(--text-main)' }}>
+                        <div>Fired: {triggerStats?.totalFired ?? 0}</div>
+                        <div style={{ color: (triggerStats?.successRate ?? 0) >= 80 ? '#10b981' : '#f59e0b' }}>
+                            Success: {triggerStats?.successRate ?? 0}%
+                        </div>
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => {
+                const triggerId = trigger?._id || trigger?.id;
+                return (
+                    <button
+                        onClick={() => toggleTrigger && toggleTrigger(triggerId)}
+                        style={{
+                            padding: '4px 12px',
+                            borderRadius: '20px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: trigger?.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: trigger?.isActive ? '#166534' : '#991b1b'
+                        }}
+                    >
+                        {trigger?.isActive ? 'Active' : 'Inactive'}
+                    </button>
+                );
+            }
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (trigger) => {
+                const triggerId = trigger?._id || trigger?.id;
+                return (
+                    <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
+                        <i
+                            className="fas fa-edit"
+                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                            onClick={() => handleEdit(trigger)}
+                            onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
+                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                            title="Edit Trigger"
+                        ></i>
+                        <i
+                            className="fas fa-copy"
+                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                            onClick={() => {
+                                const duplicate = duplicateTrigger && duplicateTrigger(triggerId);
+                                if (duplicate) {
+                                    setEditingTrigger(duplicate);
+                                    setIsEditModalOpen(true);
+                                }
+                            }}
+                            onMouseEnter={(e) => e.target.style.color = '#10b981'}
+                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                            title="Duplicate Trigger"
+                        ></i>
+                        <i
+                            className="fas fa-trash-alt"
+                            style={{ cursor: 'pointer', transition: 'color 0.2s' }}
+                            onClick={() => handleDelete(trigger)}
+                            onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
+                            title="Delete Trigger"
+                        ></i>
+                    </div>
+                );
+            }
+        }
+    ], [getTriggerStats, toggleTrigger, duplicateTrigger, handleEdit, handleDelete]);
+
+    const logColumns = useMemo(() => [
+        {
+            key: 'executedAt',
+            header: 'Timestamp',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px', fontSize: '13px', color: 'var(--text-muted)' },
+            render: (log) => log?.executedAt ? new Date(log.executedAt).toLocaleString() : '-'
+        },
+        {
+            key: 'triggerName',
+            header: 'Trigger',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px', fontSize: '13px', fontWeight: '600' },
+            render: (log) => log?.triggerName || '-'
+        },
+        {
+            key: 'event',
+            header: 'Event',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px', fontSize: '13px' },
+            render: (log) => log?.event || '-'
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px' },
+            render: (log) => (
+                <span style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    background: log?.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: log?.success ? '#166534' : '#991b1b'
+                }}>
+                    {log?.success ? 'SUCCESS' : 'FAILED'}
+                </span>
+            )
+        },
+        {
+            key: 'totalExecutionTime',
+            header: 'Time',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px', fontSize: '13px' },
+            render: (log) => `${log?.totalExecutionTime ?? 0}ms`
+        },
+        {
+            key: 'actions',
+            header: 'Actions taken',
+            headerStyle: { padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' },
+            cellStyle: { padding: '16px', fontSize: '13px', color: 'var(--text-main)' },
+            render: (log) => log?.actionLogs?.map(a => `${a.action}: ${a.status}`).join(', ') || '-'
+        }
+    ], []);
 
     return (
         <div style={{ padding: '24px' }}>
@@ -238,191 +460,35 @@ const TriggersSettingsPage = () => {
 
                     {/* Triggers Table */}
                     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                            <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                <tr>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger Name</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Module</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Event</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Priority</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Stats</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredTriggers.map((trigger) => {
-                                    const triggerStats = getTriggerStats(trigger.id);
-                                    return (
-                                        <tr key={trigger.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{trigger.name}</div>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                                    {trigger.conditions?.rules?.length || 0} condition(s)
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <span style={{
-                                                    fontSize: '13px',
-                                                    color: '#ffffff',
-                                                    background: getModuleColor(trigger.module),
-                                                    padding: '4px 8px',
-                                                    borderRadius: '4px',
-                                                    textTransform: 'capitalize'
-                                                }}>
-                                                    {trigger.module}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
-                                                    {getEventLabel(trigger.event)}
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
-                                                    {trigger.actions?.length || 0} action(s)
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{
-                                                    fontSize: '14px',
-                                                    fontWeight: '700',
-                                                    color: trigger.priority <= 3 ? '#ef4444' : trigger.priority <= 6 ? '#f59e0b' : 'var(--text-muted)'
-                                                }}>
-                                                    {trigger.priority || '-'}
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-main)' }}>
-                                                    <div>Fired: {triggerStats.totalFired}</div>
-                                                    <div style={{ color: triggerStats.successRate >= 80 ? '#10b981' : '#f59e0b' }}>
-                                                        Success: {triggerStats.successRate}%
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <button
-                                                    onClick={() => toggleTrigger(trigger.id)}
-                                                    style={{
-                                                        padding: '4px 12px',
-                                                        borderRadius: '20px',
-                                                        fontSize: '12px',
-                                                        fontWeight: '600',
-                                                        border: 'none',
-                                                        cursor: 'pointer',
-                                                        background: trigger.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                        color: trigger.isActive ? '#166534' : '#991b1b'
-                                                    }}
-                                                >
-                                                    {trigger.isActive ? 'Active' : 'Inactive'}
-                                                </button>
-                                            </td>
-                                            <td style={{ padding: '16px' }}>
-                                                <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
-                                                    <i
-                                                        className="fas fa-edit"
-                                                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                        onClick={() => handleEdit(trigger)}
-                                                        onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
-                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                        title="Edit Trigger"
-                                                    ></i>
-                                                    <i
-                                                        className="fas fa-copy"
-                                                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                        onClick={() => {
-                                                            const duplicate = duplicateTrigger(trigger.id);
-                                                            if (duplicate) {
-                                                                setEditingTrigger(duplicate);
-                                                                setIsEditModalOpen(true);
-                                                            }
-                                                        }}
-                                                        onMouseEnter={(e) => e.target.style.color = '#10b981'}
-                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                        title="Duplicate Trigger"
-                                                    ></i>
-                                                    <i
-                                                        className="fas fa-trash-alt"
-                                                        style={{ cursor: 'pointer', transition: 'color 0.2s' }}
-                                                        onClick={() => handleDelete(trigger)}
-                                                        onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
-                                                        title="Delete Trigger"
-                                                    ></i>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-
-                        {/* Empty State */}
-                        {filteredTriggers.length === 0 && (
-                            <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                <i className="fas fa-bolt" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
-                                <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No triggers found</div>
-                                <div style={{ fontSize: '14px' }}>
-                                    {searchTerm ? 'Try adjusting your search or filters' : 'Create your first trigger to automate responses to system events'}
+                        <DataTable
+                            columns={triggerColumns}
+                            data={filteredTriggers}
+                            keyField="id"
+                            emptyMessage={
+                                <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    <i className="fas fa-bolt" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
+                                    <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No triggers found</div>
+                                    <div style={{ fontSize: '14px' }}>
+                                        {searchTerm ? 'Try adjusting your search or filters' : 'Create your first trigger to automate responses to system events'}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            }
+                        />
                     </div>
                 </>
             ) : (
                 <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                        <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <tr>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Timestamp</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Event</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Time</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions taken</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(executionLogs || []).map((log, i) => (
-                                <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                    <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
-                                        {new Date(log.executedAt).toLocaleString()}
-                                    </td>
-                                    <td style={{ padding: '16px', fontSize: '13px', fontWeight: '600' }}>
-                                        {log.triggerName}
-                                    </td>
-                                    <td style={{ padding: '16px', fontSize: '13px' }}>
-                                        {log.event}
-                                    </td>
-                                    <td style={{ padding: '16px' }}>
-                                        <span style={{
-                                            padding: '4px 8px',
-                                            borderRadius: '4px',
-                                            fontSize: '11px',
-                                            fontWeight: '700',
-                                            background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                            color: log.success ? '#166534' : '#991b1b'
-                                        }}>
-                                            {log.success ? 'SUCCESS' : 'FAILED'}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '16px', fontSize: '13px' }}>
-                                        {log.totalExecutionTime}ms
-                                    </td>
-                                    <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-main)' }}>
-                                        {log.actionLogs?.map(a => `${a.action}: ${a.status}`).join(', ')}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {(!executionLogs || executionLogs.length === 0) && (
-                        <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                            <i className="fas fa-history" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
-                            <div style={{ fontSize: '16px', fontWeight: '600' }}>No execution logs yet</div>
-                        </div>
-                    )}
+                    <DataTable
+                        columns={logColumns}
+                        data={executionLogs || []}
+                        keyField="_id"
+                        emptyMessage={
+                            <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                <i className="fas fa-history" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
+                                <div style={{ fontSize: '16px', fontWeight: '600' }}>No execution logs yet</div>
+                            </div>
+                        }
+                    />
                 </div>
             )}
 

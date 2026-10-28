@@ -10,6 +10,7 @@ import smsService from '../../../services/smsService';
 import whatsappService from '../../../services/whatsappService';
 import VariableTextarea from '../../../components/VariableTextarea';
 import { renderWhatsAppFormattedText } from '../../../utils/whatsappFormatter';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 
 // --- Sub-Components ---
@@ -2097,6 +2098,124 @@ const VariableRegistryTab = () => {
         });
     }, [searchTerm, activeCategory]);
 
+    const variablesData = useMemo(() => {
+        return filteredVariables.map(item => ({
+            ...item,
+            id: item.var
+        }));
+    }, [filteredVariables]);
+
+    const variableColumns = useMemo(() => [
+        {
+            header: 'Variable Syntax',
+            accessor: 'var',
+            render: (item) => {
+                const isCopied = copiedVar === item.var;
+                return (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <div
+                            onClick={() => handleCopy(item.var)}
+                            title="Click to copy syntax"
+                            style={{
+                                background: '#f8fafc',
+                                border: '1px solid #e2e8f0',
+                                color: 'var(--primary-color, #4f46e5)',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                fontFamily: 'monospace',
+                                cursor: 'pointer',
+                                transition: 'all 0.12s ease',
+                                userSelect: 'all'
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.borderColor = '#818cf8';
+                                e.currentTarget.style.background = '#eef2ff';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                e.currentTarget.style.background = '#f8fafc';
+                            }}
+                        >
+                            {item.var}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => handleCopy(item.var)}
+                            title={`Copy ${item.var}`}
+                            style={{
+                                border: 'none',
+                                background: isCopied ? '#ecfdf5' : 'transparent',
+                                color: isCopied ? '#059669' : '#94a3b8',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={e => {
+                                if (!isCopied) {
+                                    e.currentTarget.style.color = '#4f46e5';
+                                    e.currentTarget.style.background = '#f1f5f9';
+                                }
+                            }}
+                            onMouseLeave={e => {
+                                if (!isCopied) {
+                                    e.currentTarget.style.color = '#94a3b8';
+                                    e.currentTarget.style.background = 'transparent';
+                                }
+                            }}
+                        >
+                            {isCopied ? <Check size={13} color="#059669" /> : <Copy size={13} />}
+                        </button>
+                    </div>
+                );
+            }
+        },
+        {
+            header: 'Description & Data Source',
+            accessor: 'desc',
+            render: (item) => (
+                <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{item.desc}</span>
+            )
+        },
+        {
+            header: 'Sample Data',
+            accessor: 'example',
+            render: (item) => (
+                <span style={{ color: '#64748b', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                    {item.example || '—'}
+                </span>
+            )
+        },
+        {
+            header: 'Context',
+            accessor: 'ctx',
+            render: (item) => {
+                const badge = getContextBadgeStyle(item.ctx);
+                return (
+                    <span style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: badge.bg,
+                        color: badge.color,
+                        border: `1px solid ${badge.border}`,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                    }}>
+                        {item.ctx}
+                    </span>
+                );
+            }
+        }
+    ], [copiedVar]);
+
     return (
         <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
             {/* Header Card */}
@@ -2239,165 +2358,39 @@ const VariableRegistryTab = () => {
                 overflow: 'hidden',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
             }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                    <thead>
-                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '280px', color: 'var(--text-main)', fontWeight: 700 }}>
-                                Variable Syntax
-                            </th>
-                            <th style={{ padding: '14px 18px', textAlign: 'left', color: 'var(--text-main)', fontWeight: 700 }}>
-                                Description & Data Source
-                            </th>
-                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '150px', color: 'var(--text-main)', fontWeight: 700 }}>
-                                Sample Data
-                            </th>
-                            <th style={{ padding: '14px 18px', textAlign: 'left', width: '160px', color: 'var(--text-main)', fontWeight: 700 }}>
-                                Context
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredVariables.length === 0 ? (
-                            <tr>
-                                <td colSpan="4" style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>
-                                    <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
-                                    <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
-                                        No variables found matching &quot;{searchTerm}&quot;
-                                    </div>
-                                    <div style={{ fontSize: '0.82rem', marginTop: '4px', color: 'var(--text-muted)' }}>
-                                        Check for typos or try clearing your search query.
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => { setSearchTerm(''); setActiveCategory('ALL'); }}
-                                        style={{
-                                            marginTop: '14px',
-                                            padding: '7px 16px',
-                                            borderRadius: '7px',
-                                            border: '1px solid #cbd5e1',
-                                            background: '#ffffff',
-                                            color: '#334155',
-                                            fontSize: '0.82rem',
-                                            fontWeight: 600,
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Clear Search & Filters
-                                    </button>
-                                </td>
-                            </tr>
-                        ) : (
-                            filteredVariables.map((item, i) => {
-                                const badge = getContextBadgeStyle(item.ctx);
-                                const isCopied = copiedVar === item.var;
-
-                                return (
-                                    <tr
-                                        key={item.var}
-                                        style={{
-                                            borderBottom: i < filteredVariables.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                            transition: 'background 0.12s ease'
-                                        }}
-                                        onMouseEnter={e => { e.currentTarget.style.background = '#f8fafc'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                    >
-                                        {/* Variable Syntax + Copy button */}
-                                        <td style={{ padding: '12px 18px' }}>
-                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                                <div
-                                                    onClick={() => handleCopy(item.var)}
-                                                    title="Click to copy syntax"
-                                                    style={{
-                                                        background: '#f8fafc',
-                                                        border: '1px solid #e2e8f0',
-                                                        color: 'var(--primary-color, #4f46e5)',
-                                                        padding: '5px 10px',
-                                                        borderRadius: '6px',
-                                                        fontWeight: 800,
-                                                        fontSize: '0.82rem',
-                                                        fontFamily: 'monospace',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.12s ease',
-                                                        userSelect: 'all'
-                                                    }}
-                                                    onMouseEnter={e => {
-                                                        e.currentTarget.style.borderColor = '#818cf8';
-                                                        e.currentTarget.style.background = '#eef2ff';
-                                                    }}
-                                                    onMouseLeave={e => {
-                                                        e.currentTarget.style.borderColor = '#e2e8f0';
-                                                        e.currentTarget.style.background = '#f8fafc';
-                                                    }}
-                                                >
-                                                    {item.var}
-                                                </div>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleCopy(item.var)}
-                                                    title={`Copy ${item.var}`}
-                                                    style={{
-                                                        border: 'none',
-                                                        background: isCopied ? '#ecfdf5' : 'transparent',
-                                                        color: isCopied ? '#059669' : '#94a3b8',
-                                                        cursor: 'pointer',
-                                                        padding: '4px',
-                                                        borderRadius: '4px',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        transition: 'all 0.15s ease'
-                                                    }}
-                                                    onMouseEnter={e => {
-                                                        if (!isCopied) {
-                                                            e.currentTarget.style.color = '#4f46e5';
-                                                            e.currentTarget.style.background = '#f1f5f9';
-                                                        }
-                                                    }}
-                                                    onMouseLeave={e => {
-                                                        if (!isCopied) {
-                                                            e.currentTarget.style.color = '#94a3b8';
-                                                            e.currentTarget.style.background = 'transparent';
-                                                        }
-                                                    }}
-                                                >
-                                                    {isCopied ? <Check size={13} color="#059669" /> : <Copy size={13} />}
-                                                </button>
-                                            </div>
-                                        </td>
-
-                                        {/* Description */}
-                                        <td style={{ padding: '12px 18px', color: 'var(--text-main)', fontWeight: 600 }}>
-                                            {item.desc}
-                                        </td>
-
-                                        {/* Sample Data */}
-                                        <td style={{ padding: '12px 18px', color: '#64748b', fontSize: '0.8rem', fontFamily: 'monospace' }}>
-                                            {item.example || '—'}
-                                        </td>
-
-                                        {/* Context Badge */}
-                                        <td style={{ padding: '12px 18px' }}>
-                                            <span style={{
-                                                fontSize: '0.72rem',
-                                                fontWeight: 700,
-                                                padding: '4px 10px',
-                                                borderRadius: '6px',
-                                                background: badge.bg,
-                                                color: badge.color,
-                                                border: `1px solid ${badge.border}`,
-                                                display: 'inline-block',
-                                                whiteSpace: 'nowrap'
-                                            }}>
-                                                {item.ctx}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })
-                        )}
-                    </tbody>
-                </table>
+                <DataTable
+                    columns={variableColumns}
+                    data={variablesData}
+                    keyField="id"
+                    emptyMessage={
+                        <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>
+                            <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
+                            <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                                No variables found matching &quot;{searchTerm}&quot;
+                            </div>
+                            <div style={{ fontSize: '0.82rem', marginTop: '4px', color: 'var(--text-muted)' }}>
+                                Check for typos or try clearing your search query.
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { setSearchTerm(''); setActiveCategory('ALL'); }}
+                                style={{
+                                    marginTop: '14px',
+                                    padding: '7px 16px',
+                                    borderRadius: '7px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#334155',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Clear Search & Filters
+                            </button>
+                        </div>
+                    }
+                />
             </div>
         </div>
     );
@@ -2849,6 +2842,164 @@ const MessagingSettingsPage = () => {
             }
         }
 
+        const templatesData = templatesToDisplay.map((row, i) => ({
+            ...row,
+            id: row.id || row._id || `tpl-${i}`
+        }));
+
+        const templateColumns = [
+            {
+                header: 'Template name',
+                accessor: 'name',
+                render: (row) => (
+                    <div style={{ fontWeight: 600, color: 'var(--primary-color)' }}>
+                        <div>{row.name}</div>
+                        {Array.isArray(row.systemContext) && row.systemContext.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                {row.systemContext.map(ctx => (
+                                    <span key={ctx} style={{
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        background: ctx === 'marketing_broadcast' ? '#dcfce7' : '#ede9fe',
+                                        color: ctx === 'marketing_broadcast' ? '#15803d' : '#6d28d9',
+                                        border: ctx === 'marketing_broadcast' ? '1px solid #bbf7d0' : '1px solid #ddd6fe'
+                                    }}>
+                                        {ctx === 'marketing_broadcast' ? '📢 Marketing Broadcast' : ctx.replace(/_/g, ' ')}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )
+            },
+            {
+                header: 'Channel',
+                accessor: 'channel',
+                render: (row) => (
+                    templateType === 'whatsapp' ? (
+                        row.channel === 'web' ? (
+                            <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <i className="fab fa-whatsapp" style={{ color: '#10b981' }}></i> WhatsApp Web
+                            </span>
+                        ) : row.channel === 'cloud_api' ? (
+                            <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <i className="fas fa-cloud" style={{ color: '#3b82f6' }}></i> Meta Cloud API
+                            </span>
+                        ) : (
+                            <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <i className="fas fa-globe" style={{ color: '#8b5cf6' }}></i> All Channels
+                            </span>
+                        )
+                    ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{templateType.toUpperCase()}</span>
+                    )
+                )
+            },
+            {
+                header: 'Status',
+                accessor: 'status',
+                render: (row) => (
+                    <span style={{
+                        color: row.status === 'APPROVED' ? '#22c55e' : (row.status === 'REJECTED' ? '#ef4444' : (row.status === 'PENDING' ? '#eab308' : '#3b82f6')),
+                        fontWeight: 600,
+                        background: row.status === 'APPROVED' ? '#f0fdf4' : (row.status === 'REJECTED' ? '#fef2f2' : (row.status === 'PENDING' ? '#fefce8' : '#eff6ff')),
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem'
+                    }}>
+                        {row.status ? row.status : (row.channel === 'web' ? 'APPROVED' : 'Local')}
+                    </span>
+                )
+            },
+            {
+                header: 'Dated',
+                accessor: 'date',
+                render: () => '05/02/2026'
+            },
+            {
+                header: 'Tags',
+                accessor: 'tags',
+                render: (row) => (
+                    <span style={{ background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>
+                        {row.tags ? row.tags[0] : 'Property'}
+                    </span>
+                )
+            },
+            {
+                header: 'Created by',
+                accessor: 'createdBy',
+                render: () => 'Bharat Properties'
+            },
+            {
+                header: 'Sharing',
+                accessor: 'sharing',
+                render: () => 'Owned by you'
+            },
+            {
+                header: '',
+                accessor: 'actions',
+                render: (row, i) => (
+                    <div style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end' }}>
+                        <div
+                            style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
+                            onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === row.id ? null : row.id); }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                            <i className="fas fa-ellipsis-v" style={{ color: 'var(--text-muted)' }}></i>
+                        </div>
+                        {activeDropdown === row.id && (
+                            <>
+                                <div
+                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998 }}
+                                    onClick={() => setActiveDropdown(null)}
+                                />
+                                <div style={{ position: 'absolute', right: '0', top: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? 'auto' : '32px', bottom: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? '32px' : 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 9999, width: '220px', padding: '4px 0', textAlign: 'left' }}>
+                                    {templateType === 'whatsapp' && row.status !== 'APPROVED' && row.status !== 'PENDING' && (
+                                        <div
+                                            style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontWeight: 600 }}
+                                            onClick={() => { setActiveDropdown(null); handleDirectMetaSubmit(row); }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                        >
+                                            <i className="fab fa-whatsapp" style={{ width: '16px', textAlign: 'center' }}></i> Submit to Meta
+                                        </div>
+                                    )}
+                                    <div
+                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
+                                        onClick={() => { setActiveDropdown(null); handleEdit(row); }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <i className="far fa-edit" style={{ width: '16px', color: '#3b82f6', textAlign: 'center' }}></i> Edit Template
+                                    </div>
+                                    <div
+                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
+                                        onClick={() => { setActiveDropdown(null); setContextEditingTemplate(row); }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <i className="fas fa-plug" style={{ width: '16px', color: 'var(--primary-color)', textAlign: 'center' }}></i> System Trigger Context
+                                    </div>
+                                    <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }}></div>
+                                    <div
+                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 600 }}
+                                        onClick={() => { setActiveDropdown(null); handleDelete(row.id); }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <i className="far fa-trash-alt" style={{ width: '16px', textAlign: 'center' }}></i> Delete Template
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )
+            }
+        ];
+
         return (
             <div>
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
@@ -2917,142 +3068,16 @@ const MessagingSettingsPage = () => {
                     )}
                 </div>
 
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                    <thead>
-                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px' }}>Template name</th>
-                            <th style={{ padding: '12px' }}>Channel</th>
-                            <th style={{ padding: '12px' }}>Status</th>
-                            <th style={{ padding: '12px' }}>Dated</th>
-                            <th style={{ padding: '12px' }}>Tags</th>
-                            <th style={{ padding: '12px' }}>Created by</th>
-                            <th style={{ padding: '12px' }}>Sharing</th>
-                            <th style={{ padding: '12px' }}></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {templatesToDisplay.length > 0 ? templatesToDisplay.map((row, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                                    <div>{row.name}</div>
-                                    {Array.isArray(row.systemContext) && row.systemContext.length > 0 && (
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                                            {row.systemContext.map(ctx => (
-                                                <span key={ctx} style={{
-                                                    fontSize: '0.65rem',
-                                                    fontWeight: 700,
-                                                    padding: '2px 6px',
-                                                    borderRadius: '4px',
-                                                    background: ctx === 'marketing_broadcast' ? '#dcfce7' : '#ede9fe',
-                                                    color: ctx === 'marketing_broadcast' ? '#15803d' : '#6d28d9',
-                                                    border: ctx === 'marketing_broadcast' ? '1px solid #bbf7d0' : '1px solid #ddd6fe'
-                                                }}>
-                                                    {ctx === 'marketing_broadcast' ? '📢 Marketing Broadcast' : ctx.replace(/_/g, ' ')}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                </td>
-                                <td style={{ padding: '16px 12px' }}>
-                                    {templateType === 'whatsapp' ? (
-                                        row.channel === 'web' ? (
-                                            <span style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                <i className="fab fa-whatsapp" style={{ color: '#10b981' }}></i> WhatsApp Web
-                                            </span>
-                                        ) : row.channel === 'cloud_api' ? (
-                                            <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                <i className="fas fa-cloud" style={{ color: '#3b82f6' }}></i> Meta Cloud API
-                                            </span>
-                                        ) : (
-                                            <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                                <i className="fas fa-globe" style={{ color: '#8b5cf6' }}></i> All Channels
-                                            </span>
-                                        )
-                                    ) : (
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{templateType.toUpperCase()}</span>
-                                    )}
-                                </td>
-                                <td style={{ padding: '16px 12px' }}>
-                                    <span style={{ 
-                                        color: row.status === 'APPROVED' ? '#22c55e' : (row.status === 'REJECTED' ? '#ef4444' : (row.status === 'PENDING' ? '#eab308' : '#3b82f6')), 
-                                        fontWeight: 600,
-                                        background: row.status === 'APPROVED' ? '#f0fdf4' : (row.status === 'REJECTED' ? '#fef2f2' : (row.status === 'PENDING' ? '#fefce8' : '#eff6ff')),
-                                        padding: '4px 8px',
-                                        borderRadius: '4px',
-                                        fontSize: '0.75rem'
-                                    }}>
-                                        {row.status ? row.status : (row.channel === 'web' ? 'APPROVED' : 'Local')}
-                                    </span>
-                                </td>
-                                <td style={{ padding: '16px 12px' }}>05/02/2026</td>
-                                <td style={{ padding: '16px 12px' }}><span style={{ background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>{row.tags ? row.tags[0] : 'Property'}</span></td>
-                                <td style={{ padding: '16px 12px' }}>Bharat Properties</td>
-                                <td style={{ padding: '16px 12px' }}>Owned by you</td>
-                                <td style={{ padding: '16px 12px' }}>
-                                    <div style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end' }}>
-                                        <div 
-                                            style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }} 
-                                            onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === row.id ? null : row.id); }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                        >
-                                            <i className="fas fa-ellipsis-v" style={{ color: 'var(--text-muted)' }}></i>
-                                        </div>
-                                        {activeDropdown === row.id && (
-                                            <>
-                                                <div 
-                                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998 }} 
-                                                    onClick={() => setActiveDropdown(null)} 
-                                                />
-                                                <div style={{ position: 'absolute', right: '0', top: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? 'auto' : '32px', bottom: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? '32px' : 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 9999, width: '220px', padding: '4px 0', textAlign: 'left' }}>
-                                                    {templateType === 'whatsapp' && row.status !== 'APPROVED' && row.status !== 'PENDING' && (
-                                                        <div 
-                                                            style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontWeight: 600 }}
-                                                            onClick={() => { setActiveDropdown(null); handleDirectMetaSubmit(row); }}
-                                                            onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
-                                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                                        >
-                                                            <i className="fab fa-whatsapp" style={{ width: '16px', textAlign: 'center' }}></i> Submit to Meta
-                                                        </div>
-                                                    )}
-                                                    <div 
-                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
-                                                        onClick={() => { setActiveDropdown(null); handleEdit(row); }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                                    >
-                                                        <i className="far fa-edit" style={{ width: '16px', color: '#3b82f6', textAlign: 'center' }}></i> Edit Template
-                                                    </div>
-                                                    <div 
-                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
-                                                        onClick={() => { setActiveDropdown(null); setContextEditingTemplate(row); }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                                    >
-                                                        <i className="fas fa-plug" style={{ width: '16px', color: 'var(--primary-color)', textAlign: 'center' }}></i> System Trigger Context
-                                                    </div>
-                                                    <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }}></div>
-                                                    <div 
-                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 600 }}
-                                                        onClick={() => { setActiveDropdown(null); handleDelete(row.id); }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                                    >
-                                                        <i className="far fa-trash-alt" style={{ width: '16px', textAlign: 'center' }}></i> Delete Template
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </td>
-                            </tr>
-                        )) : (
-                            <tr>
-                                <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No templates found for this channel.</td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                <DataTable
+                    columns={templateColumns}
+                    data={templatesData}
+                    keyField="id"
+                    emptyMessage={
+                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            No templates found for this channel.
+                        </div>
+                    }
+                />
             </div>
         );
     };

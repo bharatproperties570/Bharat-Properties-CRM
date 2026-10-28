@@ -1,106 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 // PROJECTS_LIST import removed, using context instead
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import CustomizeFeedbackPage from './CustomizeFeedbackPage';
 import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
-
-// ✅ ENTERPRISE: SizeItem — shows projectMappings as "Available In" badges
-const SizeItem = ({ size, onEdit, onDelete, onManageAvailability, isSelected, onToggleSelect }) => {
-    const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
-    const visibleMappings = mappings.slice(0, 2);
-    const extraCount = mappings.length - visibleMappings.length;
-    return (
-        <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <td style={{ padding: '14px 16px', width: '40px' }}>
-                <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={onToggleSelect}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
-                />
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>{size.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{size.unitType}</div>
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {(() => {
-                        const subs = Array.isArray(size.subCategories) && size.subCategories.length > 0
-                            ? size.subCategories
-                            : (size.subCategory ? String(size.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
-                        if (subs.length === 0) return <span>--</span>;
-                        if (subs.length === 1) return <span>{subs[0]}</span>;
-                        return (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                {subs.map((sc, i) => (
-                                    <span key={i} style={{
-                                        fontSize: '0.7rem',
-                                        background: 'rgba(37,99,235,0.08)',
-                                        color: '#2563eb',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        border: '1px solid #bfdbfe',
-                                        whiteSpace: 'nowrap'
-                                    }}>
-                                        {sc}
-                                    </span>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </div>
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                {(() => {
-                    if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
-                    if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
-                    return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
-                })()}
-            </td>
-            <td style={{ padding: '14px 16px' }}>
-                {mappings.length === 0 ? (
-                    <span style={{ fontSize: '0.75rem', color: '#f59e0b', background: '#fffbeb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #fde68a' }}>Not assigned</span>
-                ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {visibleMappings.map((m, i) => (
-                            <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(37,99,235,0.08)', color: '#2563eb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
-                                {m.project}{m.block ? ` › ${m.block}` : ''}
-                            </span>
-                        ))}
-                        {extraCount > 0 && (
-                            <span style={{ fontSize: '0.7rem', background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '99px', border: '1px solid var(--border-color)' }}>+{extraCount} more</span>
-                        )}
-                    </div>
-                )}
-            </td>
-            <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                    <button onClick={() => onManageAvailability(size)} title="Manage Project Availability"
-                        style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: 'none', background: 'rgba(37,99,235,0.08)', color: '#2563eb', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}
-                        onMouseOver={e => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
-                        onMouseOut={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}>
-                        <i className="fas fa-project-diagram" style={{ marginRight: '4px' }}></i>Projects
-                    </button>
-                    <button onClick={() => onEdit(size)} title="Edit Size"
-                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
-                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
-                        <i className="fas fa-edit"></i>
-                    </button>
-                    <button onClick={() => onDelete(size.id)} title="Delete Size"
-                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
-                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
-                        <i className="fas fa-trash"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>
-    );
-};
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 // ✅ ENTERPRISE: SizeAvailabilityModal — Manage which projects/blocks a size is assigned to
 const SizeAvailabilityModal = ({ isOpen, onClose, size, allProjects, onAddMapping, onRemoveMapping }) => {
@@ -1394,10 +1298,10 @@ const PropertySettingsPage = () => {
                 const requiredHeaders = ['name', 'unitType', 'category', 'subCategory'];
                 const missing = requiredHeaders.filter(h => !headers.includes(h));
                 if (missing.length > 0) { setImportError(`Missing required columns: ${missing.join(', ')}`); return; }
-                const rows = lines.slice(1).map(line => {
+                const rows = lines.slice(1).map((line, i) => {
                     const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-                    const obj = {};
-                    headers.forEach((h, i) => obj[h] = vals[i] || '');
+                    const obj = { __preview_id: `preview-${i}` };
+                    headers.forEach((h, idx) => obj[h] = vals[idx] || '');
                     return obj;
                 });
                 setImportPreview(rows.slice(0, 5));
@@ -1514,6 +1418,179 @@ const PropertySettingsPage = () => {
             <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Delete"><i className="fas fa-trash"></i></button>
         </div>
     );
+
+    const sizeColumns = useMemo(() => [
+        {
+            key: 'select',
+            header: (
+                <input
+                    type="checkbox"
+                    checked={paginatedSizes.length > 0 && selectedSizeIds.length === paginatedSizes.length}
+                    onChange={handleSelectAll}
+                    aria-label="Select all sizes"
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+            ),
+            headerStyle: { padding: '16px', width: '40px' },
+            cellStyle: { padding: '14px 16px', width: '40px' },
+            render: (size) => (
+                <input
+                    type="checkbox"
+                    checked={selectedSizeIds.includes(size.id)}
+                    onChange={() => handleToggleSelect(size.id)}
+                    aria-label={`Select ${size.name}`}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+            )
+        },
+        {
+            key: 'name',
+            header: 'Size Name',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => (
+                <div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>{size.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{size.unitType}</div>
+                </div>
+            )
+        },
+        {
+            key: 'category',
+            header: 'Category',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                const subs = Array.isArray(size.subCategories) && size.subCategories.length > 0
+                    ? size.subCategories
+                    : (size.subCategory ? String(size.subCategory).split(',').map(s => s.trim()).filter(Boolean) : []);
+                return (
+                    <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>{size.category}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {subs.length === 0 ? (
+                                <span>--</span>
+                            ) : subs.length === 1 ? (
+                                <span>{subs[0]}</span>
+                            ) : (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {subs.map((sc, i) => (
+                                        <span key={i} style={{
+                                            fontSize: '0.7rem',
+                                            background: 'rgba(37,99,235,0.08)',
+                                            color: '#2563eb',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #bfdbfe',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            {sc}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'area',
+            header: 'Area',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                if (size.totalArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.totalArea} {size.resultMetric || 'Sq Yd'}</span>;
+                if (size.saleableArea) return <span style={{ fontWeight: 700, color: '#1e40af' }}>{size.saleableArea} Sq Ft</span>;
+                return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</span>;
+            }
+        },
+        {
+            key: 'availability',
+            header: 'Available In (Projects)',
+            headerStyle: { padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+            cellStyle: { padding: '14px 16px' },
+            render: (size) => {
+                const mappings = Array.isArray(size.projectMappings) ? size.projectMappings : [];
+                const visibleMappings = mappings.slice(0, 2);
+                const extraCount = mappings.length - visibleMappings.length;
+                if (mappings.length === 0) {
+                    return (
+                        <span style={{ fontSize: '0.75rem', color: '#f59e0b', background: '#fffbeb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #fde68a' }}>
+                            Not assigned
+                        </span>
+                    );
+                }
+                return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {visibleMappings.map((m, i) => (
+                            <span key={i} style={{ fontSize: '0.7rem', background: 'rgba(37,99,235,0.08)', color: '#2563eb', padding: '3px 8px', borderRadius: '99px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                {m.project}{m.block ? ` › ${m.block}` : ''}
+                            </span>
+                        ))}
+                        {extraCount > 0 && (
+                            <span style={{ fontSize: '0.7rem', background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '3px 8px', borderRadius: '99px', border: '1px solid var(--border-color)' }}>
+                                +{extraCount} more
+                            </span>
+                        )}
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'actions',
+            header: '',
+            headerStyle: { padding: '16px', width: '160px', textAlign: 'right' },
+            cellStyle: { padding: '14px 16px', textAlign: 'right' },
+            render: (size) => (
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={() => setAvailabilityModalSize(size)}
+                        title="Manage Project Availability"
+                        aria-label={`Manage Project Availability for ${size.name}`}
+                        style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: 'none', background: 'rgba(37,99,235,0.08)', color: '#2563eb', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                        onMouseOver={e => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
+                        onMouseOut={e => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}
+                    >
+                        <i className="fas fa-project-diagram" style={{ marginRight: '4px' }}></i>Projects
+                    </button>
+                    <button
+                        onClick={() => handleEditOpen(size)}
+                        title="Edit Size"
+                        aria-label={`Edit ${size.name}`}
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                        <i className="fas fa-edit"></i>
+                    </button>
+                    <button
+                        onClick={() => handleDeleteSize(size.id)}
+                        title="Delete Size"
+                        aria-label={`Delete ${size.name}`}
+                        style={{ width: '30px', height: '30px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                    >
+                        <i className="fas fa-trash"></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [paginatedSizes, selectedSizeIds, handleSelectAll, handleToggleSelect, handleEditOpen, handleDeleteSize, setAvailabilityModalSize]);
+
+    const importPreviewColumns = useMemo(() => {
+        if (!importPreview || importPreview.length === 0) return [];
+        return Object.keys(importPreview[0])
+            .filter(k => k !== '__preview_id')
+            .map(k => ({
+                key: k,
+                header: k,
+                headerStyle: { padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' },
+                cellStyle: { padding: '8px 12px', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' },
+                render: (row) => row[k]
+            }));
+    }, [importPreview]);
 
     return (
         <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
@@ -1670,41 +1747,16 @@ const PropertySettingsPage = () => {
                         <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
                             {/* Table Column */}
                             <div style={{ flex: 1, background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                    <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                        <tr>
-                                            <th style={{ padding: '16px', width: '40px' }}>
-                                                <input type="checkbox"
-                                                    checked={paginatedSizes.length > 0 && selectedSizeIds.length === paginatedSizes.length}
-                                                    onChange={handleSelectAll}
-                                                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }}
-                                                />
-                                            </th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Area</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available In (Projects)</th>
-                                            <th style={{ padding: '16px', width: '160px' }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {paginatedSizes.length > 0 ? (
-                                            paginatedSizes.map(size => (
-                                                <SizeItem
-                                                    key={size.id}
-                                                    size={size}
-                                                    isSelected={selectedSizeIds.includes(size.id)}
-                                                    onToggleSelect={() => handleToggleSelect(size.id)}
-                                                    onEdit={() => handleEditOpen(size)}
-                                                    onDelete={handleDeleteSize}
-                                                    onManageAvailability={sz => setAvailabilityModalSize(sz)}
-                                                />
-                                            ))
-                                        ) : (
-                                            <tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No sizes found matching your search.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                <DataTable
+                                    columns={sizeColumns}
+                                    data={paginatedSizes || []}
+                                    keyField="id"
+                                    emptyMessage={
+                                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                            No sizes found matching your search.
+                                        </div>
+                                    }
+                                />
                             </div>
 
                             {/* Filter Sidebar */}
@@ -2105,20 +2157,11 @@ const PropertySettingsPage = () => {
                                 <div style={{ marginBottom: '20px' }}>
                                     <p style={{ margin: '0 0 10px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>Preview (first {importPreview.length} rows):</p>
                                     <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                            <thead style={{ background: 'var(--bg-light)' }}>
-                                                <tr>
-                                                    {Object.keys(importPreview[0]).map(k => <th key={k} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' }}>{k}</th>)}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {importPreview.map((row, i) => (
-                                                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                                        {Object.values(row).map((v, j) => <td key={j} style={{ padding: '8px 12px', color: 'var(--text-main)' }}>{v}</td>)}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                        <DataTable
+                                            columns={importPreviewColumns}
+                                            data={importPreview}
+                                            keyField="__preview_id"
+                                        />
                                     </div>
                                 </div>
                             )}

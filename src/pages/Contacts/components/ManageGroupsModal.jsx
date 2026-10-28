@@ -1,8 +1,9 @@
 import { useTheme } from '../../../context/ThemeContext';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 function ManageGroupsModal({ isOpen, onClose }) {
     const { isDark } = useTheme();
@@ -52,6 +53,52 @@ function ManageGroupsModal({ isOpen, onClose }) {
             toast.error("Failed to delete group");
         }
     };
+
+    const groupData = useMemo(() => {
+        return (groups || []).map((group, idx) => ({
+            ...group,
+            id: group._id || group.id || `contact-group-${idx}`
+        }));
+    }, [groups]);
+
+    const groupColumns = useMemo(() => [
+        {
+            key: 'name',
+            header: 'NAME',
+            headerStyle: { textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' },
+            cellStyle: { padding: '12px' },
+            render: (group) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
+                    <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: group.color || '#6366f1', flexShrink: 0 }}></span>
+                    <span>{group.name}</span>
+                </div>
+            )
+        },
+        {
+            key: 'category',
+            header: 'CATEGORY',
+            headerStyle: { textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' },
+            cellStyle: { padding: '12px', fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b' },
+            render: (group) => group.category || '-'
+        },
+        {
+            key: 'action',
+            header: 'ACTION',
+            headerStyle: { textAlign: 'right', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' },
+            cellStyle: { padding: '12px', textAlign: 'right' },
+            render: (group) => (
+                <button
+                    className="btn-icon danger"
+                    onClick={() => handleDelete(group._id || group.id)}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+                    title="Delete Group"
+                    aria-label={`Delete group ${group.name}`}
+                >
+                    <i className="fas fa-trash"></i>
+                </button>
+            )
+        }
+    ], [isDark]);
 
     if (!isOpen) return null;
 
@@ -116,38 +163,12 @@ function ManageGroupsModal({ isOpen, onClose }) {
                     {/* Groups List */}
                     <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: '8px' }}>
                         {loading ? <div className="text-center p-4"><i className="fas fa-spinner fa-spin"></i></div> : (
-                            <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', position: 'sticky', top: 0 }}>
-                                    <tr>
-                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>NAME</th>
-                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>CATEGORY</th>
-                                        <th style={{ textAlign: 'right', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>ACTION</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {groups.map(group => (
-                                        <tr key={group._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={{ padding: '12px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
-                                                    <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: group.color }}></span>
-                                                    {group.name}
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '12px', fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{group.category}</td>
-                                            <td style={{ padding: '12px', textAlign: 'right' }}>
-                                                <button className="btn-icon danger" onClick={() => handleDelete(group._id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                                                    <i className="fas fa-trash"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {groups.length === 0 && (
-                                        <tr>
-                                            <td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8', fontSize: '0.85rem' }}>No groups created yet</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                            <DataTable
+                                columns={groupColumns}
+                                data={groupData}
+                                keyField="id"
+                                emptyMessage="No groups created yet"
+                            />
                         )}
                     </div>
                 </div>

@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../../../utils/api';
 import { useLookups } from '../../../utils/crmHooks';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
 import { PROPERTY_CATEGORIES, ROAD_WIDTH_OPTIONS } from '../../../constants/propertyConstants';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 // --- Helper Components ---
 const LiveClock = () => {
@@ -473,7 +474,7 @@ const DealSettingsPage = () => {
         }
     };
 
-    const handleDeleteRegistrationCharge = async (key) => { // Renamed from handleDeleteConfig
+    const handleDeleteRegistrationCharge = useCallback(async (key) => { // Renamed from handleDeleteConfig
         if (!window.confirm("Delete this registration charge?")) return;
         try {
             await api.delete(`/system-settings/${key}`);
@@ -482,9 +483,9 @@ const DealSettingsPage = () => {
         } catch (e) {
             toast.error("Failed to delete");
         }
-    };
+    }, [fetchData]);
 
-    const handleDeleteRate = async (id) => {
+    const handleDeleteRate = useCallback(async (id) => {
         if (!window.confirm("Delete this rate?")) return;
         try {
             await api.delete(`/collector-rates/${id}`);
@@ -493,7 +494,7 @@ const DealSettingsPage = () => {
         } catch (e) {
             toast.error("Failed to delete");
         }
-    };
+    }, [fetchData]);
 
     // --- Styles ---
 
@@ -572,6 +573,202 @@ const DealSettingsPage = () => {
         fontSize: '0.9rem',
         color: 'var(--text-main)'
     };
+
+    const collectorRateColumns = useMemo(() => [
+        {
+            key: 'location',
+            header: 'Location',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                        {rate.location?.lookup_value && <span style={{ color: '#2563eb' }}>{rate.location.lookup_value} • </span>}
+                        {rate.district?.lookup_value || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        {rate.tehsil?.lookup_value && <span>{rate.tehsil.lookup_value}, </span>}
+                        {rate.state?.lookup_value}
+                    </div>
+                </div>
+            )
+        },
+        {
+            key: 'category',
+            header: 'Property Type',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{rate.category || 'N/A'}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rate.subCategory || 'N/A'}</div>
+                </div>
+            )
+        },
+        {
+            key: 'basis',
+            header: 'Basis / Unit',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{rate.rateApplyOn}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>per {rate.rateUnit}</div>
+                </div>
+            )
+        },
+        {
+            key: 'rate',
+            header: 'Rate (₹)',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div style={{ fontWeight: 700, color: '#2563eb', fontSize: '1.05rem' }}>₹{rate.rate?.toLocaleString()}</div>
+            )
+        },
+        {
+            key: 'multipliers',
+            header: 'Multipliers',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {rate.roadMultipliers?.map((m, idx) => (
+                        <span key={`r-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
+                            {m.roadType}: {m.multiplier}%
+                        </span>
+                    ))}
+                    {rate.floorMultipliers?.map((m, idx) => (
+                        <span key={`f-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
+                            {m.floorType}: {m.multiplier}%
+                        </span>
+                    ))}
+                    {(!rate.roadMultipliers?.length && !rate.floorMultipliers?.length) && <span style={{ color: 'var(--border-color)', fontSize: '0.75rem' }}>None</span>}
+                </div>
+            )
+        },
+        {
+            key: 'period',
+            header: 'Period',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (rate) => (
+                <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="fas fa-calendar-alt" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
+                        {rate.effectiveFrom ? new Date(rate.effectiveFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '-'}
+                    </div>
+                    {rate.effectiveTo && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            to {new Date(rate.effectiveTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        </div>
+                    )}
+                    {rate.versionNo && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '4px' }}>v{rate.versionNo}</div>}
+                </div>
+            )
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            headerStyle: { ...tableHeaderStyle, textAlign: 'right' },
+            cellStyle: { ...tableCellStyle, textAlign: 'right' },
+            render: (rate) => (
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={() => handleDeleteRate(rate._id)}
+                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Delete"
+                        aria-label="Delete rate"
+                    >
+                        <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [handleDeleteRate]);
+
+    const registrationChargeColumns = useMemo(() => [
+        {
+            key: 'configName',
+            header: 'Config Name',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (charge) => (
+                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{charge.key?.replace('govt_charges_', '') || 'Standard'}</div>
+            )
+        },
+        {
+            key: 'targetState',
+            header: 'Target State',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (charge) => (
+                <div style={{ padding: '4px 8px', background: charge.value?.state ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-light)', color: charge.value?.state ? '#2563eb' : 'var(--text-muted)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, display: 'inline-block' }}>
+                    {charge.value?.state ? 'Region Specific' : 'Global (All)'}
+                </div>
+            )
+        },
+        {
+            key: 'stampDuty',
+            header: 'Stamp Duty (M/F/J)',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (charge) => (
+                <div style={{ color: 'var(--text-muted)' }}>
+                    {charge.value?.stampDutyMale ?? '-'}% / {charge.value?.stampDutyFemale ?? '-'}% / {charge.value?.stampDutyJoint ?? '-'}%
+                </div>
+            )
+        },
+        {
+            key: 'regisFee',
+            header: 'Regis. Fee',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (charge) => (
+                <div style={{ color: 'var(--text-muted)' }}>
+                    {charge.value?.registrationMode === 'percent' ? `${charge.value?.registrationPercent}%` : 'Slab-based'}
+                </div>
+            )
+        },
+        {
+            key: 'legalFees',
+            header: 'Legal Fees',
+            headerStyle: tableHeaderStyle,
+            cellStyle: tableCellStyle,
+            render: (charge) => (
+                <div style={{ color: 'var(--text-muted)' }}>₹{charge.value?.legalFees?.toLocaleString() ?? 0}</div>
+            )
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            headerStyle: { ...tableHeaderStyle, textAlign: 'right' },
+            cellStyle: { ...tableCellStyle, textAlign: 'right' },
+            render: (charge) => (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button
+                        onClick={() => {
+                            setConfig(charge.value);
+                            setIsConfigModalOpen(true);
+                        }}
+                        style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Edit"
+                        aria-label="Edit charge"
+                    >
+                        <i className="fas fa-edit" style={{ fontSize: '0.8rem' }}></i>
+                    </button>
+                    <button
+                        onClick={() => handleDeleteRegistrationCharge(charge.key)}
+                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Delete"
+                        aria-label="Delete charge"
+                    >
+                        <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [handleDeleteRegistrationCharge]);
 
     return (
         <div style={{ padding: '24px', width: '100%', margin: '0' }}>
@@ -914,160 +1111,27 @@ const DealSettingsPage = () => {
 
                 <div style={{ overflowX: 'auto' }}>
                     {activeTab === 'collector' ? (
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr>
-                                    <th style={tableHeaderStyle}>Location</th>
-                                    <th style={tableHeaderStyle}>Property Type</th>
-                                    <th style={tableHeaderStyle}>Basis / Unit</th>
-                                    <th style={tableHeaderStyle}>Rate (₹)</th>
-                                    <th style={tableHeaderStyle}>Multipliers</th>
-                                    <th style={tableHeaderStyle}>Period</th>
-                                    <th style={{ ...tableHeaderStyle, textAlign: 'right' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {collectorRates.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                            No collector rates found. Add one to get started.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    collectorRates.map(rate => (
-                                        <tr key={rate._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-light)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                                                    {rate.location?.lookup_value && <span style={{ color: '#2563eb' }}>{rate.location.lookup_value} • </span>}
-                                                    {rate.district?.lookup_value || 'Unknown'}
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                                    {rate.tehsil?.lookup_value && <span>{rate.tehsil.lookup_value}, </span>}
-                                                    {rate.state?.lookup_value}
-                                                </div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{rate.category || 'N/A'}</div>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rate.subCategory || 'N/A'}</div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{rate.rateApplyOn}</div>
-                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>per {rate.rateUnit}</div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 700, color: '#2563eb', fontSize: '1.05rem' }}>₹{rate.rate?.toLocaleString()}</div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    {rate.roadMultipliers?.map((m, idx) => (
-                                                        <span key={`r-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
-                                                            {m.roadType}: {m.multiplier}%
-                                                        </span>
-                                                    ))}
-                                                    {rate.floorMultipliers?.map((m, idx) => (
-                                                        <span key={`f-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
-                                                            {m.floorType}: {m.multiplier}%
-                                                        </span>
-                                                    ))}
-                                                    {(!rate.roadMultipliers?.length && !rate.floorMultipliers?.length) && <span style={{ color: 'var(--border-color)', fontSize: '0.75rem' }}>None</span>}
-                                                </div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className="fas fa-calendar-alt" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
-                                                    {new Date(rate.effectiveFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                                                </div>
-                                                {rate.effectiveTo && (
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                                        to {new Date(rate.effectiveTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                                                    </div>
-                                                )}
-                                                {rate.versionNo && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '4px' }}>v{rate.versionNo}</div>}
-                                            </td>
-                                            <td style={{ ...tableCellStyle, textAlign: 'right' }}>
-                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                    <button
-                                                        onClick={() => handleDeleteRate(rate._id)}
-                                                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                                        title="Delete"
-                                                    >
-                                                        <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )))}
-                            </tbody>
-                        </table>
+                        <DataTable
+                            columns={collectorRateColumns}
+                            data={collectorRates || []}
+                            keyField="_id"
+                            emptyMessage={
+                                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    No collector rates found. Add one to get started.
+                                </div>
+                            }
+                        />
                     ) : (
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                    <th style={tableHeaderStyle}>Config Name</th>
-                                    <th style={tableHeaderStyle}>Target State</th>
-                                    <th style={tableHeaderStyle}>Stamp Duty (M/F/J)</th>
-                                    <th style={tableHeaderStyle}>Regis. Fee</th>
-                                    <th style={tableHeaderStyle}>Legal Fees</th>
-                                    <th style={{ ...tableHeaderStyle, textAlign: 'right' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {(!registrationCharges || registrationCharges.length === 0) ? (
-                                    <tr>
-                                        <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                            No configuration found. Add one to get started.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    (registrationCharges || []).map(charge => (
-                                        <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-light)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{charge.key.replace('govt_charges_', '')}</div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ padding: '4px 8px', background: charge.value?.state ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-light)', color: charge.value?.state ? '#2563eb' : 'var(--text-muted)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, display: 'inline-block' }}>
-                                                    {charge.value?.state ? 'Region Specific' : 'Global (All)'}
-                                                </div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ color: 'var(--text-muted)' }}>
-                                                    {charge.value?.stampDutyMale}% / {charge.value?.stampDutyFemale}% / {charge.value?.stampDutyJoint}%
-                                                </div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ color: 'var(--text-muted)' }}>
-                                                    {charge.value?.registrationMode === 'percent' ? `${charge.value?.registrationPercent}%` : 'Slab-based'}
-                                                </div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ color: 'var(--text-muted)' }}>₹{charge.value?.legalFees?.toLocaleString()}</div>
-                                            </td>
-                                            <td style={{ ...tableCellStyle, textAlign: 'right' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                                                    <button
-                                                        onClick={() => {
-                                                            setConfig(charge.value);
-                                                            setIsConfigModalOpen(true);
-                                                        }}
-                                                        style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                                                        title="Edit"
-                                                    >
-                                                        <i className="fas fa-edit" style={{ fontSize: '0.8rem' }}></i>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteRegistrationCharge(charge.key)}
-                                                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                                                        title="Delete"
-                                                    >
-                                                        <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                        <DataTable
+                            columns={registrationChargeColumns}
+                            data={registrationCharges || []}
+                            keyField="key"
+                            emptyMessage={
+                                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    No configuration found. Add one to get started.
+                                </div>
+                            }
+                        />
                     )}
                 </div>
             </div>

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 import { systemSettingsAPI, jarvisAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
@@ -451,6 +452,77 @@ const VoiceSettingsPage = () => {
         </div>
     );
 
+    const commandColumns = useMemo(() => [
+        {
+            header: 'Timestamp',
+            accessor: 'createdAt',
+            render: (cmd) => (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                    {cmd.createdAt ? new Date(cmd.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                </span>
+            )
+        },
+        {
+            header: 'User',
+            accessor: 'user',
+            render: (cmd) => (
+                <span style={{ fontWeight: 600 }}>
+                    {cmd.userId?.name || cmd.user || 'Admin'}
+                </span>
+            )
+        },
+        {
+            header: 'Transcript',
+            accessor: 'transcript',
+            render: (cmd) => (
+                <span style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                    "{cmd.transcript}"
+                </span>
+            )
+        },
+        {
+            header: 'Intent',
+            accessor: 'intent',
+            render: (cmd) => (
+                <span style={{ padding: '3px 8px', borderRadius: '6px', background: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', fontSize: '0.72rem', fontWeight: 700 }}>
+                    {cmd.intent || 'conversation'}
+                </span>
+            )
+        },
+        {
+            header: 'Latency',
+            accessor: 'llmLatencyMs',
+            render: (cmd) => (
+                <span style={{ color: 'var(--text-muted)' }}>
+                    {cmd.llmLatencyMs ? `${cmd.llmLatencyMs}ms` : '—'}
+                </span>
+            )
+        },
+        {
+            header: 'Status',
+            accessor: 'status',
+            render: (cmd) => (
+                <span style={{
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: cmd.status === 'executed' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                    color: cmd.status === 'executed' ? '#10b981' : '#f59e0b',
+                    fontSize: '0.72rem',
+                    fontWeight: 700
+                }}>
+                    {cmd.status || 'unknown'}
+                </span>
+            )
+        }
+    ], []);
+
+    const commandData = useMemo(() => {
+        return (jarvisAnalytics?.recentCommands || []).map((cmd, idx) => ({
+            ...cmd,
+            id: cmd._id || cmd.id || `cmd-${cmd.createdAt || idx}`
+        }));
+    }, [jarvisAnalytics?.recentCommands]);
+
     const renderJarvisVoiceOS = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
             {/* System Status Banner */}
@@ -700,61 +772,12 @@ const VoiceSettingsPage = () => {
                         <i className={`fas fa-sync-alt ${loadingJarvis ? 'fa-spin' : ''}`}></i> Refresh
                     </button>
                 </div>
-                <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                        <thead>
-                            <tr style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border-color)' }}>
-                                <th style={{ padding: '10px 16px' }}>Timestamp</th>
-                                <th style={{ padding: '10px 16px' }}>User</th>
-                                <th style={{ padding: '10px 16px' }}>Transcript</th>
-                                <th style={{ padding: '10px 16px' }}>Intent</th>
-                                <th style={{ padding: '10px 16px' }}>Latency</th>
-                                <th style={{ padding: '10px 16px' }}>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {jarvisAnalytics?.recentCommands?.length > 0 ? (
-                                jarvisAnalytics.recentCommands.map((cmd, idx) => (
-                                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                        <td style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                                            {new Date(cmd.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                        </td>
-                                        <td style={{ padding: '10px 16px', fontWeight: 600 }}>{cmd.userId?.name || 'Admin'}</td>
-                                        <td style={{ padding: '10px 16px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            "{cmd.transcript}"
-                                        </td>
-                                        <td style={{ padding: '10px 16px' }}>
-                                            <span style={{ padding: '3px 8px', borderRadius: '6px', background: 'rgba(56, 189, 248, 0.1)', color: '#0284c7', fontSize: '0.72rem', fontWeight: 700 }}>
-                                                {cmd.intent || 'conversation'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '10px 16px', color: 'var(--text-muted)' }}>
-                                            {cmd.llmLatencyMs ? `${cmd.llmLatencyMs}ms` : '—'}
-                                        </td>
-                                        <td style={{ padding: '10px 16px' }}>
-                                            <span style={{
-                                                padding: '3px 8px',
-                                                borderRadius: '6px',
-                                                background: cmd.status === 'executed' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                                                color: cmd.status === 'executed' ? '#10b981' : '#f59e0b',
-                                                fontSize: '0.72rem',
-                                                fontWeight: 700
-                                            }}>
-                                                {cmd.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                        No voice commands recorded yet.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                <DataTable
+                    columns={commandColumns}
+                    data={commandData}
+                    keyField="id"
+                    emptyMessage="No voice commands recorded yet."
+                />
             </div>
         </div>
     );
