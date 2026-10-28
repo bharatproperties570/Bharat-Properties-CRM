@@ -34,6 +34,16 @@ import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 
+const getCategoryColor = (catName) => {
+    const norm = String(catName || '').toLowerCase().trim();
+    if (norm.includes('resident')) return '#6366f1';
+    if (norm.includes('commercial')) return '#2563eb';
+    if (norm.includes('industrial')) return '#f59e0b';
+    if (norm.includes('institution')) return '#10b981';
+    if (norm.includes('agricultur')) return '#ec4899';
+    return '#8b5cf6';
+};
+
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
     const { isDark } = useTheme();
@@ -119,7 +129,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     
     const { data: teams = [] } = useTeams();
     const { startCall } = useCall();
-    const { getLookupValue, sizes } = usePropertyConfig();
+    const { getLookupValue, sizes, propertyConfig } = usePropertyConfig();
 
     // 🚀 Enterprise Deal Verification Desk State
     const [verifyingDeal, setVerifyingDeal] = useState(null);
@@ -245,6 +255,52 @@ function DealsPage({ onNavigate, onAddActivity }) {
         persistentTotalDeals.current = totalRecords;
     }
     const categoryStats = dealsData?.categoryStats || [];
+    const persistentCategoryStats = React.useRef([]);
+    if (categoryStats && categoryStats.length > 0 && (!filters.category || !filters.category.length)) {
+        persistentCategoryStats.current = categoryStats;
+    }
+    const displayCategoryStats = (persistentCategoryStats.current && persistentCategoryStats.current.length > 0)
+        ? persistentCategoryStats.current
+        : categoryStats;
+    const subCategoryStats = dealsData?.subCategoryStats || [];
+
+    const activeCategory = useMemo(() => {
+        if (!filters.category) return null;
+        if (Array.isArray(filters.category)) return filters.category[0] || null;
+        return filters.category;
+    }, [filters.category]);
+
+    const activeSubCategory = useMemo(() => {
+        if (!filters.subCategory) return null;
+        if (Array.isArray(filters.subCategory)) return filters.subCategory[0] || null;
+        return filters.subCategory;
+    }, [filters.subCategory]);
+
+    const resolvedSubCategories = useMemo(() => {
+        if (!activeCategory) return [];
+        const seen = new Set();
+        const list = [];
+
+        (subCategoryStats || []).forEach(s => {
+            if (!s || !s.name) return;
+            const norm = String(s.name).toLowerCase().trim();
+            seen.add(norm);
+            list.push({ name: s.name, count: s.count });
+        });
+
+        const configured = propertyConfig?.[activeCategory]?.subCategories || [];
+        configured.forEach(sub => {
+            const name = typeof sub === 'string' ? sub : (sub.name || sub.lookup_value);
+            if (!name) return;
+            const norm = String(name).toLowerCase().trim();
+            if (!seen.has(norm)) {
+                seen.add(norm);
+                list.push({ name, count: 0 });
+            }
+        });
+
+        return list;
+    }, [activeCategory, subCategoryStats, propertyConfig]);
 
     const updateDealMutation = useUpdateDealMutation({ isPartial: true });
     const deleteDealMutation = useDeleteDealMutation();
@@ -455,6 +511,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
             setFilters(prev => {
                 const next = { ...prev };
                 delete next.category;
+                delete next.subCategory;
                 return next;
             });
             setCurrentPage(1);
@@ -468,9 +525,37 @@ function DealsPage({ onNavigate, onAddActivity }) {
             if (isSelected) {
                 const next = { ...prev };
                 delete next.category;
+                delete next.subCategory;
                 return next;
             }
-            return { ...prev, category: [catName] };
+            const next = { ...prev, category: [catName] };
+            delete next.subCategory;
+            return next;
+        });
+        setCurrentPage(1);
+    };
+
+    const handleSubCategoryFilter = (subCatName) => {
+        if (!subCatName) {
+            setFilters(prev => {
+                const next = { ...prev };
+                delete next.subCategory;
+                return next;
+            });
+            setCurrentPage(1);
+            return;
+        }
+        setFilters(prev => {
+            const current = prev.subCategory || [];
+            const isSelected = Array.isArray(current)
+                ? current.some(c => c && String(c).toLowerCase() === String(subCatName).toLowerCase())
+                : (current && String(current).toLowerCase() === String(subCatName).toLowerCase());
+            if (isSelected) {
+                const next = { ...prev };
+                delete next.subCategory;
+                return next;
+            }
+            return { ...prev, subCategory: [subCatName] };
         });
         setCurrentPage(1);
     };
@@ -1474,81 +1559,236 @@ function DealsPage({ onNavigate, onAddActivity }) {
             </Suspense>
 
             <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
-                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                    <div 
-                        className="summary-label" 
-                        onClick={() => handleCategoryFilter(null)}
-                        style={{ 
-                            background: '#334155', color: '#fff', borderRadius: '8px', 
-                            fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, 
-                            whiteSpace: 'nowrap', cursor: 'pointer',
-                            boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
-                        }}
-                        title="Click to view all deals"
-                    >
-                        SUMMARY
-                    </div>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '0 1.5rem', width: '100%', overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {activeCategory ? (
+                        <>
+                            {/* Reset / Return to All Categories Pill */}
+                            <div 
+                                className="summary-label" 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    background: '#1e293b', 
+                                    color: '#cbd5e1', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.68rem', 
+                                    padding: '5px 12px', 
+                                    fontWeight: 700, 
+                                    whiteSpace: 'nowrap', 
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                                    transition: 'all 0.15s ease'
+                                }}
+                                title="Click to clear category and view all deals"
+                            >
+                                <span style={{ fontSize: '0.8rem', fontWeight: 900, pointerEvents: 'none' }}>←</span> ALL CATEGORIES
+                            </div>
 
-                    {/* TOTAL DEAL Pill */}
-                    <div 
-                        className={`stat-pill ${(!filters.category || !filters.category.length) ? 'active-summary-pill' : ''}`} 
-                        onClick={() => handleCategoryFilter(null)}
-                        style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '5px', 
-                            whiteSpace: 'nowrap',
-                            cursor: 'pointer',
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            letterSpacing: '0.5px',
-                            background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
-                            border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
-                            boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
-                            transition: 'all 0.15s ease-in-out'
-                        }}
-                        title={(!filters.category || !filters.category.length) ? "Showing all deals" : "Click to view all deals"}
-                    >
-                        TOTAL DEAL 
-                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2ecc71' }}>
-                            {(persistentTotalDeals.current || totalRecords).toLocaleString()}
-                        </span>
-                    </div>
-                    {categoryStats && categoryStats.length > 0 ? (
-                        categoryStats.map((stat, idx) => {
-                            const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
-                            const color = colors[idx % colors.length];
-                            const label = stat.name.toUpperCase();
-                            const isSelected = Array.isArray(filters.category) 
-                                ? filters.category.some(c => c && String(c).toLowerCase() === stat.name.toLowerCase())
-                                : (filters.category && String(filters.category).toLowerCase() === stat.name.toLowerCase());
+                            {/* Active Category Header Chip */}
+                            {(() => {
+                                const activeCatColor = getCategoryColor(activeCategory);
+                                const activeCatCount = displayCategoryStats.find(c => String(c.name).toLowerCase() === String(activeCategory).toLowerCase())?.count ?? totalRecords;
+                                return (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '7px',
+                                            padding: '4px 12px',
+                                            borderRadius: '10px',
+                                            background: `${activeCatColor}18`,
+                                            border: `1.5px solid ${activeCatColor}`,
+                                            boxShadow: `0 0 10px ${activeCatColor}33`,
+                                            fontSize: '0.75rem',
+                                            fontWeight: 800,
+                                            color: activeCatColor,
+                                            whiteSpace: 'nowrap',
+                                            letterSpacing: '0.4px'
+                                        }}
+                                        title={`${activeCategory}: ${activeCatCount.toLocaleString()} deals`}
+                                    >
+                                        <span>{activeCategory.toUpperCase()}</span>
+                                        <span 
+                                            className="stat-val-bold" 
+                                            style={{ 
+                                                fontSize: '1rem', 
+                                                fontWeight: 800, 
+                                                color: 'var(--text-primary, #ffffff)',
+                                                marginLeft: '2px' 
+                                            }}
+                                        >
+                                            {activeCatCount.toLocaleString()}
+                                        </span>
+                                        <span
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCategoryFilter(null);
+                                            }}
+                                            title={`Clear ${activeCategory} filter`}
+                                            style={{
+                                                cursor: 'pointer',
+                                                marginLeft: '4px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '50%',
+                                                background: `${activeCatColor}30`,
+                                                color: activeCatColor,
+                                                fontSize: '0.65rem',
+                                                fontWeight: 900,
+                                                lineHeight: 1,
+                                                transition: 'all 0.1s ease'
+                                            }}
+                                        >
+                                            ✕
+                                        </span>
+                                    </div>
+                                );
+                            })()}
 
-                            return (
-                                <div 
-                                    key={idx} 
-                                    className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`} 
-                                    onClick={() => handleCategoryFilter(stat.name)}
-                                    style={{ 
-                                        display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
-                                        cursor: 'pointer',
-                                        padding: '2px 8px',
-                                        borderRadius: '10px',
-                                        background: isSelected ? `${color}20` : undefined,
-                                        border: isSelected ? `1.5px solid ${color}` : '1px solid transparent',
-                                        boxShadow: isSelected ? `0 0 5px ${color}40` : undefined,
-                                        transition: 'all 0.15s ease-in-out'
-                                    }}
-                                    title={isSelected ? `Click to clear ${stat.name} filter` : `Filter by ${stat.name}`}
-                                >
-                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
-                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
+                            {/* Subtle Divider */}
+                            <div style={{ height: '20px', width: '1px', background: 'var(--border-color, rgba(255, 255, 255, 0.15))', margin: '0 4px', flexShrink: 0 }} />
+
+                            {/* Sub-Category Pills (Slightly smaller, refined enterprise pills) */}
+                            {resolvedSubCategories.length > 0 ? (
+                                resolvedSubCategories.map((sub, idx) => {
+                                    const subName = sub.name;
+                                    const activeCatColor = getCategoryColor(activeCategory);
+                                    const isSubSelected = activeSubCategory && String(activeSubCategory).toLowerCase() === String(subName).toLowerCase();
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className={`stat-pill subcategory-pill ${isSubSelected ? 'active-summary-pill' : ''}`}
+                                            onClick={() => handleSubCategoryFilter(subName)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '5px',
+                                                whiteSpace: 'nowrap',
+                                                cursor: 'pointer',
+                                                padding: '2px 8px',
+                                                borderRadius: '8px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: isSubSelected ? 800 : 600,
+                                                background: isSubSelected 
+                                                    ? `${activeCatColor}28` 
+                                                    : 'var(--bg-subtle, rgba(255, 255, 255, 0.04))',
+                                                border: isSubSelected 
+                                                    ? `1.5px solid ${activeCatColor}` 
+                                                    : '1px solid var(--border-color, rgba(255, 255, 255, 0.12))',
+                                                boxShadow: isSubSelected ? `0 0 8px ${activeCatColor}40` : 'none',
+                                                color: isSubSelected ? activeCatColor : 'var(--text-secondary, #94a3b8)',
+                                                transition: 'all 0.15s ease-in-out',
+                                                transform: isSubSelected ? 'scale(1.02)' : 'scale(1)'
+                                            }}
+                                            title={isSubSelected ? `Click to clear ${subName} filter` : `Filter by ${subName}`}
+                                        >
+                                            <span style={{ textTransform: 'capitalize' }}>
+                                                {isSubSelected && <span style={{ marginRight: '4px', fontSize: '0.65rem' }}>●</span>}
+                                                {subName}:
+                                            </span>
+                                            <span 
+                                                className="stat-val-bold" 
+                                                style={{ 
+                                                    fontWeight: 800, 
+                                                    fontSize: '0.88rem',
+                                                    color: isSubSelected ? activeCatColor : 'var(--text-primary, #f1f5f9)'
+                                                }}
+                                            >
+                                                {sub.count.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>
+                                    No sub-categories recorded for {activeCategory}
                                 </div>
-                            );
-                        })
+                            )}
+                        </>
                     ) : (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
+                        <>
+                            <div 
+                                className="summary-label" 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    background: '#334155', color: '#fff', borderRadius: '8px', 
+                                    fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, 
+                                    whiteSpace: 'nowrap', cursor: 'pointer',
+                                    boxShadow: !filters.category?.length ? '0 0 10px rgba(99, 102, 241, 0.25)' : undefined
+                                }}
+                                title="Click to view all deals"
+                            >
+                                SUMMARY
+                            </div>
+
+                            {/* TOTAL DEAL Pill */}
+                            <div 
+                                className={`stat-pill ${(!filters.category || !filters.category.length) ? 'active-summary-pill' : ''}`} 
+                                onClick={() => handleCategoryFilter(null)}
+                                style={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '5px', 
+                                    whiteSpace: 'nowrap',
+                                    cursor: 'pointer',
+                                    padding: '2px 8px',
+                                    borderRadius: '10px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.5px',
+                                    background: (!filters.category || !filters.category.length) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                                    border: (!filters.category || !filters.category.length) ? '1.5px solid #6366f1' : '1px solid transparent',
+                                    boxShadow: (!filters.category || !filters.category.length) ? '0 0 5px rgba(99, 102, 241, 0.25)' : undefined,
+                                    transition: 'all 0.15s ease-in-out'
+                                }}
+                                title={(!filters.category || !filters.category.length) ? "Showing all deals" : "Click to view all deals"}
+                            >
+                                TOTAL DEAL 
+                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2ecc71' }}>
+                                    {(persistentTotalDeals.current || totalRecords).toLocaleString()}
+                                </span>
+                            </div>
+
+                            {displayCategoryStats && displayCategoryStats.length > 0 ? (
+                                displayCategoryStats.map((stat, idx) => {
+                                    const color = getCategoryColor(stat.name);
+                                    const label = stat.name.toUpperCase();
+                                    const isSelected = Array.isArray(filters.category) 
+                                        ? filters.category.some(c => c && String(c).toLowerCase() === stat.name.toLowerCase())
+                                        : (filters.category && String(filters.category).toLowerCase() === stat.name.toLowerCase());
+
+                                    return (
+                                        <div 
+                                            key={idx} 
+                                            className={`stat-pill ${isSelected ? 'active-summary-pill' : ''}`} 
+                                            onClick={() => handleCategoryFilter(stat.name)}
+                                            style={{ 
+                                                display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                                                cursor: 'pointer',
+                                                padding: '2px 8px',
+                                                borderRadius: '10px',
+                                                background: isSelected ? `${color}20` : undefined,
+                                                border: isSelected ? `1.5px solid ${color}` : '1px solid transparent',
+                                                boxShadow: isSelected ? `0 0 5px ${color}40` : undefined,
+                                                transition: 'all 0.15s ease-in-out'
+                                            }}
+                                            title={`Filter by ${stat.name}`}
+                                        >
+                                            <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
+                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
+                            )}
+                        </>
                     )}
                 </div>
             </footer>

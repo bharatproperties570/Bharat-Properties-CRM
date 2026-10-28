@@ -808,7 +808,8 @@ export const useDeals = (params = {}) => {
             return {
                 records: res.data.records || [],
                 totalCount: res.data.totalCount || 0,
-                categoryStats: res.data.categoryStats || []
+                categoryStats: res.data.categoryStats || [],
+                subCategoryStats: res.data.subCategoryStats || []
             };
         },
         staleTime: 5 * 60 * 1000,

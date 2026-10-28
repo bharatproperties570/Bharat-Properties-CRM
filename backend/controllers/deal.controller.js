@@ -1528,11 +1528,17 @@ export const getDeals = async (req, res) => {
 
         // 🏎️ SENIOR OPTIMIZATION: Parallelize Pagination and Aggregation
         let categoryStatsPromise = Promise.resolve([]);
+        let subCategoryStatsPromise = Promise.resolve([]);
 
         if (Number(page) === 1) {
+            // Category breakdown: ignores category & subCategory filters so top-level distribution is always complete
+            const catStatsQuery = { ...query };
+            delete catStatsQuery.category;
+            delete catStatsQuery.subCategory;
+
             // 🚀 PHASE 2.3-S OPT1: Add pipeline projection to $lookup — only fetch 'category' from inventories
             categoryStatsPromise = Deal.aggregate([
-                { $match: { ...query } },
+                { $match: catStatsQuery },
                 {
                     $lookup: {
                         from: 'inventories',
@@ -1562,15 +1568,77 @@ export const getDeals = async (req, res) => {
                     count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
                 }));
             });
+
+            // 🎯 ENTERPRISE SUB-CATEGORY AGGREGATION: If category filter is active, aggregate sub-categories
+            if (category) {
+                const subCatStatsQuery = { ...query };
+                delete subCatStatsQuery.subCategory; // Exclude subCategory filter so sibling sub-categories remain visible
+
+                subCategoryStatsPromise = Deal.aggregate([
+                    { $match: subCatStatsQuery },
+                    {
+                        $lookup: {
+                            from: 'inventories',
+                            localField: 'inventoryId',
+                            foreignField: '_id',
+                            pipeline: [{ $project: { category: 1, subCategory: 1 } }],
+                            as: 'inventory'
+                        }
+                    },
+                    { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+                    {
+                        $project: {
+                            activeCategory: { $ifNull: ["$category", "$inventory.category"] },
+                            activeSubCategory: { $ifNull: ["$subCategory", "$inventory.subCategory"] }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: "$activeSubCategory",
+                            count: { $sum: 1 }
+                        }
+                    }
+                ]).then(async (subStatsAgg) => {
+                    const subResultIds = subStatsAgg
+                        .map(s => s._id)
+                        .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+                        .map(id => new mongoose.Types.ObjectId(id));
+                    const subDocs = subResultIds.length > 0
+                        ? await Lookup.find({ _id: { $in: subResultIds } }).select('_id lookup_value').lean()
+                        : [];
+                    const subMap = new Map(subDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+                    const subCategoryStatsMap = new Map();
+                    subStatsAgg.forEach(item => {
+                        if (!item._id) return;
+                        const rawName = subMap.get(String(item._id)) || String(item._id);
+                        const cleanName = rawName.trim();
+                        if (!cleanName || cleanName === 'null' || cleanName === 'undefined') return;
+                        const key = cleanName.toLowerCase();
+                        const existing = subCategoryStatsMap.get(key);
+                        if (existing) {
+                            existing.count += item.count;
+                        } else {
+                            subCategoryStatsMap.set(key, { name: cleanName, count: item.count });
+                        }
+                    });
+
+                    return Array.from(subCategoryStatsMap.values()).sort((a, b) => b.count - a.count);
+                }).catch(err => {
+                    console.error('[DEALS_AGG] SubCategory aggregation error:', err.message);
+                    return [];
+                });
+            }
         }
 
         // Execute queries concurrently
         // 🚀 PHASE 2.3-S OPT2: Fetch lookups in parallel with paginate+categoryStats instead of sequentially after
         console.log(">> getDeals API: starting Promise.all");
         console.time("getDeals_Paginate_Category");
-        const [results, categoryCounts] = await Promise.all([
+        const [results, categoryCounts, subCategoryCounts] = await Promise.all([
             paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields, null, dealListProjection),
-            categoryStatsPromise
+            categoryStatsPromise,
+            subCategoryStatsPromise
         ]);
         console.timeEnd("getDeals_Paginate_Category");
         console.log(">> getDeals API: finished Promise.all");
@@ -2043,6 +2111,7 @@ export const getDeals = async (req, res) => {
             success: true,
             ...results,
             categoryStats: categoryCounts,
+            subCategoryStats: subCategoryCounts || [],
             records: enrichedRecords
         };
 

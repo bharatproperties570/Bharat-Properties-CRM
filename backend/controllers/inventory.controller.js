@@ -389,7 +389,18 @@ export const getInventory = async (req, res) => {
         }
 
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
-        applyDeepFilter(query, 'subCategory', subCategoryFilter);
+        let subCategoryCondition = null;
+        if (subCategoryFilter) {
+            subCategoryCondition = {
+                $or: [
+                    { subCategory: subCategoryFilter },
+                    { 'subCategory._id': subCategoryFilter },
+                    { 'subCategory.id': subCategoryFilter },
+                    { 'subCategory.lookup_value': subCategoryFilter },
+                    { 'subCategory.name': subCategoryFilter }
+                ]
+            };
+        }
 
         // 🚀 [SENIOR] Property Type / Size Type Filter (e.g. 1 BHK, 2 BHK, Shop, etc.)
         // Resolve against both 'PropertyType' and 'Size' to ensure full coverage (parity with frontend resolveInventoryLookup)
@@ -543,10 +554,29 @@ export const getInventory = async (req, res) => {
         const inactiveStatusIdStrings = inactiveStatusIds.map(id => id.toString());
 
         // Single aggregation for all stats
-        // We need a separate query for category stats that ignores the category filter
+        // We need a separate query for category stats that ignores the category filter and subCategory filter
         const categoryStatsQuery = { ...query };
         if (query.$and) categoryStatsQuery.$and = [...query.$and];
         if (query.$or) categoryStatsQuery.$or = [...query.$or];
+
+        // 🎯 SUB-CATEGORY STATS QUERY: includes categoryCondition, but ignores subCategoryCondition
+        let subCategoryStatsQuery = null;
+        if (categoryCondition) {
+            subCategoryStatsQuery = { ...categoryStatsQuery };
+            if (categoryStatsQuery.$and) subCategoryStatsQuery.$and = [...categoryStatsQuery.$and];
+            if (categoryStatsQuery.$or) subCategoryStatsQuery.$or = [...categoryStatsQuery.$or];
+
+            if (subCategoryStatsQuery.$or) {
+                if (!subCategoryStatsQuery.$and) {
+                    const existingOr = subCategoryStatsQuery.$or;
+                    delete subCategoryStatsQuery.$or;
+                    subCategoryStatsQuery.$and = [{ $or: existingOr }];
+                }
+                subCategoryStatsQuery.$and.push(categoryCondition);
+            } else {
+                subCategoryStatsQuery.$or = categoryCondition.$or || [categoryCondition];
+            }
+        }
 
         // Apply category filter to the operational query for fetching records and active/inactive counts
         if (categoryCondition) {
@@ -562,12 +592,26 @@ export const getInventory = async (req, res) => {
             }
         }
 
+        // Apply subCategory filter to the operational query for fetching records and active/inactive counts
+        if (subCategoryCondition) {
+            if (query.$or) {
+                if (!query.$and) {
+                    const existingOr = query.$or;
+                    delete query.$or;
+                    query.$and = [{ $or: existingOr }];
+                }
+                query.$and.push(subCategoryCondition);
+            } else {
+                query.$or = subCategoryCondition.$or || [subCategoryCondition];
+            }
+        }
+
         // 🚀 SENIOR OPTIMIZATION: Run heavy stats aggregations ONLY on page 1.
         // Scroll-triggered pages (2, 3...) don't need stats — saves 400–1000ms per scroll event.
-        let statsAggregation = [], categoryStatsAggregation = [];
+        let statsAggregation = [], categoryStatsAggregation = [], subCategoryStatsAggregation = [];
         if (isPageOne) {
             try {
-                [statsAggregation, categoryStatsAggregation] = await Promise.all([
+                const aggPromises = [
                     Inventory.aggregate([
                         { $match: query },
                         {
@@ -603,11 +647,26 @@ export const getInventory = async (req, res) => {
                         { $match: categoryStatsQuery },
                         { $group: { _id: "$category", count: { $sum: 1 } } }
                     ])
-                ]);
+                ];
+
+                if (subCategoryStatsQuery) {
+                    aggPromises.push(
+                        Inventory.aggregate([
+                            { $match: subCategoryStatsQuery },
+                            { $group: { _id: "$subCategory", count: { $sum: 1 } } }
+                        ])
+                    );
+                }
+
+                const aggResults = await Promise.all(aggPromises);
+                statsAggregation = aggResults[0];
+                categoryStatsAggregation = aggResults[1];
+                subCategoryStatsAggregation = aggResults[2] || [];
             } catch (aggError) {
                 console.error("[INVENTORY_AGG] Aggregation failed:", aggError.message);
                 statsAggregation = [{ active: [], inactive: [] }];
                 categoryStatsAggregation = [];
+                subCategoryStatsAggregation = [];
             }
         }
 
@@ -637,6 +696,36 @@ export const getInventory = async (req, res) => {
             name,
             count
         }));
+
+        // 🎯 Enrichment: Resolve subCategory names for stats and merge duplicates safely
+        let subCategoryStats = [];
+        if (Array.isArray(subCategoryStatsAggregation) && subCategoryStatsAggregation.length > 0) {
+            const subCategoryResultIds = subCategoryStatsAggregation
+                .map(c => c._id)
+                .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+                .map(id => new mongoose.Types.ObjectId(id));
+            const subCategoryDocs = subCategoryResultIds.length > 0
+                ? await Lookup.find({ _id: { $in: subCategoryResultIds } }).select('lookup_value').lean()
+                : [];
+            const subCategoryMap = new Map(subCategoryDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+            const subStatsMap = new Map();
+            subCategoryStatsAggregation.forEach(c => {
+                if (!c._id) return;
+                const rawName = subCategoryMap.get(c._id?.toString()) || String(c._id);
+                const cleanName = rawName.trim();
+                if (!cleanName || cleanName === 'null' || cleanName === 'undefined') return;
+                const key = cleanName.toLowerCase();
+                const existing = subStatsMap.get(key);
+                if (existing) {
+                    existing.count += c.count;
+                } else {
+                    subStatsMap.set(key, { name: cleanName, count: c.count });
+                }
+            });
+
+            subCategoryStats = Array.from(subStatsMap.values()).sort((a, b) => b.count - a.count);
+        }
 
         // Apply Status Category Filter if requested (optimized + legacy string support)
         if (statusCategory === 'Active') {
@@ -942,6 +1031,7 @@ export const getInventory = async (req, res) => {
             activeCount,
             inactiveCount,
             categoryStats,
+            subCategoryStats,
             ...results
         });
     } catch (error) {
