@@ -545,4 +545,89 @@ describe('DataTable Primitive (Phase 10.3.2 Native Button Activation Review)', (
     expect(rows[0]).not.toHaveAttribute('tabIndex');
     expect(rows[0].style.cursor).toBe('');
   });
+
+  describe('Enter Auto-Repeat Guard (Phase 10.3.3E)', () => {
+    it('prevents default on repeated Enter keydown to suppress browser simulated click auto-repeat', () => {
+      const handleRowClick = vi.fn();
+      render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
+
+      const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+      primaryButton.focus();
+
+      // Dispatch repeated Enter keydown (simulating OS auto-repeat when key is held)
+      const repeatEnterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        repeat: true,
+        bubbles: true,
+        cancelable: true
+      });
+      primaryButton.dispatchEvent(repeatEnterEvent);
+
+      // Guard MUST call e.preventDefault() on repeated Enter
+      expect(repeatEnterEvent.defaultPrevented).toBe(true);
+      // Guard does NOT invoke onRowClick directly
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it('does NOT prevent default on initial non-repeated Enter keydown, allowing native click dispatch', () => {
+      const handleRowClick = vi.fn();
+      render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
+
+      const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+      primaryButton.focus();
+
+      // Dispatch initial (non-repeated) Enter keydown
+      const initialEnterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        repeat: false,
+        bubbles: true,
+        cancelable: true
+      });
+      primaryButton.dispatchEvent(initialEnterEvent);
+
+      // Guard MUST NOT prevent default on initial Enter press
+      expect(initialEnterEvent.defaultPrevented).toBe(false);
+      // Guard does NOT invoke onRowClick directly from keydown (browser engine dispatches click)
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it('does NOT prevent default on repeated Space keydown, leaving Space handling 100% native', () => {
+      const handleRowClick = vi.fn();
+      render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
+
+      const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+      primaryButton.focus();
+
+      // Dispatch repeated Space keydown
+      const repeatSpaceEvent = new KeyboardEvent('keydown', {
+        key: ' ',
+        code: 'Space',
+        repeat: true,
+        bubbles: true,
+        cancelable: true
+      });
+      primaryButton.dispatchEvent(repeatSpaceEvent);
+
+      // Guard MUST NOT prevent default on Space
+      expect(repeatSpaceEvent.defaultPrevented).toBe(false);
+      expect(handleRowClick).not.toHaveBeenCalled();
+    });
+
+    it('allows two separate independent click activations to invoke onRowClick twice', () => {
+      const handleRowClick = vi.fn();
+      render(<DataTable columns={columns} data={sampleData} onRowClick={handleRowClick} />);
+
+      const primaryButton = screen.getByRole('button', { name: /select dlf phase 5 villa/i });
+
+      // First click activation
+      fireEvent.click(primaryButton);
+      expect(handleRowClick).toHaveBeenCalledTimes(1);
+
+      // Second separate click activation
+      fireEvent.click(primaryButton);
+      expect(handleRowClick).toHaveBeenCalledTimes(2);
+    });
+  });
 });

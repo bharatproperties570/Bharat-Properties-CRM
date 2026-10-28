@@ -123,6 +123,16 @@ const resolvePrimaryColumn = (columns, primaryColumnKey) => {
   return candidate || null;
 };
 
+/**
+ * Prevents browser simulated-click auto-repeat when Enter is held down,
+ * while preserving native single-press Enter and leaving Space entirely native.
+ */
+const handlePrimaryActionKeyDown = (e) => {
+  if (e.key === 'Enter' && e.repeat) {
+    e.preventDefault();
+  }
+};
+
 export const DataTable = ({
   columns = [],
   data = [],
@@ -259,6 +269,7 @@ export const DataTable = ({
                           type="button"
                           className="ui-datatable-primary-action"
                           style={primaryActionStyle}
+                          onKeyDown={handlePrimaryActionKeyDown}
                           onClick={(e) => {
                             e.stopPropagation();
                             onRowClick(row);
