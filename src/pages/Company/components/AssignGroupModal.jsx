@@ -16,7 +16,7 @@ function AssignGroupModal({ isOpen, onClose, selectedCompanies, onComplete }) {
             selectedCompanies.forEach(c => {
                 if (c.groups && Array.isArray(c.groups)) {
                     c.groups.forEach(g => {
-                        ids.add(typeof g === 'object' ? g._id : g);
+                        ids.add(g && typeof g === 'object' ? g._id : g);
                     });
                 }
             });

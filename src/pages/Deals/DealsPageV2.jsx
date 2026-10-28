@@ -1871,10 +1871,21 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 
                 {(() => {
                     if (!deal.price) return null;
-                    const sizeId = typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : (deal.sizeConfig || deal.sizeLabel?._id || (typeof deal.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(deal.sizeLabel) ? deal.sizeLabel : null));
-                    const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : (deal.sizeLabel ? sizes?.find(s => s.name === (typeof deal.sizeLabel === 'object' ? deal.sizeLabel.lookup_value : deal.sizeLabel)) : null);
-                    const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : (typeof deal.size === 'object' ? parseFloat(deal.size?.value) : parseFloat(deal.size));
-                    const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : (typeof deal.size === 'object' ? deal.size?.unit : deal.sizeUnit || 'sq.ft.');
+                    const sizeId = (deal.sizeConfig && typeof deal.sizeConfig === 'object')
+                        ? (deal.sizeConfig._id || deal.sizeConfig.id)
+                        : (deal.sizeConfig || deal.sizeLabel?._id || (typeof deal.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(deal.sizeLabel) ? deal.sizeLabel : null));
+                    const sizeLabelValue = (deal.sizeLabel && typeof deal.sizeLabel === 'object')
+                        ? (deal.sizeLabel.lookup_value || deal.sizeLabel.name)
+                        : deal.sizeLabel;
+                    const sizeLookup = sizeId
+                        ? sizes?.find(size => size.id === sizeId)
+                        : (sizeLabelValue ? sizes?.find(s => s.name === sizeLabelValue) : null);
+                    const calcArea = sizeLookup && sizeLookup.totalArea
+                        ? parseFloat(sizeLookup.totalArea)
+                        : (deal.size && typeof deal.size === 'object' ? parseFloat(deal.size?.value) : parseFloat(deal.size));
+                    const calcUnit = sizeLookup && sizeLookup.resultMetric
+                        ? sizeLookup.resultMetric
+                        : (deal.size && typeof deal.size === 'object' ? deal.size?.unit : deal.sizeUnit || 'sq.ft.');
                     
                     if (calcArea && calcArea > 0) {
                         return (
