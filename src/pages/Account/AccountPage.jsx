@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { renderValue } from '../../utils/renderUtils';
 import { useBookings } from '../../utils/crmHooks';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 
 const AccountPage = ({ onNavigate, initialContextId }) => {
     const [filter, setFilter] = useState('All');
@@ -32,6 +33,96 @@ const AccountPage = ({ onNavigate, initialContextId }) => {
         if (filter === 'Payables') return b.sellerBrokerageAmount > 0;
         return true;
     });
+
+    const accountData = useMemo(() => {
+        return filteredBookings.map((item, idx) => ({
+            ...item,
+            id: item._id || item.id || `account-booking-${idx}`
+        }));
+    }, [filteredBookings]);
+
+    const accountColumns = useMemo(() => [
+        {
+            key: 'projectUnit',
+            header: 'Project & Unit',
+            cellStyle: { padding: '15px 20px' },
+            render: (item) => (
+                <>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.property?.name || 'N/A'}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Unit: {item.property?.unitNumber || 'N/A'}</div>
+                </>
+            )
+        },
+        {
+            key: 'clientName',
+            header: 'Client Name',
+            cellStyle: { padding: '15px 20px' },
+            render: (item) => (
+                <>
+                    <div style={{ fontWeight: 600, color: '#334155' }}>{(item.lead?.firstName || 'N/A')} {(item.lead?.lastName || '')}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.lead?.mobile || 'N/A'}</div>
+                </>
+            )
+        },
+        {
+            key: 'dealValue',
+            header: 'Deal Value',
+            cellStyle: { padding: '15px 20px', fontWeight: 700, color: '#0f172a' },
+            render: (item) => `₹${(item.totalDealAmount || 0).toLocaleString()}`
+        },
+        {
+            key: 'received',
+            header: 'Received',
+            cellStyle: { padding: '15px 20px', fontWeight: 700, color: '#10b981' },
+            render: (item) => {
+                const received = (item.tokenAmount || 0) + (item.partPaymentAmount || 0);
+                return `₹${received.toLocaleString()}`;
+            }
+        },
+        {
+            key: 'balance',
+            header: 'Balance',
+            cellStyle: { padding: '15px 20px', fontWeight: 700, color: '#ef4444' },
+            render: (item) => {
+                const received = (item.tokenAmount || 0) + (item.partPaymentAmount || 0);
+                const balance = (item.totalDealAmount || 0) - received;
+                return `₹${balance.toLocaleString()}`;
+            }
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            cellStyle: { padding: '15px 20px' },
+            render: (item) => (
+                <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    background: item.status === 'Registry' ? '#dcfce7' : item.status === 'Booked' ? '#dbeafe' : '#fef3c7',
+                    color: item.status === 'Registry' ? '#166534' : item.status === 'Booked' ? '#1e40af' : '#92400e'
+                }}>
+                    {renderValue(item.status)}
+                </span>
+            )
+        },
+        {
+            key: 'action',
+            header: 'Action',
+            cellStyle: { padding: '15px 20px' },
+            render: (item) => (
+                <button
+                    onClick={() => onNavigate && onNavigate('booking', item._id)}
+                    className="btn-icon"
+                    title="View Ledger"
+                    aria-label={`View Ledger for ${item.property?.name || 'booking'}`}
+                >
+                    <i className="fas fa-eye"></i>
+                </button>
+            )
+        }
+    ], [onNavigate]);
 
     const renderHeader = () => (
         <div className="page-header" style={{ padding: '20px 2rem', background: '#fff', borderBottom: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -117,73 +208,19 @@ const AccountPage = ({ onNavigate, initialContextId }) => {
                         </div>
                     </div>
 
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Project & Unit</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Client Name</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Deal Value</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Received</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Balance</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Status</th>
-                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr>
-                                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-                                        <div style={{ width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }}></div>
-                                        Fetching financial records...
-                                    </td>
-                                </tr>
-                            ) : filteredBookings.length === 0 ? (
-                                <tr>
-                                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No financial records found.</td>
-                                </tr>
-                            ) : filteredBookings.map((item, i) => {
-                                const received = (item.tokenAmount || 0) + (item.partPaymentAmount || 0);
-                                const balance = (item.totalDealAmount || 0) - received;
-                                return (
-                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '15px 20px' }}>
-                                            <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.property?.name || 'N/A'}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Unit: {item.property?.unitNumber || 'N/A'}</div>
-                                        </td>
-                                        <td style={{ padding: '15px 20px' }}>
-                                            <div style={{ fontWeight: 600, color: '#334155' }}>{(item.lead?.firstName || 'N/A')} {(item.lead?.lastName || '')}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.lead?.mobile || 'N/A'}</div>
-                                        </td>
-                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#0f172a' }}>₹{(item.totalDealAmount || 0).toLocaleString()}</td>
-                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#10b981' }}>₹{received.toLocaleString()}</td>
-                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#ef4444' }}>₹{balance.toLocaleString()}</td>
-                                        <td style={{ padding: '15px 20px' }}>
-                                            <span style={{
-                                                padding: '4px 10px',
-                                                borderRadius: '12px',
-                                                fontSize: '0.7rem',
-                                                fontWeight: 800,
-                                                textTransform: 'uppercase',
-                                                background: item.status === 'Registry' ? '#dcfce7' : item.status === 'Booked' ? '#dbeafe' : '#fef3c7',
-                                                color: item.status === 'Registry' ? '#166534' : item.status === 'Booked' ? '#1e40af' : '#92400e'
-                                            }}>
-                                                {renderValue(item.status)}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '15px 20px' }}>
-                                            <button
-                                                onClick={() => onNavigate('booking', item._id)}
-                                                className="btn-icon"
-                                                title="View Ledger"
-                                            >
-                                                <i className="fas fa-eye"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                    {loading ? (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                            <div style={{ width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }}></div>
+                            Fetching financial records...
+                        </div>
+                    ) : (
+                        <DataTable
+                            columns={accountColumns}
+                            data={accountData}
+                            keyField="id"
+                            emptyMessage="No financial records found."
+                        />
+                    )}
                 </div>
             </div>
             <style>{`
