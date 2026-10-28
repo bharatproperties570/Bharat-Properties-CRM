@@ -1,8 +1,8 @@
 import React from 'react';
 
 export const DataTable = ({
-  columns,
-  data,
+  columns = [],
+  data = [],
   keyField = 'id',
   isLoading = false,
   emptyMessage = "No records found.",
@@ -11,8 +11,12 @@ export const DataTable = ({
 }) => {
   if (isLoading) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-        <i className="fas fa-spinner fa-spin fa-2x"></i>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}
+      >
+        <i className="fas fa-spinner fa-spin fa-2x" aria-hidden="true"></i>
         <p style={{ marginTop: '10px' }}>Loading data...</p>
       </div>
     );
@@ -20,8 +24,10 @@ export const DataTable = ({
 
   if (!data || data.length === 0) {
     return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '8px' }}>
-        <p>{emptyMessage}</p>
+      <div
+        style={{ padding: '40px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: '8px' }}
+      >
+        {typeof emptyMessage === 'string' ? <p style={{ margin: 0 }}>{emptyMessage}</p> : emptyMessage}
       </div>
     );
   }
@@ -50,36 +56,61 @@ export const DataTable = ({
     color: '#0f172a'
   };
 
-  const trStyle = onRowClick ? { cursor: 'pointer', transition: 'background 0.2s' } : {};
+  const isClickable = typeof onRowClick === 'function';
+  const baseTrStyle = isClickable ? { cursor: 'pointer', transition: 'background 0.2s' } : {};
 
   return (
     <div style={{ overflowX: 'auto', width: '100%', background: '#fff', borderRadius: '8px' }} className={`ui-datatable ${className}`}>
       <table style={tableStyle}>
         <thead>
           <tr>
-            {columns.map((col, index) => (
-              <th key={index} style={{ ...thStyle, ...(col.headerStyle || {}) }}>
-                {col.header}
-              </th>
-            ))}
+            {columns.map((col, colIndex) => {
+              const colKey = col.key || col.accessor || `col-${colIndex}`;
+              return (
+                <th key={colKey} style={{ ...thStyle, ...(col.headerStyle || {}) }}>
+                  {col.header}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {data.map((row) => (
-            <tr
-              key={row[keyField] || Math.random()}
-              style={trStyle}
-              onClick={() => onRowClick && onRowClick(row)}
-              onMouseEnter={(e) => { if (onRowClick) e.currentTarget.style.background = '#f8fafc'; }}
-              onMouseLeave={(e) => { if (onRowClick) e.currentTarget.style.background = 'transparent'; }}
-            >
-              {columns.map((col, index) => (
-                <td key={index} style={{ ...tdStyle, ...(col.cellStyle || {}) }}>
-                  {col.render ? col.render(row) : row[col.accessor]}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {data.map((row, rowIndex) => {
+            const rowKey = (row && (row[keyField] ?? row.id ?? row._id)) ?? `row-${rowIndex}`;
+
+            const rowProps = isClickable
+              ? {
+                  role: 'button',
+                  tabIndex: 0,
+                  onClick: () => onRowClick(row),
+                  onKeyDown: (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRowClick(row);
+                    }
+                  },
+                  onMouseEnter: (e) => { e.currentTarget.style.background = '#f8fafc'; },
+                  onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent'; }
+                }
+              : {};
+
+            return (
+              <tr
+                key={rowKey}
+                style={baseTrStyle}
+                {...rowProps}
+              >
+                {columns.map((col, colIndex) => {
+                  const cellKey = col.key || col.accessor || `cell-${colIndex}`;
+                  return (
+                    <td key={cellKey} style={{ ...tdStyle, ...(col.cellStyle || {}) }}>
+                      {col.render ? col.render(row, rowIndex) : row[col.accessor]}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

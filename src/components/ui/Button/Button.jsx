@@ -21,7 +21,7 @@ export const Button = ({
     borderRadius: '8px',
     fontWeight: 600,
     cursor: disabled || loading ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
+    opacity: disabled ? 0.6 : (loading ? 0.8 : 1),
     transition: 'all 0.2s ease',
     border: '1px solid transparent',
   };
@@ -52,32 +52,109 @@ export const Button = ({
     }
   };
 
+  const resolvedSize = sizeStyles[size] || sizeStyles.md;
+  const resolvedVariant = variantStyles[variant] || variantStyles.primary;
+
   const combinedStyle = {
     ...baseStyle,
-    ...sizeStyles[size],
-    ...variantStyles[variant],
+    ...resolvedSize,
+    ...resolvedVariant,
     ...style
   };
+
+  const handleClick = (e) => {
+    if (disabled || loading) {
+      e.preventDefault();
+      return;
+    }
+    if (onClick) {
+      onClick(e);
+    }
+  };
+
+  const renderIcon = () => {
+    if (loading) {
+      return <i className="fas fa-spinner fa-spin" aria-hidden="true" data-testid="button-spinner"></i>;
+    }
+    if (!icon) return null;
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+    if (typeof icon === 'string') {
+      return <i className={icon} aria-hidden="true"></i>;
+    }
+    return null;
+  };
+
+  const isEffectivelyDisabled = Boolean(disabled || loading);
+  const isEffectivelyBusy = Boolean(loading);
+
+  const resolvedAriaDisabled = isEffectivelyDisabled ? 'true' : props['aria-disabled'];
+  const resolvedAriaBusy = isEffectivelyBusy ? 'true' : props['aria-busy'];
 
   return (
     <button
       type={type}
-      onClick={onClick}
-      disabled={disabled || loading}
       style={combinedStyle}
-      className={`ui-button ${className}`}
+      className={`ui-button ${className}`.trim()}
       {...props}
+      onClick={handleClick}
+      disabled={isEffectivelyDisabled}
+      aria-busy={resolvedAriaBusy}
+      aria-disabled={resolvedAriaDisabled}
     >
-      {loading ? (
-        <i className="fas fa-spinner fa-spin"></i>
-      ) : icon ? (
-        <i className={icon}></i>
-      ) : null}
+      {renderIcon()}
       {children}
     </button>
   );
 };
 
-export const IconButton = ({ icon, ...props }) => {
-    return <Button icon={icon} {...props}>{''}</Button>
-}
+export const IconButton = ({
+  icon,
+  'aria-label': ariaLabel,
+  title,
+  size = 'md',
+  style = {},
+  ...props
+}) => {
+  let accessibleName = ariaLabel || title;
+
+  if (!accessibleName) {
+    if (typeof icon === 'string') {
+      accessibleName = icon.replace(/fa[srb]? fa-/, '').replace(/-/g, ' ');
+    } else if (React.isValidElement(icon)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'Accessibility Warning: IconButton rendered with a React element icon but missing an "aria-label" or "title". An explicit accessible name is required for screen readers.'
+        );
+      }
+      accessibleName = 'icon button';
+    } else {
+      accessibleName = 'button';
+    }
+  }
+
+  const iconSizeStyles = {
+    sm: { padding: '6px', minWidth: '32px', minHeight: '32px' },
+    md: { padding: '10px', minWidth: '40px', minHeight: '40px' },
+    lg: { padding: '12px', minWidth: '48px', minHeight: '48px' }
+  };
+
+  const combinedIconStyle = {
+    ...(iconSizeStyles[size] || iconSizeStyles.md),
+    ...style
+  };
+
+  return (
+    <Button
+      icon={icon}
+      size={size}
+      style={combinedIconStyle}
+      aria-label={accessibleName}
+      title={title || ariaLabel}
+      {...props}
+    >
+      {''}
+    </Button>
+  );
+};
