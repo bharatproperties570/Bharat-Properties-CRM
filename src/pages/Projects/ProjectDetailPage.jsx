@@ -109,57 +109,6 @@ useEffect(() => {
         return () => window.removeEventListener('project-updated', handleProjectUpdate);
     }, [projectId, fetchProjectDetails]);
 
-    if (loading) return (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-gray)' }}>
-            <div className="loader"></div>
-            <span style={{ marginLeft: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Initializing Project Command Center...</span>
-        </div>
-    );
-    if (!project) return <div className="error-state">Project not found</div>;
-
-    const totalDealValue = dealsData.reduce((acc, deal) => acc + (deal.price || 0), 0);
-    const activeDealsCount = dealsData.filter(d => d.stage !== 'Closed' && d.stage !== 'Cancelled').length;
-    const closedDealsCount = dealsData.filter(d => d.stage === 'Closed').length;
-
-    const totalInventoryCount = inventoryData.length;
-    const soldInventory = inventoryData.filter(i => i.status === 'Sold Out').length;
-    const availableInventory = inventoryData.filter(i => i.status === 'Available').length;
-
-    // Advanced Metrics
-    const avgPricePerUnit = totalInventoryCount > 0 ? (dealsData.reduce((acc, d) => acc + (d.price || 0), 0) / (dealsData.length || 1)) : 0;
-    const absorptionRate = totalInventoryCount > 0 ? Math.round((soldInventory / totalInventoryCount) * 100) : 0;
-    const revenuePotential = availableInventory * (avgPricePerUnit || 4500000);
-
-    const cardStyle = {
-        background: 'var(--bg-card)',
-        borderRadius: '16px',
-        border: '1px solid var(--border-color)',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-        marginBottom: '24px',
-        overflow: 'hidden'
-    };
-
-    const sectionHeaderStyle = {
-        padding: '16px 20px',
-        borderBottom: '1px solid var(--border-color)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: 'var(--bg-card)'
-    };
-
-    const sectionTitleStyle = {
-        fontSize: '0.9rem',
-        fontWeight: 800,
-        color: 'var(--text-main)',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        margin: 0,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px'
-    };
-
     const unitColumns = useMemo(() => [
         {
             header: 'Block / Unit',
@@ -261,6 +210,57 @@ useEffect(() => {
             id: unit._id || unit.id || `unit-${idx}`
         }));
     }, [inventoryData]);
+
+    if (loading) return (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-gray)' }}>
+            <div className="loader"></div>
+            <span style={{ marginLeft: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Initializing Project Command Center...</span>
+        </div>
+    );
+    if (!project) return <div className="error-state">Project not found</div>;
+
+    const totalDealValue = dealsData.reduce((acc, deal) => acc + (deal.price || 0), 0);
+    const activeDealsCount = dealsData.filter(d => d.stage !== 'Closed' && d.stage !== 'Cancelled').length;
+    const closedDealsCount = dealsData.filter(d => d.stage === 'Closed').length;
+
+    const totalInventoryCount = inventoryData.length;
+    const soldInventory = inventoryData.filter(i => i.status === 'Sold Out').length;
+    const availableInventory = inventoryData.filter(i => i.status === 'Available').length;
+
+    // Advanced Metrics
+    const avgPricePerUnit = totalInventoryCount > 0 ? (dealsData.reduce((acc, d) => acc + (d.price || 0), 0) / (dealsData.length || 1)) : 0;
+    const absorptionRate = totalInventoryCount > 0 ? Math.round((soldInventory / totalInventoryCount) * 100) : 0;
+    const revenuePotential = availableInventory * (avgPricePerUnit || 4500000);
+
+    const cardStyle = {
+        background: 'var(--bg-card)',
+        borderRadius: '16px',
+        border: '1px solid var(--border-color)',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+        marginBottom: '24px',
+        overflow: 'hidden'
+    };
+
+    const sectionHeaderStyle = {
+        padding: '16px 20px',
+        borderBottom: '1px solid var(--border-color)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: 'var(--bg-card)'
+    };
+
+    const sectionTitleStyle = {
+        fontSize: '0.9rem',
+        fontWeight: 800,
+        color: 'var(--text-main)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        margin: 0,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px'
+    };
 
     return (
         <div className="project-detail-page" style={{ background: 'var(--bg-gray)', minHeight: '100vh', paddingBottom: '60px' }}>

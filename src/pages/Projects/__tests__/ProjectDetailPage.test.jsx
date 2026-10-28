@@ -269,4 +269,67 @@ describe('ProjectDetailPage with DataTable (Phase 10.20)', () => {
         expect(tableText).not.toMatch(/secret/i);
         expect(tableText).not.toMatch(/apikey/i);
     });
+
+    it('handles initial loading state and transitions to loaded project without hook order error (Phase 10.31 regression)', async () => {
+        // Initial render during loading
+        mockProjectQuery = {
+            data: null,
+            isFetching: true,
+            refetch: mockRefetch
+        };
+
+        const { rerender } = render(<ProjectDetailPage projectId="60d5ec49f1b24b0015987111" />);
+        expect(screen.getByText(/Initializing Project Command Center/i)).toBeInTheDocument();
+
+        // Transition to loaded state
+        mockProjectQuery = {
+            data: {
+                success: true,
+                data: {
+                    _id: '60d5ec49f1b24b0015987111',
+                    name: 'Bharat Heights',
+                    status: 'Active',
+                    totalBlocks: 2,
+                    totalUnits: 10,
+                    blocks: [{ name: 'Tower A' }, { name: 'Tower B' }]
+                }
+            },
+            isFetching: false,
+            refetch: mockRefetch
+        };
+
+        rerender(<ProjectDetailPage projectId="60d5ec49f1b24b0015987111" />);
+        expect(await screen.findByText('Bharat Heights')).toBeInTheDocument();
+
+        // Switch to inventory tab to ensure DataTable renders properly after transition
+        fireEvent.click(await screen.findByText('Inventory'));
+        expect(await screen.findByText('A-101')).toBeInTheDocument();
+    });
+
+    it('renders project not found state when project data is missing', async () => {
+        mockProjectQuery = {
+            data: null,
+            isFetching: false,
+            refetch: mockRefetch
+        };
+
+        render(<ProjectDetailPage projectId="non-existent-id" />);
+        expect(screen.getByText('Project not found')).toBeInTheDocument();
+    });
+
+    it('verifies unit table column headers and mapped row data structure', async () => {
+        const { container } = render(<ProjectDetailPage projectId="60d5ec49f1b24b0015987111" />);
+
+        fireEvent.click(await screen.findByText('Inventory'));
+        await screen.findByText('A-101');
+
+        const headers = Array.from(container.querySelectorAll('thead th')).map(th => th.textContent.trim());
+        expect(headers).toEqual(['Block / Unit', 'Unit Type', 'Attributes', 'Status', 'Actions']);
+
+        // Verify row contents
+        expect(screen.getByText('Tower A')).toBeInTheDocument();
+        expect(screen.getByText('3BHK Luxury')).toBeInTheDocument();
+        expect(screen.getByText('East Facing')).toBeInTheDocument();
+        expect(screen.getByText('Available')).toBeInTheDocument();
+    });
 });
