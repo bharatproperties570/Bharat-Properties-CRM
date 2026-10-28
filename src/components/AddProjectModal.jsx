@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 import { useAddProjectMutation, useUpdateProjectMutation, useUsers, useTeams } from '../utils/crmHooks';
 
 // --- Helper: Reusable MultiSelect Dropdown ---
-const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", isDark = false }) => {
+const MultiSelect = ({ options = [], selected = [], onChange, placeholder = "Select...", isDark = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -25,11 +25,14 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", i
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const safeSelected = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+    const safeOptions = Array.isArray(options) ? options : [];
+
     const toggleOption = (optionValue) => {
-        const newSelected = selected.includes(optionValue)
-            ? selected.filter(item => item !== optionValue)
-            : [...selected, optionValue];
-        onChange(newSelected);
+        const newSelected = safeSelected.includes(optionValue)
+            ? safeSelected.filter(item => item !== optionValue)
+            : [...safeSelected, optionValue];
+        onChange && onChange(newSelected);
     };
 
     const getOptVal = (o) => {
@@ -45,7 +48,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", i
 
     const getLabel = (value) => {
         const strVal = getOptVal(value);
-        const option = (options || []).find(o => o && getOptVal(o) === strVal);
+        const option = safeOptions.find(o => o && getOptVal(o) === strVal);
         return option ? getOptLabel(option) : getOptLabel(value);
     };
 
@@ -63,10 +66,10 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", i
                     backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '10px', paddingRight: '32px'
                 }}
             >
-                {selected.length === 0 ? (
+                {safeSelected.length === 0 ? (
                     <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>{placeholder}</span>
                 ) : (
-                    selected.map((val, idx) => {
+                    safeSelected.map((val, idx) => {
                         const vKey = getOptVal(val) || idx;
                         return (
                             <span key={vKey} style={{
@@ -95,7 +98,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", i
                     borderRadius: '10px', zIndex: 100, maxHeight: '200px', overflowY: 'auto',
                     boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
                 }}>
-                    {options.map((option, idx) => {
+                    {safeOptions.map((option, idx) => {
                         const val = getOptVal(option);
                         const label = getOptLabel(option);
                         return (
@@ -111,7 +114,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select...", i
                             >
                                 <input
                                     type="checkbox"
-                                    checked={selected.map(getOptVal).includes(val)}
+                                    checked={safeSelected.map(getOptVal).includes(val)}
                                     readOnly
                                     style={{ width: '16px', height: '16px', accentColor: '#4f46e5', cursor: 'pointer' }}
                                 />
@@ -501,33 +504,47 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     // const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
     // const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
 
-    // Fetch Teams
+    // Fetch Teams & Users
     const teams = useMemo(() => {
-        const safeTeams = Array.isArray(teamsData) ? teamsData : [];
-        return safeTeams.map(t => ({ label: t?.name, value: t?._id || t?.id }));
+        return Array.isArray(teamsData) ? teamsData : (teamsData?.data || []);
     }, [teamsData]);
 
-    // Calculate User Options filtered by selected team(s)
-    // formData.team is an array of selected team IDs
-    const userOptions = useMemo(() => {
-        const safeUsers = Array.isArray(usersData) ? usersData : [];
-        if (!formData.team || formData.team.length === 0) {
-            return safeUsers.map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
-        }
+    const users = useMemo(() => {
+        return Array.isArray(usersData) ? usersData : (usersData?.data || []);
+    }, [usersData]);
 
-        const selectedTeamIds = (Array.isArray(formData.team) ? formData.team : [formData.team])
-            .map(t => (t && typeof t === 'object') ? String(t._id || t.id) : String(t));
+    const selectedTeamId = Array.isArray(formData.team)
+        ? (formData.team[0] || '')
+        : (formData.team || (Array.isArray(formData.teams) ? (formData.teams[0] || '') : ''));
 
-        const filteredUsers = safeUsers
-            .filter(u => {
-                const userTeamId = (u?.team && typeof u.team === 'object') ? (u.team._id || u.team.id) : u?.team;
-                if (!userTeamId) return false;
-                return selectedTeamIds.includes(String(userTeamId));
-            })
-            .map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
+    const selectedAssignId = Array.isArray(formData.assign)
+        ? (formData.assign[0] || formData.owner || '')
+        : (formData.assign || formData.owner || '');
 
-        return filteredUsers;
-    }, [usersData, formData.team]);
+    // Calculate User Options filtered by selected team
+    const filteredUsers = useMemo(() => {
+        if (!selectedTeamId) return users;
+        const sTeam = String(selectedTeamId);
+        return users.filter(u => {
+            const userTeamId = (u?.team && typeof u.team === 'object') ? (u.team._id || u.team.id) : u?.team;
+            if (userTeamId && String(userTeamId) === sTeam) return true;
+            if (Array.isArray(u?.teams)) {
+                return u.teams.some(t => {
+                    const tid = (t && typeof t === 'object') ? (t._id || t.id) : t;
+                    return String(tid) === sTeam;
+                });
+            }
+            return false;
+        });
+    }, [users, selectedTeamId]);
+
+    const displayUsers = useMemo(() => {
+        if (!selectedAssignId) return filteredUsers;
+        const exists = filteredUsers.some(u => String(u._id || u.id) === String(selectedAssignId));
+        if (exists) return filteredUsers;
+        const assignedUser = users.find(u => String(u._id || u.id) === String(selectedAssignId));
+        return assignedUser ? [assignedUser, ...filteredUsers] : filteredUsers;
+    }, [filteredUsers, users, selectedAssignId]);
 
 
     const getLookupValue = (field) => {
@@ -783,10 +800,14 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         try {
             // Transform names to IDs for Lookup fields and synchronize RBAC fields
             const safeTeamArray = Array.isArray(formData.team) ? formData.team : (formData.team ? [formData.team] : []);
+            const safeAssignArray = Array.isArray(formData.assign) ? formData.assign : (formData.assign ? [formData.assign] : (formData.owner ? [formData.owner] : []));
+            const primaryOwner = safeAssignArray[0] || formData.owner || undefined;
             const transformedData = {
                 ...formData,
                 team: safeTeamArray,
                 teams: safeTeamArray,
+                assign: safeAssignArray,
+                owner: primaryOwner,
                 visibleTo: (formData.visibleTo === 'All Users' || formData.visibleTo === 'Public') ? 'Everyone' : (formData.visibleTo || 'Team'),
                 category: formData.category.map(c => getLookupId('Category', c)).filter(Boolean),
                 subCategory: formData.subCategory.map(s => getLookupId('SubCategory', s)).filter(Boolean),
@@ -940,6 +961,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             selected={formData.category}
                             onChange={(val) => setFormData({ ...formData, category: val })}
                             placeholder="Select Categories"
+                            isDark={isDark}
                         />
                     </div>
                     <div>
@@ -949,6 +971,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             selected={formData.subCategory}
                             onChange={(val) => setFormData({ ...formData, subCategory: val })}
                             placeholder="Select Sub Categories"
+                            isDark={isDark}
                         />
                     </div>
                 </div>
@@ -1090,33 +1113,66 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 </div>
             )}
 
-            {/* System Details (Updated with MultiSelect & Assign) */}
-            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* System Details */}
+            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc', padding: '24px', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #e2e8f0', marginBottom: '24px' }}>
+                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: isDark ? '#f8fafc' : '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <i className="fas fa-layer-group" style={{ color: '#10b981' }}></i> System Assignment
                 </h4>
                 <div className="grid-3-col gap-24">
                     <div>
                         <label style={labelStyle}>Team</label>
-                        <MultiSelect
-                            options={teams}
-                            selected={formData.team}
-                            onChange={(val) => setFormData({ ...formData, team: val })}
-                            placeholder="Select Team(s)"
-                        />
+                        <select
+                            style={customSelectStyle}
+                            value={selectedTeamId}
+                            onChange={e => {
+                                const newTeam = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    team: newTeam ? [newTeam] : [],
+                                    teams: newTeam ? [newTeam] : [],
+                                    assign: [],
+                                    owner: ''
+                                }));
+                            }}
+                        >
+                            <option value="">Select Team</option>
+                            {teams.map(t => (
+                                <option key={t._id || t.id} value={t._id || t.id}>
+                                    {t.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Assign</label>
-                        <MultiSelect
-                            options={userOptions}
-                            selected={formData.assign}
-                            onChange={(val) => setFormData({ ...formData, assign: val })}
-                            placeholder="Assign User(s)"
-                        />
+                        <select
+                            style={customSelectStyle}
+                            value={selectedAssignId}
+                            onChange={e => {
+                                const newAssign = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    assign: newAssign ? [newAssign] : [],
+                                    owner: newAssign || ''
+                                }));
+                            }}
+                        >
+                            <option value="">Select User</option>
+                            {displayUsers.map(u => (
+                                <option key={u._id || u.id} value={u._id || u.id}>
+                                    {u.fullName || u.name || u.email}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Visibility</label>
-                        <select style={customSelectStyle} value={formData.visibleTo} onChange={e => setFormData({ ...formData, visibleTo: e.target.value })}>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.visibleTo || 'Team'}
+                            onChange={e => setFormData(prev => ({ ...prev, visibleTo: e.target.value }))}
+                        >
+                            <option value="">Select Visibility</option>
                             <option value="Private">Private</option>
                             <option value="Team">Team</option>
                             <option value="Everyone">Everyone</option>

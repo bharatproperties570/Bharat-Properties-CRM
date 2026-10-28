@@ -250,7 +250,12 @@ const subscribeTokenRefresh = (cb) => {
 };
 
 const onRefreshed = (token) => {
-    refreshSubscribers.map((cb) => cb(token));
+    refreshSubscribers.forEach((cb) => cb(token, null));
+    refreshSubscribers = [];
+};
+
+const onRefreshFailed = (err) => {
+    refreshSubscribers.forEach((cb) => cb(null, err));
     refreshSubscribers = [];
 };
 
@@ -353,8 +358,11 @@ api.interceptors.response.use(
             }
 
             if (isRefreshing) {
-                return new Promise((resolve) => {
-                    subscribeTokenRefresh((token) => {
+                return new Promise((resolve, reject) => {
+                    subscribeTokenRefresh((token, err) => {
+                        if (err) {
+                            return reject(err);
+                        }
                         originalRequest.headers.Authorization = `Bearer ${token}`;
                         resolve(api(originalRequest));
                     });
@@ -373,9 +381,17 @@ api.interceptors.response.use(
                     onRefreshed(newToken);
                     originalRequest.headers.Authorization = `Bearer ${newToken}`;
                     return api(originalRequest);
+                } else {
+                    const err = new Error('Failed to refresh authentication token');
+                    isRefreshing = false;
+                    onRefreshFailed(err);
+                    safeStorage.removeItem('authToken');
+                    window.dispatchEvent(new CustomEvent('unauthorized-token'));
+                    return Promise.reject(err);
                 }
             } catch (refreshError) {
                 isRefreshing = false;
+                onRefreshFailed(refreshError);
                 safeStorage.removeItem('authToken');
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(refreshError);
