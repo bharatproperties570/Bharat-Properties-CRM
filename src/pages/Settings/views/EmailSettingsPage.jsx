@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 import { emailTemplates } from '../../../constants/templates';
 import { systemSettingsAPI, emailAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
@@ -532,6 +533,7 @@ const EmailSettingsPage = () => {
     const [innerTab, setInnerTab] = useState('templates');
     const [blockInnerTab, setBlockInnerTab] = useState('individual');
     const [editingTemplate, setEditingTemplate] = useState(null);
+    const [templateSearch, setTemplateSearch] = useState('');
 
     const [templates, setTemplates] = useState(emailTemplates);
     const [visibilitySettings, setVisibilitySettings] = useState({
@@ -827,6 +829,144 @@ const EmailSettingsPage = () => {
         </div>
     );
 
+    const teamMembers = useMemo(() => [
+        { id: 'tm_1', name: 'Ramesh', email: 'ramesh@bharatproperties.com', status: 'Blocked (System)' },
+        { id: 'tm_2', name: 'Suresh', email: 'suresh@bharatproperties.com', status: 'Blocked (System)' },
+        { id: 'tm_3', name: 'Ajitesh', email: 'ajitesh@bharatproperties.com', status: 'Blocked (System)' }
+    ], []);
+
+    const blockListColumns = useMemo(() => [
+        {
+            header: 'Name',
+            accessor: 'name',
+            render: (row) => <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{row.name}</span>
+        },
+        {
+            header: 'Email',
+            accessor: 'email',
+            render: (row) => <span style={{ color: 'var(--text-muted)' }}>{row.email}</span>
+        },
+        {
+            header: 'Status',
+            accessor: 'status',
+            align: 'right',
+            render: (row) => <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{row.status}</span>
+        }
+    ], []);
+
+    const handleDeleteTemplate = useCallback((id) => {
+        setTemplates(prev => prev.filter(t => t.id !== id));
+    }, []);
+
+    const handleEditTemplate = useCallback((tmpl) => {
+        setEditingTemplate(tmpl);
+        setIsAddTemplateModalOpen(true);
+    }, []);
+
+    const templateColumns = useMemo(() => [
+        {
+            header: 'Template name',
+            accessor: 'name',
+            render: (row) => (
+                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                    {row.name}
+                </span>
+            )
+        },
+        {
+            header: 'Tags',
+            accessor: 'tags',
+            render: (row) => (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {(row.tags || []).map(tag => (
+                        <span
+                            key={tag}
+                            style={{
+                                fontSize: '0.7rem',
+                                color: 'var(--text-muted)',
+                                background: 'var(--bg-light)',
+                                padding: '2px 8px',
+                                borderRadius: '4px'
+                            }}
+                        >
+                            {tag}
+                        </span>
+                    ))}
+                </div>
+            )
+        },
+        {
+            header: 'Created by',
+            accessor: 'author',
+            render: (row) => (
+                <span style={{ color: 'var(--text-muted)' }}>
+                    {row.author || '—'}
+                </span>
+            )
+        },
+        {
+            header: 'Sharing',
+            accessor: 'visibility',
+            render: (row) => (
+                <span style={{ color: 'var(--text-muted)' }}>
+                    {row.visibility || '—'}
+                </span>
+            )
+        },
+        {
+            header: 'Actions',
+            accessor: 'actions',
+            align: 'right',
+            render: (row) => (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
+                    <button
+                        type="button"
+                        title={`Edit ${row.name}`}
+                        aria-label={`Edit ${row.name}`}
+                        onClick={() => handleEditTemplate(row)}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            color: '#3b82f6',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        <i className="far fa-edit"></i>
+                    </button>
+                    <button
+                        type="button"
+                        title={`Delete ${row.name}`}
+                        aria-label={`Delete ${row.name}`}
+                        onClick={() => handleDeleteTemplate(row.id)}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            color: 'var(--text-muted)',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        <i className="far fa-trash-alt"></i>
+                    </button>
+                </div>
+            )
+        }
+    ], [handleDeleteTemplate, handleEditTemplate]);
+
+    const filteredTemplates = useMemo(() => {
+        if (!templateSearch.trim()) return templates;
+        const q = templateSearch.toLowerCase();
+        return templates.filter(tmpl =>
+            (tmpl.name && tmpl.name.toLowerCase().includes(q)) ||
+            (tmpl.author && tmpl.author.toLowerCase().includes(q)) ||
+            (Array.isArray(tmpl.tags) && tmpl.tags.some(tag => tag.toLowerCase().includes(q))) ||
+            (tmpl.subject && tmpl.subject.toLowerCase().includes(q))
+        );
+    }, [templates, templateSearch]);
+
     const renderBlockList = () => (
         <div>
             <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #f1f5f9', marginBottom: '32px' }}>
@@ -836,12 +976,12 @@ const EmailSettingsPage = () => {
             {blockInnerTab === 'team' ? (
                 <>
                     <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '24px' }}>Coworkers are automatically blocklisted.</p>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                            <thead><tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Email</th><th style={{ padding: '12px 24px', textAlign: 'right' }}>Status</th></tr></thead>
-                            <tbody>{['Ramesh', 'Suresh', 'Ajitesh'].map((name, i) => (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{name}</td><td style={{ padding: '16px 24px' }}>{name.toLowerCase()}@bharatproperties.com</td><td style={{ padding: '16px 24px', textAlign: 'right', fontStyle: 'italic' }}>Blocked (System)</td></tr>))}</tbody>
-                        </table>
-                    </div>
+                    <DataTable
+                        columns={blockListColumns}
+                        data={teamMembers}
+                        keyField="id"
+                        emptyMessage="No team members blocklisted."
+                    />
                 </>
             ) : (
                 <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-light)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
@@ -867,16 +1007,26 @@ const EmailSettingsPage = () => {
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
                         <div style={{ position: 'relative', flex: 1 }}>
                             <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)' }}></i>
-                            <input type="text" placeholder="Search templates..." style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
+                            <input
+                                type="text"
+                                placeholder="Search templates..."
+                                value={templateSearch}
+                                onChange={e => setTemplateSearch(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                            />
                         </div>
                         <button className="btn-primary" onClick={() => setIsAddTemplateModalOpen(true)} style={{ padding: '10px 20px', fontWeight: 700 }}>Add template</button>
                     </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                            <thead><tr style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Template name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Tags</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Created by</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Sharing</th><th style={{ padding: '12px 24px', width: '40px' }}></th><th style={{ padding: '12px 24px', width: '40px' }}></th></tr></thead>
-                            <tbody>{templates.map(tmpl => (<tr key={tmpl.id} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{tmpl.name}</td><td style={{ padding: '16px 24px' }}>{tmpl.tags.map(tag => (<span key={tag} style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', marginRight: '4px' }}>{tag}</span>))}</td><td style={{ padding: '16px 24px' }}>{tmpl.author}</td><td style={{ padding: '16px 24px' }}>{tmpl.visibility}</td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-edit" style={{ cursor: 'pointer', color: '#3b82f6', marginRight: '12px' }} onClick={() => { setEditingTemplate(tmpl); setIsAddTemplateModalOpen(true); }}></i></td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-trash-alt" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setTemplates(templates.filter(t => t.id !== tmpl.id))}></i></td></tr>))}</tbody>
-                        </table>
-                    </div>
+                    <DataTable
+                        columns={templateColumns}
+                        data={filteredTemplates}
+                        keyField="id"
+                        emptyMessage={
+                            templateSearch
+                                ? `No templates match "${templateSearch}".`
+                                : 'No email templates found. Click "Add template" to create one.'
+                        }
+                    />
                 </>
             ) : (
                 <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-light)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}><p>Tag management is coming soon.</p></div>

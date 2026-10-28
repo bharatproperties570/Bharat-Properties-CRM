@@ -1,4 +1,5 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
+import { DataTable } from '../../components/ui/DataTable/DataTable';
 import { useTeams, useUsers, useDeleteUserMutation, useToggleUserStatusMutation } from '../../utils/crmHooks';
 import { API_BASE_URL, api } from '../../utils/api';
 import Toast from '../../components/Toast';
@@ -371,6 +372,157 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
         return matchesSearch && matchesStatus;
     });
 
+    const userData = useMemo(() => {
+        return filteredUsers.map((user, idx) => ({
+            ...user,
+            id: user._id || user.id || `user-${idx}`
+        }));
+    }, [filteredUsers]);
+
+    const userColumns = useMemo(() => [
+        {
+            key: 'name',
+            header: 'Name',
+            cellStyle: { padding: '16px', fontWeight: 700 },
+            render: (user) => user.fullName || user.name || '-'
+        },
+        {
+            key: 'contact',
+            header: 'Contact',
+            cellStyle: { padding: '16px' },
+            render: (user) => (
+                <>
+                    <span>{user.email}</span>
+                    {(user.mobile || user.phone) && (
+                        <>
+                            <br />
+                            <span>{user.mobile || user.phone}</span>
+                        </>
+                    )}
+                </>
+            )
+        },
+        {
+            key: 'department',
+            header: 'Department',
+            cellStyle: { padding: '16px', fontWeight: 700 },
+            render: (user) => renderValue(user.department)
+        },
+        {
+            key: 'designation',
+            header: 'Designation',
+            cellStyle: { padding: '16px', fontWeight: 700 },
+            render: (user) => renderValue(user.designation) || user.role?.name || '-'
+        },
+        {
+            key: 'username',
+            header: 'User Name',
+            cellStyle: { padding: '16px', color: 'var(--primary-color)', fontWeight: 600 },
+            render: (user) => user.username || '-'
+        },
+        {
+            key: 'lastLogin',
+            header: 'Last Login',
+            cellStyle: { padding: '16px' },
+            render: (user) => user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            cellStyle: { padding: '16px' },
+            render: (user) => (
+                <span style={{
+                    background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
+                    color: '#ffffff',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.65rem'
+                }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
+            )
+        },
+        {
+            key: 'actions',
+            header: '',
+            headerStyle: { width: '40px' },
+            cellStyle: { padding: '16px', position: 'relative' },
+            render: (user, rowIndex) => {
+                if (!isAdmin) return null;
+                const isLastItems = rowIndex >= filteredUsers.length - 3 && filteredUsers.length > 2;
+                const isMenuOpen = openActionId === (user._id || user.id);
+                return (
+                    <>
+                        <button
+                            onClick={() => setOpenActionId(isMenuOpen ? null : (user._id || user.id))}
+                            style={{ background: 'var(--primary-color)', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                            aria-label={`Actions for ${user.fullName || user.name || 'user'}`}
+                        >
+                            <i className="fas fa-caret-down"></i>
+                        </button>
+                        {isMenuOpen && (
+                            <div style={{
+                                position: 'absolute',
+                                [isLastItems ? 'bottom' : 'top']: '100%',
+                                [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
+                                right: 0,
+                                width: '160px',
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: '4px',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                zIndex: 100
+                            }}>
+                                <div
+                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                    onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
+                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                    onClick={() => { onEditUser(user); setOpenActionId(null); }}
+                                >
+                                    Edit User
+                                </div>
+                                <div
+                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                    onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
+                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                    onClick={() => { onResetPassword(user); setOpenActionId(null); }}
+                                >
+                                    Reset Password
+                                </div>
+                                <div
+                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
+                                    onMouseOver={e => e.target.style.background = 'var(--danger-bg)'}
+                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                    onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
+                                >
+                                    Delete User
+                                </div>
+                                {(user.status === 'inactive' || user.isActive === false) && (
+                                    <div
+                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
+                                        onMouseOver={e => e.target.style.background = 'var(--stat-property-bg)'}
+                                        onMouseOut={e => e.target.style.background = 'transparent'}
+                                        onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
+                                    >
+                                        Activate User
+                                    </div>
+                                )}
+                                {(user.status !== 'inactive' && user.isActive !== false) && (
+                                    <div
+                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
+                                        onMouseOver={e => e.target.style.background = 'rgba(245, 158, 11, 0.15)'}
+                                        onMouseOut={e => e.target.style.background = 'transparent'}
+                                        onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
+                                    >
+                                        Deactivate User
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </>
+                );
+            }
+        }
+    ], [isAdmin, filteredUsers.length, openActionId, onEditUser, onResetPassword, onDeleteUser, onToggleStatus]);
+
     return (
         <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -405,117 +557,12 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                 )}
             </div>
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Contact</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Department</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Designation</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>User Name</th>
-                            {/* <th style={{ padding: '12px 16px', textAlign: 'left' }}>Call Log Sync</th> */}
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Last Login</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Status</th>
-                            <th style={{ padding: '12px 16px', width: '40px' }}></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredUsers.map((user, index) => {
-                            const isLastItems = index >= filteredUsers.length - 3 && filteredUsers.length > 2;
-                            return (
-                                <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
-                                    <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
-                                    <td style={{ padding: '16px', fontWeight: 700 }}>{renderValue(user.department)}</td>
-                                    <td style={{ padding: '16px', fontWeight: 700 }}>{renderValue(user.designation) || user.role?.name || '-'}</td>
-                                    <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
-                                    {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
-                                    <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
-                                    <td style={{ padding: '16px' }}>
-                                        <span style={{
-                                            background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
-                                            color: '#ffffff',
-                                            padding: '2px 8px',
-                                            borderRadius: '4px',
-                                            fontSize: '0.65rem'
-                                        }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
-                                    </td>
-                                    <td style={{ padding: '16px', position: 'relative' }}>
-                                        {isAdmin && (
-                                            <>
-                                                <button
-                                                    onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
-                                                    style={{ background: 'var(--primary-color)', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                                >
-                                                    <i className="fas fa-caret-down"></i>
-                                                </button>
-                                                {openActionId === (user._id || user.id) && (
-                                                    <div style={{
-                                                        position: 'absolute',
-                                                        [isLastItems ? 'bottom' : 'top']: '100%',
-                                                        [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
-                                                        right: 0,
-                                                        width: '160px',
-                                                        background: 'var(--bg-card)',
-                                                        border: '1px solid var(--border-color)',
-                                                        borderRadius: '4px',
-                                                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                        zIndex: 100
-                                                    }}>
-                                                        <div
-                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                            onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
-                                                            onMouseOut={e => e.target.style.background = 'transparent'}
-                                                            onClick={() => { onEditUser(user); setOpenActionId(null); }}
-                                                        >
-                                                            Edit User
-                                                        </div>
-                                                        <div
-                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                            onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
-                                                            onMouseOut={e => e.target.style.background = 'transparent'}
-                                                            onClick={() => { onResetPassword(user); setOpenActionId(null); }}
-                                                        >
-                                                            Reset Password
-                                                        </div>
-                                                        <div
-                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
-                                                            onMouseOver={e => e.target.style.background = 'var(--danger-bg)'}
-                                                            onMouseOut={e => e.target.style.background = 'transparent'}
-                                                            onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
-                                                        >
-                                                            Delete User
-                                                        </div>
-                                                        {(user.status === 'inactive' || user.isActive === false) && (
-                                                            <div
-                                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
-                                                                onMouseOver={e => e.target.style.background = 'var(--stat-property-bg)'}
-                                                                onMouseOut={e => e.target.style.background = 'transparent'}
-                                                                onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
-                                                            >
-                                                                Activate User
-                                                            </div>
-                                                        )}
-                                                        {(user.status !== 'inactive' && user.isActive !== false) && (
-                                                            <div
-                                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
-                                                                onMouseOver={e => e.target.style.background = 'rgba(245, 158, 11, 0.15)'}
-                                                                onMouseOut={e => e.target.style.background = 'transparent'}
-                                                                onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
-                                                            >
-                                                                Deactivate User
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                <DataTable
+                    columns={userColumns}
+                    data={userData}
+                    keyField="id"
+                    emptyMessage="No users found."
+                />
             </div>
         </div>
     );
@@ -535,6 +582,94 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
                     roleName?.toLowerCase() === 'admin' ||
                     roleName?.toLowerCase() === 'super admin';
+
+    const roleColumns = useMemo(() => [
+        {
+            header: 'Role name',
+            accessor: 'name',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (role) => (
+                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{role.name}</span>
+            )
+        },
+        {
+            header: 'Description',
+            accessor: 'description',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (role) => (
+                <span style={{ color: 'var(--text-muted)' }}>{role.description}</span>
+            )
+        },
+        {
+            header: 'Action',
+            accessor: 'action',
+            headerStyle: { textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)', width: '120px' },
+            cellStyle: { padding: '16px', textAlign: 'center' },
+            render: (role) => {
+                if (!isAdmin || role.isSystemRole) return null;
+                return (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onEditRole(role);
+                            }}
+                            style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--primary-color)',
+                                cursor: 'pointer',
+                                padding: '8px',
+                                borderRadius: '4px',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseOver={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)'}
+                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                            title="Edit Role"
+                            aria-label={`Edit ${role.name}`}
+                        >
+                            <i className="fas fa-edit"></i>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onDeleteRole(role._id || role.id);
+                            }}
+                            style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                padding: '8px',
+                                borderRadius: '4px',
+                                transition: 'background 0.2s'
+                            }}
+                            onMouseOver={e => e.currentTarget.style.background = 'var(--danger-bg)'}
+                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                            title="Delete Role"
+                            aria-label={`Delete ${role.name}`}
+                        >
+                            <i className="fas fa-trash" style={{ pointerEvents: 'none' }}></i>
+                        </button>
+                    </div>
+                );
+            }
+        }
+    ], [isAdmin, onEditRole, onDeleteRole]);
+
+    const roleData = useMemo(() => {
+        return safeRoles.map((role, idx) => ({
+            ...role,
+            id: role._id || role.id || `role-${idx}`
+        }));
+    }, [safeRoles]);
+
     return (
         <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -546,75 +681,13 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                     <button className="btn-primary" onClick={() => onNewRole()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New role</button>
                 )}
             </div>
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Role name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Description</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {safeRoles.map(role => (
-                            <tr key={role._id || role.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{role.name}</td>
-                                <td style={{ padding: '16px', color: 'var(--text-muted)' }}>{role.description}</td>
-                                <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-main)' }}>
-                                    {isAdmin && !role.isSystemRole && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                onEditRole(role);
-                                            }}
-                                            style={{
-                                                border: 'none',
-                                                background: 'transparent',
-                                                color: 'var(--primary-color)',
-                                                cursor: 'pointer',
-                                                padding: '8px',
-                                                borderRadius: '4px',
-                                                transition: 'background 0.2s',
-                                                marginRight: '8px'
-                                            }}
-                                            onMouseOver={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)'}
-                                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                                            title="Edit Role"
-                                        >
-                                            <i className="fas fa-edit"></i>
-                                        </button>
-                                    )}
-                                    {isAdmin && !role.isSystemRole && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                onDeleteRole(role._id || role.id);
-                                            }}
-                                            style={{
-                                                border: 'none',
-                                                background: 'transparent',
-                                                color: '#ef4444',
-                                                cursor: 'pointer',
-                                                padding: '8px',
-                                                borderRadius: '4px',
-                                                transition: 'background 0.2s'
-                                            }}
-                                            onMouseOver={e => e.currentTarget.style.background = 'var(--danger-bg)'}
-                                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                                            title="Delete Role"
-                                        >
-                                            <i className="fas fa-trash" style={{ pointerEvents: 'none' }}></i>
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                <DataTable
+                    columns={roleColumns}
+                    data={roleData}
+                    keyField="id"
+                    emptyMessage="No roles found."
+                />
             </div>
         </div>
     );
@@ -635,6 +708,123 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, ro
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
                     roleName?.toLowerCase() === 'admin' ||
                     roleName?.toLowerCase() === 'super admin';
+
+    const teamColumns = useMemo(() => [
+        {
+            header: 'Team Name',
+            accessor: 'name',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (team) => (
+                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{team.name}</span>
+            )
+        },
+        {
+            header: 'Department',
+            accessor: 'department',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (team) => (
+                <span style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+                    {renderValue(team.department)}
+                </span>
+            )
+        },
+        {
+            header: 'Manager',
+            accessor: 'manager',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (team) => (
+                team.manager ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '50%',
+                            background: 'var(--border-color)',
+                            fontSize: '0.65rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 700,
+                            color: 'var(--text-muted)'
+                        }}>
+                            {getInitials(team.manager.fullName)}
+                        </div>
+                        <span style={{ color: 'var(--text-main)' }}>{team.manager.fullName}</span>
+                    </div>
+                ) : (
+                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Unassigned</span>
+                )
+            )
+        },
+        {
+            header: 'Members',
+            accessor: 'memberCount',
+            headerStyle: { textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' },
+            cellStyle: { padding: '16px' },
+            render: (team) => (
+                <span style={{
+                    background: 'var(--bg-light)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: 'var(--text-muted)'
+                }}>
+                    {team.memberCount || 0} Members
+                </span>
+            )
+        },
+        {
+            header: 'Action',
+            accessor: 'action',
+            headerStyle: { textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)', width: '120px' },
+            cellStyle: { padding: '16px', textAlign: 'center' },
+            render: (team) => {
+                if (!isAdmin) return null;
+                return (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onEditTeam(team);
+                            }}
+                            style={{ border: 'none', background: 'transparent', color: 'var(--primary-color)', cursor: 'pointer', padding: '4px' }}
+                            title="Edit Team"
+                            aria-label={`Edit ${team.name}`}
+                        >
+                            <i className="fas fa-edit"></i>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onDeleteTeam(team._id || team.id);
+                            }}
+                            style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                            title="Delete Team"
+                            aria-label={`Delete ${team.name}`}
+                        >
+                            <i className="fas fa-trash"></i>
+                        </button>
+                    </div>
+                );
+            }
+        }
+    ], [isAdmin, onEditTeam, onDeleteTeam]);
+
+    const teamData = useMemo(() => {
+        return safeTeams.map((team, idx) => ({
+            ...team,
+            id: team._id || team.id || `team-${idx}`
+        }));
+    }, [safeTeams]);
+
     return (
         <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -646,63 +836,13 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, ro
                     <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
                 )}
             </div>
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Team Name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Department</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Manager</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Members</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {safeTeams.map(team => (
-                            <tr key={team._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{team.name}</td>
-                                <td style={{ padding: '16px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{renderValue(team.department)}</td>
-                                <td style={{ padding: '16px', color: 'var(--text-main)' }}>
-                                    {team.manager ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--border-color)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>
-                                                {getInitials(team.manager.fullName)}
-                                            </div>
-                                            {team.manager.fullName}
-                                        </div>
-                                    ) : (
-                                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Unassigned</span>
-                                    )}
-                                </td>
-                                <td style={{ padding: '16px' }}>
-                                    <span style={{ background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                        {team.memberCount || 0} Members
-                                    </span>
-                                </td>
-                                <td style={{ padding: '16px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                                    {isAdmin && (
-                                        <>
-                                            <button
-                                                onClick={() => onEditTeam(team)}
-                                                style={{ border: 'none', background: 'transparent', color: 'var(--primary-color)', cursor: 'pointer', padding: '4px' }}
-                                                title="Edit Team"
-                                            >
-                                                <i className="fas fa-edit"></i>
-                                            </button>
-                                            <button
-                                                onClick={() => onDeleteTeam(team._id)}
-                                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                                                title="Delete Team"
-                                            >
-                                                <i className="fas fa-trash"></i>
-                                            </button>
-                                        </>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                <DataTable
+                    columns={teamColumns}
+                    data={teamData}
+                    keyField="id"
+                    emptyMessage="No teams found."
+                />
             </div>
         </div>
     );

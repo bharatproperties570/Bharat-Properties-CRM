@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAutomatedActions } from '../../../context/AutomatedActionsContext';
 import CreateAutomatedActionModal from '../../../components/CreateAutomatedActionModal';
+import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const AutomatedActionsSettingsPage = () => {
     const { actions, auditLogs, toggleAction, deleteAction } = useAutomatedActions();
@@ -12,6 +13,55 @@ const AutomatedActionsSettingsPage = () => {
         setEditingAction(action);
         setIsModalOpen(true);
     };
+
+    const auditColumns = useMemo(() => [
+        {
+            key: 'time',
+            header: 'Time',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)' },
+            render: (log) => log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'
+        },
+        {
+            key: 'action',
+            header: 'Action',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', fontWeight: 700 },
+            render: (log) => log.actionName || '—'
+        },
+        {
+            key: 'entity',
+            header: 'Entity',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px' },
+            render: (log) => log.entityId || '—'
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px' },
+            render: (log) => (
+                <span style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.7rem',
+                    background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: log.success ? '#166534' : '#991b1b',
+                    fontWeight: 800
+                }}>
+                    {log.success ? 'SUCCESS' : 'FAILED'}
+                </span>
+            )
+        },
+        {
+            key: 'execution',
+            header: 'Execution',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)' },
+            render: (log) => `${log.executionTime ?? 0}ms`
+        }
+    ], []);
 
     return (
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -104,40 +154,15 @@ const AutomatedActionsSettingsPage = () => {
                     </div>
                 ) : (
                     <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                            <thead>
-                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Time</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Action</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Entity</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>Execution</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {auditLogs.map((log, i) => (
-                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
-                                        <td style={{ padding: '12px', fontWeight: 700 }}>{log.actionName}</td>
-                                        <td style={{ padding: '12px' }}>{log.entityId}</td>
-                                        <td style={{ padding: '12px' }}>
-                                            <span style={{
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                fontSize: '0.7rem',
-                                                background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                color: log.success ? '#166534' : '#991b1b',
-                                                fontWeight: 800
-                                            }}>
-                                                {log.success ? 'SUCCESS' : 'FAILED'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.executionTime}ms</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No logs yet</div>}
+                        <DataTable
+                            columns={auditColumns}
+                            data={auditLogs}
+                            emptyMessage={
+                                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    No logs yet
+                                </div>
+                            }
+                        />
                     </div>
                 )}
             </div>
