@@ -156,7 +156,15 @@ const AuditLogSchema = new mongoose.Schema({
 
             // Access Events
             'access_denied',
-            'unauthorized_access_attempt'
+            'unauthorized_access_attempt',
+
+            // Authority Verification Events
+            'authority_settings_updated',
+            'authority_link_created',
+            'authority_run_created',
+            'authority_run_policy_rejected',
+            'authority_review_submitted',
+            'authority_changes_applied'
         ],
         index: true
     },
@@ -182,7 +190,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId
