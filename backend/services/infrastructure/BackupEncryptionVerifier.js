@@ -7,8 +7,72 @@
  */
 
 import crypto from 'crypto';
+import path from 'path';
+import fs from 'fs';
 
 class BackupEncryptionVerifier {
+    /**
+     * Validates that an archive filename is a safe relative basename without path traversal.
+     * Rejects slashes, backslashes, directory traversal sequences (..), null bytes, and non-whitelisted characters.
+     * @param {string} archiveFileName 
+     * @returns {{ valid: boolean, fileName?: string, error?: string }}
+     */
+    static validateArchiveFileName(archiveFileName) {
+        if (!archiveFileName || typeof archiveFileName !== 'string') {
+            return { valid: false, error: 'Archive filename is required and must be a string' };
+        }
+        const trimmed = archiveFileName.trim();
+        if (trimmed.length === 0) {
+            return { valid: false, error: 'Archive filename cannot be empty or whitespace' };
+        }
+        if (trimmed.includes('\0')) {
+            return { valid: false, error: 'Archive filename contains illegal null byte' };
+        }
+        if (trimmed.includes('/') || trimmed.includes('\\')) {
+            return { valid: false, error: `Archive filename cannot contain path separators: "${archiveFileName}"` };
+        }
+        if (trimmed.includes('..')) {
+            return { valid: false, error: `Archive filename cannot contain directory traversal sequence (..): "${archiveFileName}"` };
+        }
+        if (trimmed.startsWith('.')) {
+            return { valid: false, error: `Archive filename cannot be a hidden file: "${archiveFileName}"` };
+        }
+        // Allowed: alphanumeric, hyphens, underscores, dots (e.g. bharat-crm-backup-20261029.tar.gz)
+        const SAFE_FILENAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
+        if (!SAFE_FILENAME_REGEX.test(trimmed)) {
+            return { valid: false, error: `Archive filename contains forbidden characters: "${archiveFileName}"` };
+        }
+        return { valid: true, fileName: trimmed };
+    }
+
+    /**
+     * Safely resolves an archive filename within an allowed base directory,
+     * guaranteeing no path traversal escape outside the base directory.
+     * @param {string} baseDir - Directory path (e.g. /home/ubuntu/bharat-crm-backups/archives)
+     * @param {string} archiveFileName - Basename of archive
+     * @returns {{ valid: boolean, safePath?: string, error?: string }}
+     */
+    static resolveSafeArchivePath(baseDir, archiveFileName) {
+        if (!baseDir || typeof baseDir !== 'string') {
+            return { valid: false, error: 'Base directory path is required and must be a string' };
+        }
+        const fileCheck = this.validateArchiveFileName(archiveFileName);
+        if (!fileCheck.valid) {
+            return { valid: false, error: fileCheck.error };
+        }
+
+        const resolvedBase = path.resolve(baseDir);
+        const resolvedTarget = path.resolve(resolvedBase, fileCheck.fileName);
+
+        // Enforce boundary containment
+        const normalizedBase = resolvedBase.endsWith(path.sep) ? resolvedBase : resolvedBase + path.sep;
+        if (!resolvedTarget.startsWith(normalizedBase)) {
+            return { valid: false, error: `Path traversal detected: target "${archiveFileName}" escapes base directory` };
+        }
+
+        return { valid: true, safePath: resolvedTarget };
+    }
+
     /**
      * Verifies cryptographic integrity of a backup archive against its manifest.
      * @param {object} manifest - Parsed manifest { timestamp, archive, sha256, size, status }
@@ -26,6 +90,14 @@ class BackupEncryptionVerifier {
         for (const field of requiredFields) {
             if (manifest[field] === undefined || manifest[field] === null || manifest[field] === '') {
                 errors.push(`Manifest missing required field: "${field}"`);
+            }
+        }
+
+        // Path traversal check on manifest.archive
+        if (manifest.archive) {
+            const fileCheck = this.validateArchiveFileName(manifest.archive);
+            if (!fileCheck.valid) {
+                errors.push(`Manifest archive path traversal or format violation: ${fileCheck.error}`);
             }
         }
 
@@ -51,6 +123,54 @@ class BackupEncryptionVerifier {
             errors,
             computedSha256,
             computedSize
+        };
+    }
+
+    /**
+     * Reads a manifest file from disk, verifies its contents and the referenced archive's cryptographic integrity.
+     * Strictly verifies that the archive file resides safely within baseDir without traversal.
+     * @param {string} manifestPath - Path to manifest.json file
+     * @param {string} baseDir - Safe directory where archive must reside
+     * @returns {{ valid: boolean, errors: string[], manifest?: object, computedSha256?: string, computedSize?: number }}
+     */
+    static verifyManifestFileOnDisk(manifestPath, baseDir) {
+        if (!manifestPath || typeof manifestPath !== 'string') {
+            return { valid: false, errors: ['Manifest path is required and must be a string'] };
+        }
+        if (!baseDir || typeof baseDir !== 'string') {
+            return { valid: false, errors: ['Base directory is required and must be a string'] };
+        }
+
+        let manifestContent;
+        try {
+            manifestContent = fs.readFileSync(manifestPath, 'utf8');
+        } catch (err) {
+            return { valid: false, errors: [`Failed to read manifest file: ${err.message}`] };
+        }
+
+        let manifest;
+        try {
+            manifest = JSON.parse(manifestContent);
+        } catch (err) {
+            return { valid: false, errors: [`Malformed manifest JSON: ${err.message}`] };
+        }
+
+        const pathCheck = this.resolveSafeArchivePath(baseDir, manifest.archive);
+        if (!pathCheck.valid) {
+            return { valid: false, errors: [`Security rejection: ${pathCheck.error}`] };
+        }
+
+        let archiveBytes;
+        try {
+            archiveBytes = fs.readFileSync(pathCheck.safePath);
+        } catch (err) {
+            return { valid: false, errors: [`Failed to read archive file: ${err.message}`] };
+        }
+
+        const integrity = this.verifyManifestIntegrity(manifest, archiveBytes);
+        return {
+            ...integrity,
+            manifest
         };
     }
 
@@ -122,8 +242,8 @@ class BackupEncryptionVerifier {
     static verifyKmsKeyRotationPolicy(keyMetadata = {}) {
         const issues = [];
 
-        if (!keyMetadata || typeof keyMetadata !== 'object') {
-            return { compliant: false, issues: ['Key metadata descriptor is required'] };
+        if (!keyMetadata || typeof keyMetadata !== 'object' || Object.keys(keyMetadata).length === 0) {
+            return { compliant: false, issues: ['Key metadata descriptor is required and cannot be empty'] };
         }
 
         // 1. Key State
@@ -134,13 +254,13 @@ class BackupEncryptionVerifier {
 
         // 2. Key Usage & Spec
         const keySpec = keyMetadata.KeySpec || keyMetadata.keySpec;
-        if (keySpec && keySpec !== 'SYMMETRIC_DEFAULT') {
-            issues.push(`KMS Key spec is "${keySpec}". S3 SSE-KMS requires "SYMMETRIC_DEFAULT"`);
+        if (keySpec !== 'SYMMETRIC_DEFAULT') {
+            issues.push(`KMS Key spec is "${keySpec || 'MISSING'}". S3 SSE-KMS requires "SYMMETRIC_DEFAULT"`);
         }
 
         const keyUsage = keyMetadata.KeyUsage || keyMetadata.keyUsage;
-        if (keyUsage && keyUsage !== 'ENCRYPT_DECRYPT') {
-            issues.push(`KMS Key usage is "${keyUsage}". Expected "ENCRYPT_DECRYPT"`);
+        if (keyUsage !== 'ENCRYPT_DECRYPT') {
+            issues.push(`KMS Key usage is "${keyUsage || 'MISSING'}". Expected "ENCRYPT_DECRYPT"`);
         }
 
         // 3. Key Rotation Check
