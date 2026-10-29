@@ -98,6 +98,11 @@ jobs:
           cd backend
           npm run test:phase14
 
+      - name: Run Phase 17 Infrastructure Hardening & Preflight Tests
+        run: |
+          cd backend
+          npm run test:phase17
+
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |
           cd backend
