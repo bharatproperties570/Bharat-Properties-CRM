@@ -4,7 +4,8 @@ import {
     getTriggers, createTrigger, updateTrigger, deleteTrigger,
     getSequences, createSequence, getSequenceById, updateSequence, deleteSequence,
     getAutomatedActions, createAutomatedAction, updateAutomatedAction, deleteAutomatedAction,
-    enrollEntityInSequence, getEntityEnrollments
+    enrollEntityInSequence, getEntityEnrollments,
+    getAuditLogs
 } from '../controllers/automation.controller.js';
 
 const router = express.Router();
@@ -32,5 +33,8 @@ router.get('/actions', getAutomatedActions);
 router.post('/actions', createAutomatedAction);
 router.put('/actions/:id', updateAutomatedAction);
 router.delete('/actions/:id', deleteAutomatedAction);
+
+// --- Audit Logs ---
+router.get('/audit-logs', getAuditLogs);
 
 export default router;

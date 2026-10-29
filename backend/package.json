@@ -17,6 +17,7 @@
         "test:phase10": "node --test --test-force-exit --test-concurrency=1 tests/phase10_deals_domain_lifecycle.test.js",
         "test:phase11": "node --test --test-force-exit --test-concurrency=1 tests/phase11_document_storage.test.js",
         "test:phase12": "node --test --test-force-exit --test-concurrency=1 tests/phase12_bulk_deal_import_safety.test.js",
+        "test:phase14": "node --test --test-force-exit --test-concurrency=1 tests/phase14_automation_audit_logs.test.js",
         "test:outbox": "node --test --test-force-exit --test-concurrency=1 tests/phase4_6i_single_org_outbox_automation.test.js tests/phase_d1_outbox_foundation.test.js tests/phase_d2f07_outbox_recovery.test.js",
         "test:phase-e": "node --test --test-force-exit --test-concurrency=1 tests/phase_e1_domain_event_consumer.test.js tests/phase_e2_shadow_comparison.test.js tests/phase_e3b_idempotency_claim.test.js tests/phase_e3c1i_lease_ownership.test.js tests/phase_e3d5a_hydration.test.js tests/phase_e3d9a_canonical_claim.test.js tests/phase_e3d9b2_coordinator.test.js tests/phase_e3d_shadow_mode.test.js",
         "test:feedback-security": "node tests/feedbackSecurity.test.js"

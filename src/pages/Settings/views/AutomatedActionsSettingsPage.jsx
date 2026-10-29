@@ -4,7 +4,7 @@ import CreateAutomatedActionModal from '../../../components/CreateAutomatedActio
 import { DataTable } from '../../../components/ui/DataTable/DataTable';
 
 const AutomatedActionsSettingsPage = () => {
-    const { actions, auditLogs, toggleAction, deleteAction } = useAutomatedActions();
+    const { actions, auditLogs, fetchAuditLogs, toggleAction, deleteAction } = useAutomatedActions();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAction, setEditingAction] = useState(null);
     const [activeTab, setActiveTab] = useState('list'); // 'list' or 'audit'
@@ -19,47 +19,66 @@ const AutomatedActionsSettingsPage = () => {
             key: 'time',
             header: 'Time',
             headerStyle: { padding: '12px', textAlign: 'left' },
-            cellStyle: { padding: '12px', color: 'var(--text-muted)' },
-            render: (log) => log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'
+            cellStyle: { padding: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
+            render: (log) => log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
         },
         {
             key: 'action',
-            header: 'Action',
+            header: 'Action / Rule',
             headerStyle: { padding: '12px', textAlign: 'left' },
             cellStyle: { padding: '12px', fontWeight: 700 },
             render: (log) => log.actionName || '—'
         },
         {
-            key: 'entity',
-            header: 'Entity',
+            key: 'targetModule',
+            header: 'Module',
             headerStyle: { padding: '12px', textAlign: 'left' },
-            cellStyle: { padding: '12px' },
-            render: (log) => log.entityId || '—'
+            cellStyle: { padding: '12px', textTransform: 'capitalize' },
+            render: (log) => log.targetModule || '—'
+        },
+        {
+            key: 'entity',
+            header: 'Entity ID',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace' },
+            render: (log) => log.entityId ? String(log.entityId) : '—'
         },
         {
             key: 'status',
             header: 'Status',
             headerStyle: { padding: '12px', textAlign: 'left' },
             cellStyle: { padding: '12px' },
-            render: (log) => (
-                <span style={{
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontSize: '0.7rem',
-                    background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                    color: log.success ? '#166534' : '#991b1b',
-                    fontWeight: 800
-                }}>
-                    {log.success ? 'SUCCESS' : 'FAILED'}
-                </span>
-            )
+            render: (log) => {
+                const status = (log.status || (log.success ? 'success' : 'failed')).toLowerCase();
+                const isSuccess = status === 'success';
+                const isPending = status === 'pending' || status === 'processing';
+                return (
+                    <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.7rem',
+                        background: isSuccess ? 'rgba(34, 197, 94, 0.15)' : isPending ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                        color: isSuccess ? '#166534' : isPending ? '#854d0e' : '#991b1b',
+                        fontWeight: 800
+                    }}>
+                        {status.toUpperCase()}
+                    </span>
+                );
+            }
+        },
+        {
+            key: 'ruleType',
+            header: 'Rule Type',
+            headerStyle: { padding: '12px', textAlign: 'left' },
+            cellStyle: { padding: '12px', color: 'var(--text-muted)', fontSize: '0.75rem' },
+            render: (log) => log.ruleType || '—'
         },
         {
             key: 'execution',
             header: 'Execution',
             headerStyle: { padding: '12px', textAlign: 'left' },
             cellStyle: { padding: '12px', color: 'var(--text-muted)' },
-            render: (log) => `${log.executionTime ?? 0}ms`
+            render: (log) => log.executionTime != null ? `${log.executionTime}ms` : '—'
         }
     ], []);
 
@@ -95,13 +114,21 @@ const AutomatedActionsSettingsPage = () => {
                         Audit Logs
                     </div>
                 </div>
-                {activeTab === 'list' && (
+                {activeTab === 'list' ? (
                     <button
                         className="btn-primary"
                         onClick={() => { setEditingAction(null); setIsModalOpen(true); }}
                         style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
                     >
                         + Create Action
+                    </button>
+                ) : (
+                    <button
+                        className="btn-secondary"
+                        onClick={() => fetchAuditLogs()}
+                        style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <i className="fas fa-sync-alt"></i> Refresh Logs
                     </button>
                 )}
             </div>
@@ -119,8 +146,8 @@ const AutomatedActionsSettingsPage = () => {
                                     </div>
                                     <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
-                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace('_', ' ')}</b></span>
-                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTrigger}</b></span>
+                                        <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace(/_/g, ' ')}</b></span>
+                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTriggerName || (action.invokedByTrigger ? 'Unknown Trigger' : '—')}</b></span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -159,7 +186,7 @@ const AutomatedActionsSettingsPage = () => {
                             data={auditLogs}
                             emptyMessage={
                                 <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                    No logs yet
+                                    No audit logs yet. Logs will appear here when triggers and automated actions execute.
                                 </div>
                             }
                         />

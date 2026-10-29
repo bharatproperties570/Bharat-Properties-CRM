@@ -1,6 +1,8 @@
+import mongoose from 'mongoose';
 import Trigger from '../models/Trigger.js';
 import Sequence from '../models/Sequence.js';
 import AutomatedAction from '../models/AutomatedAction.js';
+import AutomationLog from '../models/AutomationLog.js';
 
 // --- TRIGGERS ---
 export const getTriggers = async (req, res) => {
@@ -157,8 +159,43 @@ export const getAutomatedActions = async (req, res) => {
     try {
         const companyId = req.user?.companyId || req.user?.tenantId;
         const filter = companyId ? { companyId } : {};
-        const actions = await AutomatedAction.find(filter).sort({ createdAt: -1 });
-        res.status(200).json(actions);
+        const actions = await AutomatedAction.find(filter).sort({ createdAt: -1 }).lean();
+
+        // Batch resolve invokedByTrigger IDs -> Trigger names
+        const triggerIdSet = new Set();
+        for (const a of actions) {
+            const raw = a.invokedByTrigger;
+            if (raw && mongoose.Types.ObjectId.isValid(String(raw))) {
+                triggerIdSet.add(String(raw));
+            }
+        }
+
+        const triggerNameMap = {};
+        if (triggerIdSet.size > 0) {
+            const foundTriggers = await Trigger.find({ _id: { $in: [...triggerIdSet] } })
+                .select('_id name')
+                .lean();
+            for (const t of foundTriggers) {
+                triggerNameMap[t._id.toString()] = t.name;
+            }
+        }
+
+        const enriched = actions.map(a => {
+            const raw = a.invokedByTrigger;
+            let invokedByTriggerName = null;
+
+            if (!raw) {
+                invokedByTriggerName = null;
+            } else if (mongoose.Types.ObjectId.isValid(String(raw))) {
+                invokedByTriggerName = triggerNameMap[String(raw)] || `Deleted Trigger (${String(raw).slice(-6)})`;
+            } else {
+                invokedByTriggerName = String(raw);
+            }
+
+            return { ...a, invokedByTriggerName };
+        });
+
+        res.status(200).json(enriched);
     } catch (error) {
         console.error('[getAutomatedActions] Error:', error);
         res.status(500).json({ error: error.message });
@@ -214,6 +251,75 @@ export const deleteAutomatedAction = async (req, res) => {
         res.status(200).json({ message: 'Automated Action deleted successfully' });
     } catch (error) {
         console.error('[deleteAutomatedAction] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// --- AUDIT LOGS ---
+export const getAuditLogs = async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+        const page = parseInt(req.query.page) || 1;
+        const skip = (page - 1) * limit;
+
+        const companyId = req.user?.companyId || req.user?.tenantId;
+        const query = companyId ? { $or: [{ companyId }, { tenantId: companyId }] } : {};
+
+        // Fetch logs from AutomationLog collection (real DB, not in-memory)
+        const [logs, total] = await Promise.all([
+            AutomationLog.find(query)
+                .sort({ executedAt: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            AutomationLog.countDocuments(query)
+        ]);
+
+        // Batch-resolve ruleId -> human-readable action/trigger/sequence names
+        const ruleIdsByType = { Trigger: new Set(), AutomatedAction: new Set(), Sequence: new Set() };
+        for (const log of logs) {
+            if (log.ruleId && log.ruleType && ruleIdsByType[log.ruleType]) {
+                ruleIdsByType[log.ruleType].add(log.ruleId.toString());
+            }
+        }
+
+        const nameMap = {};
+
+        // Resolve Trigger names
+        if (ruleIdsByType.Trigger.size > 0) {
+            const triggers = await Trigger.find({ _id: { $in: [...ruleIdsByType.Trigger] } }).select('_id name').lean();
+            triggers.forEach(t => { nameMap[t._id.toString()] = t.name; });
+        }
+
+        // Resolve AutomatedAction names
+        if (ruleIdsByType.AutomatedAction.size > 0) {
+            const actions = await AutomatedAction.find({ _id: { $in: [...ruleIdsByType.AutomatedAction] } }).select('_id name').lean();
+            actions.forEach(a => { nameMap[a._id.toString()] = a.name; });
+        }
+
+        // Resolve Sequence names
+        if (ruleIdsByType.Sequence.size > 0) {
+            const sequences = await Sequence.find({ _id: { $in: [...ruleIdsByType.Sequence] } }).select('_id name').lean();
+            sequences.forEach(s => { nameMap[s._id.toString()] = s.name; });
+        }
+
+        // Enrich logs with resolved names
+        const enriched = logs.map(log => ({
+            _id: log._id,
+            timestamp: log.executedAt,
+            actionName: log.ruleId ? (nameMap[log.ruleId.toString()] || `${log.ruleType} (${log.ruleId.toString().slice(-6)})`) : (log.ruleType || 'Unknown'),
+            ruleType: log.ruleType,
+            entityId: log.targetEntityId,
+            targetModule: log.targetModule,
+            success: log.status === 'success',
+            status: log.status,
+            details: log.details,
+            executionTime: log.details?.executionTime || null
+        }));
+
+        res.status(200).json({ logs: enriched, total, page, limit });
+    } catch (error) {
+        console.error('[getAuditLogs] Error:', error);
         res.status(500).json({ error: error.message });
     }
 };
