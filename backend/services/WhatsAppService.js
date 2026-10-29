@@ -1270,25 +1270,23 @@ class WhatsAppService {
         }
 
         // 3. Fallback: Legacy meta_wa_config in SystemSetting (100% Backward Compatible)
-        if (mongoose.connection && mongoose.connection.readyState === 1) {
-            try {
-                const SystemSetting = mongoose.model ? mongoose.model('SystemSetting') : (mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default);
-                const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+        try {
+            const SystemSetting = mongoose.model ? mongoose.model('SystemSetting') : (mongoose.models.SystemSetting || (await import('../models/SystemSetting.js')).default);
+            const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
 
-                if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
-                    return {
-                        token: setting.value.token,
-                        phoneId: setting.value.phoneId,
-                        businessId: setting.value.businessId,
-                        appId: setting.value.appId || process.env.META_WA_APP_ID,
-                        displayPhoneNumber: setting.value.displayPhoneNumber || '+91 99960 00570',
-                        accountLabel: 'Main Official WhatsApp API'
-                    };
-                }
-            } catch (e) {
-                if (e instanceof TypeError) throw e;
-                console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
+            if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
+                return {
+                    token: setting.value.token,
+                    phoneId: setting.value.phoneId,
+                    businessId: setting.value.businessId,
+                    appId: setting.value.appId || process.env.META_WA_APP_ID,
+                    displayPhoneNumber: setting.value.displayPhoneNumber || '+91 99960 00570',
+                    accountLabel: 'Main Official WhatsApp API'
+                };
             }
+        } catch (e) {
+            if (e instanceof TypeError) throw e;
+            console.warn('[WhatsAppService] Error reading SystemSetting meta_wa_config:', e.message);
         }
 
         // 4. Fallback to Env if DB is empty
