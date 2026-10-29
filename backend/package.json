@@ -15,7 +15,7 @@
         "test:phase9.1": "node --test tests/phase9_durable_dispatch.test.js",
         "test:phase9": "node --test tests/phase9_whatsapp_automation_reliability.test.js",
         "test:phase10": "node --test --test-force-exit --test-concurrency=1 tests/phase10_deals_domain_lifecycle.test.js",
-        "test:phase11": "node --test --test-force-exit --test-concurrency=1 tests/phase11_document_storage.test.js",
+        "test:phase11": "node --test --test-force-exit --test-concurrency=1 tests/phase11_document_storage.test.js tests/documentAPI.test.js tests/documentSignedUrl.test.js tests/documentStorage.test.js tests/documentFailureConsistency.test.js tests/documentLeakage.test.js tests/documentMalwareArchitecture.test.js tests/documentRecovery.test.js tests/providerRegistry.test.js",
         "test:phase12": "node --test --test-force-exit --test-concurrency=1 tests/phase12_bulk_deal_import_safety.test.js",
         "test:phase14": "node --test --test-force-exit --test-concurrency=1 tests/phase14_automation_audit_logs.test.js",
         "test:outbox": "node --test --test-force-exit --test-concurrency=1 tests/phase4_6i_single_org_outbox_automation.test.js tests/phase_d1_outbox_foundation.test.js tests/phase_d2f07_outbox_recovery.test.js",
@@ -23,6 +23,8 @@
         "test:feedback-security": "node tests/feedbackSecurity.test.js"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.1159.0",
+        "@aws-sdk/s3-request-presigner": "^3.1159.0",
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/auto-instrumentations-node": "^0.79.0",
         "@opentelemetry/exporter-trace-otlp-proto": "^0.221.0",

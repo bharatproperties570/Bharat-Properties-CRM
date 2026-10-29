@@ -1,6 +1,7 @@
 import { useTheme } from '../../context/ThemeContext';
 
 import React from 'react';
+import { useDocumentManager } from '../../hooks/useDocumentManager';
 import { BASE_BACKEND_URL } from '../../utils/api';
 
 // Professional Absolute URL Resolver
@@ -33,7 +34,7 @@ const formatDateTime = (dateVal) => {
 };
 
 // Detect File Type and return appropriate icon class & brand color
-const getFileIconConfig = (fileName = '') => {
+const getFileIconConfig = (fileName = '', isDark = false) => {
     const name = String(fileName).toLowerCase();
     if (name.endsWith('.pdf')) {
         return { icon: 'fa-file-pdf', color: '#ef4444', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2', border: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#fee2e2', type: 'PDF' };
@@ -56,9 +57,14 @@ const ContactDocuments = React.memo(function ContactDocuments({
     expandedSections,
     toggleSection,
     setIsDocumentModalOpen,
-    renderLookup
+    renderLookup,
+    entityId,
+    entityType
 }) {
     const { isDark } = useTheme();
+
+    const { documents: unifiedDocs, loading: docsLoading, readNewDocument } = useDocumentManager(entityType, entityId, contactDocuments || []);
+
     return (
         <>
             <style>
@@ -162,22 +168,22 @@ const ContactDocuments = React.memo(function ContactDocuments({
                 {/* Expanded content */}
                 {expandedSections.includes('documents') && (
                     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {contactDocuments.length > 0 ? (
-                            contactDocuments.map((doc, idx) => {
+                        {unifiedDocs.length > 0 ? (
+                            unifiedDocs.map((unifiedDoc, idx) => {
                                 // Extract file name & configuration
-                                const docUrl = (typeof doc.documentPicture === 'object' ? doc.documentPicture?.url : doc.documentPicture) || '';
+                                const docUrl = (typeof unifiedDoc.documentPicture === 'object' ? unifiedDoc.documentPicture?.url : unifiedDoc.documentPicture) || '';
                                 const absoluteDocUrl = getAbsoluteUrl(docUrl);
-                                const fileName = (typeof doc.documentPicture === 'object' ? doc.documentPicture?.name : '') || 
+                                const fileName = (typeof unifiedDoc.documentPicture === 'object' ? unifiedDoc.documentPicture?.name : '') || 
                                                  (docUrl ? decodeURIComponent(docUrl.split('/').pop().split('?')[0]) : '');
-                                const fileConfig = getFileIconConfig(fileName);
-                                const docCategoryText = renderLookup(doc.documentCategory, '') || 
-                                                        (typeof doc.documentCategory === 'object' ? doc.documentCategory?.lookup_value : null) || 
+                                const fileConfig = getFileIconConfig(fileName, isDark);
+                                const docCategoryText = renderLookup(unifiedDoc.documentCategory, '') || 
+                                                        (typeof unifiedDoc.documentCategory === 'object' ? unifiedDoc.documentCategory?.lookup_value : null) || 
                                                         'Document';
                                 
-                                const docTypeText = renderLookup(doc.documentType, '') || 
-                                                    renderLookup(doc.documentName, '') || 
-                                                    (typeof doc.documentType === 'object' ? doc.documentType?.lookup_value : null) || 
-                                                    (typeof doc.documentName === 'object' ? doc.documentName?.lookup_value : null) || 
+                                const docTypeText = renderLookup(unifiedDoc.documentType, '') || 
+                                                    renderLookup(unifiedDoc.documentName, '') || 
+                                                    (typeof unifiedDoc.documentType === 'object' ? unifiedDoc.documentType?.lookup_value : null) || 
+                                                    (typeof unifiedDoc.documentName === 'object' ? unifiedDoc.documentName?.lookup_value : null) || 
                                                     fileName || 
                                                     'File';
 
@@ -227,13 +233,13 @@ const ContactDocuments = React.memo(function ContactDocuments({
                                                 <span style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
                                                     {docTypeText}
                                                 </span>
-                                                {(doc.unitNumber || doc.projectName) && (
+                                                {(unifiedDoc.unitNumber || unifiedDoc.projectName) && (
                                                     <span style={{ fontSize: '0.62rem', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px', marginTop: '1px' }}>
                                                         <i className="fas fa-link" style={{ fontSize: '0.55rem', color: '#10b981' }}></i>
                                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                             {[
-                                                                doc.unitNumber ? `Unit ${doc.unitNumber}` : '',
-                                                                doc.projectName ? renderLookup(doc.projectName, '') || doc.projectName : ''
+                                                                unifiedDoc.unitNumber ? `Unit ${unifiedDoc.unitNumber}` : '',
+                                                                unifiedDoc.projectName ? renderLookup(unifiedDoc.projectName, '') || unifiedDoc.projectName : ''
                                                             ].filter(Boolean).join(' - ')}
                                                         </span>
                                                     </span>
@@ -246,7 +252,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.62rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>
                                                 <i className="far fa-clock" style={{ fontSize: '0.6rem', color: '#94a3b8' }}></i>
                                                 <span>
-                                                    {formatDateTime(doc.uploadedAt || doc.createdAt || doc.date) || 'Upload time N/A'}
+                                                    {formatDateTime(unifiedDoc.uploadedAt || unifiedDoc.createdAt || unifiedDoc.date) || 'Upload time N/A'}
                                                 </span>
                                             </div>
 
@@ -255,7 +261,11 @@ const ContactDocuments = React.memo(function ContactDocuments({
                                                     className="enterprise-doc-action-btn"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        window.open(absoluteDocUrl, '_blank');
+                                                        if (unifiedDoc.isLegacy) {
+                                                            window.open(absoluteDocUrl, '_blank');
+                                                        } else {
+                                                            readNewDocument(unifiedDoc.documentId, unifiedDoc.fileName);
+                                                        }
                                                     }}
                                                 >
                                                     <i className="fas fa-eye" style={{ fontSize: '0.65rem' }}></i>

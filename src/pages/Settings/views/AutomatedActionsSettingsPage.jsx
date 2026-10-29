@@ -147,7 +147,7 @@ const AutomatedActionsSettingsPage = () => {
                                     <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
                                         <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace(/_/g, ' ')}</b></span>
-                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTriggerName || (action.invokedByTrigger ? 'Unknown Trigger' : '—')}</b></span>
+                                        <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTriggerName || (action.invokedByTrigger ? (/^[0-9a-fA-F]{24}$/.test(action.invokedByTrigger) ? 'Unknown Trigger' : action.invokedByTrigger.replace(/_/g, ' ')) : '—')}</b></span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

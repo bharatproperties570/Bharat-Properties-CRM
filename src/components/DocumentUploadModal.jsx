@@ -3,6 +3,7 @@ import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { fetchLookup } from '../utils/fetchLookup'; // Ensure this utility exists or use api directly
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useDocumentManager } from '../hooks/useDocumentManager';
 
 const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, ownerType, ownerName, onUpdate }) => {
 
@@ -36,6 +37,9 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
     };
 
     const { getLookupValue } = usePropertyConfig();
+
+    const { uploadNewDocument, FEATURE_FLAG_NEW_DOCUMENTS } = useDocumentManager(activeEntityType, activeEntityId, documents);
+
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -223,81 +227,89 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
             return;
         }
 
-        const toastId = toast.loading('Uploading document to Google Drive...');
-
+        
+        const toastId = toast.loading('Processing document upload...');
         setUploading(true);
 
         try {
-            // Find names for folder structure and renaming
             const categoryObj = categories.find(c => c._id === selectedCategory);
             const typeObj = types.find(t => t._id === selectedType);
-
-            let fileUrl = '';
-            if (selectedFile) {
-                const uploadFormData = new FormData();
-                uploadFormData.append('file', selectedFile);
-                uploadFormData.append('entityType', activeEntityType === 'Contact' ? 'Contacts' : 'Leads');
-                uploadFormData.append('entityName', ownerName || activeEntityId || 'Unknown');
-                uploadFormData.append('docCategory', categoryObj?.name || 'General');
-                uploadFormData.append('docType', typeObj?.name || 'Document');
-                
-                const uploadRes = await api.post('/upload', uploadFormData, {
-                    headers: {
-                        'Content-Type': undefined
-                    }
-                });
-                if (uploadRes.data.success) {
-                    fileUrl = uploadRes.data.url;
-                }
-            }
-
-            // Names already found above for upload
-
             const projectObj = projects.find(p => p._id === selectedProject);
 
-            const newDocument = {
-                documentCategory: selectedCategory, // ID
-                documentType: selectedType, // ID
-                documentName: typeObj ? typeObj._id : selectedType, // Legacy Field, map to Type ID
+            if (FEATURE_FLAG_NEW_DOCUMENTS && selectedFile) {
+                // R4-E Upload Flow (New Architecture)
+                const metadata = {
+                    documentCategory: selectedCategory,
+                    documentType: selectedType,
+                    documentName: typeObj ? typeObj._id : selectedType,
+                    documentNo: docNumber,
+                    projectName: linkToInventory ? (projectObj?.name || '') : '',
+                    block: linkToInventory ? (selectedBlock?.name || selectedBlock || '') : '',
+                    unitNumber: linkToInventory ? selectedUnit : ''
+                };
+                
+                const success = await uploadNewDocument(selectedFile, metadata);
+                if (success) {
+                    toast.success("Document added securely.", { id: toastId });
+                    resetForm();
+                    fetchDocuments();
+                    if (onUpdate) onUpdate();
+                } else {
+                    toast.error("Upload failed.", { id: toastId });
+                }
+            } else {
+                // Legacy Upload Flow
+                let fileUrl = '';
+                if (selectedFile) {
+                    const uploadFormData = new FormData();
+                    uploadFormData.append('file', selectedFile);
+                    uploadFormData.append('entityType', activeEntityType === 'Contact' ? 'Contacts' : 'Leads');
+                    uploadFormData.append('entityName', ownerName || activeEntityId || 'Unknown');
+                    uploadFormData.append('docCategory', categoryObj?.name || 'General');
+                    uploadFormData.append('docType', typeObj?.name || 'Document');
+                    
+                    const uploadRes = await api.post('/upload', uploadFormData, {
+                        headers: {
+                            'Content-Type': undefined
+                        }
+                    });
+                    if (uploadRes.data.success) {
+                        fileUrl = uploadRes.data.url;
+                    }
+                }
 
-                documentNo: docNumber,
-                documentPicture: fileUrl,
-                uploadedAt: new Date().toISOString(),
+                const newDocument = {
+                    documentCategory: selectedCategory,
+                    documentType: selectedType,
+                    documentName: typeObj ? typeObj._id : selectedType,
+                    documentNo: docNumber,
+                    documentPicture: fileUrl,
+                    uploadedAt: new Date().toISOString(),
+                    projectName: linkToInventory ? (projectObj?.name || '') : '',
+                    block: linkToInventory ? (selectedBlock?.name || selectedBlock || '') : '',
+                    unitNumber: linkToInventory ? selectedUnit : ''
+                };
 
-                // Inventory Links
-                projectName: linkToInventory ? (projectObj?.name || '') : '',
-                block: linkToInventory ? (selectedBlock?.name || selectedBlock || '') : '', // Handle object or string
-                unitNumber: linkToInventory ? selectedUnit : '' // Assuming selectedUnit is unit number string from inventory
-            };
+                const updatedDocuments = [...documents, newDocument];
 
-            const updatedDocuments = [...documents, newDocument];
+                const response = await api.put(`${getEndpoint()}/${activeEntityId}`, {
+                    documents: updatedDocuments
+                });
 
-            const response = await api.put(`${getEndpoint()}/${activeEntityId}`, {
-                documents: updatedDocuments
-            });
-
-            if (response.data.success) {
-                setDocuments(updatedDocuments);
-                // Reset Form
-                setSelectedCategory('');
-                // Types will clear via effect
-                setDocNumber('');
-                setSelectedFile(null);
-                setLinkToInventory(false);
-                setSelectedProject('');
-                // Blocks/Units clear via effect
-
-                if (onUpdate) onUpdate();
-                toast.success('Document uploaded successfully!', { id: toastId });
+                if (response.data.success) {
+                    toast.success("Document added successfully to legacy Drive.", { id: toastId });
+                    resetForm();
+                    fetchDocuments();
+                    if (onUpdate) onUpdate();
+                }
             }
-
         } catch (error) {
-            console.error("Error uploading document:", error);
-            toast.error("Failed to upload document", { id: toastId });
+            toast.error(error.response?.data?.message || "Error adding document", { id: toastId });
         } finally {
             setUploading(false);
         }
     };
+
 
     const handleDelete = async (index) => {
         if (!window.confirm("Are you sure you want to remove this document?")) return;
