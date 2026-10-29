@@ -40,6 +40,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const [units, setUnits] = useState([]);
     const [isLoadingProjects, setIsLoadingProjects] = useState(false);
     const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+    const [availableOwners, setAvailableOwners] = useState([]);
+    const [availableAssociates, setAvailableAssociates] = useState([]);
 
     const [formData, setFormData] = useState({
         projectName: '',
@@ -515,6 +517,46 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         }));
     };
 
+    const handleSelectOwner = (ownerItem) => {
+        const isCurrentlySelected = formData.isOwnerSelected && (
+            (ownerItem._id && String(formData.owner?._id) === String(ownerItem._id)) ||
+            (!ownerItem._id && formData.owner?.name && formData.owner?.name === ownerItem.name)
+        );
+
+        if (isCurrentlySelected) {
+            setFormData(prev => ({
+                ...prev,
+                isOwnerSelected: false
+            }));
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                owner: ownerItem,
+                isOwnerSelected: true
+            }));
+        }
+    };
+
+    const handleSelectAssociate = (assocItem) => {
+        const isCurrentlySelected = formData.isAssociateSelected && (
+            (assocItem._id && String(formData.associatedContact?._id) === String(assocItem._id)) ||
+            (!assocItem._id && formData.associatedContact?.name && formData.associatedContact?.name === assocItem.name)
+        );
+
+        if (isCurrentlySelected) {
+            setFormData(prev => ({
+                ...prev,
+                isAssociateSelected: false
+            }));
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                associatedContact: assocItem,
+                isAssociateSelected: true
+            }));
+        }
+    };
+
     const handleProjectChange = useCallback((projectName) => {
         const project = projects.find(p => renderValue(p.name) === projectName);
         const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : renderValue(b)).filter(b => b && b !== '-') : [];
@@ -584,6 +626,74 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 return s !== '-' ? s : fallback;
             };
 
+            const parseContactItem = (item, fallbackRel = '') => {
+                if (!item) return null;
+                const c = item.contact && typeof item.contact === 'object' ? item.contact : item;
+                const id = c._id || c.id || (typeof item.contact === 'string' && /^[0-9a-fA-F]{24}$/.test(item.contact) ? item.contact : (typeof item === 'string' && /^[0-9a-fA-F]{24}$/.test(item) ? item : null));
+                const name = cleanStr(c.name || c.fullName || item.name || (typeof item === 'string' && !/^[0-9a-fA-F]{24}$/.test(item) ? item : ''), '');
+                let phone = '';
+                if (Array.isArray(c.phones) && c.phones.length > 0) {
+                    phone = c.phones[0]?.number || c.phones[0]?.phone || '';
+                } else if (c.phone || c.mobile) {
+                    phone = c.phone || c.mobile;
+                } else if (item.phone || item.mobile) {
+                    phone = item.phone || item.mobile;
+                }
+                let email = '';
+                if (Array.isArray(c.emails) && c.emails.length > 0) {
+                    email = c.emails[0]?.address || c.emails[0]?.email || '';
+                } else if (c.email) {
+                    email = c.email;
+                } else if (item.email) {
+                    email = item.email;
+                }
+                const relationship = cleanStr(item.relationship || c.relationship || fallbackRel, fallbackRel);
+                return {
+                    _id: id || null,
+                    name: cleanStr(name, ''),
+                    phone: cleanStr(phone, ''),
+                    email: cleanStr(email, ''),
+                    relationship
+                };
+            };
+
+            const ownersList = [];
+            if (Array.isArray(unit.owners) && unit.owners.length > 0) {
+                unit.owners.forEach(o => {
+                    const parsed = parseContactItem(o, 'Owner');
+                    if (parsed && (parsed._id || parsed.name || parsed.phone)) ownersList.push(parsed);
+                });
+            }
+            if (ownersList.length === 0 && (unit.ownerName || unit.ownerPhone)) {
+                ownersList.push({
+                    _id: null,
+                    name: cleanStr(unit.ownerName, ''),
+                    phone: cleanStr(unit.ownerPhone, ''),
+                    email: cleanStr(unit.ownerEmail, ''),
+                    relationship: 'Owner'
+                });
+            }
+
+            const associatesList = [];
+            if (Array.isArray(unit.associates) && unit.associates.length > 0) {
+                unit.associates.forEach(a => {
+                    const parsed = parseContactItem(a, 'Dealer');
+                    if (parsed && (parsed._id || parsed.name || parsed.phone)) associatesList.push(parsed);
+                });
+            }
+            if (associatesList.length === 0 && (unit.associatedContact || unit.associatedPhone)) {
+                associatesList.push({
+                    _id: null,
+                    name: cleanStr(unit.associatedContact, ''),
+                    phone: cleanStr(unit.associatedPhone, ''),
+                    email: cleanStr(unit.associatedEmail, ''),
+                    relationship: 'Dealer'
+                });
+            }
+
+            setAvailableOwners(ownersList);
+            setAvailableAssociates(associatesList);
+
             setFormData(prev => {
                 const matchedSize = findMatchedSize(unit, null, sizes);
                 let rawSizeLabel = unit.sizeLabel || unit.unitSpecification?.sizeLabel;
@@ -615,6 +725,16 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 const inheritedDirection = getLookupValue('Orientation', unit.direction || unit.orientation || unit.unitSpecification?.direction || unit.unitSpecification?.orientation) || cleanStr(unit.direction || unit.orientation || unit.unitSpecification?.direction || unit.unitSpecification?.orientation, '');
                 const inheritedRoadWidth = getLookupValue('RoadWidth', unit.roadWidth || unit.unitSpecification?.roadWidth) || cleanStr(unit.roadWidth || unit.unitSpecification?.roadWidth, '');
                 const inheritedUnitType = getLookupValue('UnitType', unit.unitType || unit.unitSpecification?.unitType) || cleanStr(unit.unitType || unit.unitSpecification?.unitType, prev.unitType || 'Ordinary');
+
+                const chosenOwner = (prev.owner?._id && ownersList.find(o => String(o._id) === String(prev.owner._id))) ||
+                                    (prev.owner?.name && ownersList.find(o => o.name && o.name.toLowerCase() === prev.owner.name.toLowerCase())) ||
+                                    ownersList[0] ||
+                                    { name: '', phone: '', email: '' };
+
+                const chosenAssociate = (prev.associatedContact?._id && associatesList.find(a => String(a._id) === String(prev.associatedContact._id))) ||
+                                        (prev.associatedContact?.name && associatesList.find(a => a.name && a.name.toLowerCase() === prev.associatedContact.name.toLowerCase())) ||
+                                        associatesList[0] ||
+                                        { name: '', phone: '', email: '' };
 
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
@@ -665,20 +785,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     },
                     documents: unit.inventoryDocuments || [],
 
-                    owner: {
-                        _id: unit.owners?.[0]?._id || null,
-                        name: cleanStr(unit.owners?.[0]?.name || unit.ownerName, ''),
-                        phone: cleanStr(unit.owners?.[0]?.phones?.[0]?.number || unit.owners?.[0]?.phone || unit.ownerPhone, ''),
-                        email: cleanStr(unit.owners?.[0]?.emails?.[0]?.address || unit.owners?.[0]?.email || unit.ownerEmail, '')
-                    },
-                    associatedContact: {
-                        _id: unit.associates?.[0]?.contact?._id || unit.associates?.[0]?._id || null,
-                        name: cleanStr(unit.associates?.[0]?.contact?.name || unit.associates?.[0]?.name || unit.associatedContact, ''),
-                        phone: cleanStr(unit.associates?.[0]?.contact?.phones?.[0]?.number || unit.associates?.[0]?.mobile || unit.associatedPhone, ''),
-                        email: cleanStr(unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail, '')
-                    },
-                    isOwnerSelected: (unit.owners?.[0]?._id || unit.ownerName) ? true : false,
-                    isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false,
+                    owner: chosenOwner,
+                    associatedContact: chosenAssociate,
+                    isOwnerSelected: ownersList.length > 0,
+                    isAssociateSelected: associatesList.length > 0,
                     team: (unit.team?.[0] || unit.teams?.[0] || unit.team || prev.team),
                     assignedTo: (unit.assignedTo || unit.assign?.[0] || prev.assignedTo),
                     visibleTo: (unit.visibleTo ? (unit.visibleTo === 'Public' ? 'Everyone' : unit.visibleTo) : prev.visibleTo)
@@ -1118,15 +1228,40 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             if (formData.isOwnerSelected && formData.owner?._id) {
                 transformedData.owner = formData.owner._id;
+                transformedData.ownerName = formData.owner.name;
+                transformedData.ownerPhone = formData.owner.phone;
+                transformedData.ownerEmail = formData.owner.email;
+            } else if (formData.isOwnerSelected && formData.owner?.name) {
+                transformedData.owner = null;
+                transformedData.ownerName = formData.owner.name;
+                transformedData.ownerPhone = formData.owner.phone;
+                transformedData.ownerEmail = formData.owner.email;
             } else {
                 transformedData.owner = null;
+                transformedData.ownerName = null;
+                transformedData.ownerPhone = null;
+                transformedData.ownerEmail = null;
             }
             
             if (formData.isAssociateSelected && formData.associatedContact?._id) {
                 transformedData.associatedContact = formData.associatedContact._id;
+                transformedData.associateName = formData.associatedContact.name;
+                transformedData.associatePhone = formData.associatedContact.phone;
+                transformedData.associateEmail = formData.associatedContact.email;
+            } else if (formData.isAssociateSelected && formData.associatedContact?.name) {
+                transformedData.associatedContact = null;
+                transformedData.associateName = formData.associatedContact.name;
+                transformedData.associatePhone = formData.associatedContact.phone;
+                transformedData.associateEmail = formData.associatedContact.email;
             } else {
                 transformedData.associatedContact = null;
+                transformedData.associateName = null;
+                transformedData.associatePhone = null;
+                transformedData.associateEmail = null;
             }
+
+            transformedData.isOwnerSelected = !!formData.isOwnerSelected;
+            transformedData.isAssociateSelected = !!formData.isAssociateSelected;
 
             // Real API call
             let response;
@@ -1915,58 +2050,327 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 )}
             </div>
 
-            {/* Owner & Associate Selection Cards */}
-            {formData.unitNo && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', paddingTop: '16px', borderTop: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid #f1f5f9' }}>
-                    {/* Property Owner */}
-                    <div
-                        onClick={() => handleInputChange('isOwnerSelected', !formData.isOwnerSelected)}
-                        style={{
-                            padding: '12px 14px', borderRadius: '12px',
-                            border: `2px solid ${formData.isOwnerSelected ? '#2563eb' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
-                            background: formData.isOwnerSelected ? (isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
-                            cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative'
-                        }}
-                    >
-                        <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
-                            <input type="checkbox" checked={formData.isOwnerSelected} readOnly style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
-                        </div>
-                        <label style={{ ...ent.label, marginBottom: '6px', color: formData.isOwnerSelected ? '#2563eb' : (isDark ? '#94a3b8' : '#64748b') }}>
-                            <i className="fas fa-user-tie mr-1"></i> Property Owner
-                        </label>
-                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>
-                            {renderValue(formData.owner?.name) !== '-' ? renderValue(formData.owner?.name) : 'No Registered Owner'}
-                        </div>
-                        <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                            {renderValue(formData.owner?.phone) !== '-' ? renderValue(formData.owner?.phone) : 'No phone linked'}
-                        </div>
-                    </div>
+            {/* Owner & Associate Selection Section */}
+            {formData.unitNo && (() => {
+                const displayOwners = availableOwners.length > 0 ? availableOwners : (formData.owner?._id || formData.owner?.name ? [formData.owner] : []);
+                const displayAssociates = availableAssociates.length > 0 ? availableAssociates : (formData.associatedContact?._id || formData.associatedContact?.name ? [formData.associatedContact] : []);
 
-                    {/* Associated Dealer */}
-                    <div
-                        onClick={() => handleInputChange('isAssociateSelected', !formData.isAssociateSelected)}
-                        style={{
-                            padding: '12px 14px', borderRadius: '12px',
-                            border: `2px solid ${formData.isAssociateSelected ? '#2563eb' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
-                            background: formData.isAssociateSelected ? (isDark ? 'rgba(37,99,235,0.15)' : '#eff6ff') : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
-                            cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative'
-                        }}
-                    >
-                        <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
-                            <input type="checkbox" checked={formData.isAssociateSelected} readOnly style={{ width: '16px', height: '16px', accentColor: '#2563eb' }} />
+                return (
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: '1fr 1fr', 
+                        gap: '16px', 
+                        paddingTop: '16px', 
+                        borderTop: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0' 
+                    }}>
+                        {/* COLUMN 1: Property Owners */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <label style={{ 
+                                    ...ent.label, 
+                                    margin: 0, 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '6px',
+                                    color: isDark ? '#f1f5f9' : '#1e293b',
+                                    fontWeight: 800,
+                                    fontSize: '0.78rem'
+                                }}>
+                                    <i className="fas fa-user-tie" style={{ color: '#eab308' }}></i>
+                                    Property Owners
+                                    {displayOwners.length > 0 && (
+                                        <span style={{ 
+                                            fontSize: '0.65rem', 
+                                            padding: '1px 6px', 
+                                            borderRadius: '8px', 
+                                            background: isDark ? 'rgba(234, 179, 8, 0.2)' : '#fef9c3', 
+                                            color: isDark ? '#facc15' : '#854d0e',
+                                            fontWeight: 800
+                                        }}>
+                                            {displayOwners.length} Available
+                                        </span>
+                                    )}
+                                </label>
+
+                                {formData.isOwnerSelected && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleInputChange('isOwnerSelected', false)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#ef4444',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            padding: '2px 4px'
+                                        }}
+                                        title="Deselect owner from this deal"
+                                    >
+                                        ✕ Deselect
+                                    </button>
+                                )}
+                            </div>
+
+                            {displayOwners.length === 0 ? (
+                                <div style={{ 
+                                    padding: '14px', 
+                                    borderRadius: '10px', 
+                                    border: isDark ? '1px dashed rgba(255,255,255,0.12)' : '1px dashed #cbd5e1', 
+                                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc', 
+                                    textAlign: 'center', 
+                                    color: 'var(--text-muted)', 
+                                    fontSize: '0.76rem' 
+                                }}>
+                                    <i className="fas fa-user-slash" style={{ fontSize: '1rem', marginBottom: '4px', opacity: 0.5, display: 'block' }}></i>
+                                    No registered owner found for this unit
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '190px', overflowY: 'auto', paddingRight: '2px' }}>
+                                    {displayOwners.map((ownerItem, idx) => {
+                                        const isSelected = formData.isOwnerSelected && (
+                                            (ownerItem._id && String(formData.owner?._id) === String(ownerItem._id)) ||
+                                            (!ownerItem._id && formData.owner?.name && formData.owner?.name === ownerItem.name)
+                                        );
+
+                                        return (
+                                            <div
+                                                key={ownerItem._id || idx}
+                                                onClick={() => handleSelectOwner(ownerItem)}
+                                                style={{
+                                                    padding: '9px 12px',
+                                                    borderRadius: '10px',
+                                                    border: `1.5px solid ${isSelected ? '#eab308' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                                    background: isSelected 
+                                                        ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#fefce8') 
+                                                        : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '10px',
+                                                    boxShadow: isSelected ? '0 1px 6px rgba(234, 179, 8, 0.2)' : 'none'
+                                                }}
+                                            >
+                                                {/* Radio indicator */}
+                                                <div style={{
+                                                    width: '16px',
+                                                    height: '16px',
+                                                    borderRadius: '50%',
+                                                    border: `2px solid ${isSelected ? '#eab308' : (isDark ? '#64748b' : '#94a3b8')}`,
+                                                    background: isSelected ? '#eab308' : 'transparent',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    flexShrink: 0
+                                                }}>
+                                                    {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffffff' }}></div>}
+                                                </div>
+
+                                                {/* Contact Details */}
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                                        <span style={{ 
+                                                            fontWeight: 800, 
+                                                            fontSize: '0.84rem', 
+                                                            color: isDark ? '#f8fafc' : '#0f172a' 
+                                                        }}>
+                                                            {renderValue(ownerItem.name) !== '-' ? renderValue(ownerItem.name) : 'Owner'}
+                                                        </span>
+                                                        {ownerItem.relationship && (
+                                                            <span style={{ 
+                                                                fontSize: '0.62rem', 
+                                                                padding: '1px 5px', 
+                                                                borderRadius: '4px', 
+                                                                background: isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9', 
+                                                                color: isDark ? '#cbd5e1' : '#475569', 
+                                                                fontWeight: 600 
+                                                            }}>
+                                                                {ownerItem.relationship}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                        {ownerItem.phone && (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', color: '#eab308' }}></i>
+                                                                {ownerItem.phone}
+                                                            </span>
+                                                        )}
+                                                        {ownerItem.email && (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                <i className="fas fa-envelope" style={{ fontSize: '0.6rem' }}></i>
+                                                                {ownerItem.email}
+                                                            </span>
+                                                        )}
+                                                        {!ownerItem.phone && !ownerItem.email && (
+                                                            <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No phone linked</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
-                        <label style={{ ...ent.label, marginBottom: '6px', color: formData.isAssociateSelected ? '#2563eb' : (isDark ? '#94a3b8' : '#64748b') }}>
-                            <i className="fas fa-user-friends mr-1"></i> Associated Contact (Dealer)
-                        </label>
-                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>
-                            {renderValue(formData.associatedContact?.name) !== '-' ? renderValue(formData.associatedContact?.name) : 'No Dealer Linked'}
-                        </div>
-                        <div style={{ fontSize: '0.76rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                            {renderValue(formData.associatedContact?.phone) !== '-' ? renderValue(formData.associatedContact?.phone) : 'No phone linked'}
+
+                        {/* COLUMN 2: Associated Dealers & Contacts */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <label style={{ 
+                                    ...ent.label, 
+                                    margin: 0, 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '6px',
+                                    color: isDark ? '#f1f5f9' : '#1e293b',
+                                    fontWeight: 800,
+                                    fontSize: '0.78rem'
+                                }}>
+                                    <i className="fas fa-user-friends" style={{ color: '#3b82f6' }}></i>
+                                    Associated Contacts (Dealers)
+                                    {displayAssociates.length > 0 && (
+                                        <span style={{ 
+                                            fontSize: '0.65rem', 
+                                            padding: '1px 6px', 
+                                            borderRadius: '8px', 
+                                            background: isDark ? 'rgba(59, 130, 246, 0.2)' : '#dbeafe', 
+                                            color: isDark ? '#60a5fa' : '#1d4ed8',
+                                            fontWeight: 800
+                                        }}>
+                                            {displayAssociates.length} Available
+                                        </span>
+                                    )}
+                                </label>
+
+                                {formData.isAssociateSelected && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleInputChange('isAssociateSelected', false)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#ef4444',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            padding: '2px 4px'
+                                        }}
+                                        title="Deselect associate from this deal"
+                                    >
+                                        ✕ Deselect
+                                    </button>
+                                )}
+                            </div>
+
+                            {displayAssociates.length === 0 ? (
+                                <div style={{ 
+                                    padding: '14px', 
+                                    borderRadius: '10px', 
+                                    border: isDark ? '1px dashed rgba(255,255,255,0.12)' : '1px dashed #cbd5e1', 
+                                    background: isDark ? 'rgba(255,255,255,0.02)' : '#f8fafc', 
+                                    textAlign: 'center', 
+                                    color: 'var(--text-muted)', 
+                                    fontSize: '0.76rem' 
+                                }}>
+                                    <i className="fas fa-user-slash" style={{ fontSize: '1rem', marginBottom: '4px', opacity: 0.5, display: 'block' }}></i>
+                                    No dealer or associate linked to this unit
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '190px', overflowY: 'auto', paddingRight: '2px' }}>
+                                    {displayAssociates.map((assocItem, idx) => {
+                                        const isSelected = formData.isAssociateSelected && (
+                                            (assocItem._id && String(formData.associatedContact?._id) === String(assocItem._id)) ||
+                                            (!assocItem._id && formData.associatedContact?.name && formData.associatedContact?.name === assocItem.name)
+                                        );
+
+                                        return (
+                                            <div
+                                                key={assocItem._id || idx}
+                                                onClick={() => handleSelectAssociate(assocItem)}
+                                                style={{
+                                                    padding: '9px 12px',
+                                                    borderRadius: '10px',
+                                                    border: `1.5px solid ${isSelected ? '#3b82f6' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}`,
+                                                    background: isSelected 
+                                                        ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') 
+                                                        : (isDark ? 'rgba(255,255,255,0.02)' : '#ffffff'),
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.15s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '10px',
+                                                    boxShadow: isSelected ? '0 1px 6px rgba(59, 130, 246, 0.2)' : 'none'
+                                                }}
+                                            >
+                                                {/* Radio indicator */}
+                                                <div style={{
+                                                    width: '16px',
+                                                    height: '16px',
+                                                    borderRadius: '50%',
+                                                    border: `2px solid ${isSelected ? '#3b82f6' : (isDark ? '#64748b' : '#94a3b8')}`,
+                                                    background: isSelected ? '#3b82f6' : 'transparent',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    flexShrink: 0
+                                                }}>
+                                                    {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffffff' }}></div>}
+                                                </div>
+
+                                                {/* Contact Details */}
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                                        <span style={{ 
+                                                            fontWeight: 800, 
+                                                            fontSize: '0.84rem', 
+                                                            color: isDark ? '#f8fafc' : '#0f172a' 
+                                                        }}>
+                                                            {renderValue(assocItem.name) !== '-' ? renderValue(assocItem.name) : 'Associate'}
+                                                        </span>
+                                                        {assocItem.relationship && (
+                                                            <span style={{ 
+                                                                fontSize: '0.62rem', 
+                                                                padding: '1px 5px', 
+                                                                borderRadius: '4px', 
+                                                                background: isDark ? 'rgba(59, 130, 246, 0.2)' : '#dbeafe', 
+                                                                color: isDark ? '#60a5fa' : '#1d4ed8', 
+                                                                fontWeight: 600 
+                                                            }}>
+                                                                {assocItem.relationship}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.72rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+                                                        {assocItem.phone && (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                <i className="fas fa-mobile-alt" style={{ fontSize: '0.6rem', color: '#3b82f6' }}></i>
+                                                                {assocItem.phone}
+                                                            </span>
+                                                        )}
+                                                        {assocItem.email && (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                <i className="fas fa-envelope" style={{ fontSize: '0.6rem' }}></i>
+                                                                {assocItem.email}
+                                                            </span>
+                                                        )}
+                                                        {!assocItem.phone && !assocItem.email && (
+                                                            <span style={{ fontStyle: 'italic', opacity: 0.7 }}>No phone linked</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 
