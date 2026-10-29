@@ -11,6 +11,7 @@ import fs from 'fs';
 import os from 'os';
 import http from 'http';
 import https from 'https';
+import { spawnSync } from 'child_process';
 
 import AWSConfigValidator from '../services/infrastructure/AWSConfigValidator.js';
 import BackupEncryptionVerifier from '../services/infrastructure/BackupEncryptionVerifier.js';
@@ -713,6 +714,198 @@ test('Phase 17 — AWS Infrastructure Hardening & Preflight Suite', async (t) =>
             } finally {
                 fs.rmSync(tmpDir, { recursive: true, force: true });
                 if (fs.existsSync(outsideFile)) fs.unlinkSync(outsideFile);
+            }
+        });
+    });
+
+    await t.test('11. Administrator Runbook Account & Region Safety Gate', async (t) => {
+        const gateScript = `
+set -euo pipefail
+
+if ! command -v aws >/dev/null 2>&1; then
+    echo "FATAL: aws CLI not found" >&2
+    exit 1
+fi
+
+TARGET_REGION="eu-north-1"
+
+# Check environment variables directly first for conflicts
+if [ -n "\${AWS_REGION:-}" ] && [ "$AWS_REGION" != "$TARGET_REGION" ]; then
+    echo "FATAL: Conflicting AWS_REGION ($AWS_REGION) differs from target $TARGET_REGION" >&2
+    exit 1
+fi
+if [ -n "\${AWS_DEFAULT_REGION:-}" ] && [ "$AWS_DEFAULT_REGION" != "$TARGET_REGION" ]; then
+    echo "FATAL: Conflicting AWS_DEFAULT_REGION ($AWS_DEFAULT_REGION) differs from target $TARGET_REGION" >&2
+    exit 1
+fi
+
+ACTIVE_REGION="\${AWS_REGION:-\${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d "[:space:]")
+
+if [ -z "$ACTIVE_REGION" ]; then
+    echo "FATAL: AWS region is empty" >&2
+    exit 1
+fi
+
+if [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION" >&2
+    exit 1
+fi
+
+TARGET_ACCOUNT="397633117324"
+STS_RAW=$(aws sts get-caller-identity --output json 2>&1) || {
+    echo "FATAL: STS call failed: $STS_RAW" >&2
+    exit 1
+}
+
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query "Account" --output text 2>&1) || {
+    echo "FATAL: Account query failed: $CURRENT_ACCOUNT" >&2
+    exit 1
+}
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d "[:space:]")
+
+if [ -z "$CURRENT_ACCOUNT" ] || [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "FATAL: Caller account mismatch: $CURRENT_ACCOUNT" >&2
+    exit 1
+fi
+
+echo "GATE_PASSED"
+exit 0
+`;
+
+        function createMockAws(tmpDir, account, region, stsExitCode = 0, configExitCode = 0) {
+            const mockAws = path.join(tmpDir, 'aws');
+            fs.writeFileSync(mockAws, `#!/bin/sh
+if [ "$1" = "sts" ] && [ "$2" = "get-caller-identity" ]; then
+    if [ ${stsExitCode} -ne 0 ]; then
+        echo "An error occurred (AccessDenied) when calling the GetCallerIdentity operation" >&2
+        exit ${stsExitCode}
+    fi
+    if [ "$3" = "--output" ] && [ "$4" = "json" ]; then
+        echo "{\\"Account\\": \\"${account}\\"}"
+        exit 0
+    fi
+    if [ "$3" = "--query" ] && [ "$4" = "Account" ]; then
+        echo "${account}"
+        exit 0
+    fi
+fi
+if [ "$1" = "configure" ] && [ "$2" = "get" ] && [ "$3" = "region" ]; then
+    if [ ${configExitCode} -ne 0 ]; then
+        exit ${configExitCode}
+    fi
+    echo "${region}"
+    exit 0
+fi
+exit 1
+`);
+            fs.chmodSync(mockAws, 0o755);
+        }
+
+        await t.test('GATE-01: Rejects execution when aws CLI is missing from PATH', () => {
+            const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'no-aws-'));
+            try {
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${emptyDir}:/bin:/usr/bin`, AWS_REGION: 'eu-north-1' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok((res.stderr || '').includes('aws CLI not found'));
+            } finally {
+                fs.rmSync(emptyDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-02: Rejects execution when sts get-caller-identity fails or returns an error', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '397633117324', 'eu-north-1', 1, 0);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: 'eu-north-1' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok(res.stderr.includes('FATAL: STS call failed'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-03: Rejects execution when Account ID differs from target 397633117324', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '111222333444', 'eu-north-1', 0, 0);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: 'eu-north-1' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok(res.stderr.includes('Caller account mismatch'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-04: Rejects execution when AWS region is empty or unset', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '397633117324', '', 0, 1);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: '', AWS_DEFAULT_REGION: '' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok(res.stderr.includes('AWS region is empty'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-05: Rejects execution when AWS region differs from eu-north-1', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '397633117324', 'us-east-1', 0, 0);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: '', AWS_DEFAULT_REGION: '' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok(res.stderr.includes('Active region (us-east-1) does NOT match target eu-north-1'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-06: Rejects execution when environment variables contain conflicting regions', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '397633117324', 'eu-north-1', 0, 0);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: 'us-west-2', AWS_DEFAULT_REGION: 'eu-north-1' },
+                    encoding: 'utf8'
+                });
+                assert.notStrictEqual(res.status, 0);
+                assert.ok(res.stderr.includes('Conflicting AWS_REGION'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('GATE-07: Passes execution with exit code 0 when Account is 397633117324 and Region is eu-north-1', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
+            try {
+                createMockAws(tmpDir, '397633117324', 'eu-north-1', 0, 0);
+                const res = spawnSync('bash', ['-c', gateScript], {
+                    env: { PATH: `${tmpDir}:${process.env.PATH}`, AWS_REGION: 'eu-north-1' },
+                    encoding: 'utf8'
+                });
+                assert.strictEqual(res.status, 0);
+                assert.ok(res.stdout.includes('GATE_PASSED'));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
             }
         });
     });

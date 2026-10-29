@@ -19,8 +19,8 @@ To avoid conflating unit tests with real cloud infrastructure readiness, Phase 1
 
 | Tier | Status | Scope & Evidence |
 | :--- | :---: | :--- |
-| **Tier 1: Implemented & Unit-Tested** | **VERIFIED** | Codebase validation engines (`AWSConfigValidator`, `BackupEncryptionVerifier`), path traversal defenses, symlink boundaries, circular-ref safe redaction, and 51 leaf unit tests (62 runner test contexts) passing in `tests/phase17_infrastructure_hardening.test.js`. |
-| **Tier 2: Verified in Non-Production Environment** | **VERIFIED** | Standalone preflight CLI (`backend/scripts/preflight-aws-check.js`) running zero-leakage dry-runs, isolated backup test harness (`scripts/release/test-backup-pipeline.sh`), and GitHub Actions CI Quality Gate passing green across PR #24, #25, #26, and #27. |
+| **Tier 1: Implemented & Unit-Tested** | **VERIFIED** | Codebase validation engines (`AWSConfigValidator`, `BackupEncryptionVerifier`), path traversal defenses, symlink boundaries, circular-ref safe redaction, and unit tests passing in `tests/phase17_infrastructure_hardening.test.js`. |
+| **Tier 2: Verified in Non-Production Environment** | **VERIFIED** | Standalone preflight CLI (`backend/scripts/preflight-aws-check.js`) running zero-leakage dry-runs, isolated backup test harness (`scripts/release/test-backup-pipeline.sh`), and GitHub Actions CI Quality Gate passing green across PR #24, #25, #26, #27, and #28. |
 | **Tier 3: Verified in AWS Production** | **VERIFIED (BASELINE)** | EC2 host forensics on `i-01a6c602f0547c9ee` (`13.48.10.13` in `eu-north-1b`). Confirmed local automated backup runs daily at 03:00 UTC creating compressed tarballs in `/home/ubuntu/bharat-crm-backups/archives/`. Confirmed IMDSv2 returns `404` for attached IAM role. |
 | **Tier 4: Blocked Pending Administrator Action** | **BLOCKED (EXT-AWS)** | Attaching `BharatPropertiesCRMInstanceProfile` to EC2 `i-01a6c602f0547c9ee`, provisioning S3 buckets with SSE-KMS, and provisioning Customer Managed KMS Key with automated annual rotation. |
 
@@ -218,7 +218,7 @@ To ensure mutual compatibility between the IAM role policy, the KMS Customer Man
 
 **Policy Compatibility & Least-Privilege Guarantees**:
 1. **Administrative Delegation**: Statement 1 allows IAM policies in account `397633117324` to manage and delegate key permissions.
-2. **Scoping**: Statement 2 restricts key usage to the `BharatPropertiesCRMInstanceRole` strictly when requests originate through S3 in `eu-north-1`.
+2. **Scoping**: Statement 2 restricts key usage to the `BharatPropertiesCRMInstanceRole` strictly when requests originate through S3 in `eu-north-1` under account `397633117324`.
 3. **No Key Administration for EC2**: The instance role has zero permissions to modify key policies, disable keys, or schedule key deletion (`kms:Create*`, `kms:Delete*`, `kms:PutKeyPolicy`, `kms:ScheduleKeyDeletion` are excluded).
 
 ---
@@ -343,6 +343,15 @@ The procedure is partitioned into six strict stages (A through F). Each step exp
   ```
 - **Recovery**: If a bucket returns `403` or `301`, choose an alternative enterprise-compliant name (e.g. appending account ID `bharat-crm-backups-397633117324`).
 
+> [!IMPORTANT]
+> **S3 CreateBucket Failure Diagnosis**:
+> When running `aws s3api create-bucket`, errors must not be misconstrued as proof of availability:
+> - `BucketAlreadyExists`: The requested bucket name is taken by another AWS account globally. The name cannot be used.
+> - `BucketAlreadyOwnedByYou`: The bucket already exists in your account (possibly in another region; verify with `get-bucket-location`).
+> - `AccessDenied`: Caller identity lacks `s3:CreateBucket` permissions or an SCP/permission boundary prevents bucket creation.
+> - `InvalidBucketName`: The proposed name violates S3 naming conventions.
+> - `OperationAborted`: A conflicting operation is currently executing against the bucket name.
+
 ---
 
 ### STAGE B: IAM Role & Instance Profile Review / Creation
@@ -350,10 +359,59 @@ The procedure is partitioned into six strict stages (A through F). Each step exp
 #### Pre-Mutation Safety Gate for Stage B
 ```bash
 set -euo pipefail
-CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text)
-CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
-[ "$CURRENT_ACCOUNT" = "397633117324" ] || { echo "Account check failed"; exit 1; }
-[ "$CURRENT_REGION" = "eu-north-1" ] || { echo "Region check failed"; exit 1; }
+
+# 1. Verify aws CLI is installed and executable
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ FATAL: 'aws' command-line interface not found on PATH! Aborting." >&2
+    exit 1
+fi
+
+# 2. Determine and Validate Target Region eu-north-1
+TARGET_REGION="eu-north-1"
+ACTIVE_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d '[:space:]')
+
+if [ -z "$ACTIVE_REGION" ]; then
+    echo "❌ FATAL: AWS region is empty. Must be configured as $TARGET_REGION." >&2
+    exit 1
+fi
+
+if [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+if [ -n "${AWS_REGION:-}" ] && [ "$AWS_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_REGION ($AWS_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+if [ -n "${AWS_DEFAULT_REGION:-}" ] && [ "$AWS_DEFAULT_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_DEFAULT_REGION ($AWS_DEFAULT_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+# 3. Retrieve and Validate Caller Identity (Account 397633117324)
+TARGET_ACCOUNT="397633117324"
+STS_RAW=$(aws sts get-caller-identity --output json 2>&1) || {
+    echo "❌ FATAL: 'aws sts get-caller-identity' failed! CLI output: $STS_RAW" >&2
+    exit 1
+}
+
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>&1) || {
+    echo "❌ FATAL: Failed to query Account ID from STS: $CURRENT_ACCOUNT" >&2
+    exit 1
+}
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d '[:space:]')
+
+if [ -z "$CURRENT_ACCOUNT" ] || [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "❌ FATAL: Caller account ($CURRENT_ACCOUNT) does NOT match target $TARGET_ACCOUNT! Aborting." >&2
+    exit 1
+fi
+
+echo "✅ Safety Gate Passed: Account $TARGET_ACCOUNT in region $TARGET_REGION verified."
 ```
 
 #### Step B.1: Create IAM Role `BharatPropertiesCRMInstanceRole`
@@ -481,10 +539,59 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
 #### Pre-Mutation Safety Gate for Stage C
 ```bash
 set -euo pipefail
-CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text)
-CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
-[ "$CURRENT_ACCOUNT" = "397633117324" ] || { echo "Account check failed"; exit 1; }
-[ "$CURRENT_REGION" = "eu-north-1" ] || { echo "Region check failed"; exit 1; }
+
+# 1. Verify aws CLI is installed and executable
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ FATAL: 'aws' command-line interface not found on PATH! Aborting." >&2
+    exit 1
+fi
+
+# 2. Determine and Validate Target Region eu-north-1
+TARGET_REGION="eu-north-1"
+ACTIVE_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d '[:space:]')
+
+if [ -z "$ACTIVE_REGION" ]; then
+    echo "❌ FATAL: AWS region is empty. Must be configured as $TARGET_REGION." >&2
+    exit 1
+fi
+
+if [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+if [ -n "${AWS_REGION:-}" ] && [ "$AWS_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_REGION ($AWS_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+if [ -n "${AWS_DEFAULT_REGION:-}" ] && [ "$AWS_DEFAULT_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_DEFAULT_REGION ($AWS_DEFAULT_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+# 3. Retrieve and Validate Caller Identity (Account 397633117324)
+TARGET_ACCOUNT="397633117324"
+STS_RAW=$(aws sts get-caller-identity --output json 2>&1) || {
+    echo "❌ FATAL: 'aws sts get-caller-identity' failed! CLI output: $STS_RAW" >&2
+    exit 1
+}
+
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>&1) || {
+    echo "❌ FATAL: Failed to query Account ID from STS: $CURRENT_ACCOUNT" >&2
+    exit 1
+}
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d '[:space:]')
+
+if [ -z "$CURRENT_ACCOUNT" ] || [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "❌ FATAL: Caller account ($CURRENT_ACCOUNT) does NOT match target $TARGET_ACCOUNT! Aborting." >&2
+    exit 1
+fi
+
+echo "✅ Safety Gate Passed: Account $TARGET_ACCOUNT in region $TARGET_REGION verified."
 ```
 
 #### Step C.1: Provision Customer Managed KMS Key (CMK)
@@ -597,11 +704,17 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
           }'
   done
 
-  # 4. Enable Object Versioning on Backup Bucket (Guarantees Overwrite/Deletion Protection)
+  # 4. Enable Object Versioning on Backup Bucket (Provides Accidental Overwrite Protection & Version History)
   aws s3api put-bucket-versioning \
       --bucket bharat-crm-backups-eu-north-1 \
       --versioning-configuration Status=Enabled
   ```
+
+> [!NOTE]
+> **Object Versioning vs. Legal WORM / Immutable Retention**:
+> Enabling S3 Object Versioning protects against accidental file overwrites (by creating version records instead of replacing data in place) and protects against accidental deletes (by creating delete markers).
+> However, Object Versioning alone **does NOT constitute true WORM (Write Once, Read Many) or immutable retention**. Any privileged identity possessing `s3:DeleteObjectVersion` permissions (such as the AWS account root or an administrator) can still permanently delete past versions. For legal WORM immutability, **S3 Object Lock** (in Compliance Mode with fixed retention periods or Legal Holds) must be configured at bucket creation time.
+
 - **Expected Result**: Buckets provisioned, private, encrypted, with versioning active on the backup bucket.
 - **Verification**:
   ```bash
@@ -609,7 +722,7 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
   aws s3api get-bucket-encryption --bucket bharat-crm-backups-eu-north-1
   aws s3api get-bucket-versioning --bucket bharat-crm-backups-eu-north-1
   ```
-- **Failure Condition**: Bucket already exists globally in another account or policy rejected.
+- **Failure Condition**: Bucket already exists globally in another account (`BucketAlreadyExists`) or policy rejected.
 - **Safe Reversible Recovery (DO NOT USE `aws s3 rb --force`)**:
   - > [!CAUTION]
     > **NEVER use `aws s3 rb --force` as a routine rollback.**
@@ -628,10 +741,59 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
 #### Pre-Mutation Safety Gate for Stage D
 ```bash
 set -euo pipefail
-CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text)
-CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
-[ "$CURRENT_ACCOUNT" = "397633117324" ] || { echo "Account check failed"; exit 1; }
-[ "$CURRENT_REGION" = "eu-north-1" ] || { echo "Region check failed"; exit 1; }
+
+# 1. Verify aws CLI is installed and executable
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ FATAL: 'aws' command-line interface not found on PATH! Aborting." >&2
+    exit 1
+fi
+
+# 2. Determine and Validate Target Region eu-north-1
+TARGET_REGION="eu-north-1"
+ACTIVE_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d '[:space:]')
+
+if [ -z "$ACTIVE_REGION" ]; then
+    echo "❌ FATAL: AWS region is empty. Must be configured as $TARGET_REGION." >&2
+    exit 1
+fi
+
+if [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+if [ -n "${AWS_REGION:-}" ] && [ "$AWS_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_REGION ($AWS_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+if [ -n "${AWS_DEFAULT_REGION:-}" ] && [ "$AWS_DEFAULT_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Conflicting AWS_DEFAULT_REGION ($AWS_DEFAULT_REGION) differs from target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+# 3. Retrieve and Validate Caller Identity (Account 397633117324)
+TARGET_ACCOUNT="397633117324"
+STS_RAW=$(aws sts get-caller-identity --output json 2>&1) || {
+    echo "❌ FATAL: 'aws sts get-caller-identity' failed! CLI output: $STS_RAW" >&2
+    exit 1
+}
+
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>&1) || {
+    echo "❌ FATAL: Failed to query Account ID from STS: $CURRENT_ACCOUNT" >&2
+    exit 1
+}
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d '[:space:]')
+
+if [ -z "$CURRENT_ACCOUNT" ] || [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "❌ FATAL: Caller account ($CURRENT_ACCOUNT) does NOT match target $TARGET_ACCOUNT! Aborting." >&2
+    exit 1
+fi
+
+echo "✅ Safety Gate Passed: Account $TARGET_ACCOUNT in region $TARGET_REGION verified."
 ```
 
 #### Step D.1: Attach Instance Profile to EC2 Host
@@ -715,6 +877,42 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
 > - The live production database `bharat-properties-crm` is never dropped, touched, or modified.
 > - The local production backup directory `/home/ubuntu/bharat-crm-backups/archives/` remains untouched.
 > - All drill files reside strictly in isolated temporary directories (`/tmp/restore-drill-XXXXXX`) and an isolated S3 test prefix (`s3://bharat-crm-backups-eu-north-1/drills/`).
+
+#### Pre-Mutation Safety Gate for Stage E
+```bash
+set -euo pipefail
+
+# 1. Verify aws CLI is installed and executable
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ FATAL: 'aws' command-line interface not found on PATH! Aborting." >&2
+    exit 1
+fi
+
+# 2. Determine and Validate Target Region eu-north-1
+TARGET_REGION="eu-north-1"
+ACTIVE_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d '[:space:]')
+
+if [ -z "$ACTIVE_REGION" ] || [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+# 3. Retrieve and Validate Caller Identity (Account 397633117324)
+TARGET_ACCOUNT="397633117324"
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>&1 || true)
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d '[:space:]')
+
+if [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "❌ FATAL: Caller account ($CURRENT_ACCOUNT) does NOT match target $TARGET_ACCOUNT! Aborting." >&2
+    exit 1
+fi
+
+echo "✅ Safety Gate Passed: Account $TARGET_ACCOUNT in region $TARGET_REGION verified."
+```
 
 #### Step E.1: Generate Isolated Non-Production Test Archive & Manifest
 - **Action**: `[LOCAL TEST on EC2]` Create a mock database dump with synthetic data.
@@ -814,6 +1012,42 @@ CURRENT_REGION=$(aws configure get region || echo "${AWS_DEFAULT_REGION:-}")
 > [!CAUTION]
 > Do NOT execute Stage F until Stage E has completely passed and written verification evidence is signed off by the engineering lead.
 
+#### Pre-Mutation Safety Gate for Stage F
+```bash
+set -euo pipefail
+
+# 1. Verify aws CLI is installed and executable
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ FATAL: 'aws' command-line interface not found on PATH! Aborting." >&2
+    exit 1
+fi
+
+# 2. Determine and Validate Target Region eu-north-1
+TARGET_REGION="eu-north-1"
+ACTIVE_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [ -z "$ACTIVE_REGION" ]; then
+    ACTIVE_REGION=$(aws configure get region 2>/dev/null || true)
+fi
+ACTIVE_REGION=$(echo "$ACTIVE_REGION" | tr -d '[:space:]')
+
+if [ -z "$ACTIVE_REGION" ] || [ "$ACTIVE_REGION" != "$TARGET_REGION" ]; then
+    echo "❌ FATAL: Active region ($ACTIVE_REGION) does NOT match target $TARGET_REGION! Aborting." >&2
+    exit 1
+fi
+
+# 3. Retrieve and Validate Caller Identity (Account 397633117324)
+TARGET_ACCOUNT="397633117324"
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query 'Account' --output text 2>&1 || true)
+CURRENT_ACCOUNT=$(echo "$CURRENT_ACCOUNT" | tr -d '[:space:]')
+
+if [ "$CURRENT_ACCOUNT" != "$TARGET_ACCOUNT" ]; then
+    echo "❌ FATAL: Caller account ($CURRENT_ACCOUNT) does NOT match target $TARGET_ACCOUNT! Aborting." >&2
+    exit 1
+fi
+
+echo "✅ Safety Gate Passed: Account $TARGET_ACCOUNT in region $TARGET_REGION verified."
+```
+
 #### Step F.1: Run Local Environment Dry-Run Preflight
 - **Action**: `[READ-ONLY on EC2]` Validate production `.env` configuration.
 - **Command (on EC2)**:
@@ -876,9 +1110,9 @@ If any issue arises during or after instance profile attachment:
        echo "✅ Instance profile disassociated safely. No resources destroyed."
    fi
    ```
-2. **Zero Downtime Fallback**:
-   - The application document service and backup scripts automatically detect missing S3 credentials or disabled instance profiles and gracefully fall back to local directory storage (`/home/ubuntu/bharat-crm-backups/archives/`).
-   - Detaching the instance profile causes zero disruption to PM2 processes, database connections, or CRM web operations.
+2. **Zero Downtime Fallback Reality**:
+   - **Backup Pipeline Fallback**: The daily backup script (`automated-backup.sh` / `automated-backup-hardened.sh`) creates local encrypted tarballs in `/home/ubuntu/bharat-crm-backups/archives/` regardless of S3 availability. If S3 is unreachable, unconfigured, or the instance profile is detached, offsite S3 synchronization is skipped while local backup generation and retention remain fully functional and intact.
+   - **Document Storage Fallback**: Document service operations enforce a fail-closed model for S3 uploads (`ProviderUnavailableError` when S3 credentials or instance profiles are unavailable). If S3 is detached, document upload endpoints fail closed safely without crashing the Node.js process, while all core CRM business operations (lead management, deal tracking, contact pipeline, real-time messaging, and database transactions) remain 100% unaffected and online.
 
 ---
 
