@@ -1863,15 +1863,15 @@ export const getDeals = async (req, res) => {
             }
 
             if (inventory) {
-                // Only fall back to inventory owner if deal does not already have a populated owner with name
+                // Only fall back to inventory owner if deal does not explicitly have isOwnerSelected: false, and does not already have a populated owner with name
                 const hasPopulatedOwner = dealObj.owner && typeof dealObj.owner === 'object' && dealObj.owner.name;
-                if (!hasPopulatedOwner && inventory.owners?.[0]) {
+                if (dealObj.isOwnerSelected !== false && !hasPopulatedOwner && inventory.owners?.[0]) {
                     dealObj.owner = inventory.owners[0];
                 }
 
-                // Only fall back to inventory associate if deal does not already have a populated associate with name
+                // Only fall back to inventory associate if deal does not explicitly have isAssociateSelected: false, and does not already have a populated associate with name
                 const hasPopulatedAssoc = dealObj.associatedContact && typeof dealObj.associatedContact === 'object' && dealObj.associatedContact.name;
-                if (!hasPopulatedAssoc && inventory.associates?.[0]?.contact) {
+                if (dealObj.isAssociateSelected !== false && !hasPopulatedAssoc && inventory.associates?.[0]?.contact) {
                     dealObj.associatedContact = inventory.associates[0].contact;
                 }
 

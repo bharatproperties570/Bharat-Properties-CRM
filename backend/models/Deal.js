@@ -196,6 +196,12 @@ const DealSchema = new mongoose.Schema({
     // Contacts (Stored as references for live data)
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
     associatedContact: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
+    ownerName: { type: String },
+    ownerPhone: { type: String },
+    ownerEmail: { type: String },
+    associateName: { type: String },
+    associatePhone: { type: String },
+    associateEmail: { type: String },
 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
