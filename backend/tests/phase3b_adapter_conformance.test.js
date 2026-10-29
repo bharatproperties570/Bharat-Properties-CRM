@@ -73,6 +73,9 @@ import {
 import Inventory from '../models/Inventory.js';
 import Role from '../models/Role.js';
 import AuditLog from '../models/AuditLog.js';
+import Lookup from '../models/Lookup.js';
+import Team from '../models/Team.js';
+import User from '../models/User.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -94,7 +97,12 @@ function createNetworkEgressTrap() {
         tlsConnect: tls.connect,
         dgramCreateSocket: dgram.createSocket,
         cpExec: child_process.exec,
-        cpSpawn: child_process.spawn
+        cpSpawn: child_process.spawn,
+        cpExecFile: child_process.execFile,
+        cpExecFileSync: child_process.execFileSync,
+        cpExecSync: child_process.execSync,
+        cpSpawnSync: child_process.spawnSync,
+        cpFork: child_process.fork
     };
 
     const makeTrap = (apiName) => (...args) => {
@@ -120,6 +128,11 @@ function createNetworkEgressTrap() {
             dgram.createSocket = makeTrap('dgram.createSocket');
             child_process.exec = makeTrap('child_process.exec');
             child_process.spawn = makeTrap('child_process.spawn');
+            child_process.execFile = makeTrap('child_process.execFile');
+            child_process.execFileSync = makeTrap('child_process.execFileSync');
+            child_process.execSync = makeTrap('child_process.execSync');
+            child_process.spawnSync = makeTrap('child_process.spawnSync');
+            child_process.fork = makeTrap('child_process.fork');
         },
         disarm: () => {
             globalThis.fetch = orig.fetch;
@@ -135,6 +148,11 @@ function createNetworkEgressTrap() {
             dgram.createSocket = orig.dgramCreateSocket;
             child_process.exec = orig.cpExec;
             child_process.spawn = orig.cpSpawn;
+            child_process.execFile = orig.cpExecFile;
+            child_process.execFileSync = orig.cpExecFileSync;
+            child_process.execSync = orig.cpExecSync;
+            child_process.spawnSync = orig.cpSpawnSync;
+            child_process.fork = orig.cpFork;
         },
         getCalls: () => [...trappedCalls]
     };
@@ -511,10 +529,50 @@ describe('--- PHASE 3B: FIXTURE ADAPTER CONFORMANCE, INPUT INTEGRITY & NETWORK I
                     (err) => err.code === 'ERR_EGRESS_VIOLATION'
                 );
 
+                assert.throws(
+                    () => {
+                        child_process.execSync('curl http://example.com');
+                    },
+                    (err) => err.code === 'ERR_EGRESS_VIOLATION'
+                );
+
+                assert.throws(
+                    () => {
+                        child_process.spawnSync('curl', ['http://example.com']);
+                    },
+                    (err) => err.code === 'ERR_EGRESS_VIOLATION'
+                );
+
+                assert.throws(
+                    () => {
+                        child_process.execFile('curl', ['http://example.com'], () => {});
+                    },
+                    (err) => err.code === 'ERR_EGRESS_VIOLATION'
+                );
+
+                assert.throws(
+                    () => {
+                        child_process.execFileSync('curl', ['http://example.com']);
+                    },
+                    (err) => err.code === 'ERR_EGRESS_VIOLATION'
+                );
+
+                assert.throws(
+                    () => {
+                        child_process.fork('script.js');
+                    },
+                    (err) => err.code === 'ERR_EGRESS_VIOLATION'
+                );
+
                 const trapped = egressTrap.getCalls();
-                assert.strictEqual(trapped.length, 2);
+                assert.strictEqual(trapped.length, 7);
                 assert.strictEqual(trapped[0].apiName, 'http.get');
                 assert.strictEqual(trapped[1].apiName, 'dns.lookup');
+                assert.strictEqual(trapped[2].apiName, 'child_process.execSync');
+                assert.strictEqual(trapped[3].apiName, 'child_process.spawnSync');
+                assert.strictEqual(trapped[4].apiName, 'child_process.execFile');
+                assert.strictEqual(trapped[5].apiName, 'child_process.execFileSync');
+                assert.strictEqual(trapped[6].apiName, 'child_process.fork');
             } finally {
                 egressTrap.disarm();
             }
@@ -656,19 +714,69 @@ describe('--- PHASE 3B: FIXTURE ADAPTER CONFORMANCE, INPUT INTEGRITY & NETWORK I
             assert.strictEqual(cand2.compositeKey, 'HSVP:PANCHKULA:14::101');
         });
 
-        test('9. Zero Contact Creation and Zero Database Mutations', async () => {
+        test('9. Zero Contact Creation and Zero Database Mutations (Deep Content & Method Spy)', async () => {
+            // Seed a representative Inventory document to test content preservation
+            const sampleInv = await Inventory.create({
+                title: 'Baseline Non-Mutation Test Property',
+                unitNo: 'PLOT-999',
+                sector: 'Sector 5',
+                status: 'Available',
+                price: 15000000
+            });
+            const beforeInv = await Inventory.findById(sampleInv._id).lean();
+
             const invCountBefore = await Inventory.countDocuments();
             const roleCountBefore = await Role.countDocuments();
             const auditCountBefore = await AuditLog.countDocuments();
 
-            // Run pipeline across all 3 authorities
-            executeFixturePipeline('HSVP', HSVP_SYNTHETIC.VALID_STRUCTURED.rawData);
-            executeFixturePipeline('CHD', CHD_SYNTHETIC.VALID_FREEHOLD_STRUCTURED.rawData);
-            executeFixturePipeline('GMADA', GMADA_SYNTHETIC.VALID_IT_CITY_SECTOR_66A.rawData);
+            // Track any calls to write methods on Inventory model
+            let writeCalls = 0;
+            const origSave = Inventory.prototype.save;
+            const origUpdateOne = Inventory.updateOne;
+            const origFindOneAndUpdate = Inventory.findOneAndUpdate;
+            Inventory.prototype.save = function(...args) { writeCalls++; return origSave.apply(this, args); };
+            Inventory.updateOne = function(...args) { writeCalls++; return origUpdateOne.apply(this, args); };
+            Inventory.findOneAndUpdate = function(...args) { writeCalls++; return origFindOneAndUpdate.apply(this, args); };
 
-            assert.strictEqual(await Inventory.countDocuments(), invCountBefore);
-            assert.strictEqual(await Role.countDocuments(), roleCountBefore);
-            assert.strictEqual(await AuditLog.countDocuments(), auditCountBefore);
+            try {
+                // Run pipeline across all 3 authorities with candidate building
+                const hsvp = getAdapter('HSVP');
+                const chd = getAdapter('CHD');
+                const gmada = getAdapter('GMADA');
+
+                const cand1 = hsvp.buildVerificationCandidate(
+                    hsvp.normalizeRecord(hsvp.parseFixture(hsvp.validateFixture(HSVP_SYNTHETIC.VALID_STRUCTURED.rawData).sanitizedData)),
+                    sampleInv
+                );
+                const cand2 = chd.buildVerificationCandidate(
+                    chd.normalizeRecord(chd.parseFixture(chd.validateFixture(CHD_SYNTHETIC.VALID_FREEHOLD_STRUCTURED.rawData).sanitizedData)),
+                    sampleInv
+                );
+                const cand3 = gmada.buildVerificationCandidate(
+                    gmada.normalizeRecord(gmada.parseFixture(gmada.validateFixture(GMADA_SYNTHETIC.VALID_IT_CITY_SECTOR_66A.rawData).sanitizedData)),
+                    sampleInv
+                );
+
+                assert.ok(cand1);
+                assert.ok(cand2);
+                assert.ok(cand3);
+
+                // 1. Assert ZERO write method invocations occurred during candidate generation
+                assert.strictEqual(writeCalls, 0, 'Candidate generation must not invoke any database write methods');
+
+                // 2. Assert document counts remain strictly identical
+                assert.strictEqual(await Inventory.countDocuments(), invCountBefore);
+                assert.strictEqual(await Role.countDocuments(), roleCountBefore);
+                assert.strictEqual(await AuditLog.countDocuments(), auditCountBefore);
+
+                // 3. Deep-compare document content before and after to prove zero modification
+                const afterInv = await Inventory.findById(sampleInv._id).lean();
+                assert.deepStrictEqual(afterInv, beforeInv, 'Existing inventory document content must not be altered');
+            } finally {
+                Inventory.prototype.save = origSave;
+                Inventory.updateOne = origUpdateOne;
+                Inventory.findOneAndUpdate = origFindOneAndUpdate;
+            }
         });
     });
 
