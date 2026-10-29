@@ -72,6 +72,7 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
             await mongoose.disconnect();
         }
         await mongoose.connect(uri);
+        await PropertyVerificationRunItem.init();
 
         const app = express();
         app.use(express.json());
@@ -526,37 +527,44 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
             ];
 
             for (const s of sentinelsToTest) {
-                const item = await PropertyVerificationRunItem.create({
-                    tenantId: tenantA,
-                    runId: testRun._id,
-                    inventoryId: testInv._id,
-                    linkId: testLink._id,
-                    authorityCode: 'HSVP',
-                    status: 'SUCCEEDED',
-                    reviewerDecision: 'APPROVED',
-                    proposedChanges: [
-                        {
-                            field: 'authorityVerification.propertySize',
-                            currentValue: '500 Sq Yards',
-                            proposedValue: s,
-                            approved: true
+                let item = null;
+                try {
+                    item = await PropertyVerificationRunItem.create({
+                        tenantId: tenantA,
+                        runId: testRun._id,
+                        inventoryId: testInv._id,
+                        linkId: testLink._id,
+                        authorityCode: 'HSVP',
+                        status: 'SUCCEEDED',
+                        reviewerDecision: 'APPROVED',
+                        proposedChanges: [
+                            {
+                                field: 'authorityVerification.propertySize',
+                                currentValue: '500 Sq Yards',
+                                proposedValue: s,
+                                approved: true
+                            }
+                        ]
+                    });
+
+                    const res = await fetch(`${baseUrl}/api/authority/apply/${item._id}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${adminToken}`
                         }
-                    ]
-                });
+                    });
 
-                const res = await fetch(`${baseUrl}/api/authority/apply/${item._id}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${adminToken}`
+                    assert.equal(res.status, 422, `Sentinel ${JSON.stringify(s)} must be rejected`);
+
+                    const ref = await Inventory.findById(testInv._id).lean();
+                    assert.equal(ref.authorityVerification?.propertySize, '500 Sq Yards',
+                        'Existing verified propertySize must not be cleared by sentinel');
+                } finally {
+                    if (item?._id) {
+                        await PropertyVerificationRunItem.deleteOne({ _id: item._id });
                     }
-                });
-
-                assert.equal(res.status, 422, `Sentinel ${JSON.stringify(s)} must be rejected`);
-
-                const ref = await Inventory.findById(testInv._id).lean();
-                assert.equal(ref.authorityVerification?.propertySize, '500 Sq Yards',
-                    'Existing verified propertySize must not be cleared by sentinel');
+                }
             }
         });
     });
