@@ -259,4 +259,148 @@ describe('Phase 18 — Marketing OS Attribution & Full-Funnel Analytics Suite', 
             assert.strictEqual(stats.financialStatus, 'DEFERRED_COST_SOURCE');
         });
     });
+
+    describe('5. Analytics Controller Input Validation & Visibility Scoping', () => {
+        let getSiteVisitFunnelAnalytics, getCampaignAttributionAnalytics, getStageDensity;
+
+        before(async () => {
+            const mod = await import('../controllers/analytics.controller.js');
+            getSiteVisitFunnelAnalytics = mod.getSiteVisitFunnelAnalytics;
+            getCampaignAttributionAnalytics = mod.getCampaignAttributionAnalytics;
+            getStageDensity = mod.getStageDensity;
+        });
+
+        it('SEC-AN-01: Rejects object/array query parameter injection', async () => {
+            const maliciousQueries = [
+                { projectId: { $ne: null } },
+                { agentId: { $ne: null } },
+                { timeframe: { $gt: 0 } },
+                { $where: 'sleep(100)' },
+                { 'details.projectName': 'injected' }
+            ];
+
+            for (const q of maliciousQueries) {
+                const res = {
+                    statusCode: 200,
+                    body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: q }, res);
+                assert.strictEqual(res.statusCode, 400, `Expected 400 for query: ${JSON.stringify(q)}`);
+                assert.strictEqual(res.body.success, false);
+            }
+        });
+
+        it('SEC-AN-02: Rejects invalid agentId formats and invalid projectId values', async () => {
+            const invalidIds = ['not-an-id', '123', '64b8a2f1c9e77a001234567z'];
+            for (const badId of invalidIds) {
+                const res = {
+                    statusCode: 200,
+                    body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: { agentId: badId } }, res);
+                assert.strictEqual(res.statusCode, 400);
+                assert.strictEqual(res.body.success, false);
+            }
+
+            // Project starting with $
+            const projRes = {
+                statusCode: 200,
+                body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+            await getSiteVisitFunnelAnalytics({ query: { projectId: '$where' } }, projRes);
+            assert.strictEqual(projRes.statusCode, 400);
+            assert.strictEqual(projRes.body.success, false);
+        });
+
+        it('SEC-AN-03: Rejects partial, invalid, and inverted date ranges', async () => {
+            const badDates = [
+                { startDate: '2026-01-01' },
+                { endDate: '2026-01-31' },
+                { startDate: 'invalid', endDate: '2026-01-31' },
+                { startDate: '2026-02-01', endDate: '2026-01-01' },
+                { timeframe: '-5' },
+                { timeframe: 'abc' }
+            ];
+
+            for (const q of badDates) {
+                const res = {
+                    statusCode: 200,
+                    body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: q }, res);
+                assert.strictEqual(res.statusCode, 400, `Expected 400 for: ${JSON.stringify(q)}`);
+                assert.strictEqual(res.body.success, false);
+            }
+        });
+
+        it('SEC-AN-04: Successfully executes with valid query and scopes to tenant user', async () => {
+            const tenantId = new mongoose.Types.ObjectId();
+            const user = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'tenant_analyst@tenant.com',
+                role: { name: 'analyst' },
+                tenantId: tenantId,
+                dataScope: 'all'
+            };
+
+            const validAgentId = new mongoose.Types.ObjectId().toString();
+            const res = {
+                statusCode: 200,
+                body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user,
+                query: { timeframe: '30', agentId: validAgentId, projectId: 'Palm Retreat' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            assert.strictEqual(res.body.success, true);
+            assert.ok(res.body.data.summary);
+            assert.ok(Array.isArray(res.body.data.projectBreakdown));
+
+            // Also test Campaign Attribution
+            const campRes = {
+                statusCode: 200,
+                body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+            await getCampaignAttributionAnalytics({
+                user,
+                query: { timeframe: 'all' }
+            }, campRes);
+
+            assert.strictEqual(campRes.statusCode, 200);
+            assert.strictEqual(campRes.body.success, true);
+            assert.ok(Array.isArray(campRes.body.data.campaigns));
+
+            // Also test Stage Density
+            const stageRes = {
+                statusCode: 200,
+                body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+            await getStageDensity({
+                user,
+                query: { timeframe: '90' }
+            }, stageRes);
+
+            assert.strictEqual(stageRes.statusCode, 200);
+            assert.strictEqual(stageRes.body.success, true);
+            assert.ok(Array.isArray(stageRes.body.data.leads));
+            assert.ok(Array.isArray(stageRes.body.data.deals));
+        });
+    });
 });

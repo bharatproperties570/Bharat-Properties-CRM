@@ -4,17 +4,98 @@ import Deal from '../models/Deal.js';
 import Lookup from '../models/Lookup.js';
 import Activity from '../models/Activity.js';
 import Booking from '../models/Booking.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
+
+/**
+ * Validates query parameters against object/array injection and operator injection.
+ * Rejects any parameter whose value is an object or array, or whose key starts with '$' or contains '.'.
+ */
+const validateScalarQueryParams = (query) => {
+    if (!query || typeof query !== 'object') return { valid: true };
+    for (const key of Object.keys(query)) {
+        if (key.startsWith('$') || key.includes('.')) {
+            return { valid: false, message: `Invalid query parameter name: "${key}"` };
+        }
+        const val = query[key];
+        if (val !== null && typeof val === 'object') {
+            return { valid: false, message: `Invalid query parameter: "${key}" must be a scalar value, not an object or array` };
+        }
+    }
+    return { valid: true };
+};
+
+/**
+ * Validates and normalizes timeframe and date range query parameters.
+ */
+const parseDateRange = (query) => {
+    const { startDate, endDate, timeframe } = query;
+
+    // Both startDate and endDate must be provided if either is present
+    if (startDate !== undefined || endDate !== undefined) {
+        if (startDate === undefined || endDate === undefined) {
+            return { error: 'Both startDate and endDate must be provided together' };
+        }
+        if (typeof startDate !== 'string' || typeof endDate !== 'string') {
+            return { error: 'startDate and endDate must be strings' };
+        }
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            return { error: 'Invalid startDate or endDate: must be valid ISO date strings' };
+        }
+        if (start > end) {
+            return { error: 'startDate cannot be after endDate' };
+        }
+        return { dateFilter: { createdAt: { $gte: start, $lte: end } } };
+    }
+
+    // If timeframe is provided
+    if (timeframe !== undefined) {
+        if (typeof timeframe !== 'string' && typeof timeframe !== 'number') {
+            return { error: 'timeframe must be a scalar value' };
+        }
+        const tfStr = String(timeframe).trim();
+        if (tfStr === 'all') {
+            return { dateFilter: {} };
+        }
+        if (!/^\d+$/.test(tfStr)) {
+            return { error: 'Invalid timeframe: must be a positive integer or "all"' };
+        }
+        const days = parseInt(tfStr, 10);
+        if (days <= 0 || days > 3650) {
+            return { error: 'Invalid timeframe: must be between 1 and 3650 days' };
+        }
+        const dateLimit = new Date();
+        dateLimit.setDate(dateLimit.getDate() - days);
+        return { dateFilter: { createdAt: { $gte: dateLimit } } };
+    }
+
+    // Default 30 days
+    const dateLimit = new Date();
+    dateLimit.setDate(dateLimit.getDate() - 30);
+    return { dateFilter: { createdAt: { $gte: dateLimit } } };
+};
 
 export const getStageDensity = async (req, res) => {
     try {
-        const { timeframe } = req.query; // '30', '90', '365', 'all'
-        const dateFilter = {};
-        if (timeframe && timeframe !== 'all') {
-            const days = parseInt(timeframe, 10);
-            if (!isNaN(days)) {
-                const dateLimit = new Date();
-                dateLimit.setDate(dateLimit.getDate() - days);
-                dateFilter.createdAt = { $gte: dateLimit };
+        const paramCheck = validateScalarQueryParams(req.query);
+        if (!paramCheck.valid) {
+            return res.status(400).json({ success: false, message: paramCheck.message });
+        }
+
+        const dateResult = parseDateRange(req.query);
+        if (dateResult.error) {
+            return res.status(400).json({ success: false, message: dateResult.error });
+        }
+        const dateFilter = dateResult.dateFilter;
+
+        let visibilityFilter = {};
+        if (req.user) {
+            try {
+                visibilityFilter = await getVisibilityFilter(req.user);
+            } catch (err) {
+                console.error('[Analytics] getVisibilityFilter failure in getStageDensity:', err);
+                return res.status(403).json({ success: false, message: 'Access denied: visibility resolution failed' });
             }
         }
 
@@ -22,9 +103,12 @@ export const getStageDensity = async (req, res) => {
         const lookupMap = {};
         lookups.forEach(l => lookupMap[l._id.toString()] = l.lookup_value);
 
-        const leadQuery = { isLost: { $ne: true }, ...dateFilter };
+        const leadMatch = Object.keys(visibilityFilter).length > 0
+            ? { isLost: { $ne: true }, ...dateFilter, $and: [visibilityFilter] }
+            : { isLost: { $ne: true }, ...dateFilter };
+
         // We will fetch all active leads
-        const leads = await Lead.find(leadQuery)
+        const leads = await Lead.find(leadMatch)
             .select('stage stageChangedAt createdAt status owner stageHistory')
             .populate('owner', 'fullName name')
             .lean();
@@ -58,9 +142,12 @@ export const getStageDensity = async (req, res) => {
             };
         });
 
-        const dealQuery = { isVisible: true, ...dateFilter };
+        const dealMatch = Object.keys(visibilityFilter).length > 0
+            ? { isVisible: true, ...dateFilter, $and: [visibilityFilter] }
+            : { isVisible: true, ...dateFilter };
+
         // Also fetch active Deals for revenue forecast
-        const deals = await Deal.find(dealQuery)
+        const deals = await Deal.find(dealMatch)
             .select('stage price expectedCommission stageChangedAt createdAt assignedTo stageHistory')
             .populate('assignedTo', 'fullName name')
             .lean();
@@ -98,38 +185,66 @@ export const getStageDensity = async (req, res) => {
 
 export const getSiteVisitFunnelAnalytics = async (req, res) => {
     try {
-        const { timeframe = '30', startDate, endDate, projectId, agentId } = req.query;
-
-        let dateFilter = {};
-        if (startDate && endDate) {
-            dateFilter.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
-        } else if (timeframe && timeframe !== 'all') {
-            const days = parseInt(timeframe, 10);
-            if (!isNaN(days)) {
-                const dateLimit = new Date();
-                dateLimit.setDate(dateLimit.getDate() - days);
-                dateFilter.createdAt = { $gte: dateLimit };
-            }
+        const paramCheck = validateScalarQueryParams(req.query);
+        if (!paramCheck.valid) {
+            return res.status(400).json({ success: false, message: paramCheck.message });
         }
+
+        const dateResult = parseDateRange(req.query);
+        if (dateResult.error) {
+            return res.status(400).json({ success: false, message: dateResult.error });
+        }
+        const dateFilter = dateResult.dateFilter;
+
+        const { projectId, agentId } = req.query;
 
         const visitMatch = {
             type: 'Site Visit',
             ...dateFilter
         };
 
-        if (agentId && mongoose.Types.ObjectId.isValid(agentId)) {
-            visitMatch.assignedTo = new mongoose.Types.ObjectId(agentId);
+        if (agentId !== undefined) {
+            if (typeof agentId !== 'string') {
+                return res.status(400).json({ success: false, message: 'Invalid agentId: must be a scalar string' });
+            }
+            const trimmedAgentId = agentId.trim();
+            if (!/^[0-9a-fA-F]{24}$/.test(trimmedAgentId) || !mongoose.Types.ObjectId.isValid(trimmedAgentId)) {
+                return res.status(400).json({ success: false, message: 'Invalid agentId: must be a valid 24-character hexadecimal ObjectId' });
+            }
+            visitMatch.assignedTo = new mongoose.Types.ObjectId(trimmedAgentId);
         }
-        if (projectId) {
-            visitMatch['details.projectName'] = projectId;
+
+        if (projectId !== undefined) {
+            if (typeof projectId !== 'string') {
+                return res.status(400).json({ success: false, message: 'Invalid projectId: must be a scalar string' });
+            }
+            const trimmedProject = projectId.trim();
+            if (trimmedProject.length === 0 || trimmedProject.startsWith('$')) {
+                return res.status(400).json({ success: false, message: 'Invalid projectId parameter' });
+            }
+            visitMatch['details.projectName'] = trimmedProject;
         }
+
+        let visibilityFilter = {};
+        if (req.user) {
+            try {
+                visibilityFilter = await getVisibilityFilter(req.user);
+            } catch (err) {
+                console.error('[Analytics] getVisibilityFilter failure in getSiteVisitFunnelAnalytics:', err);
+                return res.status(403).json({ success: false, message: 'Access denied: visibility resolution failed' });
+            }
+        }
+
+        const finalVisitMatch = Object.keys(visibilityFilter).length > 0
+            ? { ...visitMatch, $and: [visibilityFilter] }
+            : visitMatch;
 
         const ActivityModel = mongoose.models.Activity || Activity;
         const DealModel = mongoose.models.Deal || Deal;
         const BookingModel = mongoose.models.Booking || Booking;
 
         // Aggregation for funnel stats
-        const visits = await ActivityModel.find(visitMatch).lean();
+        const visits = await ActivityModel.find(finalVisitMatch).lean();
 
         const totalScheduled = visits.length;
         const completedVisits = visits.filter(v => v.status === 'Completed');
@@ -167,12 +282,21 @@ export const getSiteVisitFunnelAnalytics = async (req, res) => {
 
         // Deals & Revenue Attribution
         const completedVisitIds = completedVisits.map(v => v._id);
-        const linkedDeals = await DealModel.find({
-            $or: [
-                { siteVisitId: { $in: completedVisitIds } },
-                { _id: { $in: completedVisits.map(v => v.details?.linkedDealId).filter(Boolean) } }
-            ]
-        }).lean();
+        const linkedDealIds = completedVisits.map(v => v.details?.linkedDealId).filter(Boolean);
+
+        let linkedDeals = [];
+        if (completedVisitIds.length > 0 || linkedDealIds.length > 0) {
+            const dealOrClauses = [];
+            if (completedVisitIds.length > 0) dealOrClauses.push({ siteVisitId: { $in: completedVisitIds } });
+            if (linkedDealIds.length > 0) dealOrClauses.push({ _id: { $in: linkedDealIds } });
+
+            const dealMatch = { $or: dealOrClauses };
+            const finalDealMatch = Object.keys(visibilityFilter).length > 0
+                ? { ...dealMatch, $and: [visibilityFilter] }
+                : dealMatch;
+
+            linkedDeals = await DealModel.find(finalDealMatch).lean();
+        }
 
         const dealsCreated = linkedDeals.length;
         const wonStages = ['Closed', 'Closed Won', 'Booked'];
@@ -182,12 +306,20 @@ export const getSiteVisitFunnelAnalytics = async (req, res) => {
         const totalDealValue = wonDeals.reduce((sum, d) => sum + (d.price || d.quotePrice || 0), 0);
 
         // Bookings directly attributed
-        const linkedBookings = await BookingModel.find({
-            $or: [
-                { siteVisitId: { $in: completedVisitIds } },
-                { dealId: { $in: linkedDeals.map(d => d._id) } }
-            ]
-        }).lean();
+        let linkedBookings = [];
+        const dealIds = linkedDeals.map(d => d._id);
+        if (completedVisitIds.length > 0 || dealIds.length > 0) {
+            const bookingOrClauses = [];
+            if (completedVisitIds.length > 0) bookingOrClauses.push({ siteVisitId: { $in: completedVisitIds } });
+            if (dealIds.length > 0) bookingOrClauses.push({ dealId: { $in: dealIds } });
+
+            const bookingMatch = { $or: bookingOrClauses };
+            const finalBookingMatch = Object.keys(visibilityFilter).length > 0
+                ? { ...bookingMatch, $and: [visibilityFilter] }
+                : bookingMatch;
+
+            linkedBookings = await BookingModel.find(finalBookingMatch).lean();
+        }
 
         const totalBookings = linkedBookings.length;
         const totalRevenue = linkedBookings.reduce((sum, b) => sum + (b.totalDealAmount || 0), 0);
@@ -245,17 +377,24 @@ export const getSiteVisitFunnelAnalytics = async (req, res) => {
 
 export const getCampaignAttributionAnalytics = async (req, res) => {
     try {
-        const { timeframe = '30', startDate, endDate } = req.query;
+        const paramCheck = validateScalarQueryParams(req.query);
+        if (!paramCheck.valid) {
+            return res.status(400).json({ success: false, message: paramCheck.message });
+        }
 
-        let dateFilter = {};
-        if (startDate && endDate) {
-            dateFilter.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
-        } else if (timeframe && timeframe !== 'all') {
-            const days = parseInt(timeframe, 10);
-            if (!isNaN(days)) {
-                const dateLimit = new Date();
-                dateLimit.setDate(dateLimit.getDate() - days);
-                dateFilter.createdAt = { $gte: dateLimit };
+        const dateResult = parseDateRange(req.query);
+        if (dateResult.error) {
+            return res.status(400).json({ success: false, message: dateResult.error });
+        }
+        const dateFilter = dateResult.dateFilter;
+
+        let visibilityFilter = {};
+        if (req.user) {
+            try {
+                visibilityFilter = await getVisibilityFilter(req.user);
+            } catch (err) {
+                console.error('[Analytics] getVisibilityFilter failure in getCampaignAttributionAnalytics:', err);
+                return res.status(403).json({ success: false, message: 'Access denied: visibility resolution failed' });
             }
         }
 
@@ -264,17 +403,33 @@ export const getCampaignAttributionAnalytics = async (req, res) => {
         const DealModel = mongoose.models.Deal || Deal;
         const BookingModel = mongoose.models.Booking || Booking;
 
+        const leadMatch = Object.keys(visibilityFilter).length > 0
+            ? { ...dateFilter, $and: [visibilityFilter] }
+            : { ...dateFilter };
+
+        const visitMatch = Object.keys(visibilityFilter).length > 0
+            ? { type: 'Site Visit', ...dateFilter, $and: [visibilityFilter] }
+            : { type: 'Site Visit', ...dateFilter };
+
+        const dealMatch = Object.keys(visibilityFilter).length > 0
+            ? { ...dateFilter, $and: [visibilityFilter] }
+            : { ...dateFilter };
+
+        const bookingMatch = Object.keys(visibilityFilter).length > 0
+            ? { ...dateFilter, $and: [visibilityFilter] }
+            : { ...dateFilter };
+
         // Fetch leads in date range
-        const leads = await LeadModel.find(dateFilter).select('_id source campaign source_meta createdAt stage isWon').lean();
+        const leads = await LeadModel.find(leadMatch).select('_id source campaign source_meta createdAt stage isWon').lean();
 
         // Fetch site visits in date range
-        const visits = await ActivityModel.find({ type: 'Site Visit', ...dateFilter }).select('_id entityId entityType status details').lean();
+        const visits = await ActivityModel.find(visitMatch).select('_id entityId entityType status details').lean();
 
         // Fetch deals in date range
-        const deals = await DealModel.find(dateFilter).select('_id leadId siteVisitId stage price marketingAttribution source').lean();
+        const deals = await DealModel.find(dealMatch).select('_id leadId siteVisitId stage price marketingAttribution source').lean();
 
         // Fetch bookings in date range
-        const bookings = await BookingModel.find(dateFilter).select('_id lead dealId siteVisitId totalDealAmount commissionReceived marketingAttribution').lean();
+        const bookings = await BookingModel.find(bookingMatch).select('_id lead dealId siteVisitId totalDealAmount commissionReceived marketingAttribution').lean();
 
         const campaignMap = {};
 
