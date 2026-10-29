@@ -109,9 +109,10 @@ export const createStandardizedLead = async (data, context = {}) => {
         }
     }
 
+    const query = Lead.findById(createdLeadId);
     const lead = isExternalSession
-        ? ((await Lead.findById(createdLeadId).session(session)) || createdLeadDoc)
-        : await Lead.findById(createdLeadId);
+        ? ((query && typeof query.session === 'function' ? await query.session(session) : await query) || createdLeadDoc)
+        : await query;
 
     // Return the exact same contract. Assignment is deferred to the domainEventWorker.
     return { success: true, lead, contact: newContact, assignment: null };
