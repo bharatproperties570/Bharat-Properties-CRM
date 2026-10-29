@@ -235,6 +235,26 @@ test('Phase 17 — AWS Infrastructure Hardening & Preflight Suite', async (t) =>
             assert.ok(!sanitized.includes('mypassword'));
             assert.ok(sanitized.includes('[REDACTED]'));
         });
+
+        await t.test('SEC-06: Safely handles objects and errors with circular references without stack overflow', () => {
+            const circularObj = {
+                region: 'eu-north-1',
+                apiKey: 'AIzaSySecretApiKey'
+            };
+            circularObj.self = circularObj;
+
+            const sanitized = AWSConfigValidator.sanitizeConfigForLog(circularObj);
+            assert.strictEqual(sanitized.region, 'eu-north-1');
+            assert.strictEqual(sanitized.apiKey, '[REDACTED]');
+            assert.strictEqual(sanitized.self, '[CIRCULAR]');
+
+            // Also test circular reference in error cause / properties
+            const circularErr = new Error('Database error');
+            circularErr.context = { errRef: circularErr };
+            const sanitizedErr = AWSConfigValidator.sanitizeConfigForLog(circularErr);
+            assert.strictEqual(sanitizedErr.name, 'Error');
+            assert.strictEqual(sanitizedErr.context.errRef, '[CIRCULAR]');
+        });
     });
 
     await t.test('6. Dry-Run Environment Preflight Validation', async (t) => {
@@ -659,6 +679,40 @@ test('Phase 17 — AWS Infrastructure Hardening & Preflight Suite', async (t) =>
                 assert.ok(result.errors.some(e => e.includes('Security rejection')));
             } finally {
                 fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+        });
+
+        await t.test('TRAV-07: resolveSafeArchivePath and verifyManifestFileOnDisk reject symlinks pointing outside base directory', () => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-symlink-test-'));
+            const outsideFile = path.join(os.tmpdir(), 'outside-secret-file.txt');
+            try {
+                fs.writeFileSync(outsideFile, 'CRITICAL_OUTSIDE_SYSTEM_DATA');
+                const symlinkName = 'bharat-crm-backup-symlink.tar.gz';
+                const symlinkPath = path.join(tmpDir, symlinkName);
+                fs.symlinkSync(outsideFile, symlinkPath);
+
+                // 1. resolveSafeArchivePath rejects symlink escaping base directory
+                const resolveRes = BackupEncryptionVerifier.resolveSafeArchivePath(tmpDir, symlinkName);
+                assert.strictEqual(resolveRes.valid, false);
+                assert.ok(resolveRes.error.includes('Symlink escape detected'));
+
+                // 2. verifyManifestFileOnDisk fails closed on manifest referencing symlink
+                const manifest = {
+                    timestamp: new Date().toISOString(),
+                    archive: symlinkName,
+                    sha256: crypto.createHash('sha256').update(Buffer.from('CRITICAL_OUTSIDE_SYSTEM_DATA')).digest('hex'),
+                    size: 28,
+                    status: 'VALID_LOCAL'
+                };
+                const manifestPath = path.join(tmpDir, 'symlink.manifest.json');
+                fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+                const onDiskRes = BackupEncryptionVerifier.verifyManifestFileOnDisk(manifestPath, tmpDir);
+                assert.strictEqual(onDiskRes.valid, false);
+                assert.ok(onDiskRes.errors.some(e => e.includes('Symlink escape detected')));
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+                if (fs.existsSync(outsideFile)) fs.unlinkSync(outsideFile);
             }
         });
     });

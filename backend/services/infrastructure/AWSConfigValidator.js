@@ -173,11 +173,13 @@ class AWSConfigValidator {
 
     /**
      * Recursively sanitizes any config object, map, error, or array, redacting credentials and secrets.
+     * Prevents call stack overflows by tracking visited objects to safely handle circular references.
      * Safe for printing to logs, CLI outputs, and debugging diagnostics.
      * @param {any} input 
+     * @param {WeakSet<object>} [seen=new WeakSet()] - Set of visited objects for circular reference detection
      * @returns {any} Sanitized clone
      */
-    static sanitizeConfigForLog(input) {
+    static sanitizeConfigForLog(input, seen = new WeakSet()) {
         if (input === null || input === undefined) return input;
 
         if (typeof input === 'string') {
@@ -188,6 +190,12 @@ class AWSConfigValidator {
             return input;
         }
 
+        // Circular reference defense
+        if (seen.has(input)) {
+            return '[CIRCULAR]';
+        }
+        seen.add(input);
+
         // Handle Error instances
         if (input instanceof Error) {
             const sanitizedError = {
@@ -197,7 +205,7 @@ class AWSConfigValidator {
             };
             for (const [key, value] of Object.entries(input)) {
                 if (!['name', 'message', 'stack'].includes(key)) {
-                    sanitizedError[key] = this.sanitizeConfigForLog(value);
+                    sanitizedError[key] = this.sanitizeConfigForLog(value, seen);
                 }
             }
             return sanitizedError;
@@ -205,7 +213,7 @@ class AWSConfigValidator {
 
         // Handle Arrays
         if (Array.isArray(input)) {
-            return input.map(item => this.sanitizeConfigForLog(item));
+            return input.map(item => this.sanitizeConfigForLog(item, seen));
         }
 
         // Handle Objects
@@ -213,14 +221,14 @@ class AWSConfigValidator {
         for (const [key, value] of Object.entries(input)) {
             if (EXCLUDED_SAFE_KEYS.includes(key)) {
                 sanitized[key] = typeof value === 'object' && value !== null
-                    ? this.sanitizeConfigForLog(value)
+                    ? this.sanitizeConfigForLog(value, seen)
                     : value;
             } else if (typeof value !== 'object' && SENSITIVE_KEY_PATTERN.test(key)) {
                 sanitized[key] = '[REDACTED]';
             } else if (typeof value === 'string') {
                 sanitized[key] = this.sanitizeString(value);
             } else if (typeof value === 'object' && value !== null) {
-                sanitized[key] = this.sanitizeConfigForLog(value);
+                sanitized[key] = this.sanitizeConfigForLog(value, seen);
             } else {
                 sanitized[key] = value;
             }
