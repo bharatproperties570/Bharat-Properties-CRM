@@ -82,7 +82,7 @@ describe('AutomatedActionsSettingsPage with DataTable', () => {
     expect(screen.getByText('action-001')).toBeInTheDocument();
     expect(screen.getByText('leads')).toBeInTheDocument();
     expect(screen.getByText('update field')).toBeInTheDocument();
-    expect(screen.getByText('form_submission')).toBeInTheDocument();
+    expect(screen.getByText('form submission')).toBeInTheDocument();
 
     expect(screen.getByText('Lock Unit on Booking Deposit')).toBeInTheDocument();
     expect(screen.getByText('action-002')).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe('AutomatedActionsSettingsPage with DataTable', () => {
 
     fireEvent.click(screen.getByText('Audit Logs'));
 
-    expect(screen.getByText('No logs yet')).toBeInTheDocument();
+    expect(screen.getByText(/No audit logs yet/i)).toBeInTheDocument();
   });
 
   it('displays empty state in Action List when actions is empty', () => {
