@@ -147,21 +147,68 @@ class AWSConfigValidator {
     }
 
     /**
-     * Recursively sanitizes any config object or map, redacting credentials and secrets.
-     * Safe for printing to logs and debugging output.
+     * Sanitizes a string, redacting embedded credentials such as database passwords,
+     * URI authentication tokens, AWS secret keys, and Bearer tokens.
+     * @param {string} str
+     * @returns {string} Sanitized string
+     */
+    static sanitizeString(str) {
+        if (typeof str !== 'string') return str;
+        let sanitized = str;
+
+        // 1. URI Passwords: e.g. mongodb://user:pass123@host or redis://:pass123@host
+        sanitized = sanitized.replace(/(:\/\/[^:]*:)[^@/]+(@)/g, '$1[REDACTED]$2');
+
+        // 2. Bearer Tokens: e.g. Bearer eyJhb... -> Bearer [REDACTED]
+        sanitized = sanitized.replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]');
+
+        // 3. Key-Value secrets in strings: e.g. password=secret123, api_key: "abc"
+        sanitized = sanitized.replace(/((?:password|secret|token|passphrase|private_?key|access_?key|api_?key)\s*[=:]\s*["']?)[^"'\s&,;]+/gi, '$1[REDACTED]');
+
+        // 4. AWS Secret Access Key patterns (40 alphanumeric chars)
+        sanitized = sanitized.replace(/(AWS_SECRET_ACCESS_KEY\s*[=:]\s*)[A-Za-z0-9/+=]{40}/gi, '$1[REDACTED]');
+
+        return sanitized;
+    }
+
+    /**
+     * Recursively sanitizes any config object, map, error, or array, redacting credentials and secrets.
+     * Safe for printing to logs, CLI outputs, and debugging diagnostics.
      * @param {any} input 
      * @returns {any} Sanitized clone
      */
     static sanitizeConfigForLog(input) {
         if (input === null || input === undefined) return input;
+
+        if (typeof input === 'string') {
+            return this.sanitizeString(input);
+        }
+
         if (typeof input !== 'object') {
             return input;
         }
 
+        // Handle Error instances
+        if (input instanceof Error) {
+            const sanitizedError = {
+                name: input.name,
+                message: this.sanitizeString(input.message),
+                stack: input.stack ? this.sanitizeString(input.stack) : undefined
+            };
+            for (const [key, value] of Object.entries(input)) {
+                if (!['name', 'message', 'stack'].includes(key)) {
+                    sanitizedError[key] = this.sanitizeConfigForLog(value);
+                }
+            }
+            return sanitizedError;
+        }
+
+        // Handle Arrays
         if (Array.isArray(input)) {
             return input.map(item => this.sanitizeConfigForLog(item));
         }
 
+        // Handle Objects
         const sanitized = {};
         for (const [key, value] of Object.entries(input)) {
             if (EXCLUDED_SAFE_KEYS.includes(key)) {
@@ -170,6 +217,8 @@ class AWSConfigValidator {
                     : value;
             } else if (typeof value !== 'object' && SENSITIVE_KEY_PATTERN.test(key)) {
                 sanitized[key] = '[REDACTED]';
+            } else if (typeof value === 'string') {
+                sanitized[key] = this.sanitizeString(value);
             } else if (typeof value === 'object' && value !== null) {
                 sanitized[key] = this.sanitizeConfigForLog(value);
             } else {
