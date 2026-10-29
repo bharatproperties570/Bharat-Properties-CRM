@@ -205,6 +205,8 @@ export const automationAPI = {
     createAutomatedAction: (data) => api.post('/automations/actions', data).then(res => res.data),
     updateAutomatedAction: (id, data) => api.put(`/automations/actions/${id}`, data).then(res => res.data),
     deleteAutomatedAction: (id) => api.delete(`/automations/actions/${id}`).then(res => res.data),
+
+    getAuditLogs: (page = 1, limit = 100) => api.get('/automations/audit-logs', { params: { page, limit } }).then(res => res.data),
 };
 
 

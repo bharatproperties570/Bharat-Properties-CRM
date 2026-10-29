@@ -93,6 +93,11 @@ jobs:
           cd backend
           npm run test:phase12
 
+      - name: Run Phase 14 Enterprise Automation Audit Logs Tests
+        run: |
+          cd backend
+          npm run test:phase14
+
       - name: Run Phase D & E Outbox & Domain Event Consumer Tests
         run: |
           cd backend
