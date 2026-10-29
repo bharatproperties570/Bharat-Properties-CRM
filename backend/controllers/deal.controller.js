@@ -2874,35 +2874,227 @@ export const importDeals = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data format" });
         }
 
-        const rawTenantId = req.user?.tenantId || req.user?.tenant;
+        const rawTenantId = req.user?.tenantId || req.user?.tenant || null;
+        const User = mongoose.model('User');
+        const Project = mongoose.model('Project');
+        const Inventory = mongoose.model('Inventory');
+
         const { createStandardizedDeal } = await import('../services/DealCreationEngine.js');
+        const { resolveContactIdentity } = await import('../services/contactIdentity.service.js');
+        const { normalizePhone } = await import('../utils/normalization.js');
 
-        const results = [];
-        let successCount = 0;
-        let failCount = 0;
+        let importedCount = 0;
+        let duplicateCount = 0;
+        let otherErrorCount = 0;
 
-        for (let i = 0; i < data.length; i++) {
-            const item = data[i];
+        const isDuplicateError = (err) => {
+            if (err.name === 'DuplicateDealError' || err.code === 'DUPLICATE_DEAL') return true;
+            if (err.code === 11000) {
+                if (err.keyPattern) {
+                    const keys = Object.keys(err.keyPattern).sort().join(',');
+                    if (keys === 'inventoryId' || keys === 'block,projectName,unitNo') return true;
+                }
+                if (err.message && (err.message.includes('deal_active_inventory_unique') || err.message.includes('deal_active_coordinates_unique') || err.message.includes('DUPLICATE DEAL DETECTED'))) {
+                    return true;
+                }
+            }
+            if (err.message && (err.message.includes('DUPLICATE DEAL DETECTED') || err.message.includes('Duplicate deal detected'))) {
+                return true;
+            }
+            return false;
+        };
+
+        const processRow = async (item, index) => {
             try {
-                // We let Engine handle the normalization, but we map raw CSV keys if needed
-                const dealData = { ...item };
-                if (item.latitude || item.lat) dealData.latitude = item.latitude || item.lat;
-                if (item.longitude || item.lng) dealData.longitude = item.longitude || item.lng;
-                if (rawTenantId) dealData.tenantId = rawTenantId;
+                // 1. Whitelist & Normalize Input
+                const dealData = {
+                    projectName: item.projectName ? String(item.projectName).trim() : null,
+                    block: item.block ? String(item.block).trim() : null,
+                    unitNo: item.unitNo ? String(item.unitNo).trim() : null,
+                    price: parseFloat(item.price) || 0,
+                    unitType: item.unitType,
+                    propertyType: item.propertyType,
+                    category: item.category,
+                    subCategory: item.subCategory,
+                    size: item.size,
+                    location: item.location,
+                    intent: item.intent,
+                    quotePrice: parseFloat(item.quotePrice) || 0,
+                    pricingMode: item.pricingMode || 'Total',
+                    ratePrice: parseFloat(item.ratePrice) || 0,
+                    quoteRatePrice: parseFloat(item.quoteRatePrice) || 0,
+                    pricingNature: {
+                        negotiable: item.negotiable === 'Yes' || item.negotiable === true,
+                        fixed: item.fixed === 'Yes' || item.fixed === true
+                    },
+                    stage: item.stage || item.status || 'Open',
+                    status: item.status || 'Open',
+                    dealType: item.dealType || 'Warm',
+                    transactionType: item.transactionType || 'Full White',
+                    flexiblePercentage: parseFloat(item.flexiblePercentage) || 50,
+                    team: item.team,
+                    visibleTo: item.visibleTo || 'Public',
+                    remarks: item.remarks,
+                    latitude: item.latitude || item.lat,
+                    longitude: item.longitude || item.lng,
+                    date: item.date ? new Date(item.date) : new Date()
+                };
 
-                const input = {
+                if (rawTenantId) {
+                    dealData.tenantId = rawTenantId;
+                }
+
+                let ownerPhone = item.ownerPhone ? String(item.ownerPhone).trim() : null;
+                let ownerName = item.ownerName ? String(item.ownerName).trim() : null;
+                let ownerEmail = item.ownerEmail ? String(item.ownerEmail).trim() : null;
+                let assignedTo = item.assignedTo || item.assignedUser || item.owner || item.ownerId || null;
+                let resolvedProjectId = item.projectId || null;
+                let resolvedInventoryId = item.inventoryId || null;
+                let resolvedOwnerContactId = null;
+
+                if (ownerPhone) {
+                    ownerPhone = normalizePhone(ownerPhone);
+                }
+
+                // 2. Validate assignedTo
+                if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
+                    const userExists = await User.exists({ _id: assignedTo, isActive: true, isDeleted: { $ne: true } });
+                    if (!userExists) {
+                        const err = new Error('User is inactive, deleted, or does not exist');
+                        err.errorCode = 'INVALID_ASSIGNED_USER';
+                        throw err;
+                    }
+                    dealData.assignedTo = assignedTo;
+                } else if (assignedTo && !mongoose.Types.ObjectId.isValid(assignedTo)) {
+                    const err = new Error('assignedTo is not a valid ObjectId');
+                    err.errorCode = 'INVALID_ASSIGNED_USER';
+                    throw err;
+                }
+
+                // 3. Project Resolution & Validation
+                if (resolvedProjectId) {
+                    if (!mongoose.Types.ObjectId.isValid(resolvedProjectId)) {
+                        const err = new Error('projectId is not a valid ObjectId');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    const proj = await Project.findById(resolvedProjectId).lean();
+                    if (!proj) {
+                        const err = new Error('Project not found by ID');
+                        err.errorCode = 'PROJECT_NOT_FOUND';
+                        throw err;
+                    }
+                    if (dealData.projectName && proj.name !== dealData.projectName) {
+                        const err = new Error('projectId and projectName do not match');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    dealData.projectName = proj.name;
+                } else if (dealData.projectName) {
+                    const proj = await Project.findOne({ name: dealData.projectName }).lean();
+                    if (!proj) {
+                        const err = new Error('Project not found by name');
+                        err.errorCode = 'PROJECT_NOT_FOUND';
+                        throw err;
+                    }
+                    resolvedProjectId = proj._id;
+                    dealData.projectName = proj.name;
+                }
+
+                // 4. Inventory Resolution & Coordinate Validation
+                if (resolvedInventoryId) {
+                    if (!mongoose.Types.ObjectId.isValid(resolvedInventoryId)) {
+                        const err = new Error('inventoryId is not a valid ObjectId');
+                        err.errorCode = 'INVALID_INVENTORY_ID';
+                        throw err;
+                    }
+                    const inv = await Inventory.findById(resolvedInventoryId).lean();
+                    if (!inv) {
+                        const err = new Error('Inventory not found by ID');
+                        err.errorCode = 'INVENTORY_NOT_FOUND';
+                        throw err;
+                    }
+
+                    if (resolvedProjectId && inv.projectId && String(inv.projectId) !== String(resolvedProjectId)) {
+                        const err = new Error('inventoryId project mismatch');
+                        err.errorCode = 'INVALID_PROJECT';
+                        throw err;
+                    }
+                    if (dealData.block && inv.block !== dealData.block) {
+                        const err = new Error('inventoryId block mismatch');
+                        err.errorCode = 'INVENTORY_COORDINATE_CONFLICT';
+                        throw err;
+                    }
+                    if (dealData.unitNo && inv.unitNo !== dealData.unitNo) {
+                        const err = new Error('inventoryId unitNo mismatch');
+                        err.errorCode = 'INVENTORY_COORDINATE_CONFLICT';
+                        throw err;
+                    }
+                    dealData.projectName = inv.projectName || dealData.projectName;
+                    resolvedProjectId = inv.projectId || resolvedProjectId;
+                    dealData.block = inv.block || dealData.block;
+                    dealData.unitNo = inv.unitNo || dealData.unitNo;
+                } else if (dealData.projectName && dealData.unitNo) {
+                    const invQuery = {
+                        projectName: dealData.projectName,
+                        unitNo: dealData.unitNo
+                    };
+                    if (dealData.block) invQuery.block = dealData.block;
+                    if (rawTenantId) invQuery.tenantId = rawTenantId;
+
+                    const invs = await Inventory.find(invQuery).lean();
+                    if (invs.length === 0) {
+                        const err = new Error('No matching Inventory found for coordinates');
+                        err.errorCode = 'INVENTORY_NOT_FOUND';
+                        throw err;
+                    }
+                    if (invs.length > 1) {
+                        const err = new Error('Multiple Inventory records found for coordinates');
+                        err.errorCode = 'INVENTORY_AMBIGUOUS';
+                        throw err;
+                    }
+                    resolvedInventoryId = invs[0]._id;
+                    resolvedProjectId = invs[0].projectId || resolvedProjectId;
+                    dealData.block = invs[0].block || dealData.block;
+                }
+
+                // 5. Contact Identity Resolution
+                if (ownerPhone || ownerEmail) {
+                    const contactRes = await resolveContactIdentity({
+                        mobile: ownerPhone,
+                        email: ownerEmail,
+                        tenantId: rawTenantId,
+                        contactData: { name: ownerName },
+                        createIfMissing: true
+                    });
+                    if (contactRes.conflict) {
+                        const err = new Error('Phone and email map to different Contacts');
+                        err.errorCode = 'CONTACT_IDENTITY_CONFLICT';
+                        throw err;
+                    }
+                    if (contactRes.success && contactRes.contact) {
+                        resolvedOwnerContactId = contactRes.contact._id;
+                        dealData.owner = resolvedOwnerContactId;
+                    }
+                }
+
+                // 6. Invoke DealCreationEngine
+                const correlationId = req.headers['x-correlation-id'] || 'bulk-import';
+                const idempotencyKey = `import_${correlationId}_row_${index}_${Date.now()}`;
+
+                const engineInput = {
                     source: 'Import',
-                    idempotencyKey: `import_${req.headers['x-correlation-id'] || Date.now()}_row_${i}`,
-                    correlationId: req.headers['x-correlation-id'] || 'import',
-                    tenantId: rawTenantId || null,
+                    idempotencyKey,
+                    correlationId,
+                    tenantId: rawTenantId,
                     dealData,
                     linkage: {
-                        inventoryId: item.inventoryId,
-                        projectId: item.projectId,
-                        leadId: item.leadId
+                        inventoryId: resolvedInventoryId,
+                        projectId: resolvedProjectId,
+                        leadId: item.leadId || null
                     },
                     ownerInfo: {
-                        owner: item.owner || item.ownerId
+                        owner: resolvedOwnerContactId || assignedTo || null
                     }
                 };
 
@@ -2912,21 +3104,76 @@ export const importDeals = async (req, res) => {
                     triggerMarketing: false,
                     triggerDocumentSync: false,
                     triggerDiscovery: false,
-                    tenantId: rawTenantId || null
+                    tenantId: rawTenantId
                 };
 
-                const resObj = await createStandardizedDeal(input, options);
-                results.push({ row: i, success: true, dealId: resObj.deal._id, duplicate: resObj.isIdempotentReplay, warnings: resObj.warnings });
-                successCount++;
+                const resObj = await createStandardizedDeal(engineInput, options);
+                importedCount++;
+
+                return {
+                    row: index,
+                    status: 'SUCCESS',
+                    success: true,
+                    dealId: resObj.deal._id,
+                    duplicate: resObj.isIdempotentReplay,
+                    warnings: resObj.warnings
+                };
+
             } catch (err) {
-                results.push({ row: i, success: false, error: err.message, code: err.code });
-                failCount++;
+                if (isDuplicateError(err)) {
+                    duplicateCount++;
+                    const isInv = err.message && (err.message.includes('inventory') || err.message.includes('DUPLICATE DEAL DETECTED'));
+                    return {
+                        row: index,
+                        status: 'FAILED',
+                        success: false,
+                        errorCode: isInv ? 'DUPLICATE_INVENTORY' : 'DUPLICATE_COORDINATES',
+                        errorMessage: err.message || 'Duplicate deal detected',
+                        error: err.message || 'Duplicate deal detected'
+                    };
+                } else {
+                    otherErrorCount++;
+                    return {
+                        row: index,
+                        status: 'FAILED',
+                        success: false,
+                        errorCode: err.errorCode || err.code || 'DATABASE_ERROR',
+                        errorMessage: err.message || 'Database error',
+                        error: err.message || 'Database error'
+                    };
+                }
             }
+        };
+
+        // Bounded Concurrency Executor
+        let concurrency = parseInt(process.env.IMPORT_DEAL_CONCURRENCY, 10);
+        if (isNaN(concurrency) || concurrency < 1 || concurrency > 20) {
+            concurrency = 5;
         }
+
+        const results = new Array(data.length);
+        let currentIndex = 0;
+
+        const worker = async () => {
+            while (currentIndex < data.length) {
+                const idx = currentIndex++;
+                results[idx] = await processRow(data[idx], idx);
+            }
+        };
+
+        const workers = [];
+        const workerCount = Math.min(concurrency, data.length);
+        for (let w = 0; w < workerCount; w++) {
+            workers.push(worker());
+        }
+        await Promise.all(workers);
 
         res.status(200).json({
             success: true,
-            message: `Import complete. ${successCount} succeeded, ${failCount} failed.`,
+            message: `Import complete. ${importedCount} succeeded, ${duplicateCount + otherErrorCount} failed (${duplicateCount} duplicates).`,
+            importedCount,
+            duplicateCount,
+            otherErrorCount,
             results
         });
     } catch (error) {
