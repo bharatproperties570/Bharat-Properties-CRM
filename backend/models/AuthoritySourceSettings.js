@@ -167,6 +167,17 @@ AuthoritySourceSettingsSchema.index(
     { unique: true }  // One settings doc per authority per tenant
 );
 
+// ========== Phase 3 Server-Side Activation Lock ==========
+// Sources remain strictly offline and fixture-only. Prevent persisting approved or active state in this phase.
+AuthoritySourceSettingsSchema.pre('save', function (next) {
+    if (this.isEnabled || this.schedulingEnabled || this.reviewStatus === 'APPROVED' || this.permissionStatus === 'GRANTED') {
+        const err = new Error('SOURCE_ACTIVATION_LOCKED: Live authority activation, approvals, and scheduling are prohibited in Phase 3.');
+        err.code = 'ACTIVATION_LOCKED_PHASE3';
+        return next(err);
+    }
+    next();
+});
+
 // ========== Activation Gate ==========
 /**
  * Fail-closed activation check.

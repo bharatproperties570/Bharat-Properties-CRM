@@ -77,6 +77,10 @@ import Lookup from '../models/Lookup.js';
 import Team from '../models/Team.js';
 import User from '../models/User.js';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
+import {
+    updateSourceSettings,
+    createVerificationRun
+} from '../controllers/authorityVerification.controller.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Runtime Network Egress Trap Harness
@@ -581,18 +585,107 @@ describe('--- PHASE 3B: FIXTURE ADAPTER CONFORMANCE, INPUT INTEGRITY & NETWORK I
         test('3. Production Route Isolation: /api/authority/runs fails closed (POLICY_REJECTED)', async () => {
             // Verify that AuthoritySourceSettings is disabled and controller rejects without adapter invocation
             const tenantId = new mongoose.Types.ObjectId();
-            const setting = new AuthoritySourceSettings({
+            const userId = new mongoose.Types.ObjectId();
+            const setting = await AuthoritySourceSettings.create({
                 tenantId,
                 authorityCode: 'HSVP',
                 isEnabled: false,
                 sourceStatus: 'DISABLED',
                 authorizationStatus: 'NOT_OBTAINED',
+                reviewStatus: 'NOT_REVIEWED',
                 policyVersion: '1.0.0'
             });
 
             const eligibility = setting.checkActivationEligibility();
             assert.strictEqual(eligibility.canActivate, false);
             assert.strictEqual(Boolean(setting.isEffectivelyActive()), false);
+
+            // Phase 3B Server-Side Activation Lock:
+            // Negative test: Attempt full combined self-approval PATCH request
+            let resStatus = null;
+            let resJson = null;
+            const mockReq = {
+                user: { _id: userId, tenantId },
+                params: { authorityCode: 'HSVP' },
+                body: {
+                    permissionStatus: 'GRANTED',
+                    approvedAccessMethod: 'PUBLIC_API',
+                    approvalReference: 'SELF-APPROVED-123',
+                    approvalDate: '2026-10-29',
+                    reviewStatus: 'APPROVED',
+                    ratePolicy: { maxRequestsPerDay: 100 },
+                    identityRequirements: { verified: true, required: ['sectorNumber'] },
+                    permittedFields: ['sectorNumber'],
+                    isEnabled: true,
+                    schedulingEnabled: true
+                }
+            };
+            const mockRes = {
+                status(code) { resStatus = code; return this; },
+                json(data) { resJson = data; return this; }
+            };
+
+            // Arm egress trap to verify no network egress or subprocesses occur
+            const lockEgressTrap = createNetworkEgressTrap();
+            try {
+                // Pre-save hook test: direct Mongoose mutation must throw ACTIVATION_LOCKED_PHASE3
+                const directDoc = new AuthoritySourceSettings({
+                    tenantId,
+                    authorityCode: 'CHD',
+                    isEnabled: true
+                });
+                await assert.rejects(
+                    async () => directDoc.save(),
+                    (err) => {
+                        assert.strictEqual(err.code, 'ACTIVATION_LOCKED_PHASE3');
+                        return true;
+                    }
+                );
+
+                // Controller endpoint test: updateSourceSettings rejects with 422
+                await updateSourceSettings(mockReq, mockRes);
+                assert.strictEqual(resStatus, 422, 'Must reject activation attempt with HTTP 422');
+                assert.strictEqual(resJson.code, 'ACTIVATION_LOCKED_PHASE3');
+                assert.strictEqual(resJson.success, false);
+                assert.ok(Array.isArray(resJson.blockers) && resJson.blockers.length >= 3);
+
+                // Re-read settings and verify persisted state remains disabled
+                const persisted = await AuthoritySourceSettings.getForTenant(tenantId, 'HSVP');
+                if (persisted) {
+                    assert.notStrictEqual(persisted.permissionStatus, 'GRANTED');
+                    assert.notStrictEqual(persisted.reviewStatus, 'APPROVED');
+                    assert.strictEqual(persisted.isEnabled, false);
+                    assert.strictEqual(persisted.schedulingEnabled, false);
+                    assert.strictEqual(persisted.checkActivationEligibility().canActivate, false);
+                    assert.strictEqual(Boolean(persisted.isEffectivelyActive()), false);
+                }
+
+                // Verify verification-run creation fails closed (POLICY_REJECTED with HTTP 422)
+                let runStatus = null;
+                let runJson = null;
+                const mockRunReq = {
+                    user: { _id: userId, tenantId },
+                    body: {
+                        authorityCode: 'HSVP',
+                        runMode: 'SINGLE',
+                        inventoryIds: [new mongoose.Types.ObjectId()]
+                    }
+                };
+                const mockRunRes = {
+                    status(code) { runStatus = code; return this; },
+                    json(data) { runJson = data; return this; }
+                };
+
+                await createVerificationRun(mockRunReq, mockRunRes);
+                assert.strictEqual(runStatus, 422, 'Verification run must fail closed with HTTP 422');
+                assert.strictEqual(runJson.status || runJson.data?.status, 'POLICY_REJECTED');
+
+                // Verify zero network egress calls or background tasks were attempted
+                const calls = lockEgressTrap.getCalls();
+                assert.strictEqual(calls.length, 0, 'Zero network calls permitted during activation rejection');
+            } finally {
+                lockEgressTrap.disarm();
+            }
         });
 
         test('4. Unknown adapter code fails closed', () => {

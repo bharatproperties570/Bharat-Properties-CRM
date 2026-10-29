@@ -41,6 +41,12 @@ import { buildCompositeKey, normalizeAuthorityRecord } from '../services/authori
 import { SOURCE_POLICY_MATRIX, isSourceActivated } from '../services/authority/sourcePolicy.js';
 
 // ============================================================
+// PHASE 2 AUTHORITY FOUNDATION TEST SUITE
+// ============================================================
+
+describe('Phase 2 — Authority Verification Foundation', () => {
+
+// ============================================================
 // S1: MODEL SCHEMA VALIDATION
 // ============================================================
 
@@ -873,4 +879,6 @@ describe('S16: Module exports', () => {
         assert.ok(BLOCKED_UPDATE_FIELDS instanceof Set);
         assert.ok(ALLOWED_UPDATE_FIELDS instanceof Set);
     });
+});
+
 });

@@ -158,6 +158,32 @@ export const updateSourceSettings = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No valid fields to update' });
         }
 
+        // Phase 3 Server-Side Activation Lock:
+        // Sources remain strictly offline and fixture-only. Live authority activation,
+        // approval granting, and scheduling are prohibited until a future phase authorizes live integration.
+        const activationBlockers = [];
+        if (changes.isEnabled === true) {
+            activationBlockers.push('isEnabled cannot be set to true: live authority fetching is prohibited in Phase 3');
+        }
+        if (changes.schedulingEnabled === true) {
+            activationBlockers.push('schedulingEnabled cannot be set to true: background authority scheduling is prohibited in Phase 3');
+        }
+        if (changes.reviewStatus === 'APPROVED') {
+            activationBlockers.push('reviewStatus cannot be set to APPROVED via settings update: requires independent maker-checker review');
+        }
+        if (changes.permissionStatus === 'GRANTED') {
+            activationBlockers.push('permissionStatus cannot be set to GRANTED: requires formal written authorization and MoU from authority');
+        }
+
+        if (activationBlockers.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'ACTIVATION_LOCKED_PHASE3',
+                message: 'Source activation is locked: Live authority integrations and approvals are prohibited during Phase 3.',
+                blockers: activationBlockers
+            });
+        }
+
         // If enabling, enforce activation gate
         if (changes.isEnabled === true) {
             // Apply other changes first to check eligibility
