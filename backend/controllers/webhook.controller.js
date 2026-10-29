@@ -494,6 +494,25 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         status: statusVal,
                         phone: status.recipient_id
                     });
+
+                    // Site Visit Marketing delivery status callback
+                    try {
+                        const { default: SiteVisitAutomationService } = await import('../src/modules/siteVisit/siteVisitAutomation.service.js');
+                        if (SiteVisitAutomationService?.handleDeliveryStatusCallback) {
+                            const errDetail = status.errors && status.errors[0]
+                                ? `${status.errors[0].code || ''}: ${status.errors[0].title || status.errors[0].message || ''}`.trim()
+                                : null;
+                            await SiteVisitAutomationService.handleDeliveryStatusCallback({
+                                providerMessageId: status.id,
+                                status: statusVal,
+                                timestamp: new Date(Number(status.timestamp || 0) * 1000),
+                                error: errDetail,
+                                channel: 'whatsapp'
+                            });
+                        }
+                    } catch (cbErr) {
+                        console.error('[WhatsApp Live Bot] Site visit status callback error:', cbErr.message);
+                    }
                 }
                 for (const change of extractCoexistenceChanges(req.body)) {
                     const waba_id = req.body.entry?.[0]?.id;
@@ -885,7 +904,11 @@ export const exotelCallback = async (req, res) => {
 
 // ── GET /api/webhooks/facebook-lead ──────────────────────────────────────────
 export const facebookLeadVerify = (req, res) => {
-    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN || "bharat-properties-webhook-2026";
+    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN;
+    if (!VERIFY_TOKEN) {
+        console.error('[Facebook Lead Webhook] Error: FB_WEBHOOK_VERIFY_TOKEN is not configured in environment.');
+        return res.status(500).send('Webhook verify token unconfigured');
+    }
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];

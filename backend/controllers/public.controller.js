@@ -9,6 +9,7 @@ import CollectorRate from "../models/CollectorRate.js";
 import SocialReview from '../models/SocialReview.js';
 import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
@@ -1356,13 +1357,53 @@ export const submitWaSiteVisit = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'crm_secret_key');
-        const leadId = decoded.leadId;
-        const properties = decoded.properties || [];
+        const secret = process.env.JWT_SECRET;
+        if (!secret || typeof secret !== 'string' || secret.trim() === '') {
+            return res.status(400).json({ success: false, message: 'Invalid or unauthorized token' });
+        }
+
+        let normalizedToken = typeof token === 'string' ? token.trim() : '';
+        if (!normalizedToken.includes('.')) {
+            if (normalizedToken.includes('~')) {
+                normalizedToken = normalizedToken.replace(/~/g, '.');
+            } else if (normalizedToken.split('-').length === 3) {
+                normalizedToken = normalizedToken.replace(/-/g, '.');
+            }
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(normalizedToken, secret);
+        } catch (jwtErr) {
+            return res.status(400).json({ success: false, message: 'Invalid or expired token' });
+        }
+
+        const leadId = decoded?.leadId;
+        if (!leadId || !mongoose.Types.ObjectId.isValid(leadId)) {
+            return res.status(400).json({ success: false, message: 'Invalid token payload' });
+        }
+        const properties = Array.isArray(decoded.properties) ? decoded.properties : [];
         const hideLocation = decoded.hideLocation || false;
 
         let lead = await Lead.findById(leadId);
         if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+        // Idempotency guard: prevent duplicate pending visits on the exact same date for the same lead
+        const existingActivity = await Activity.findOne({
+            entityType: 'Lead',
+            entityId: lead._id,
+            type: 'Site Visit',
+            status: 'Pending',
+            dueDate: date
+        });
+
+        if (existingActivity) {
+            return res.status(200).json({
+                success: true,
+                message: 'Site visit already scheduled for this date.',
+                activityId: existingActivity._id
+            });
+        }
 
         const firstProperty = properties[0] || {};
         const projectName = firstProperty.name || 'General Project';
@@ -1397,6 +1438,20 @@ export const submitWaSiteVisit = async (req, res) => {
         }
 
         const activity = await Activity.create(activityData);
+
+        // Advance lead stage to 'Site Visit Scheduled' if lead is in earlier stage
+        try {
+            const LookupService = (await import('../services/LookupService.js')).default;
+            const siteVisitStageId = await LookupService.resolve('Stage', 'Site Visit Scheduled');
+            if (siteVisitStageId) {
+                await Lead.findByIdAndUpdate(lead._id, {
+                    stage: siteVisitStageId,
+                    lastActivityAt: new Date()
+                });
+            }
+        } catch (stageErr) {
+            console.warn('[PublicController] Auto-advancing stage to Site Visit Scheduled failed:', stageErr.message);
+        }
 
         // Notify Assigned User
         const notifyTarget = lead.owner || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
@@ -1471,19 +1526,30 @@ export const getAvailableUnits = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { project, block } = req.query;
-        if (!project) {
-            return res.status(400).json({ success: false, message: 'Project is required' });
+        // Strict input sanitization against NoSQL injection
+        if (!project || typeof project !== 'string' || project.trim() === '' || project.includes('$')) {
+            return res.status(400).json({ success: false, message: 'Valid project string is required' });
         }
 
+        const sanitizedProject = project.trim();
         const query = { 
             $or: [
-                { projectName: project },
-                { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined }
-            ].filter(q => q.projectName || q.projectId)
+                { projectName: sanitizedProject }
+            ]
         };
 
-        if (block) {
-            query.block = block;
+        if (mongoose.Types.ObjectId.isValid(sanitizedProject)) {
+            query.$or.push({ projectId: sanitizedProject });
+        }
+
+        if (block !== undefined && block !== null) {
+            if (typeof block !== 'string' || block.includes('$')) {
+                return res.status(400).json({ success: false, message: 'Invalid block parameter' });
+            }
+            const sanitizedBlock = block.trim();
+            if (sanitizedBlock !== '') {
+                query.block = sanitizedBlock;
+            }
         }
 
         // Fetch distinct unit numbers
