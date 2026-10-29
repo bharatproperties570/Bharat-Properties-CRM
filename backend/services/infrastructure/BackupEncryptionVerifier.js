@@ -70,6 +70,23 @@ class BackupEncryptionVerifier {
             return { valid: false, error: `Path traversal detected: target "${archiveFileName}" escapes base directory` };
         }
 
+        // Symlink verification if target exists on disk
+        if (fs.existsSync(resolvedTarget)) {
+            try {
+                const lstat = fs.lstatSync(resolvedTarget);
+                if (lstat.isSymbolicLink()) {
+                    const realTarget = fs.realpathSync(resolvedTarget);
+                    const realBase = fs.realpathSync(resolvedBase);
+                    const normalizedRealBase = realBase.endsWith(path.sep) ? realBase : realBase + path.sep;
+                    if (!realTarget.startsWith(normalizedRealBase)) {
+                        return { valid: false, error: `Symlink escape detected: "${archiveFileName}" points outside base directory` };
+                    }
+                }
+            } catch (err) {
+                return { valid: false, error: `Filesystem resolution error for "${archiveFileName}": ${err.message}` };
+            }
+        }
+
         return { valid: true, safePath: resolvedTarget };
     }
 
