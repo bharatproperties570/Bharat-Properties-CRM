@@ -433,7 +433,7 @@ const processMarketingJob = async (job) => {
         await job.log(`AI generation task: provider=${provider}, model=${model}`);
 
         const { default: unifiedAIService } = await import('../../services/UnifiedAIService.js');
-        const content = await unifiedAIService.generate(prompt, { provider });
+        const content = await unifiedAIService.generate(prompt, { provider, capability: 'AI_MARKETING_GENERATION' });
 
         await job.updateProgress(100);
         console.log(`[MarketingWorker] ✅ AI generation complete (${provider})`);

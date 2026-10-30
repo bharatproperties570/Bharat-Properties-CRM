@@ -7,9 +7,8 @@
 import mongoose from 'mongoose';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
-import geminiService    from '../services/GeminiService.js';
-import openAIService    from '../services/OpenAIService.js';
 import unifiedAIService from '../services/UnifiedAIService.js';
+import AIGovernance from '../services/ai/AIGovernance.js';
 import publishService from '../services/PublishService.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
@@ -468,11 +467,12 @@ export const generateWithModel = async (req, res) => {
             ? `${prompt}\n\nContext Data:\n${JSON.stringify(context, null, 2)}`
             : prompt;
 
-        // Use UnifiedAIService to support automatic provider fallback (failover)
+        // Use UnifiedAIService with central AI Governance capability
         const result = await unifiedAIService.generate(userPrompt, {
             provider: provider || 'google',
             model: model,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION
         });
 
         res.json({ success: true, content: result });
