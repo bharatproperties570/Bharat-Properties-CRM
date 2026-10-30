@@ -1676,13 +1676,21 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '140px', overflowY: 'auto', paddingRight: '4px' }}>
-                                        {waGroups.map(g => {
+                                        {[...waGroups].sort((a, b) => {
+                                            const aCan = a.canSend !== false;
+                                            const bCan = b.canSend !== false;
+                                            if (aCan !== bCan) return aCan ? -1 : 1;
+                                            return (b.participantsCount || 0) - (a.participantsCount || 0);
+                                        }).map(g => {
                                             const isSelected = selectedWaGroups.includes(g.id);
                                             return (
                                                 <button
                                                     key={g.id}
                                                     type="button"
                                                     onClick={() => {
+                                                        if (g.canSend === false) {
+                                                            toast.warning(`"${g.subject}" is an Admin-only Announcement channel. Only community admins can post here.`);
+                                                        }
                                                         if (isSelected) setSelectedWaGroups(selectedWaGroups.filter(id => id !== g.id));
                                                         else setSelectedWaGroups([...selectedWaGroups, g.id]);
                                                     }}
@@ -1692,13 +1700,18 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                         background: isSelected ? '#128C7E' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                                                         color: isSelected ? '#fff' : isDark ? 'var(--text-main)' : '#475569',
                                                         cursor: 'pointer', transition: 'all 0.15s',
-                                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        opacity: g.canSend === false ? 0.75 : 1
                                                     }}
+                                                    title={g.canSend === false ? `${g.subject} (Admin-only Channel)` : g.subject}
                                                 >
                                                     <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#128C7E' }}></i>
                                                     <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                         {g.subject || g.name || 'Group'}
                                                     </span>
+                                                    {g.canSend === false && (
+                                                        <span style={{ fontSize: '10px' }} title="Admin-only channel">🔒</span>
+                                                    )}
                                                     {g.participantsCount ? (
                                                         <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: '10px', background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9', color: isSelected ? '#fff' : '#64748b' }}>
                                                             {g.participantsCount}

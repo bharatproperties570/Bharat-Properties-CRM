@@ -1004,6 +1004,11 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
         if (!waGroupSearch) return true;
         const q = waGroupSearch.toLowerCase();
         return (g.subject || g.name || '').toLowerCase().includes(q);
+    }).sort((a, b) => {
+        const aCan = a.canSend !== false;
+        const bCan = b.canSend !== false;
+        if (aCan !== bCan) return aCan ? -1 : 1;
+        return (b.participantsCount || 0) - (a.participantsCount || 0);
     });
 
     const preferredMatchedLeadsCount = matchedLeads.filter(l => l.isPreferredMatch || (l.score || 0) >= 75).length;
@@ -2130,6 +2135,9 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                         key={g.id}
                                                                         type="button"
                                                                         onClick={() => {
+                                                                            if (g.canSend === false) {
+                                                                                toast.warning(`"${g.subject}" is an Admin-only Announcement channel. Only community admins can post here.`);
+                                                                            }
                                                                             if (isSelected) setSelectedWaGroups(selectedWaGroups.filter(id => id !== g.id));
                                                                             else setSelectedWaGroups([...selectedWaGroups, g.id]);
                                                                         }}
@@ -2139,11 +2147,16 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                                             background: isSelected ? '#10b981' : (isDark ? '#1e293b' : '#fff'),
                                                                             color: isSelected ? '#fff' : (isDark ? '#f8fafc' : '#334155'),
                                                                             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
-                                                                            maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                                                                            maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                                            opacity: g.canSend === false ? 0.75 : 1
                                                                         }}
+                                                                        title={g.canSend === false ? `${g.subject} (Admin-only Channel)` : g.subject}
                                                                     >
                                                                         <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#10b981' }}></i>
                                                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.subject || g.name || 'Group'}</span>
+                                                                        {g.canSend === false && (
+                                                                            <span style={{ fontSize: '10px' }} title="Admin-only channel">🔒</span>
+                                                                        )}
                                                                         <span style={{
                                                                             fontSize: '0.62rem', fontWeight: 800, padding: '1px 5px', borderRadius: '8px',
                                                                             background: isSelected ? 'rgba(255,255,255,0.22)' : (isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'),

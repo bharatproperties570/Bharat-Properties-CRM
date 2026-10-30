@@ -919,7 +919,9 @@ if (name === 'bna-broadcast') {
             }
 
             await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
-            await new Promise(r => setTimeout(r, channels.includes('whatsapp') ? 300 : 100));
+            // 🛡️ Enterprise Anti-Throttling Pacing: 2.5s for mega-groups to avoid 1006 WebSocket overflow, 300ms for direct 1-to-1
+            const pacingDelayMs = isGroup ? 2500 : (channels.includes('whatsapp') ? 300 : 100);
+            await new Promise(r => setTimeout(r, pacingDelayMs));
         }
 
         await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);

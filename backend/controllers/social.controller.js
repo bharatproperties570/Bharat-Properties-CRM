@@ -1577,17 +1577,27 @@ export const getBaileysGroups = async (req, res) => {
                 const groups = await Promise.race([fetchPromise, timeoutPromise]);
 
                 if (groups && typeof groups === 'object') {
+                    const myCleanId = sock.user?.id ? sock.user.id.split('@')[0].split(':')[0] : null;
                     formatted = Object.values(groups).map(g => {
                         if (g.id && g.subject) {
                             BaileysConnectionManager.setGroupSubject(g.id, g.subject);
                         }
+                        const isAnnounce = Boolean(g.announce || g.isCommunityAnnounce);
+                        const isAdmin = Array.isArray(g.participants) && g.participants.some(p => {
+                            const pId = p.id ? p.id.split('@')[0].split(':')[0] : '';
+                            return pId === myCleanId && (p.admin === 'admin' || p.admin === 'superadmin');
+                        });
+                        const canSend = !isAnnounce || isAdmin;
+
                         return {
                             id: g.id,
                             subject: g.subject || 'WhatsApp Group',
                             owner: g.owner || null,
                             creation: g.creation || null,
                             participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
-                            desc: g.desc?.toString() || ''
+                            desc: g.desc?.toString() || '',
+                            announce: isAnnounce,
+                            canSend: canSend
                         };
                     });
                     fetchedFromSocket = true;

@@ -1665,10 +1665,17 @@ class WhatsAppService {
             }
 
             let sentMsg;
+            const isGroupTarget = jid.includes('@g.us');
+            // 🚀 Enterprise Dynamic Timeout:
+            // Large groups (up to 1,024 members) require Signal protocol sender-key creation & distribution
+            // across hundreds of participants. Allow generous headroom (120s for groups, 30s for 1-on-1).
+            const sendTimeoutMs = isGroupTarget ? 120000 : 30000;
+            const retryTimeoutMs = isGroupTarget ? 80000 : 20000;
+
             try {
                 const sendPromise = sock.sendMessage(jid, content);
                 const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('WhatsApp Web send timed out after 25 seconds. Please check device connectivity or QR pairing.')), 25000)
+                    setTimeout(() => reject(new Error(`WhatsApp Web send timed out after ${Math.round(sendTimeoutMs / 1000)} seconds. Please check device connectivity or QR pairing.`)), sendTimeoutMs)
                 );
                 sentMsg = await Promise.race([sendPromise, timeoutPromise]);
             } catch (firstAttemptErr) {
@@ -1683,7 +1690,7 @@ class WhatsAppService {
                         if (sock && sock.waitForSocketOpen) {
                             await Promise.race([
                                 sock.waitForSocketOpen(),
-                                new Promise((_, reject) => setTimeout(() => reject(new Error('Reconnect wait timeout')), 6000))
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Reconnect wait timeout')), 8000))
                             ]);
                         }
                     } catch (recErr) {
@@ -1695,7 +1702,7 @@ class WhatsAppService {
                     console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
                     const retryPromise = sock.sendMessage(jid, content);
                     const retryTimeout = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('WhatsApp Web send timed out on retry after 15 seconds.')), 15000)
+                        setTimeout(() => reject(new Error(`WhatsApp Web send timed out on retry after ${Math.round(retryTimeoutMs / 1000)} seconds.`)), retryTimeoutMs)
                     );
                     sentMsg = await Promise.race([retryPromise, retryTimeout]);
                 } else {
