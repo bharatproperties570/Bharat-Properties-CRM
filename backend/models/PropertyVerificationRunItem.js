@@ -173,6 +173,7 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
 
 // ========== Indexes ==========
 PropertyVerificationRunItemSchema.index({ runId: 1, status: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, runId: 1, status: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, inventoryId: 1, createdAt: -1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, reviewerDecision: 1 });
 // Prevent duplicate items for the same inventory in the same run

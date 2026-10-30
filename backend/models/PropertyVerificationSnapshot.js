@@ -173,6 +173,8 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, linkId: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, authorityCode: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ linkId: 1, observedAt: -1 });
+PropertyVerificationSnapshotSchema.index({ tenantId: 1, contentHash: 1 });
+PropertyVerificationSnapshotSchema.index({ runItemId: 1 });
 
 // Module-private policy collection (inaccessible and unmodifiable from outside)
 const _PERMITTED_SNAPSHOT_NORMALIZED_KEYS = new Set([

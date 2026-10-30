@@ -10,6 +10,11 @@ import {
     createVerificationRun,
     getVerificationRuns,
     getVerificationRunById,
+    processVerificationRun,
+    pauseVerificationRun,
+    resumeVerificationRun,
+    cancelVerificationRun,
+    getRunProgress,
     getPendingReviews,
     submitReview,
     applyApprovedChanges,
@@ -63,9 +68,29 @@ router.get('/runs/:runId',
     checkPermission('authorityVerification', 'view'),
     getVerificationRunById
 );
+router.get('/runs/:runId/progress',
+    checkPermission('authorityVerification', 'view'),
+    getRunProgress
+);
 router.post('/runs',
     checkPermission('authorityVerification', 'create'),
     createVerificationRun
+);
+router.post('/runs/:runId/process',
+    checkPermission('authorityVerification', 'create'),
+    processVerificationRun
+);
+router.post('/runs/:runId/pause',
+    checkPermission('authorityVerification', 'edit'),
+    pauseVerificationRun
+);
+router.post('/runs/:runId/resume',
+    checkPermission('authorityVerification', 'edit'),
+    resumeVerificationRun
+);
+router.post('/runs/:runId/cancel',
+    checkPermission('authorityVerification', 'edit'),
+    cancelVerificationRun
 );
 
 // ============================================================

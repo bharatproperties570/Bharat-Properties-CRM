@@ -131,6 +131,7 @@ const PropertyVerificationRunSchema = new mongoose.Schema({
 
 // ========== Indexes ==========
 PropertyVerificationRunSchema.index({ tenantId: 1, status: 1 });
+PropertyVerificationRunSchema.index({ tenantId: 1, runMode: 1, createdAt: -1 });
 PropertyVerificationRunSchema.index({ tenantId: 1, authorityCode: 1, createdAt: -1 });
 PropertyVerificationRunSchema.index({ requestedBy: 1, createdAt: -1 });
 

@@ -18,6 +18,7 @@ import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
 import { buildCompositeKey } from '../services/authority/authorityNormalizer.js';
 import { isSentinel } from '../services/authority/authorityFieldDictionary.js';
+import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
 
 // ============================================================
 // HELPERS
@@ -351,7 +352,7 @@ export const createVerificationRun = async (req, res) => {
         const tenantId = getTenantId(req);
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
-        const { authorityCode, runMode, inventoryIds } = req.body;
+        const { authorityCode, runMode, inventoryIds, isFixtureMode = false, autoProcess = false } = req.body;
 
         if (!authorityCode || !runMode) {
             return res.status(400).json({ success: false, message: 'authorityCode and runMode required' });
@@ -359,11 +360,11 @@ export const createVerificationRun = async (req, res) => {
         if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
             return res.status(400).json({ success: false, message: 'Invalid authority code' });
         }
-        if (!['SINGLE', 'BULK_MANUAL'].includes(runMode)) {
-            return res.status(400).json({ success: false, message: 'Only SINGLE and BULK_MANUAL modes supported in Phase 2' });
+        if (!['SINGLE', 'BULK_MANUAL', 'BULK_SCHEDULED'].includes(runMode)) {
+            return res.status(400).json({ success: false, message: 'Only SINGLE, BULK_MANUAL, and BULK_SCHEDULED modes supported' });
         }
 
-        // Check source activation status — MUST be fail-closed
+        // Check source activation status — MUST be fail-closed for live requests
         const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
         if (!sourceSettings) {
             return res.status(422).json({
@@ -374,7 +375,7 @@ export const createVerificationRun = async (req, res) => {
         }
 
         const activationCheck = sourceSettings.checkActivationEligibility();
-        if (!sourceSettings.isEffectivelyActive()) {
+        if (!isFixtureMode && !sourceSettings.isEffectivelyActive()) {
             // Create the run record but immediately mark as POLICY_REJECTED
             const run = await PropertyVerificationRun.create({
                 tenantId,
@@ -408,9 +409,7 @@ export const createVerificationRun = async (req, res) => {
             });
         }
 
-        // Source is active — create run in CREATED state
-        // NOTE: Even with an active source, Phase 2 does NOT implement live fetching.
-        // The run is created but processing won't occur until adapters exist.
+        // Source is active or executing in demonstration fixture mode — create run in CREATED state
         const totalItems = Array.isArray(inventoryIds) ? inventoryIds.length : 1;
 
         const run = await PropertyVerificationRun.create({
@@ -421,7 +420,9 @@ export const createVerificationRun = async (req, res) => {
             policyVersion: sourceSettings.policyVersion,
             status: 'CREATED',
             totalItems,
-            errorSummary: 'Run created. Live verification adapters are not yet implemented (Phase 2 foundation only).'
+            errorSummary: isFixtureMode
+                ? 'Demonstration run using synthetic fixtures'
+                : 'Run created. Live verification adapters are not yet implemented (Phase 2 foundation only).'
         });
 
         // Create run items for each inventory if provided
@@ -519,6 +520,119 @@ export const getVerificationRunById = async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to retrieve verification run' });
     }
 };
+
+/**
+ * POST /api/authority/runs/:runId/process
+ * Execute or advance a verification run in bounded batches.
+ * Permission: authorityVerification.create or edit
+ */
+export const processVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { batchSize = 50, isFixtureMode = true } = req.body;
+
+        const outcome = await AuthorityBulkProcessor.processRun(runId, {
+            tenantId,
+            batchSize: Number(batchSize) || 50,
+            isFixtureMode: Boolean(isFixtureMode)
+        });
+
+        res.json({ success: true, data: outcome });
+    } catch (error) {
+        console.error('processVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to process verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/pause
+ * Pause an active verification run.
+ * Permission: authorityVerification.edit
+ */
+export const pauseVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, 'Paused by user');
+
+        res.json({ success: true, data: run.toSummary() });
+    } catch (error) {
+        console.error('pauseVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to pause verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/resume
+ * Resume an interrupted or paused verification run.
+ * Permission: authorityVerification.edit
+ */
+export const resumeVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { isFixtureMode = true } = req.body;
+
+        const outcome = await AuthorityBulkProcessor.resumeRun(runId, tenantId, {
+            isFixtureMode: Boolean(isFixtureMode)
+        });
+
+        res.json({ success: true, data: outcome });
+    } catch (error) {
+        console.error('resumeVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to resume verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/cancel
+ * Cancel a verification run.
+ * Permission: authorityVerification.edit
+ */
+export const cancelVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { reason = 'Cancelled by user' } = req.body;
+
+        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason);
+
+        res.json({ success: true, data: run.toSummary() });
+    } catch (error) {
+        console.error('cancelVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to cancel verification run' });
+    }
+};
+
+/**
+ * GET /api/authority/runs/:runId/progress
+ * Get progress status for a verification run.
+ * Permission: authorityVerification.view
+ */
+export const getRunProgress = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const progress = await AuthorityBulkProcessor.getRunProgress(runId, tenantId);
+
+        res.json({ success: true, data: progress });
+    } catch (error) {
+        console.error('getRunProgress error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to get run progress' });
+    }
+};
+
 
 // ============================================================
 // REVIEW & APPLY
