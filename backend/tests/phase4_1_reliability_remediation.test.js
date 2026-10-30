@@ -257,7 +257,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             authorityCode,
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
-            reviewedBy: userA._id,
+            reviewedBy: options.reviewedBy || new mongoose.Types.ObjectId(),
             reviewedAt: new Date(),
             proposedChanges,
             isSynthetic: false,

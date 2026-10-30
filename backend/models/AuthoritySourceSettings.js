@@ -141,7 +141,7 @@ const AuthoritySourceSettingsSchema = new mongoose.Schema({
     },
     lastRunStatus: {
         type: String,
-        enum: ['SUCCESS', 'PARTIAL', 'FAILED', 'CANCELLED', null],
+        enum: ['SUCCESS', 'PARTIAL', 'FAILED', 'CANCELLED', 'PAUSED', null],
         default: null
     },
     nextScheduledAt: {

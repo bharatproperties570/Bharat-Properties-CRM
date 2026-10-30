@@ -1385,7 +1385,29 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // 8. Durable Saga Compensation Snapshot & Fencing Initialization (Phase 4.2)
+        // 8. Maker-Checker Separation Gate (Phase 4.4 - Finding F-02)
+        // The reviewer who approved the changes cannot be the user applying them.
+        // Server-side identity verified via req.user._id (ignoring any request payload).
+        if (!item.reviewedBy) {
+            return res.status(422).json({
+                success: false,
+                code: 'MAKER_CHECKER_VIOLATION',
+                message: 'Cannot apply changes: run item lacks a verified reviewer identity (maker-checker requirement)'
+            });
+        }
+
+        const applierUserId = req.user?._id?.toString();
+        const reviewerUserId = item.reviewedBy?.toString();
+
+        if (applierUserId && reviewerUserId && applierUserId === reviewerUserId) {
+            return res.status(403).json({
+                success: false,
+                code: 'MAKER_CHECKER_VIOLATION',
+                message: 'Maker-checker policy violation: The user who reviewed and approved these changes cannot apply them'
+            });
+        }
+
+        // 9. Durable Saga Compensation Snapshot & Fencing Initialization (Phase 4.2)
         const topologyType = mongoose.connection?.client?.topology?.description?.type;
         const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
 

@@ -454,6 +454,7 @@ test('--- PHASE 2.12: FINAL STATUS CONTRACT, DERIVATION & TEST EVIDENCE RECONCIL
             authorityPropertyId: 'PROP-42',
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
+            reviewedBy: new mongoose.Types.ObjectId(),
             proposedChanges: [
                 {
                     field: 'authorityVerification.litigationStatus',
@@ -523,6 +524,7 @@ test('--- PHASE 2.12: FINAL STATUS CONTRACT, DERIVATION & TEST EVIDENCE RECONCIL
             authorityPropertyId: 'PROP-42',
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
+            reviewedBy: new mongoose.Types.ObjectId(),
             isSynthetic: false,
             provenance: 'LIVE',
             proposedChanges: [

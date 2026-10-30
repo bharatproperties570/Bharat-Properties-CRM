@@ -572,6 +572,7 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
             authorityCode: 'HSVP',
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
+            reviewedBy: new mongoose.Types.ObjectId(),
             snapshotId: snapshot._id,
             proposedChanges: [
                 {
@@ -693,6 +694,7 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
             authorityCode: 'CHD',
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
+            reviewedBy: new mongoose.Types.ObjectId(),
             snapshotId: snapshot._id,
             isSynthetic: false,
             provenance: 'LIVE',

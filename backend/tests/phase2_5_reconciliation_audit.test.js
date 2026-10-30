@@ -321,6 +321,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -361,6 +362,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -498,6 +500,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -558,6 +561,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -642,6 +646,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',

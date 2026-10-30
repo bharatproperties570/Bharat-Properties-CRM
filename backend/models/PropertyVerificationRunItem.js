@@ -167,6 +167,15 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    workerClaimToken: {
+        type: String,
+        default: null,
+        index: true
+    },
+    workerFenceToken: {
+        type: Number,
+        default: 0
+    },
     leaseExpiresAt: {
         type: Date,
         default: null,

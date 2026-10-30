@@ -36,8 +36,72 @@ import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
 import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
 
-// Safe audit logging helper
-async function logAuditEvent(eventType, userId, targetType, targetId, description, metadata = {}, status = 'success') {
+// Mandatory operational audit logging helper (Phase 4.4 - Finding F-03)
+// Critical business/security audit records must NOT be silently swallowed.
+async function logMandatoryAuditEvent({
+    eventType,
+    userId,
+    targetType,
+    targetId,
+    description,
+    metadata = {},
+    status = 'success',
+    tenantId = null,
+    session = null
+}) {
+    let user = null;
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+        user = await User.findById(userId).select('fullName email').lean();
+    }
+
+    // Idempotency check: avoid duplicate mandatory audit records on retries
+    const query = {
+        eventType,
+        targetType,
+        targetId: targetId ? targetId.toString() : null,
+        status
+    };
+    if (metadata?.runId) {
+        query['metadata.runId'] = metadata.runId;
+    }
+    const existingAudit = await AuditLog.findOne(query);
+    if (existingAudit && ['authority_run_created', 'authority_run_completed', 'authority_run_policy_rejected'].includes(eventType)) {
+        return existingAudit;
+    }
+
+    const auditDoc = {
+        eventType,
+        userId: userId || null,
+        userName: user?.fullName || 'System/AuthorityEngine',
+        userEmail: user?.email || 'system@crm.internal',
+        targetType,
+        targetId: targetId ? targetId.toString() : null,
+        description,
+        metadata: {
+            ...metadata,
+            ...(tenantId ? { tenantId: tenantId.toString() } : {})
+        },
+        ipAddress: '127.0.0.1',
+        userAgent: 'AuthorityBulkProcessor/v4.4',
+        status
+    };
+
+    const [created] = await AuditLog.create([auditDoc], session ? { session } : {});
+    return created;
+}
+
+// Diagnostic audit logging helper (Phase 4.4 - Finding F-03)
+// Best-effort progress events are non-fatal.
+async function logDiagnosticAuditEvent({
+    eventType,
+    userId,
+    targetType,
+    targetId,
+    description,
+    metadata = {},
+    status = 'success',
+    tenantId = null
+}) {
     try {
         let user = null;
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
@@ -51,19 +115,36 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
             targetType,
             targetId: targetId ? targetId.toString() : null,
             description,
-            metadata,
+            metadata: {
+                ...metadata,
+                ...(tenantId ? { tenantId: tenantId.toString() } : {})
+            },
             ipAddress: '127.0.0.1',
-            userAgent: 'AuthorityBulkProcessor/v4.1',
+            userAgent: 'AuthorityBulkProcessor/v4.4',
             status
         });
     } catch (err) {
-        console.error('[AuthorityBulkProcessor] AuditLog error:', err.message);
+        console.warn('[AuthorityBulkProcessor] Diagnostic audit log non-fatal error:', err.message);
     }
 }
 
+// Legacy signature bridge delegating to logMandatoryAuditEvent
+async function logAuditEvent(eventType, userId, targetType, targetId, description, metadata = {}, status = 'success', tenantId = null) {
+    return logMandatoryAuditEvent({
+        eventType,
+        userId,
+        targetType,
+        targetId,
+        description,
+        metadata,
+        status,
+        tenantId
+    });
+}
+
 /**
- * Safely inserts documents with ordered: false, trapping expected duplicate key errors (11000)
- * while propagating any unexpected validation, disk, or network database errors.
+ * Safely inserts documents with ordered: false, trapping ONLY confirmed duplicate key errors (11000/11001)
+ * while propagating any unexpected validation, schema, network, or mixed database errors. (Phase 4.4 - Finding F-04)
  */
 async function safeInsertMany(Model, docs, { ordered = false } = {}) {
     if (!docs || docs.length === 0) return { insertedCount: 0, duplicateCount: 0 };
@@ -74,20 +155,103 @@ async function safeInsertMany(Model, docs, { ordered = false } = {}) {
             duplicateCount: 0
         };
     } catch (err) {
-        const isDuplicateCode = (code) => code === 11000 || code === 11001;
-        const writeErrors = err.writeErrors || err.errorResponse?.writeErrors || [];
-        const isAllDuplicates = isDuplicateCode(err.code) || 
-            (writeErrors.length > 0 && writeErrors.every(e => isDuplicateCode(e.code)));
+        // Mongoose client-side validation errors must propagate immediately
+        if (err.name === 'ValidationError' || (err.errors && !err.writeErrors && !err.errorResponse?.writeErrors)) {
+            throw err;
+        }
 
-        if (isAllDuplicates) {
-            const dupCount = writeErrors.length || 1;
-            const insCount = Math.max(0, docs.length - dupCount);
-            return { insertedCount: insCount, duplicateCount: dupCount };
+        // Write concern errors must propagate immediately
+        if (err.writeConcernError) {
+            throw err;
+        }
+
+        const isDuplicateCode = (code) => code === 11000 || code === 11001;
+
+        // Extract individual write errors from standard and driver-specific structures
+        let writeErrors = [];
+        if (Array.isArray(err.writeErrors)) {
+            writeErrors = err.writeErrors;
+        } else if (Array.isArray(err.errorResponse?.writeErrors)) {
+            writeErrors = err.errorResponse.writeErrors;
+        } else if (typeof err.getWriteErrors === 'function') {
+            writeErrors = err.getWriteErrors() || [];
+        } else if (Array.isArray(err.result?.writeErrors)) {
+            writeErrors = err.result.writeErrors;
+        }
+
+        if (writeErrors.length > 0) {
+            // Check if ANY individual write error is non-duplicate
+            const hasNonDuplicate = writeErrors.some(e => {
+                const code = e.code ?? e.err?.code ?? (typeof e.toJSON === 'function' ? e.toJSON().code : null);
+                return !isDuplicateCode(code);
+            });
+            if (hasNonDuplicate) {
+                // Mixed or non-duplicate errors detected; MUST NOT suppress!
+                throw err;
+            }
+
+            // Confirmed: Every single write error is a duplicate-key error
+            const duplicateCount = writeErrors.length;
+            const insertedCount = (typeof err.result?.insertedCount === 'number')
+                ? err.result.insertedCount
+                : Math.max(0, docs.length - duplicateCount);
+            return { insertedCount, duplicateCount };
+        }
+
+        // Top-level duplicate error code where writeErrors is empty
+        // Must NOT suppress if there are signs of validation or unexpected issues
+        if (isDuplicateCode(err.code) && !err.message?.toLowerCase().includes('validation')) {
+            return {
+                insertedCount: Math.max(0, docs.length - 1),
+                duplicateCount: 1
+            };
         }
 
         // Propagate unexpected validation, network, and database errors
         throw err;
     }
+}
+
+/**
+ * Heartbeat helper to periodically renew in-flight worker leases during item processing (Phase 4.4 - Finding F-01)
+ */
+function createItemHeartbeat(itemId, tenantId, workerId, claimToken, intervalMs = 10000) {
+    let leaseLost = false;
+    let timer = null;
+
+    if (intervalMs > 0 && workerId) {
+        timer = setInterval(async () => {
+            try {
+                const renewed = await AuthorityBulkProcessor.renewItemLease(itemId, tenantId, workerId, claimToken);
+                if (!renewed) {
+                    leaseLost = true;
+                    if (timer) {
+                        clearInterval(timer);
+                        timer = null;
+                    }
+                }
+            } catch (err) {
+                leaseLost = true;
+                if (timer) {
+                    clearInterval(timer);
+                    timer = null;
+                }
+            }
+        }, intervalMs);
+        if (typeof timer.unref === 'function') {
+            timer.unref();
+        }
+    }
+
+    return {
+        isLeaseLost: () => leaseLost,
+        stop: () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        }
+    };
 }
 
 /**
@@ -186,14 +350,22 @@ export class AuthorityBulkProcessor {
                 errorSummary: 'Authority source is not activated. Live fetching is strictly prohibited.'
             });
 
-            await logAuditEvent(
-                'authority_run_policy_rejected',
-                requestedBy,
-                'authority_run',
-                rejectedRun._id,
-                `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { authorityCode, runMode, blockers }
-            );
+            try {
+                await logMandatoryAuditEvent({
+                    eventType: 'authority_run_policy_rejected',
+                    userId: requestedBy,
+                    targetType: 'authority_run',
+                    targetId: rejectedRun._id,
+                    description: `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
+                    metadata: { authorityCode, runMode, blockers },
+                    tenantId
+                });
+            } catch (auditErr) {
+                await PropertyVerificationRun.deleteOne({ _id: rejectedRun._id, tenantId });
+                const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to create audit log for rejected run: ${auditErr.message}`);
+                err.code = 'AUDIT_LOG_FAILED';
+                throw err;
+            }
 
             return rejectedRun;
         }
@@ -319,14 +491,24 @@ export class AuthorityBulkProcessor {
         run.totalItems = actualCount;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_created',
-            requestedBy,
-            'authority_run',
-            run._id,
-            `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
-            { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_created',
+                userId: requestedBy,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
+                metadata: { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId },
+                tenantId
+            });
+        } catch (auditErr) {
+            // Roll back created run and items to prevent unaudited operations
+            await PropertyVerificationRunItem.deleteMany({ runId: run._id, tenantId });
+            await PropertyVerificationRun.deleteOne({ _id: run._id, tenantId });
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to create audit log for run creation: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }
@@ -472,10 +654,11 @@ export class AuthorityBulkProcessor {
             }
             emptyWaitAttempts = 0;
 
-            // Atomically claim items for this worker with an expiring worker lease
+            // Atomically claim items for this worker with an expiring worker lease and fencing tokens
             const claimedItems = [];
             for (const cand of candidates) {
                 const claimTime = new Date();
+                const claimToken = `claim_${new mongoose.Types.ObjectId().toString()}`;
                 const leaseExpiresAt = new Date(claimTime.getTime() + WORKER_LEASE_MS);
                 const claimed = await PropertyVerificationRunItem.findOneAndUpdate(
                     {
@@ -490,9 +673,11 @@ export class AuthorityBulkProcessor {
                         $set: {
                             status: 'PROCESSING',
                             claimedBy: workerId,
+                            workerClaimToken: claimToken,
                             claimedAt: claimTime,
                             leaseExpiresAt: leaseExpiresAt
-                        }
+                        },
+                        $inc: { workerFenceToken: 1 }
                     },
                     { new: true }
                 ).populate('linkId').populate('inventoryId');
@@ -512,18 +697,37 @@ export class AuthorityBulkProcessor {
             for (const item of claimedItems) {
                 try {
                     if (Boolean(item.isSynthetic) !== isFixtureMode) {
-                        batchFailed++;
-                        item.status = 'FAILED';
-                        item.errorMessage = 'MODE_MISMATCH: Item synthetic flag does not match run mode';
-                        item.processedAt = new Date();
-                        await item.save();
+                        try {
+                            await AuthorityBulkProcessor.updateItemTerminalState({
+                                itemId: item._id,
+                                tenantId,
+                                runId: run._id,
+                                workerId,
+                                claimToken: item.workerClaimToken,
+                                status: 'FAILED',
+                                updateData: {
+                                    errorMessage: 'MODE_MISMATCH: Item synthetic flag does not match run mode',
+                                    processedAt: new Date()
+                                }
+                            });
+                            batchFailed++;
+                        } catch (saveErr) {
+                            if (saveErr.code === 'STALE_WORKER') {
+                                console.warn(`[AuthorityBulkProcessor] Stale worker ${workerId} suppressed for item ${item._id}`);
+                            } else {
+                                throw saveErr;
+                            }
+                        }
                         continue;
                     }
 
                     const result = await this.processItem(item, {
                         tenantId,
                         isFixtureMode,
-                        authorityCode: run.authorityCode
+                        authorityCode: run.authorityCode,
+                        workerId,
+                        claimToken: item.workerClaimToken,
+                        runId: run._id
                     });
 
                     if (result.success) {
@@ -532,40 +736,66 @@ export class AuthorityBulkProcessor {
                         batchFailed++;
                     }
                 } catch (itemErr) {
-                    batchFailed++;
-                    item.status = 'FAILED';
-                    item.errorMessage = itemErr.message || 'Item processing error';
-                    item.processedAt = new Date();
-                    await item.save();
+                    if (itemErr.code === 'STALE_WORKER') {
+                        // Stale worker write rejected; do not increment counters or overwrite newer worker state
+                        console.warn(`[AuthorityBulkProcessor] Stale worker ${workerId} suppressed for item ${item._id}: ${itemErr.message}`);
+                        continue;
+                    }
+
+                    try {
+                        await AuthorityBulkProcessor.updateItemTerminalState({
+                            itemId: item._id,
+                            tenantId,
+                            runId: run._id,
+                            workerId,
+                            claimToken: item.workerClaimToken,
+                            status: 'FAILED',
+                            updateData: {
+                                errorMessage: itemErr.message || 'Item processing error',
+                                processedAt: new Date()
+                            }
+                        });
+                        batchFailed++;
+                    } catch (saveErr) {
+                        if (saveErr.code === 'STALE_WORKER') {
+                            console.warn(`[AuthorityBulkProcessor] Stale worker ${workerId} could not mark item ${item._id} failed: already reclaimed.`);
+                        } else {
+                            throw saveErr;
+                        }
+                    }
                 }
             }
 
-            // Atomically increment run counters to prevent lost updates across concurrent workers
-            await PropertyVerificationRun.updateOne(
-                { _id: runId, tenantId },
-                {
-                    $inc: {
-                        processedItems: claimedItems.length,
-                        succeededItems: batchSucceeded,
-                        failedItems: batchFailed
+            // Atomically increment run counters strictly reflecting committed items
+            const batchProcessed = batchSucceeded + batchFailed;
+            if (batchProcessed > 0) {
+                await PropertyVerificationRun.updateOne(
+                    { _id: runId, tenantId },
+                    {
+                        $inc: {
+                            processedItems: batchProcessed,
+                            succeededItems: batchSucceeded,
+                            failedItems: batchFailed
+                        }
                     }
-                }
-            );
+                );
+            }
 
-            // Audit batch completion
-            await logAuditEvent(
-                'authority_run_batch_processed',
-                run.requestedBy,
-                'authority_run',
-                run._id,
-                `Batch of ${claimedItems.length} items processed for run ${run._id}`,
-                {
+            // Audit batch completion (diagnostic progress event)
+            await logDiagnosticAuditEvent({
+                eventType: 'authority_run_batch_processed',
+                userId: run.requestedBy,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Batch of ${claimedItems.length} items processed for run ${run._id}`,
+                metadata: {
                     runId: run._id,
                     batchSize: claimedItems.length,
                     batchSucceeded,
                     batchFailed
-                }
-            );
+                },
+                tenantId
+            });
 
             if (typeof onProgress === 'function') {
                 const currentUpdatedRun = await PropertyVerificationRun.findById(runId).select('processedItems succeededItems failedItems totalItems').lean();
@@ -631,21 +861,38 @@ export class AuthorityBulkProcessor {
         );
 
         if (completedRun) {
-            await logAuditEvent(
-                'authority_run_completed',
-                run.requestedBy,
-                'authority_run',
-                run._id,
-                `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
-                {
-                    runId: run._id,
-                    status: finalStatus,
-                    totalItems: run.totalItems,
-                    processedItems: totalProcessed,
-                    succeededItems: totalSucceeded,
-                    failedItems: totalFailed
-                }
-            );
+            try {
+                await logMandatoryAuditEvent({
+                    eventType: 'authority_run_completed',
+                    userId: run.requestedBy,
+                    targetType: 'authority_run',
+                    targetId: run._id,
+                    description: `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
+                    metadata: {
+                        runId: run._id,
+                        status: finalStatus,
+                        totalItems: run.totalItems,
+                        processedItems: totalProcessed,
+                        succeededItems: totalSucceeded,
+                        failedItems: totalFailed
+                    },
+                    tenantId
+                });
+            } catch (auditErr) {
+                // Roll back completed run status to PROCESSING to prevent unaudited completion
+                await PropertyVerificationRun.updateOne(
+                    { _id: runId, tenantId },
+                    {
+                        $set: {
+                            status: 'PROCESSING',
+                            completedAt: null
+                        }
+                    }
+                );
+                const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_completed audit log: ${auditErr.message}`);
+                err.code = 'AUDIT_LOG_FAILED';
+                throw err;
+            }
         }
 
         return {
@@ -661,21 +908,29 @@ export class AuthorityBulkProcessor {
 
     /**
      * Renew active worker lease for an in-flight run item.
+     * Must only renew an unexpired lease belonging to the requesting worker and claimToken.
      * 
      * @param {string|mongoose.Types.ObjectId} itemId 
      * @param {string|mongoose.Types.ObjectId} tenantId 
      * @param {string} workerId 
+     * @param {string} [claimToken=null]
      * @returns {Promise<PropertyVerificationRunItem|null>}
      */
-    static async renewItemLease(itemId, tenantId, workerId) {
-        const newExpiry = new Date(Date.now() + WORKER_LEASE_MS);
+    static async renewItemLease(itemId, tenantId, workerId, claimToken = null) {
+        const now = new Date();
+        const newExpiry = new Date(now.getTime() + WORKER_LEASE_MS);
+        const query = {
+            _id: itemId,
+            tenantId,
+            claimedBy: workerId,
+            status: 'PROCESSING',
+            leaseExpiresAt: { $gt: now }
+        };
+        if (claimToken) {
+            query.workerClaimToken = claimToken;
+        }
         return PropertyVerificationRunItem.findOneAndUpdate(
-            {
-                _id: itemId,
-                tenantId,
-                claimedBy: workerId,
-                status: 'PROCESSING'
-            },
+            query,
             {
                 $set: { leaseExpiresAt: newExpiry }
             },
@@ -684,201 +939,325 @@ export class AuthorityBulkProcessor {
     }
 
     /**
+     * Atomically update an item to its terminal state with lease fencing and ownership validation.
+     * Throws STALE_WORKER if the worker's lease expired or was reclaimed.
+     */
+    static async updateItemTerminalState({
+        itemId,
+        tenantId,
+        runId = null,
+        workerId = null,
+        claimToken = null,
+        status,
+        updateData = {}
+    }) {
+        const now = new Date();
+        const query = {
+            _id: itemId,
+            tenantId,
+            status: 'PROCESSING'
+        };
+
+        if (runId) {
+            query.runId = runId;
+        }
+        if (workerId) {
+            query.claimedBy = workerId;
+            query.leaseExpiresAt = { $gt: now };
+        }
+        if (claimToken) {
+            query.workerClaimToken = claimToken;
+        }
+
+        const update = {
+            $set: {
+                status,
+                leaseExpiresAt: null,
+                processedAt: updateData.processedAt || now,
+                ...updateData
+            }
+        };
+
+        const updated = await PropertyVerificationRunItem.findOneAndUpdate(query, update, { new: true });
+        if (!updated) {
+            const err = new Error(`STALE_WORKER: Worker ${workerId || 'unknown'} lost lease or ownership for item ${itemId}. Write rejected to prevent state corruption.`);
+            err.code = 'STALE_WORKER';
+            throw err;
+        }
+        return updated;
+    }
+
+    /**
      * Process an individual RunItem.
      * Safe, idempotent, and error-isolated.
      */
     static async processItem(item, options = {}) {
-        const { tenantId, isFixtureMode = true, authorityCode } = options;
+        const { tenantId, isFixtureMode = true, authorityCode, workerId: optWorkerId, claimToken: optClaimToken, runId: optRunId } = options;
+        const workerId = optWorkerId || item.claimedBy || null;
+        const claimToken = optClaimToken || item.workerClaimToken || null;
+        const runId = optRunId || item.runId || null;
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
             return { success: true, alreadyProcessed: true };
         }
 
-        // 1. Fetch link & inventory with tenant isolation (or use pre-populated docs)
-        const link = (item.linkId && typeof item.linkId === 'object' && item.linkId.authorityCode && String(item.linkId.tenantId) === String(tenantId))
-            ? item.linkId
-            : await PropertyAuthorityLink.findOne({ _id: item.linkId, tenantId });
+        const heartbeat = (workerId && claimToken)
+            ? createItemHeartbeat(item._id, tenantId, workerId, claimToken, options.heartbeatIntervalMs || 10000)
+            : null;
 
-        if (!link) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Authority link not found or cross-tenant access rejected';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'LINK_NOT_FOUND' };
-        }
-
-        const inventory = (item.inventoryId && typeof item.inventoryId === 'object' && item.inventoryId.unitNo && String(item.inventoryId.tenantId) === String(tenantId))
-            ? item.inventoryId
-            : await Inventory.findOne({ _id: item.inventoryId, tenantId });
-
-        if (!inventory) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Inventory record not found or cross-tenant access rejected';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'INVENTORY_NOT_FOUND' };
-        }
-
-        // 2. Strict Identity Evaluation: Reject incomplete identity without inventing fake values
-        const auth = authorityCode || item.authorityCode;
-        if (
-            link.matchEligibility === 'INCOMPLETE' ||
-            !link.propertyId ||
-            !link.sectorNumber ||
-            (auth === 'HSVP' && !link.urbanEstate)
-        ) {
-            item.status = 'FAILED';
-            item.matchStatus = 'IDENTITY_MISMATCH';
-            item.errorMessage = 'Incomplete identity: propertyId and sectorNumber are required';
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'INCOMPLETE_IDENTITY' };
-        }
-
-        // 3. Execution boundary: Live vs Fixture
-        if (!isFixtureMode) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.';
-            item.processedAt = new Date();
-            item.isSynthetic = false;
-            item.provenance = 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'LIVE_DISABLED' };
-        }
-
-        // 4. Concurrency Protection: Check if a snapshot already exists for this run item
-        const existingSnapshot = await PropertyVerificationSnapshot.findOne({
-            runItemId: item._id,
-            tenantId
-        });
-        if (existingSnapshot) {
-            item.status = 'SUCCEEDED';
-            item.snapshotId = existingSnapshot._id;
-            item.isSynthetic = true;
-            item.provenance = 'SYNTHETIC_FIXTURE';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: true, snapshotId: existingSnapshot._id, alreadyProcessed: true };
-        }
-
-        // 5. Fixture pipeline execution
-        const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
-        if (!rawFixture) {
-            item.status = 'NO_MATCH';
-            item.matchStatus = 'NO_MATCH';
-            item.errorMessage = `No fixture available for authority ${item.authorityCode} with current identity`;
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'NO_FIXTURE' };
-        }
-
-        const candidate = executeFixturePipeline(item.authorityCode, rawFixture, inventory);
-
-        if (candidate.status === 'REJECTED_QUALITY') {
-            item.status = 'FAILED';
-            item.matchStatus = 'NOT_ATTEMPTED';
-            item.errorMessage = `Quality rejection: ${(candidate.errors || []).join('; ')}`;
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
-            return { success: false, reason: 'QUALITY_REJECTED' };
-        }
-
-        // 6. Create immutable verification snapshot with explicit synthetic provenance
-        let snapshot;
         try {
-            snapshot = await PropertyVerificationSnapshot.create({
-                tenantId,
-                authorityCode: item.authorityCode,
-                linkId: link._id,
-                runItemId: item._id,
-                sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
-                observedAt: new Date(),
-                isSynthetic: Boolean(isFixtureMode),
-                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                identityEvidence: {
-                    compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
-                    sectorNumber: link.sectorNumber || null,
-                    phaseCode: link.phaseCode || null,
-                    blockCode: link.blockCode || null,
-                    propertyId: link.propertyId || null,
-                    urbanEstate: link.urbanEstate || null,
-                    schemeName: link.schemeName || null
-                },
-                normalizedData: candidate.normalizedRecord || {},
-                contentHash: candidate.contentHash || null,
-                isSealed: true,
-                dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
-            });
-        } catch (snapErr) {
-            if (snapErr.code === 11000) {
-                // Handled gracefully via unique database index constraint
-                const existingSnap = await PropertyVerificationSnapshot.findOne({
+            // 1. Fetch link & inventory with tenant isolation (or use pre-populated docs)
+            const link = (item.linkId && typeof item.linkId === 'object' && item.linkId.authorityCode && String(item.linkId.tenantId) === String(tenantId))
+                ? item.linkId
+                : await PropertyAuthorityLink.findOne({ _id: item.linkId, tenantId });
+
+            if (!link) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
                     tenantId,
-                    runItemId: item._id
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'FAILED',
+                    updateData: {
+                        errorMessage: 'Authority link not found or cross-tenant access rejected',
+                        processedAt: new Date()
+                    }
                 });
-                if (existingSnap) {
-                    snapshot = existingSnap;
+                return { success: false, reason: 'LINK_NOT_FOUND' };
+            }
+
+            const inventory = (item.inventoryId && typeof item.inventoryId === 'object' && item.inventoryId.unitNo && String(item.inventoryId.tenantId) === String(tenantId))
+                ? item.inventoryId
+                : await Inventory.findOne({ _id: item.inventoryId, tenantId });
+
+            if (!inventory) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'FAILED',
+                    updateData: {
+                        errorMessage: 'Inventory record not found or cross-tenant access rejected',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: false, reason: 'INVENTORY_NOT_FOUND' };
+            }
+
+            // 2. Strict Identity Evaluation: Reject incomplete identity without inventing fake values
+            const auth = authorityCode || item.authorityCode;
+            if (
+                link.matchEligibility === 'INCOMPLETE' ||
+                !link.propertyId ||
+                !link.sectorNumber ||
+                (auth === 'HSVP' && !link.urbanEstate)
+            ) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'FAILED',
+                    updateData: {
+                        matchStatus: 'IDENTITY_MISMATCH',
+                        errorMessage: 'Incomplete identity: propertyId and sectorNumber are required',
+                        isSynthetic: Boolean(isFixtureMode),
+                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: false, reason: 'INCOMPLETE_IDENTITY' };
+            }
+
+            // 3. Execution boundary: Live vs Fixture
+            if (!isFixtureMode) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'FAILED',
+                    updateData: {
+                        errorMessage: 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.',
+                        isSynthetic: false,
+                        provenance: 'LIVE',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: false, reason: 'LIVE_DISABLED' };
+            }
+
+            // 4. Concurrency Protection: Check if a snapshot already exists for this run item
+            const existingSnapshot = await PropertyVerificationSnapshot.findOne({
+                runItemId: item._id,
+                tenantId
+            });
+            if (existingSnapshot) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'SUCCEEDED',
+                    updateData: {
+                        snapshotId: existingSnapshot._id,
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: true, snapshotId: existingSnapshot._id, alreadyProcessed: true };
+            }
+
+            // 5. Fixture pipeline execution
+            const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
+            if (!rawFixture) {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'NO_MATCH',
+                    updateData: {
+                        matchStatus: 'NO_MATCH',
+                        errorMessage: `No fixture available for authority ${item.authorityCode} with current identity`,
+                        isSynthetic: Boolean(isFixtureMode),
+                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: false, reason: 'NO_FIXTURE' };
+            }
+
+            const candidate = executeFixturePipeline(item.authorityCode, rawFixture, inventory);
+
+            if (candidate.status === 'REJECTED_QUALITY') {
+                await AuthorityBulkProcessor.updateItemTerminalState({
+                    itemId: item._id,
+                    tenantId,
+                    runId,
+                    workerId,
+                    claimToken,
+                    status: 'FAILED',
+                    updateData: {
+                        matchStatus: 'NOT_ATTEMPTED',
+                        errorMessage: `Quality rejection: ${(candidate.errors || []).join('; ')}`,
+                        isSynthetic: Boolean(isFixtureMode),
+                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                        processedAt: new Date()
+                    }
+                });
+                return { success: false, reason: 'QUALITY_REJECTED' };
+            }
+
+            // 6. Create immutable verification snapshot with explicit synthetic provenance
+            let snapshot;
+            try {
+                snapshot = await PropertyVerificationSnapshot.create({
+                    tenantId,
+                    authorityCode: item.authorityCode,
+                    linkId: link._id,
+                    runItemId: item._id,
+                    sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
+                    observedAt: new Date(),
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                    identityEvidence: {
+                        compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
+                        sectorNumber: link.sectorNumber || null,
+                        phaseCode: link.phaseCode || null,
+                        blockCode: link.blockCode || null,
+                        propertyId: link.propertyId || null,
+                        urbanEstate: link.urbanEstate || null,
+                        schemeName: link.schemeName || null
+                    },
+                    normalizedData: candidate.normalizedRecord || {},
+                    contentHash: candidate.contentHash || null,
+                    isSealed: true,
+                    dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
+                });
+            } catch (snapErr) {
+                if (snapErr.code === 11000) {
+                    // Handled gracefully via unique database index constraint
+                    const existingSnap = await PropertyVerificationSnapshot.findOne({
+                        tenantId,
+                        runItemId: item._id
+                    });
+                    if (existingSnap) {
+                        snapshot = existingSnap;
+                    } else {
+                        throw snapErr;
+                    }
                 } else {
                     throw snapErr;
                 }
-            } else {
-                throw snapErr;
+            }
+
+            // Check lease heartbeat before committing terminal update
+            if (heartbeat?.isLeaseLost()) {
+                const err = new Error(`STALE_WORKER: Heartbeat lost lease for item ${item._id} during execution.`);
+                err.code = 'STALE_WORKER';
+                throw err;
+            }
+
+            // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
+            const proposedChanges = [];
+            if (Array.isArray(candidate.proposedChanges)) {
+                for (const pc of candidate.proposedChanges) {
+                    if (BLOCKED_UPDATE_FIELDS.has(pc.field)) continue;
+                    if (!ALLOWED_UPDATE_FIELDS.has(pc.field)) continue;
+
+                    proposedChanges.push({
+                        field: pc.field,
+                        currentValue: pc.currentValue ?? null,
+                        proposedValue: pc.proposedValue ?? null,
+                        changeType: pc.changeType || 'UPDATE',
+                        approved: null // Awaiting human review
+                    });
+                }
+            }
+
+            // 8. Update item status to SUCCEEDED with lease fencing protection
+            const updatedItem = await AuthorityBulkProcessor.updateItemTerminalState({
+                itemId: item._id,
+                tenantId,
+                runId,
+                workerId,
+                claimToken,
+                status: 'SUCCEEDED',
+                updateData: {
+                    matchStatus: candidate.matchEvidence?.confidence === 'EXACT'
+                        ? 'EXACT_MATCH'
+                        : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH'),
+                    snapshotId: snapshot._id,
+                    proposedChanges,
+                    reviewerDecision: 'PENDING',
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                    errorMessage: null,
+                    processedAt: new Date()
+                }
+            });
+
+            return {
+                success: true,
+                itemId: updatedItem._id,
+                snapshotId: snapshot._id,
+                matchStatus: updatedItem.matchStatus,
+                proposedChangesCount: proposedChanges.length
+            };
+        } finally {
+            if (heartbeat) {
+                heartbeat.stop();
             }
         }
-
-        // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
-        const proposedChanges = [];
-        if (Array.isArray(candidate.proposedChanges)) {
-            for (const pc of candidate.proposedChanges) {
-                if (BLOCKED_UPDATE_FIELDS.has(pc.field)) continue;
-                if (!ALLOWED_UPDATE_FIELDS.has(pc.field)) continue;
-
-                proposedChanges.push({
-                    field: pc.field,
-                    currentValue: pc.currentValue ?? null,
-                    proposedValue: pc.proposedValue ?? null,
-                    changeType: pc.changeType || 'UPDATE',
-                    approved: null // Awaiting human review
-                });
-            }
-        }
-
-        // 8. Update item status to SUCCEEDED with explicit synthetic provenance
-        item.status = 'SUCCEEDED';
-        item.matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
-            ? 'EXACT_MATCH'
-            : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
-        item.snapshotId = snapshot._id;
-        item.proposedChanges = proposedChanges;
-        item.reviewerDecision = 'PENDING';
-        item.isSynthetic = Boolean(isFixtureMode);
-        item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-        item.processedAt = new Date();
-        item.errorMessage = null;
-        item.leaseExpiresAt = null;
-
-        await item.save();
-
-        return {
-            success: true,
-            itemId: item._id,
-            snapshotId: snapshot._id,
-            matchStatus: item.matchStatus,
-            proposedChangesCount: proposedChanges.length
-        };
     }
 
     /**
@@ -894,20 +1273,37 @@ export class AuthorityBulkProcessor {
             return run;
         }
 
+        const previousStatus = run.status;
+        const previousPausedAt = run.pausedAt;
+        const previousPauseReason = run.pauseReason;
+        const previousPausedBy = run.pausedBy;
+
         run.status = 'PAUSED';
         run.pausedBy = userId || null;
         run.pausedAt = new Date();
         run.pauseReason = reason;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_paused',
-            userId,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} paused: ${reason}`,
-            { runId: run._id, reason }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_paused',
+                userId,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} paused: ${reason}`,
+                metadata: { runId: run._id, reason },
+                tenantId
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.pausedAt = previousPausedAt;
+            run.pauseReason = previousPauseReason;
+            run.pausedBy = previousPausedBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_paused audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }
@@ -925,20 +1321,37 @@ export class AuthorityBulkProcessor {
             return run;
         }
 
+        const previousStatus = run.status;
+        const previousCancelledAt = run.cancelledAt;
+        const previousCancellationReason = run.cancellationReason;
+        const previousCancelledBy = run.cancelledBy;
+
         run.status = 'CANCELLED';
         run.cancelledBy = userId || null;
         run.cancelledAt = new Date();
         run.cancellationReason = reason;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_cancelled',
-            userId,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} cancelled: ${reason}`,
-            { runId: run._id, reason }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_cancelled',
+                userId,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} cancelled: ${reason}`,
+                metadata: { runId: run._id, reason },
+                tenantId
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.cancelledAt = previousCancelledAt;
+            run.cancellationReason = previousCancellationReason;
+            run.cancelledBy = previousCancelledBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_cancelled audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }
@@ -962,6 +1375,11 @@ export class AuthorityBulkProcessor {
             throw new Error('MODE_MISMATCH: Requested isFixtureMode does not match persisted run configuration.');
         }
 
+        const previousStatus = run.status;
+        const previousPausedAt = run.pausedAt;
+        const previousPauseReason = run.pauseReason;
+        const previousPausedBy = run.pausedBy;
+
         // Reclaim ONLY genuinely abandoned/stale worker claims whose lease has expired
         const now = new Date();
         await PropertyVerificationRunItem.updateMany(
@@ -976,7 +1394,8 @@ export class AuthorityBulkProcessor {
                     status: 'PENDING',
                     claimedBy: null,
                     claimedAt: null,
-                    leaseExpiresAt: null
+                    leaseExpiresAt: null,
+                    workerClaimToken: null
                 }
             }
         );
@@ -987,14 +1406,26 @@ export class AuthorityBulkProcessor {
         run.pausedBy = null;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_resumed',
-            options.userId || null,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} resumed`,
-            { runId: run._id, tenantId }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_resumed',
+                userId: options.userId || null,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} resumed`,
+                metadata: { runId: run._id, tenantId },
+                tenantId
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.pausedAt = previousPausedAt;
+            run.pauseReason = previousPauseReason;
+            run.pausedBy = previousPausedBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_resumed audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return this.processRun(runId, {
             tenantId,
