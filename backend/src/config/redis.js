@@ -19,7 +19,31 @@ class MockRedis extends EventEmitter {
     setMaxListeners(n) { return this; }
     getMaxListeners() { return 100; }
     async get(key) { return this.data.get(key) || null; }
-    async set(key, val) { this.data.set(key, val); return 'OK'; }
+    async set(key, val, ...args) { 
+        const argStrings = args.map(a => typeof a === 'string' ? a.toUpperCase() : a);
+        const hasNX = argStrings.includes('NX');
+        const hasXX = argStrings.includes('XX');
+        if (hasNX && this.data.has(key)) return null;
+        if (hasXX && !this.data.has(key)) return null;
+
+        this.data.set(key, val);
+
+        const exIdx = argStrings.indexOf('EX');
+        if (exIdx !== -1 && args[exIdx + 1] !== undefined) {
+            const sec = parseInt(args[exIdx + 1], 10);
+            if (!isNaN(sec)) {
+                setTimeout(() => this.data.delete(key), sec * 1000);
+            }
+        }
+        const pxIdx = argStrings.indexOf('PX');
+        if (pxIdx !== -1 && args[pxIdx + 1] !== undefined) {
+            const ms = parseInt(args[pxIdx + 1], 10);
+            if (!isNaN(ms)) {
+                setTimeout(() => this.data.delete(key), ms);
+            }
+        }
+        return 'OK'; 
+    }
     async setex(key, seconds, val) { 
         this.data.set(key, val); 
         setTimeout(() => this.data.delete(key), seconds * 1000);

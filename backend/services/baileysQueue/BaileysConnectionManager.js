@@ -245,12 +245,15 @@ export const BaileysConnectionManager = {
                     const { default: redisProxy } = await import('../../src/config/redis.js');
                     if (redisProxy && !redisProxy.isMock) {
                         const lockKey = `lock:baileys_socket:${integrationId}`;
-                        const currentHolder = await redisProxy.get(lockKey);
-                        if (currentHolder && currentHolder !== instanceId) {
-                            console.warn(`[BaileysConnectionManager] Socket for integration ${integrationId} is actively managed by another instance (${currentHolder}). Skipping duplicate connection.`);
-                            return null;
+                        const acquired = await redisProxy.set(lockKey, instanceId, 'NX', 'EX', 45);
+                        if (!acquired) {
+                            const currentHolder = await redisProxy.get(lockKey);
+                            if (currentHolder && currentHolder !== instanceId) {
+                                console.warn(`[BaileysConnectionManager] Socket for integration ${integrationId} is actively managed by another instance (${currentHolder}). Skipping duplicate connection.`);
+                                return null;
+                            }
+                            await redisProxy.set(lockKey, instanceId, 'EX', 45);
                         }
-                        await redisProxy.set(lockKey, instanceId, 'EX', 45);
 
                         if (activeHeartbeats.has(integrationId)) {
                             clearInterval(activeHeartbeats.get(integrationId));
@@ -578,6 +581,14 @@ export const BaileysConnectionManager = {
         return connections.get(integrationId);
     },
 
+    _setSocketForTesting(integrationId, sock) {
+        if (!sock) {
+            connections.delete(integrationId);
+        } else {
+            connections.set(integrationId, sock);
+        }
+    },
+
     getGroupSubject(arg1, arg2) {
         let integrationId = null;
         let jid = null;
@@ -665,7 +676,48 @@ export const BaileysConnectionManager = {
                 }
             }
 
-            return await sendTask();
+            // 🔒 Distributed Exclusive Ownership (Multi-Process / PM2 Cluster Safe)
+            // Acquire distributed Redis lock across workers before transmitting onto Baileys session
+            let distributedLockToken = null;
+            let redisProxy = null;
+            const outboundLockKey = `lock:baileys_outbound:${idStr}`;
+            try {
+                const redisMod = await import('../../src/config/redis.js');
+                redisProxy = redisMod.default;
+                if (redisProxy && !redisProxy.isMock) {
+                    distributedLockToken = `${instanceId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+                    const LOCK_TTL_SEC = 30; // 30s safeguard prevents deadlocks on worker crash
+                    const MAX_LOCK_WAIT_MS = 30000;
+                    const startWait = Date.now();
+                    let lockAcquired = false;
+                    while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
+                        const setRes = await redisProxy.set(outboundLockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
+                        if (setRes === 'OK' || setRes === true) {
+                            lockAcquired = true;
+                            break;
+                        }
+                        await new Promise(r => setTimeout(r, 60 + Math.floor(Math.random() * 40)));
+                    }
+                    if (!lockAcquired) {
+                        console.warn(`[BaileysConnectionManager] Timed out waiting for distributed outbound lock on session ${idStr}. Proceeding under local serialization.`);
+                    }
+                }
+            } catch (lockErr) {
+                console.warn(`[BaileysConnectionManager] Distributed lock warning for ${idStr}:`, lockErr.message);
+            }
+
+            try {
+                return await sendTask();
+            } finally {
+                if (distributedLockToken && redisProxy) {
+                    try {
+                        const currentVal = await redisProxy.get(outboundLockKey);
+                        if (currentVal === distributedLockToken) {
+                            await redisProxy.del(outboundLockKey);
+                        }
+                    } catch (relErr) {}
+                }
+            }
         })();
 
         // Store tail promise with catch handler to prevent unhandled rejection crashes
@@ -763,3 +815,5 @@ export const BaileysConnectionManager = {
         }
     }
 };
+
+export default BaileysConnectionManager;

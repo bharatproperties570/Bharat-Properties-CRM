@@ -962,6 +962,9 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
         recipientIndex: nextIndex,
         stats: currentStats
     }, {
+        jobId: `bna_${data.campaignId}_recip_${nextIndex}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
         delay: delayMs,
         removeOnComplete: true
     });
@@ -1137,6 +1140,9 @@ if (name === 'bna-broadcast') {
                 skipped: skippedDuplicates
             }
         }, {
+            jobId: `bna_${campaignId}_recip_0`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
             delay: 0, // Micro-job 0 executes immediately
             removeOnComplete: true
         });
@@ -1233,6 +1239,9 @@ if (name === 'bna-broadcast') {
                 recipientIndex, // Retry the SAME recipient
                 stats
             }, {
+                jobId: `bna_${campaignId}_recip_${recipientIndex}_cb_${circuitAttempt + 1}`,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
                 delay: pauseSeconds * 1000,
                 removeOnComplete: true
             });
@@ -1249,6 +1258,9 @@ if (name === 'bna-broadcast') {
                 recipientIndex, // Retry the SAME recipient
                 stats
             }, {
+                jobId: `bna_${campaignId}_recip_${recipientIndex}_rate_${circuitAttempt + 1}`,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
                 delay: pauseSeconds * 1000,
                 removeOnComplete: true
             });
@@ -1314,4 +1326,4 @@ marketingWorker.on('error', (err) => {
     }
 });
 
-console.log('✅ Marketing Worker Initialized (concurrency=5)');
+console.log('✅ Marketing Worker Initialized (concurrency=2)');

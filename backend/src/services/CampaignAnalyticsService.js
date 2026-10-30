@@ -15,13 +15,18 @@ export class CampaignAnalyticsService {
     static async getCampaignRunAnalytics(campaignRunId) {
         const runId = new mongoose.Types.ObjectId(campaignRunId);
         
-        // 1. Delivery Metrics (Sent & Failed)
+        // 1. Delivery Metrics (Distinct: ACCEPTED, SENT, DELIVERED, READ, FAILED, UNKNOWN, SUPPRESSED)
         const deliveryStats = await MarketingDelivery.aggregate([
             { $match: { campaignRunId: runId } },
             { $group: {
                 _id: null,
-                sent: { $sum: { $cond: [{ $in: ["$status", ["SENT", "ACCEPTED", "DELIVERED", "READ"]] }, 1, 0] } },
-                failed: { $sum: { $cond: [{ $in: ["$status", ["FAILED_FINAL", "FAILED_RETRYABLE"]] }, 1, 0] } }
+                accepted: { $sum: { $cond: [{ $eq: ["$status", "ACCEPTED"] }, 1, 0] } },
+                sent: { $sum: { $cond: [{ $eq: ["$status", "SENT"] }, 1, 0] } },
+                delivered: { $sum: { $cond: [{ $eq: ["$status", "DELIVERED"] }, 1, 0] } },
+                read: { $sum: { $cond: [{ $eq: ["$status", "READ"] }, 1, 0] } },
+                failed: { $sum: { $cond: [{ $in: ["$status", ["FAILED_FINAL", "FAILED_RETRYABLE"]] }, 1, 0] } },
+                unknown: { $sum: { $cond: [{ $eq: ["$status", "DELIVERY_UNKNOWN"] }, 1, 0] } },
+                suppressed: { $sum: { $cond: [{ $eq: ["$status", "SUPPRESSED_OPTOUT"] }, 1, 0] } }
             }}
         ]);
         
@@ -96,7 +101,15 @@ export class CampaignAnalyticsService {
             }}
         ]);
         
-        const dStats = deliveryStats[0] || { sent: 0, failed: 0 };
+        const dStats = deliveryStats[0] || { 
+            accepted: 0, 
+            sent: 0, 
+            delivered: 0, 
+            read: 0, 
+            failed: 0, 
+            unknown: 0, 
+            suppressed: 0 
+        };
         const tStats = touchStats[0] || { 
             engaged: 0, 
             leadsGenerated: 0, 
@@ -107,8 +120,14 @@ export class CampaignAnalyticsService {
         };
         
         return {
-            sent: dStats.sent,
-            failed: dStats.failed,
+            accepted: dStats.accepted || 0,
+            sent: dStats.sent || 0,
+            delivered: dStats.delivered || 0,
+            read: dStats.read || 0,
+            failed: dStats.failed || 0,
+            unknown: dStats.unknown || 0,
+            suppressed: dStats.suppressed || 0,
+            totalOutbound: (dStats.accepted || 0) + (dStats.sent || 0) + (dStats.delivered || 0) + (dStats.read || 0),
             engaged: tStats.engaged,
             leadsGenerated: tStats.leadsGenerated,
             dealsGenerated: tStats.dealsGenerated,

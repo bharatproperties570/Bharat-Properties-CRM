@@ -18,6 +18,28 @@ axiosRetry(axios, {
 
 const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
+const _reconcileLocks = new Map();
+
+function _withReconcileKeyLock(key, fn) {
+    if (!key) return fn();
+    const idKey = String(key).trim();
+    const prev = _reconcileLocks.get(idKey) || Promise.resolve();
+    let release;
+    const current = new Promise(resolve => { release = resolve; });
+    _reconcileLocks.set(idKey, current);
+    return (async () => {
+        try {
+            await prev;
+            return await fn();
+        } finally {
+            release();
+            if (_reconcileLocks.get(idKey) === current) {
+                _reconcileLocks.delete(idKey);
+            }
+        }
+    })();
+}
+
 class WhatsAppService {
     constructor() {
         this._idempotencyCache = new Map();
@@ -516,6 +538,16 @@ class WhatsAppService {
         if (!statusObj || !statusObj.id) {
             return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
         }
+        const lockKey = statusObj.biz_opaque_callback_data || statusObj.id;
+        return _withReconcileKeyLock(lockKey, async () => {
+            return await this._reconcileWebhookStatusInternal(statusObj);
+        });
+    }
+
+    async _reconcileWebhookStatusInternal(statusObj) {
+        if (!statusObj || !statusObj.id) {
+            return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
+        }
         if (!mongoose.connection || mongoose.connection.readyState !== 1) {
             console.error('[WhatsAppService] Database unavailable during webhook status reconciliation');
             return { reconciled: false, reason: 'DATABASE_UNAVAILABLE' };
@@ -820,7 +852,17 @@ class WhatsAppService {
      * 5. Collision & rebinding prevention on providerMessageId
      * 6. Comprehensive audit metadata (reconciledBy, reconciledAt, reconciliationReason)
      */
-    async manualReconcileDispatch({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}) {
+    async manualReconcileDispatch(params = {}) {
+        const { idempotencyKey } = params || {};
+        if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+            return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
+        }
+        return _withReconcileKeyLock(idempotencyKey, async () => {
+            return await this._manualReconcileDispatchInternal(params);
+        });
+    }
+
+    async _manualReconcileDispatchInternal({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}) {
         if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
             return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
         }
@@ -969,7 +1011,7 @@ class WhatsAppService {
             if (dispatch.providerMessageId && dispatch.providerMessageId !== cleanMsgId) {
                 return {
                     success: false,
-                    error: `PROVIDER_ID_REBIND_FORBIDDEN: Dispatch already bound to '${dispatch.providerMessageId}', cannot rebind to '${cleanMsgId}'`
+                    error: `STATE_TRANSITION_CONFLICT: PROVIDER_ID_REBIND_FORBIDDEN: Dispatch already bound to '${dispatch.providerMessageId}', cannot rebind to '${cleanMsgId}'`
                 };
             }
 
@@ -1012,7 +1054,7 @@ class WhatsAppService {
             }
             return {
                 success: false,
-                error: `INVALID_SOURCE_STATUS: Dispatch in status '${dispatch.status}' cannot transition to '${normStatus}'`
+                error: `STATE_TRANSITION_CONFLICT: INVALID_SOURCE_STATUS: Dispatch in status '${dispatch.status}' cannot transition to '${normStatus}'`
             };
         }
 
@@ -1138,6 +1180,12 @@ class WhatsAppService {
         if (digits.length < 10) return false;
         const clean10 = digits.slice(-10);
         const phoneFormats = [digits, `+${digits}`, clean10, `91${clean10}`, `+91${clean10}`];
+
+        // Fail-Closed Policy: If database is disconnected or unreachable, un-keyed dispatches in test mode continue, but any query error fails closed
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            return false;
+        }
+
         try {
             const Lead = mongoose.models.Lead || (await import('../models/Lead.js')).default;
             const Contact = mongoose.models.Contact || (await import('../models/Contact.js')).default;
@@ -1166,8 +1214,9 @@ class WhatsAppService {
 
             return false;
         } catch (err) {
-            console.error('[WhatsAppService] Error checking opt-out status:', err.message);
-            return false;
+            // 🛡️ Fail-Closed Policy: Any DB query error / timeout must block dispatch
+            console.error(`[WhatsAppService] Error checking opt-out status for ${mobile} (Failing closed):`, err.message);
+            return true;
         }
     }
 
@@ -1433,20 +1482,7 @@ class WhatsAppService {
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        // 1. Opt-out policy enforcement
-        const isOptedOut = await this.isRecipientOptedOut(mobile);
-        if (isOptedOut && !options?.overrideOptOut) {
-            console.warn(`[WhatsAppService] Outbound WhatsApp to ${mobile} blocked: Recipient has opted out.`);
-            return {
-                success: false,
-                error: 'Recipient has opted out of WhatsApp communications',
-                code: 'RECIPIENT_OPTED_OUT',
-                optedOut: true,
-                provider: 'policy'
-            };
-        }
-
-        // 2. Idempotency Check (Durable L2 + L1 cache)
+        // 1. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = options?.idempotencyKey;
         let dispatchClaim = null;
         if (idempotencyKey) {
@@ -1474,6 +1510,19 @@ class WhatsAppService {
                     code: dispatchClaim.code
                 };
             }
+        }
+
+        // 2. Opt-out policy enforcement
+        const isOptedOut = await this.isRecipientOptedOut(mobile);
+        if (isOptedOut && !options?.overrideOptOut) {
+            console.warn(`[WhatsAppService] Outbound WhatsApp to ${mobile} blocked: Recipient has opted out.`);
+            return {
+                success: false,
+                error: 'Recipient has opted out of WhatsApp communications',
+                code: 'RECIPIENT_OPTED_OUT',
+                optedOut: true,
+                provider: 'policy'
+            };
         }
 
         const targetAccount = typeof options === 'string' ? options : (options?.integrationId || options?.phoneId || null);

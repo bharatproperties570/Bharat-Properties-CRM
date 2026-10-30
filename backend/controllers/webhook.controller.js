@@ -489,16 +489,31 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         console.error('[WhatsApp Webhook] Dispatch status reconciliation error:', dispatchSyncErr.message);
                     }
 
-                    // 4. Synchronize status onto MarketingDelivery ledger for Campaign tracking
+                    // 4. Synchronize status onto MarketingDelivery ledger with monotonic state protection
                     try {
                         const { default: MarketingDelivery } = await import('../models/MarketingDelivery.js');
                         let deliveryStatus = null;
-                        if (statusVal === 'sent') deliveryStatus = 'SENT';
-                        else if (statusVal === 'delivered') deliveryStatus = 'DELIVERED';
-                        else if (statusVal === 'read') deliveryStatus = 'READ';
-                        else if (statusVal === 'failed') deliveryStatus = 'FAILED_FINAL';
+                        let allowedPriorStatuses = null;
 
-                        if (deliveryStatus) {
+                        if (statusVal === 'sent') {
+                            deliveryStatus = 'SENT';
+                            // Monotonic rule: 'sent' can ONLY overwrite prior states (IN_PROGRESS, QUEUED, ACCEPTED)
+                            // It must NEVER regress confirmed DELIVERED or READ!
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED'];
+                        } else if (statusVal === 'delivered') {
+                            deliveryStatus = 'DELIVERED';
+                            // Monotonic rule: 'delivered' advances sent/accepted; must NEVER regress READ!
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        } else if (statusVal === 'read') {
+                            deliveryStatus = 'READ';
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERED', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        } else if (statusVal === 'failed') {
+                            deliveryStatus = 'FAILED_FINAL';
+                            // Failure cannot overwrite confirmed DELIVERED or READ
+                            allowedPriorStatuses = ['IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'SENT', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE'];
+                        }
+
+                        if (deliveryStatus && allowedPriorStatuses) {
                             const updateFields = {
                                 status: deliveryStatus,
                                 lastAttemptAt: statusTimestamp
@@ -507,7 +522,10 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                                 updateFields.error = status.errors[0]?.message || status.errors[0]?.title || 'Meta delivery failure';
                             }
                             await MarketingDelivery.updateMany(
-                                { providerMessageId: status.id },
+                                { 
+                                    providerMessageId: status.id,
+                                    status: { $in: allowedPriorStatuses }
+                                },
                                 { $set: updateFields }
                             );
                         }
