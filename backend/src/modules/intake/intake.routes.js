@@ -1,8 +1,9 @@
 import express from 'express';
-import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares/upload.middleware.js';
+import { uploadImageOnly, uploadZipOnly, uploadPdfOnly, uploadOcrImage } from '../../middlewares/upload.middleware.js';
 import { 
     processOCR, processZIP, processPDF, processURL, 
     getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake,
+    claimIntake, getIntakeImage,
     createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource,
     getIntakeGroups, toggleIntakeGroup, triggerGroupScan, backfillIntakeGroup,
     previewWAVerification, sendWAVerification, getWAVerificationStatus,
@@ -41,7 +42,7 @@ router.delete('/monitors/:id', deleteAutomatedSource);
 /**
  * File & Content Processing Routes
  */
-router.post('/ocr', uploadImageOnly.single('image'), processOCR);
+router.post('/ocr', uploadOcrImage.single('image'), processOCR);
 router.post('/zip', uploadZipOnly.single('file'), processZIP);
 router.post('/pdf', uploadPdfOnly.single('file'), processPDF);
 router.post('/url', processURL);
@@ -58,6 +59,12 @@ router.post('/', createIntake);
 router.get('/:id/wa-verification-status', getWAVerificationStatus);
 router.post('/:id/wa-verification-preview', previewWAVerification);
 router.post('/:id/wa-verification-send', sendWAVerification);
+
+/**
+ * Intake Authorization & Image Asset Routes
+ */
+router.post('/:id/claim', claimIntake);
+router.get('/:id/image', getIntakeImage);
 
 /**
  * Single Intake Record Wildcard Routes (MUST be last)

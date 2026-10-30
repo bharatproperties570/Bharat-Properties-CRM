@@ -5,6 +5,7 @@ import ZipConnector from './ZipConnector.js';
 import GoogleIndexConnector from './GoogleIndexConnector.js';
 import PropertyListingConnector from './PropertyListingConnector.js';
 import WhatsAppGroupConnector from './WhatsAppGroupConnector.js';
+import OcrConnector from './OcrConnector.js';
 
 class ConnectorRegistry {
     constructor() {
@@ -18,6 +19,7 @@ class ConnectorRegistry {
         this.register(GoogleIndexConnector);
         this.register(PropertyListingConnector);
         this.register(WhatsAppGroupConnector);
+        this.register(OcrConnector);
     }
 
     register(connectorInstance) {

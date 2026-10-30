@@ -3,12 +3,14 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import pdf from 'pdf-parse';
 import path from 'path';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parseContent } from './intakeParser.js';
+import { canViewIntake, canClaimIntake } from './intake.authorization.js';
 import Intake from '../../../models/Intake.js';
 import IntakeGroupCursor from '../../../models/IntakeGroupCursor.js';
 import AutomatedIntakeSource from '../../../models/AutomatedIntakeSource.js';
-import { addToIntakeQueue } from '../../../services/intakeQueue/IntakeQueue.js';
+import { addToIntakeQueue, intakeQueue } from '../../../services/intakeQueue/IntakeQueue.js';
 import automatedIntakeService from '../../../services/intakeQueue/AutomatedIntakeService.js';
 import groupMessageScanner from '../../../services/intakeQueue/GroupMessageScanner.js';
 import connectorRegistry from '../../../services/intakeConnectors/ConnectorRegistry.js';
@@ -124,6 +126,12 @@ export const getIntakeById = async (req, res) => {
         }
         const intake = await Intake.findOne(query);
         if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
+
+        // 🛡️ Gate 2R.12: Enforce Policy A Viewing Policy
+        if (!canViewIntake(intake, req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied: You do not have permission to view this intake' });
+        }
+
         res.status(200).json({ success: true, data: intake });
     } catch (error) {
         console.error("[Intake:GetById Error]:", error);
@@ -132,20 +140,173 @@ export const getIntakeById = async (req, res) => {
 };
 
 /**
- * Update intake status
+ * Claim an unassigned intake record (Gate 2R.12 Policy B)
+ */
+export const claimIntake = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const intake = await Intake.findById(id);
+        if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
+
+        // 🛡️ Gate 2R.12 Policy B: Claim Eligibility Check
+        if (!canClaimIntake(intake, req.user)) {
+            return res.status(403).json({ success: false, message: 'You are not eligible to claim this intake record' });
+        }
+
+        // Atomic claim execution
+        const claimed = await Intake.findOneAndUpdate(
+            {
+                _id: id,
+                createdBy: null,
+                assignedTo: null,
+                status: { $in: ['Raw Received', 'Queued', 'Needs Review', 'Ready for Review'] }
+            },
+            {
+                $set: {
+                    assignedTo: req.user._id,
+                    claimedAt: new Date(),
+                    'raw_source_data.claimedBy': req.user._id
+                }
+            },
+            { new: true }
+        );
+
+        if (!claimed) {
+            return res.status(409).json({ success: false, message: 'Conflict: Record already claimed or not eligible' });
+        }
+
+        res.status(200).json({ success: true, data: claimed });
+    } catch (error) {
+        console.error("[Intake:Claim Error]:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Get intake OCR image attachment with O_NOFOLLOW & parent directory validation (Gate 2R.12)
+ */
+export const getIntakeImage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const intake = await Intake.findById(id);
+        if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
+
+        // 🛡️ Gate 2R.12: Enforce Policy A (identical to detail view!)
+        if (!canViewIntake(intake, req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied: You do not have permission to view this image' });
+        }
+
+        const filePath = intake.raw_source_data?.storagePath;
+        if (!filePath) {
+            return res.status(404).json({ success: false, message: 'No image attachment registered for this intake' });
+        }
+
+        const resolvedFilePath = path.resolve(filePath);
+        if (!fs.existsSync(resolvedFilePath)) {
+            return res.status(404).json({ success: false, message: 'Image file not found on disk' });
+        }
+
+        // 🛡️ Gate 2R.12: O_NOFOLLOW Leaf Check & Canonical Directory Verification
+        let fd;
+        try {
+            fd = fs.openSync(resolvedFilePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        } catch (openErr) {
+            if (openErr.code === 'ELOOP') {
+                console.error(`[SECURITY ALERT] Symlink blocked by O_NOFOLLOW: ${resolvedFilePath}`);
+                return res.status(403).json({ success: false, message: 'Access denied: Symbolic links are strictly prohibited' });
+            }
+            throw openErr;
+        }
+
+        try {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile()) {
+                fs.closeSync(fd);
+                return res.status(403).json({ success: false, message: 'Not a regular file' });
+            }
+
+            // Verify parent directory resides inside canonical permanent storage
+            const canonicalParent = fs.realpathSync(path.dirname(resolvedFilePath));
+            const storageOcrDir = path.resolve(process.cwd(), 'storage/intake/ocr');
+            if (!fs.existsSync(storageOcrDir)) {
+                fs.mkdirSync(storageOcrDir, { recursive: true });
+            }
+            const canonicalRoot = fs.realpathSync(storageOcrDir);
+
+            if (canonicalParent !== canonicalRoot && !canonicalParent.startsWith(canonicalRoot + path.sep)) {
+                fs.closeSync(fd);
+                return res.status(403).json({ success: false, message: 'Access denied: File boundary violation' });
+            }
+
+            // Verify magic bytes directly from open file descriptor
+            const magic = Buffer.alloc(12);
+            fs.readSync(fd, magic, 0, 12, 0);
+
+            let contentType = null;
+            if (magic.subarray(0, 3).equals(Buffer.from([0xFF, 0xD8, 0xFF]))) contentType = 'image/jpeg';
+            else if (magic.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) contentType = 'image/png';
+            else if (magic.subarray(0, 4).equals(Buffer.from([0x52, 0x49, 0x46, 0x46])) && magic.subarray(8, 12).equals(Buffer.from([0x57, 0x45, 0x42, 0x50]))) contentType = 'image/webp';
+            else {
+                fs.closeSync(fd);
+                return res.status(415).json({ success: false, message: 'Unsupported file content format' });
+            }
+
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Length', stat.size);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            const stream = fs.createReadStream(null, { fd, autoClose: true });
+            stream.pipe(res);
+        } catch (streamErr) {
+            try { fs.closeSync(fd); } catch (e) {}
+            throw streamErr;
+        }
+    } catch (error) {
+        console.error("[Intake:GetImage Error]:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Update intake status with archive retention & restore guards
  */
 export const updateIntakeStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
 
+        const current = await Intake.findById(id);
+        if (!current) return res.status(404).json({ success: false, message: 'Intake record not found' });
+
+        const updateDoc = {
+            $set: { status }
+        };
+
+        // 🛡️ Gate 2R.12: Archive Restoration Guard
+        // If restoring from Archived to active review, block if actively purging
+        if (current.status === 'Archived' && (status === 'Needs Review' || status === 'Ready for Review' || status === 'Queued')) {
+            if (current.file_status === 'purging') {
+                return res.status(409).json({ success: false, message: 'Cannot restore: Image purge is already in progress' });
+            }
+            if (current.file_status === 'purged') {
+                return res.status(409).json({ success: false, message: 'Cannot restore: Image has already been purged' });
+            }
+            // Cancel pending deletion schedule
+            updateDoc.$set.file_status = 'ready';
+            updateDoc.$unset = { purgeScheduledAt: 1, archivedAt: 1 };
+        }
+
+        // 🛡️ Gate 2R.12: Confirmed 7-day Archive Retention Policy
+        if (status === 'Archived' && current.status !== 'Archived') {
+            updateDoc.$set.archivedAt = new Date();
+            updateDoc.$set.purgeScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Exactly 7 days approved
+        }
+
         const query = { _id: id };
         if (req.user && req.user.tenantId) {
             query.tenantId = req.user.tenantId;
         }
-        const intake = await Intake.findOneAndUpdate(query, { status }, { new: true });
-        if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
 
+        const intake = await Intake.findOneAndUpdate(query, updateDoc, { new: true });
         res.status(200).json({ success: true, data: intake });
     } catch (error) {
         console.error("[Intake:Update Error]:", error);
@@ -198,60 +359,110 @@ export const deleteIntake = async (req, res) => {
 };
 
 /**
- * Process OCR for an uploaded image
+ * Process OCR upload with Path-Isolation Protocol (Gate 2R.12 Workstream C)
+ * Staged into quarantine -> verified -> moved to permanent -> pre-registered -> dispatched to BullMQ
  */
 export const processOCR = async (req, res) => {
     try {
         if (!req.file) {
-            console.warn("[Intake:OCR] No file in request. Body:", req.body);
-            console.warn("[Intake:OCR] Headers:", req.headers);
+            console.warn("[Intake:OCR] No file in request.");
             return res.status(400).json({ success: false, message: "No image file uploaded" });
         }
 
-        // Initialize Tesseract Worker
-        const start = Date.now();
-        console.log(`[Intake:OCR] Starting Tesseract worker for file ${req.file.filename}...`);
-        const worker = await createWorker('eng');
-        try {
-            const { data: { text } } = await worker.recognize(req.file.path);
-            const duration = ((Date.now() - start) / 1000).toFixed(2);
-            console.log(`[Intake:OCR] Recognition complete in ${duration}s. Text length: ${text.length}`);
-            
-            const parsed = await parseContent(text);
-            console.log(`[Intake:OCR] Logic parsing complete.`);
+        const quarantinePath = req.file.path;
 
-            // Create Intake Record
-            const intake = await Intake.create({
-                source: 'Camera',
-                content: text,
-                category: 'new',
-                status: 'Raw Received',
-                receivedAt: new Date(),
-                meta: {
-                    fileName: req.file.originalname,
-                    mimeType: req.file.mimetype,
-                    parsedData: parsed
-                }
-            });
+        // 1. Verify magic bytes on quarantine file directly
+        const fd = fs.openSync(quarantinePath, fs.constants.O_RDONLY);
+        const magic = Buffer.alloc(12);
+        fs.readSync(fd, magic, 0, 12, 0);
+        fs.closeSync(fd);
 
-            // Cleanup uploaded file
-            if (fs.existsSync(req.file.path)) {
-                fs.unlinkSync(req.file.path);
-            }
+        let validMime = null;
+        if (magic.subarray(0, 3).equals(Buffer.from([0xFF, 0xD8, 0xFF]))) validMime = 'image/jpeg';
+        else if (magic.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) validMime = 'image/png';
+        else if (magic.subarray(0, 4).equals(Buffer.from([0x52, 0x49, 0x46, 0x46])) && magic.subarray(8, 12).equals(Buffer.from([0x57, 0x45, 0x42, 0x50]))) validMime = 'image/webp';
 
-            res.status(200).json({
-                success: true,
-                data: intake
-            });
-        } finally {
-            await worker.terminate();
+        if (!validMime) {
+            try { fs.unlinkSync(quarantinePath); } catch (e) {}
+            return res.status(400).json({ success: false, message: "Invalid image content: must be genuine JPEG, PNG, or WebP" });
         }
+
+        // 2. Compute SHA-256 hash of image payload
+        const fileBuffer = fs.readFileSync(quarantinePath);
+        const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+        // 3. Pre-register Intake in MongoDB with staged file_status
+        const intake = new Intake({
+            source: 'Camera',
+            source_type: 'other',
+            status: 'Queued',
+            file_status: 'staged',
+            department: req.user?.department || 'sales',
+            createdBy: req.user?._id,
+            raw_source_data: {
+                originalName: req.file.originalname,
+                mimeType: validMime,
+                fileHash,
+                quarantinePath
+            },
+            meta: {
+                fileName: req.file.originalname,
+                mimeType: validMime,
+                fileHash
+            }
+        });
+        await intake.save();
+
+        // 4. Relocate file from quarantine to permanent storage (${intakeId}_${hash}.${ext})
+        const permanentDir = path.resolve(process.cwd(), 'storage/intake/ocr');
+        if (!fs.existsSync(permanentDir)) {
+            fs.mkdirSync(permanentDir, { recursive: true });
+        }
+        const ext = path.extname(req.file.originalname).toLowerCase() || (validMime === 'image/png' ? '.png' : '.jpg');
+        const permanentPath = path.resolve(permanentDir, `${intake._id}_${fileHash}${ext}`);
+
+        fs.renameSync(quarantinePath, permanentPath);
+        const now = new Date();
+        fs.utimesSync(permanentPath, now, now); // 🛡️ Reset mtime to reflect permanent admission time
+
+        // 5. Update Intake state to ready
+        intake.file_status = 'ready';
+        intake.raw_source_data.storagePath = permanentPath;
+        await intake.save();
+
+        // 6. Enqueue to BullMQ with deterministic jobId
+        try {
+            await intakeQueue.add('process-intake', {
+                intakeId: intake._id,
+                sourceType: 'ocr',
+                rawData: {
+                    filePath: permanentPath,
+                    fileHash,
+                    originalName: req.file.originalname,
+                    mimeType: validMime
+                },
+                userId: req.user?._id
+            }, {
+                jobId: `ocr_${intake._id}`,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 1000 }
+            });
+        } catch (queueErr) {
+            console.warn(`[Intake:OCR] BullMQ enqueue deferred (${queueErr.message}). Intake saved in MongoDB under 'Queued' status.`);
+        }
+
+        res.status(202).json({
+            success: true,
+            message: "OCR queued for background processing",
+            data: intake,
+            intakeId: intake._id
+        });
     } catch (error) {
         console.error("[Intake:OCR Error]:", error);
         if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
+            try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
-        res.status(500).json({ success: false, message: error.message || "OCR Processing Failed" });
+        res.status(500).json({ success: false, message: error.message || "OCR Admission Failed" });
     }
 };
 

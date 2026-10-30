@@ -126,6 +126,29 @@ const intakeSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    assignedTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        index: true
+    },
+    team: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Team',
+        index: true
+    },
+    department: {
+        type: String,
+        default: 'sales'
+    },
+    file_status: {
+        type: String,
+        enum: ['staged', 'ready', 'purging', 'purged', 'failed'],
+        default: null
+    },
+    purgeScheduledAt: { type: Date },
+    purgeFencingToken: { type: Number, default: 0 },
+    purgeLeaseExpiresAt: { type: Date },
+    claimedAt: { type: Date },
     tenantId: {
         type: mongoose.Schema.Types.ObjectId,
         index: true
