@@ -67,8 +67,7 @@ const PropertyVerificationRunSchema = new mongoose.Schema({
     },
     provenance: {
         type: String,
-        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
-        default: 'LIVE'
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE']
     },
 
     // ========== Lifecycle ==========
@@ -174,7 +173,7 @@ PropertyVerificationRunSchema.methods.toSummary = function () {
         authorityCode: this.authorityCode,
         runMode: this.runMode,
         isFixtureMode: Boolean(this.isFixtureMode),
-        provenance: this.provenance || (this.isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'),
+        provenance: this.provenance || (this.isFixtureMode ? 'SYNTHETIC_FIXTURE' : undefined),
         status: this.status,
         totalItems: this.totalItems,
         processedItems: this.processedItems,

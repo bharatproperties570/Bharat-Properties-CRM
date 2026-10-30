@@ -102,6 +102,7 @@ router.get('/review/pending',
 );
 router.post('/review/:itemId',
     checkPermission('authorityVerification', 'edit'),
+    checkApprovalRight('approveAuthorityChanges'),
     submitReview
 );
 router.post('/apply/:itemId',

@@ -30,9 +30,9 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
     let testServer;
     let baseUrl;
     let tenantA, tenantB;
-    let userA, userB;
-    let tokenA, tokenB;
-    let invA1, invA2, invA3, invB1;
+    let userA, userB, userNoApproval;
+    let tokenA, tokenB, tokenNoApproval;
+    let invA1, invA2, invA3, invB1, invIncomplete;
 
     before(async () => {
         mongoServer = await MongoMemoryServer.create();
@@ -53,6 +53,18 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             }
         });
 
+        const noApprovalRole = await Role.create({
+            name: 'Authority Non-Approver Role',
+            department: 'inventory',
+            moduleAccess: {
+                authorityVerification: { view: true, create: true, edit: true, delete: false }
+            },
+            approvalRights: {
+                manageAuthoritySettings: false,
+                approveAuthorityChanges: false
+            }
+        });
+
         userA = await User.create({
             _id: new mongoose.Types.ObjectId(),
             tenantId: tenantA,
@@ -61,6 +73,17 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             password: 'hashed_password',
             department: 'inventory',
             role: testRole._id,
+            isActive: true
+        });
+
+        userNoApproval = await User.create({
+            _id: new mongoose.Types.ObjectId(),
+            tenantId: tenantA,
+            fullName: 'Test Editor No Approval',
+            email: 'editor.noapproval@crm.test',
+            password: 'hashed_password',
+            department: 'inventory',
+            role: noApprovalRole._id,
             isActive: true
         });
 
@@ -77,6 +100,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
 
         tokenA = jwt.sign({ id: userA._id }, config.jwtSecret, { expiresIn: '2h' });
         tokenB = jwt.sign({ id: userB._id }, config.jwtSecret, { expiresIn: '2h' });
+        tokenNoApproval = jwt.sign({ id: userNoApproval._id }, config.jwtSecret, { expiresIn: '2h' });
 
         // Initialize Express test server for real HTTP API validation
         const app = express();
@@ -128,6 +152,16 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             projectName: 'Urban Heights',
             city: 'Panchkula',
             status: 'Booked',
+            createdBy: userA._id
+        });
+
+        invIncomplete = await Inventory.create({
+            tenantId: tenantA,
+            unitNo: null,
+            sector: null,
+            projectName: 'Urban Heights',
+            city: 'Panchkula',
+            status: 'Available',
             createdBy: userA._id
         });
 
@@ -231,6 +265,43 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
                     status: 'PENDING'
                 });
             }, /E11000.*duplicate key/);
+        });
+
+        it('2.3 createBulkRun reconciles run.totalItems with eligible inserted records and skips ineligible links', async () => {
+            const reconRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                inventoryIds: [invA1._id, invA2._id, invIncomplete._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true,
+                onlyEligible: true
+            });
+
+            const items = await PropertyVerificationRunItem.find({ runId: reconRun._id });
+            assert.equal(items.length, 2, 'Only 2 eligible items should be created; incomplete link skipped');
+            assert.equal(reconRun.totalItems, 2, 'run.totalItems must be reconciled with actual inserted count');
+        });
+
+        it('2.4 HTTP API: POST /runs creates bulk run using bounded operations and reconciles totalItems', async () => {
+            const res = await fetch(`${baseUrl}/api/authority/runs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tokenA}`
+                },
+                body: JSON.stringify({
+                    authorityCode: 'GMADA',
+                    runMode: 'BULK_MANUAL',
+                    inventoryIds: [invA1._id, invA2._id],
+                    isFixtureMode: true
+                })
+            });
+            assert.equal(res.status, 201);
+            const body = await res.json();
+            assert.equal(body.success, true);
+            assert.equal(body.data.authorityCode, 'GMADA');
+            assert.equal(body.data.totalItems, 2);
         });
     });
 
@@ -555,6 +626,127 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             assert.equal(resumeBody.success, true);
             assert.equal(resumeBody.data.status, 'COMPLETED');
         });
+
+        it('5.5 processRun and resumeRun reject mode mismatch between persisted run and request options', async () => {
+            const fixtureRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                inventoryIds: [invA1._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            });
+
+            // Service-level rejection
+            await assert.rejects(async () => {
+                await AuthorityBulkProcessor.processRun(fixtureRun._id, {
+                    tenantId: tenantA,
+                    isFixtureMode: false // mismatch!
+                });
+            }, /MODE_MISMATCH/);
+
+            await assert.rejects(async () => {
+                await AuthorityBulkProcessor.resumeRun(fixtureRun._id, tenantA, {
+                    isFixtureMode: false // mismatch!
+                });
+            }, /MODE_MISMATCH/);
+
+            // HTTP API rejection
+            const apiRes = await fetch(`${baseUrl}/api/authority/runs/${fixtureRun._id}/process`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tokenA}`
+                },
+                body: JSON.stringify({ isFixtureMode: false })
+            });
+            assert.equal(apiRes.status, 422);
+            const apiBody = await apiRes.json();
+            assert.equal(apiBody.code, 'MODE_MISMATCH');
+        });
+
+        it('5.6 concurrency: pause active run, immediately resume, spawn concurrent workers proving 1 snapshot/item and no counter drift', async () => {
+            const multiRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                inventoryIds: [invA1._id, invA2._id, invA3._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            });
+
+            // Start initial worker
+            const worker1Promise = AuthorityBulkProcessor.processRun(multiRun._id, {
+                tenantId: tenantA,
+                batchSize: 1
+            });
+
+            // Pause at batch boundary
+            await AuthorityBulkProcessor.pauseRun(multiRun._id, tenantA, userA._id, 'Concurrency pause');
+
+            // Immediately attempt resume with worker 2 and worker 3
+            const worker2Promise = AuthorityBulkProcessor.resumeRun(multiRun._id, tenantA, {
+                batchSize: 1
+            });
+            const worker3Promise = AuthorityBulkProcessor.processRun(multiRun._id, {
+                tenantId: tenantA,
+                batchSize: 1
+            });
+
+            const results = await Promise.all([worker1Promise, worker2Promise, worker3Promise]);
+
+            // Final state assertions
+            const finalRun = await PropertyVerificationRun.findById(multiRun._id);
+            assert.equal(finalRun.status, 'COMPLETED');
+            assert.equal(finalRun.processedItems, 3, 'Must process exactly 3 items without duplicate counter increments');
+            assert.equal(finalRun.succeededItems, 3, 'All 3 items must succeed');
+            assert.equal(finalRun.failedItems, 0);
+
+            // Assert: exactly one snapshot per run item
+            const items = await PropertyVerificationRunItem.find({ runId: multiRun._id });
+            assert.equal(items.length, 3);
+            for (const item of items) {
+                assert.equal(item.status, 'SUCCEEDED');
+                const snapCount = await PropertyVerificationSnapshot.countDocuments({ runItemId: item._id });
+                assert.equal(snapCount, 1, `Run item ${item._id} must have exactly one snapshot`);
+            }
+        });
+
+        it('5.7 worker lease: active worker lease prevents another worker from stealing, only expired lease is reclaimed', async () => {
+            const leaseRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                inventoryIds: [invA1._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            });
+
+            const item = await PropertyVerificationRunItem.findOne({ runId: leaseRun._id });
+            const futureLease = new Date(Date.now() + 60000); // active for 60s
+            item.status = 'PROCESSING';
+            item.claimedBy = 'worker_alpha';
+            item.claimedAt = new Date();
+            item.leaseExpiresAt = futureLease;
+            await item.save();
+
+            // Calling resumeRun should NOT reclaim the active lease
+            await AuthorityBulkProcessor.resumeRun(leaseRun._id, tenantA);
+            const untouchedItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(untouchedItem.claimedBy, 'worker_alpha', 'Active lease must not be stolen or reset');
+
+            // Simulate expired lease
+            untouchedItem.leaseExpiresAt = new Date(Date.now() - 5000); // expired 5s ago
+            await untouchedItem.save();
+
+            // Set run to PAUSED so resumeRun can resume
+            await PropertyVerificationRun.updateOne({ _id: leaseRun._id }, { $set: { status: 'PAUSED' } });
+
+            // Now resumeRun reclaims it cleanly
+            await AuthorityBulkProcessor.resumeRun(leaseRun._id, tenantA);
+            const reclaimedItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(reclaimedItem.status, 'SUCCEEDED', 'Expired lease item must be reclaimed and processed to completion');
+        });
     });
 
     describe('6. Synthetic Fixture Protection & Server-side HTTP 422 Rejection on Apply', () => {
@@ -608,6 +800,189 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
             assert.equal(postInv.authorityVerification?.lastVerifiedAt, undefined);
             assert.equal(postInv.authorityVerification?.verificationSnapshotId, undefined);
         });
+
+        it('6.2 server-side applyApprovedChanges rejects missing snapshot with HTTP 422 MISSING_SNAPSHOT', async () => {
+            const originalInv = await Inventory.findById(invA1._id).lean();
+
+            const missSnapRun = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                runMode: 'SINGLE',
+                status: 'COMPLETED',
+                totalItems: 1,
+                isFixtureMode: false,
+                provenance: 'LIVE'
+            });
+
+            // Create item with non-existent snapshot
+            const dummyItem = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: missSnapRun._id,
+                inventoryId: invA1._id,
+                linkId: fixtureItem.linkId,
+                authorityCode: 'HSVP',
+                status: 'SUCCEEDED',
+                snapshotId: new mongoose.Types.ObjectId(), // does not exist!
+                reviewerDecision: 'APPROVED',
+                proposedChanges: [{ field: 'authorityVerification.fileNumber', currentValue: null, proposedValue: 'FN-1234', approved: true }],
+                isSynthetic: false,
+                provenance: 'LIVE'
+            });
+
+            const res = await fetch(`${baseUrl}/api/authority/apply/${dummyItem._id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+            });
+
+            assert.equal(res.status, 422);
+            const body = await res.json();
+            assert.equal(body.code, 'MISSING_SNAPSHOT');
+
+            const postInv = await Inventory.findById(invA1._id).lean();
+            assert.deepEqual(postInv.status, originalInv.status);
+            assert.equal(postInv.authorityVerification?.fileNumber, undefined);
+        });
+
+        it('6.3 server-side applyApprovedChanges rejects missing run with HTTP 422 MISSING_RUN', async () => {
+            const originalInv = await Inventory.findById(invA1._id).lean();
+
+            const dummyItem = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: new mongoose.Types.ObjectId(), // does not exist!
+                snapshotId: fixtureItem.snapshotId,
+                inventoryId: invA1._id,
+                linkId: fixtureItem.linkId,
+                authorityCode: 'HSVP',
+                status: 'SUCCEEDED',
+                reviewerDecision: 'APPROVED',
+                proposedChanges: [{ field: 'authorityVerification.fileNumber', currentValue: null, proposedValue: 'FN-1234', approved: true }],
+                isSynthetic: false,
+                provenance: 'LIVE'
+            });
+
+            const res = await fetch(`${baseUrl}/api/authority/apply/${dummyItem._id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+            });
+
+            assert.equal(res.status, 422);
+            const body = await res.json();
+            assert.equal(body.code, 'MISSING_RUN');
+
+            const postInv = await Inventory.findById(invA1._id).lean();
+            assert.deepEqual(postInv.status, originalInv.status);
+        });
+
+        it('6.4 server-side applyApprovedChanges rejects legacy or undefined provenance with HTTP 422 INVALID_PROVENANCE', async () => {
+            const originalInv = await Inventory.findById(invA1._id).lean();
+
+            // Create run and snapshot with undefined/legacy provenance
+            const legRun = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                runMode: 'SINGLE',
+                status: 'COMPLETED',
+                totalItems: 1,
+                isFixtureMode: false
+                // provenance undefined
+            });
+
+            const legSnap = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: fixtureItem.linkId,
+                observedAt: new Date(),
+                isSynthetic: false,
+                contentHash: '12345678901234567890123456789012',
+                isSealed: true
+                // provenance undefined
+            });
+
+            const dummyItem = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: legRun._id,
+                snapshotId: legSnap._id,
+                inventoryId: invA1._id,
+                linkId: fixtureItem.linkId,
+                authorityCode: 'HSVP',
+                status: 'SUCCEEDED',
+                reviewerDecision: 'APPROVED',
+                proposedChanges: [{ field: 'authorityVerification.fileNumber', currentValue: null, proposedValue: 'FN-1234', approved: true }],
+                isSynthetic: false
+                // provenance undefined
+            });
+
+            const res = await fetch(`${baseUrl}/api/authority/apply/${dummyItem._id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+            });
+
+            assert.equal(res.status, 422);
+            const body = await res.json();
+            assert.equal(body.code, 'INVALID_PROVENANCE');
+
+            const postInv = await Inventory.findById(invA1._id).lean();
+            assert.deepEqual(postInv.status, originalInv.status);
+        });
+
+        it('6.5 server-side applyApprovedChanges rejects unapproved live source with HTTP 422 SOURCE_NOT_AUTHORIZED', async () => {
+            const originalInv = await Inventory.findById(invA1._id).lean();
+
+            const liveRun = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                runMode: 'SINGLE',
+                status: 'COMPLETED',
+                totalItems: 1,
+                isFixtureMode: false,
+                provenance: 'LIVE'
+            });
+
+            const dummyItemId = new mongoose.Types.ObjectId();
+
+            const liveSnap = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: fixtureItem.linkId,
+                runItemId: dummyItemId,
+                observedAt: new Date(),
+                isSynthetic: false,
+                provenance: 'LIVE',
+                contentHash: '12345678901234567890123456789012',
+                isSealed: true
+            });
+
+            const dummyItem = await PropertyVerificationRunItem.create({
+                _id: dummyItemId,
+                tenantId: tenantA,
+                runId: liveRun._id,
+                snapshotId: liveSnap._id,
+                inventoryId: invA1._id,
+                linkId: fixtureItem.linkId,
+                authorityCode: 'HSVP',
+                status: 'SUCCEEDED',
+                reviewerDecision: 'APPROVED',
+                proposedChanges: [{ field: 'authorityVerification.fileNumber', currentValue: null, proposedValue: 'FN-1234', approved: true }],
+                isSynthetic: false,
+                provenance: 'LIVE'
+            });
+
+            // Source is NOT authorized (HSVP permissionStatus is NOT_OBTAINED)
+            const res = await fetch(`${baseUrl}/api/authority/apply/${dummyItem._id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+            });
+
+            assert.equal(res.status, 422);
+            const body = await res.json();
+            assert.equal(body.code, 'SOURCE_NOT_AUTHORIZED');
+
+            const postInv = await Inventory.findById(invA1._id).lean();
+            assert.deepEqual(postInv.status, originalInv.status);
+        });
     });
 
     describe('7. Multi-Tenant Isolation', () => {
@@ -649,6 +1024,68 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
                 eventType: { $in: ['authority_run_created', 'authority_run_completed', 'authority_run_cancelled', 'authority_run_paused', 'authority_run_resumed'] }
             });
             assert.ok(auditEvents.length >= 4, 'Audit logs must capture run lifecycle transitions');
+        });
+    });
+
+    describe('9. RBAC Approval Rights & Audit Alignment', () => {
+        let testItem;
+
+        before(async () => {
+            const rbacRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: userA._id,
+                inventoryIds: [invA1._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            });
+            await AuthorityBulkProcessor.processRun(rbacRun._id, { tenantId: tenantA, isFixtureMode: true });
+            testItem = await PropertyVerificationRunItem.findOne({ runId: rbacRun._id });
+        });
+
+        it('9.1 user without approvalRights.approveAuthorityChanges is rejected from submitReview with HTTP 403', async () => {
+            const res = await fetch(`${baseUrl}/api/authority/review/${testItem._id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tokenNoApproval}` // has authorityVerification.edit, but NOT approveAuthorityChanges
+                },
+                body: JSON.stringify({ decision: 'APPROVED' })
+            });
+            assert.equal(res.status, 403, 'Must reject user without approveAuthorityChanges right');
+        });
+
+        it('9.2 user without approvalRights.approveAuthorityChanges is rejected from applyApprovedChanges with HTTP 403', async () => {
+            const res = await fetch(`${baseUrl}/api/authority/apply/${testItem._id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tokenNoApproval}`
+                }
+            });
+            assert.equal(res.status, 403, 'Must reject apply without approveAuthorityChanges right');
+        });
+
+        it('9.3 user with approvalRights.approveAuthorityChanges can submit review and audit records correct actor and tenant', async () => {
+            const res = await fetch(`${baseUrl}/api/authority/review/${testItem._id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tokenA}` // has approveAuthorityChanges
+                },
+                body: JSON.stringify({ decision: 'APPROVED' })
+            });
+            assert.equal(res.status, 200);
+
+            const updatedItem = await PropertyVerificationRunItem.findById(testItem._id);
+            assert.equal(updatedItem.reviewerDecision, 'APPROVED');
+            assert.equal(updatedItem.reviewedBy.toString(), userA._id.toString());
+
+            const reviewAudit = await AuditLog.findOne({
+                eventType: 'authority_review_submitted',
+                userId: userA._id
+            });
+            assert.ok(reviewAudit, 'Must record audit log with correct user actor');
         });
     });
 });

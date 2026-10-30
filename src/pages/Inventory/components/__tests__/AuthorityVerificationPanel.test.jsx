@@ -195,4 +195,67 @@ describe('AuthorityVerificationPanel Frontend Component', () => {
             expect(screen.getByText(/Live authorization required/i)).toBeInTheDocument();
         });
     });
+
+    it('renders verification history using actual controller response structure keyed by authority code', async () => {
+        const mockControllerHistory = {
+            success: true,
+            data: {
+                HSVP: {
+                    link: { authorityCode: 'HSVP', propertyId: '101', sectorNumber: '14' },
+                    snapshots: [{
+                        _id: 'snap-hsvp-1',
+                        authorityCode: 'HSVP',
+                        contentHash: 'a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890',
+                        observedAt: '2026-10-30T04:00:00.000Z',
+                        dataQualityStatus: 'COMPLETE',
+                        isSealed: true
+                    }]
+                },
+                GMADA: {
+                    link: { authorityCode: 'GMADA', propertyId: 'Plot 45', sectorNumber: 'Sector 66A' },
+                    snapshots: [{
+                        _id: 'snap-gmada-1',
+                        authorityCode: 'GMADA',
+                        contentHash: 'b2c3d4e5f6a17890abcdef1234567890abcdef1234567890abcdef1234567890',
+                        observedAt: '2026-10-29T10:00:00.000Z',
+                        dataQualityStatus: 'COMPLETE',
+                        isSealed: true
+                    }]
+                },
+                CHD: {
+                    link: { authorityCode: 'CHD', propertyId: 'House 1024', sectorNumber: 'Sector 17' },
+                    snapshots: [{
+                        _id: 'snap-chd-1',
+                        authorityCode: 'CHD',
+                        contentHash: 'c3d4e5f6a1b27890abcdef1234567890abcdef1234567890abcdef1234567890',
+                        observedAt: '2026-10-28T08:00:00.000Z',
+                        dataQualityStatus: 'COMPLETE',
+                        isSealed: true
+                    }]
+                }
+            }
+        };
+
+        authorityAPI.getHistory.mockResolvedValue(mockControllerHistory);
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+
+        // History button shows aggregate count across all authorities (3)
+        const historyBtn = await screen.findByRole('button', { name: /History \(3\)/i });
+        expect(historyBtn).toBeInTheDocument();
+
+        // Click to open history modal
+        fireEvent.click(historyBtn);
+
+        // Verify snapshots for HSVP, GMADA, and CHD are rendered
+        await waitFor(() => {
+            expect(screen.getByText(/Verification & Snapshot History/i)).toBeInTheDocument();
+            expect(screen.getByText(/HSVP Snapshot/i)).toBeInTheDocument();
+            expect(screen.getByText(/GMADA Snapshot/i)).toBeInTheDocument();
+            expect(screen.getByText(/CHD Snapshot/i)).toBeInTheDocument();
+            expect(screen.getByText(/SHA-256: a1b2c3d4e5f67890/i)).toBeInTheDocument();
+            expect(screen.getByText(/SHA-256: b2c3d4e5f6a17890/i)).toBeInTheDocument();
+            expect(screen.getByText(/SHA-256: c3d4e5f6a1b27890/i)).toBeInTheDocument();
+        });
+    });
 });

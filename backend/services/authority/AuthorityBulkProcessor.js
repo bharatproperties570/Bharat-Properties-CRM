@@ -104,6 +104,8 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
     return null;
 }
 
+const WORKER_LEASE_MS = 30 * 1000; // 30-second worker lease for resilient concurrent batch execution
+
 export class AuthorityBulkProcessor {
     /**
      * Create a new bulk verification run for a list of inventories using bounded operations.
@@ -114,7 +116,8 @@ export class AuthorityBulkProcessor {
         requestedBy,
         inventoryIds = [],
         runMode = 'BULK_MANUAL',
-        isFixtureMode = false
+        isFixtureMode = false,
+        onlyEligible = false
     }) {
         if (!tenantId || !authorityCode || !requestedBy) {
             throw new Error('MISSING_PARAM: tenantId, authorityCode, and requestedBy are required.');
@@ -231,7 +234,8 @@ export class AuthorityBulkProcessor {
                 for (const inv of inventories) {
                     const invIdStr = inv._id.toString();
                     const link = linkMap.get(invIdStr);
-                    if (link) {
+                    // Filter for eligible records if requested
+                    if (link && (!onlyEligible || link.matchEligibility === 'ELIGIBLE')) {
                         itemsChunk.push({
                             tenantId,
                             runId: run._id,
@@ -251,13 +255,21 @@ export class AuthorityBulkProcessor {
             }
         }
 
+        // Reconcile run.totalItems with the actual number of inserted run items
+        const actualCount = await PropertyVerificationRunItem.countDocuments({
+            tenantId,
+            runId: run._id
+        });
+        run.totalItems = actualCount;
+        await run.save();
+
         await logAuditEvent(
             'authority_run_created',
             requestedBy,
             'authority_run',
             run._id,
-            `Bulk verification run created for ${authorityCode} (${inventoryIds.length} items, mode: ${runMode}, provenance: ${run.provenance})`,
-            { runId: run._id, authorityCode, totalItems: inventoryIds.length, runMode, isFixtureMode }
+            `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
+            { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId }
         );
 
         return run;
@@ -275,7 +287,7 @@ export class AuthorityBulkProcessor {
      * @returns {Promise<object>} Processing outcome summary
      */
     static async processRun(runId, options = {}) {
-        const { tenantId, batchSize = 50, isFixtureMode = true, onProgress = null } = options;
+        const { tenantId, batchSize = 50, onProgress = null } = options;
 
         if (!tenantId) {
             throw new Error('TENANT_REQUIRED: tenantId must be provided for multi-tenant isolation.');
@@ -284,6 +296,12 @@ export class AuthorityBulkProcessor {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
         if (!run) {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found for this tenant.`);
+        }
+
+        // Derive fixture / live mode strictly from the stored run
+        const isFixtureMode = Boolean(run.isFixtureMode);
+        if (options.isFixtureMode !== undefined && Boolean(options.isFixtureMode) !== isFixtureMode) {
+            throw new Error('MODE_MISMATCH: Requested isFixtureMode does not match persisted run configuration.');
         }
 
         // Idempotency check: Don't re-run completed, paused or rejected runs
@@ -322,6 +340,7 @@ export class AuthorityBulkProcessor {
         const safeBatchSize = Math.max(1, Math.min(batchSize, 500));
         const workerId = `worker_${new mongoose.Types.ObjectId().toString()}`;
         let hasRemaining = true;
+        let emptyWaitAttempts = 0;
 
         while (hasRemaining) {
             // Check cancellation or pause signal between batches
@@ -339,11 +358,7 @@ export class AuthorityBulkProcessor {
             }
 
             if (checkRun?.status === 'PAUSED') {
-                // Release any unclaimed/in-flight items back to PENDING
-                await PropertyVerificationRunItem.updateMany(
-                    { tenantId, runId: run._id, status: 'PROCESSING', claimedBy: workerId },
-                    { $set: { status: 'PENDING', claimedBy: null } }
-                );
+                // Pause safely at batch boundary without prematurely resetting items
                 return {
                     runId: run._id,
                     status: 'PAUSED',
@@ -352,11 +367,15 @@ export class AuthorityBulkProcessor {
                 };
             }
 
-            // Find candidates for processing
+            // Find candidates for processing: PENDING or expired stale worker leases
+            const now = new Date();
             const candidates = await PropertyVerificationRunItem.find({
                 tenantId,
                 runId: run._id,
-                status: 'PENDING'
+                $or: [
+                    { status: 'PENDING' },
+                    { status: 'PROCESSING', leaseExpiresAt: { $lt: now } }
+                ]
             })
                 .select('_id')
                 .sort({ _id: 1 })
@@ -364,28 +383,47 @@ export class AuthorityBulkProcessor {
                 .lean();
 
             if (candidates.length === 0) {
-                // Check if any items are still being processed by other workers
+                // Check if any items are still being processed by other active workers
                 const stillProcessing = await PropertyVerificationRunItem.countDocuments({
                     tenantId,
                     runId: run._id,
-                    status: 'PROCESSING'
+                    status: 'PROCESSING',
+                    leaseExpiresAt: { $gte: now }
                 });
 
-                if (stillProcessing === 0) {
+                if (stillProcessing === 0 || emptyWaitAttempts >= 3) {
                     hasRemaining = false;
                     break;
                 }
+                emptyWaitAttempts++;
                 // Yield briefly and recheck
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 50));
                 continue;
             }
+            emptyWaitAttempts = 0;
 
-            // Atomically claim items for this worker to prevent concurrent duplicate execution
+            // Atomically claim items for this worker with an expiring worker lease
             const claimedItems = [];
             for (const cand of candidates) {
+                const claimTime = new Date();
+                const leaseExpiresAt = new Date(claimTime.getTime() + WORKER_LEASE_MS);
                 const claimed = await PropertyVerificationRunItem.findOneAndUpdate(
-                    { _id: cand._id, tenantId, status: 'PENDING' },
-                    { $set: { status: 'PROCESSING', claimedBy: workerId, claimedAt: new Date() } },
+                    {
+                        _id: cand._id,
+                        tenantId,
+                        $or: [
+                            { status: 'PENDING' },
+                            { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                        ]
+                    },
+                    {
+                        $set: {
+                            status: 'PROCESSING',
+                            claimedBy: workerId,
+                            claimedAt: claimTime,
+                            leaseExpiresAt: leaseExpiresAt
+                        }
+                    },
                     { new: true }
                 ).populate('linkId').populate('inventoryId');
 
@@ -403,6 +441,15 @@ export class AuthorityBulkProcessor {
 
             for (const item of claimedItems) {
                 try {
+                    if (Boolean(item.isSynthetic) !== isFixtureMode) {
+                        batchFailed++;
+                        item.status = 'FAILED';
+                        item.errorMessage = 'MODE_MISMATCH: Item synthetic flag does not match run mode';
+                        item.processedAt = new Date();
+                        await item.save();
+                        continue;
+                    }
+
                     const result = await this.processItem(item, {
                         tenantId,
                         isFixtureMode,
@@ -630,27 +677,47 @@ export class AuthorityBulkProcessor {
         }
 
         // 6. Create immutable verification snapshot with explicit synthetic provenance
-        const snapshot = await PropertyVerificationSnapshot.create({
-            tenantId,
-            authorityCode: item.authorityCode,
-            linkId: link._id,
-            runItemId: item._id,
-            sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
-            observedAt: new Date(),
-            isSynthetic: Boolean(isFixtureMode),
-            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-            identityEvidence: {
-                compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
-                sectorNumber: link.sectorNumber || null,
-                phaseCode: link.phaseCode || null,
-                blockCode: link.blockCode || null,
-                propertyId: link.propertyId || null,
-                urbanEstate: link.urbanEstate || null,
-                schemeName: link.schemeName || null
-            },
-            normalizedData: candidate.normalizedRecord || {},
-            dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
-        });
+        let snapshot;
+        try {
+            snapshot = await PropertyVerificationSnapshot.create({
+                tenantId,
+                authorityCode: item.authorityCode,
+                linkId: link._id,
+                runItemId: item._id,
+                sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
+                observedAt: new Date(),
+                isSynthetic: Boolean(isFixtureMode),
+                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                identityEvidence: {
+                    compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
+                    sectorNumber: link.sectorNumber || null,
+                    phaseCode: link.phaseCode || null,
+                    blockCode: link.blockCode || null,
+                    propertyId: link.propertyId || null,
+                    urbanEstate: link.urbanEstate || null,
+                    schemeName: link.schemeName || null
+                },
+                normalizedData: candidate.normalizedRecord || {},
+                contentHash: candidate.contentHash || null,
+                isSealed: true,
+                dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
+            });
+        } catch (snapErr) {
+            if (snapErr.code === 11000) {
+                // Handled gracefully via unique database index constraint
+                const existingSnap = await PropertyVerificationSnapshot.findOne({
+                    tenantId,
+                    runItemId: item._id
+                });
+                if (existingSnap) {
+                    snapshot = existingSnap;
+                } else {
+                    throw snapErr;
+                }
+            } else {
+                throw snapErr;
+            }
+        }
 
         // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
         const proposedChanges = [];
@@ -768,10 +835,29 @@ export class AuthorityBulkProcessor {
             throw new Error(`Cannot resume run in ${run.status} state`);
         }
 
-        // Reset any orphaned PROCESSING items back to PENDING so they are cleanly claimed
+        // Derive fixture/live mode from stored run
+        const isFixtureMode = Boolean(run.isFixtureMode);
+        if (options.isFixtureMode !== undefined && Boolean(options.isFixtureMode) !== isFixtureMode) {
+            throw new Error('MODE_MISMATCH: Requested isFixtureMode does not match persisted run configuration.');
+        }
+
+        // Reclaim ONLY genuinely abandoned/stale worker claims whose lease has expired
+        const now = new Date();
         await PropertyVerificationRunItem.updateMany(
-            { tenantId, runId: run._id, status: 'PROCESSING' },
-            { $set: { status: 'PENDING', claimedBy: null } }
+            {
+                tenantId,
+                runId: run._id,
+                status: 'PROCESSING',
+                leaseExpiresAt: { $lt: now }
+            },
+            {
+                $set: {
+                    status: 'PENDING',
+                    claimedBy: null,
+                    claimedAt: null,
+                    leaseExpiresAt: null
+                }
+            }
         );
 
         run.status = 'PROCESSING';
@@ -786,12 +872,13 @@ export class AuthorityBulkProcessor {
             'authority_run',
             run._id,
             `Verification run ${run._id} resumed`,
-            { runId: run._id }
+            { runId: run._id, tenantId }
         );
 
         return this.processRun(runId, {
             tenantId,
-            ...options
+            ...options,
+            isFixtureMode
         });
     }
 

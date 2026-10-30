@@ -34,6 +34,7 @@ import User from '../models/User.js';
 import Role from '../models/Role.js';
 import AuditLog from '../models/AuditLog.js';
 import Contact from '../models/Contact.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import { applyApprovedChanges } from '../controllers/authorityVerification.controller.js';
 
 test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT AUDIT ---', async (t) => {
@@ -623,6 +624,25 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
     });
 
     await t.test('19. Legitimate Apply Sets Both snapshotContentHash and rawSnapshotHash on Inventory', async () => {
+        await AuthoritySourceSettings.findOneAndUpdate(
+            { tenantId, authorityCode: 'CHD' },
+            {
+                $set: {
+                    isEnabled: true,
+                    isPaused: false,
+                    permissionStatus: 'GRANTED',
+                    approvedAccessMethod: 'PUBLIC_API',
+                    approvalReference: 'GOV/CHD/2026/001',
+                    approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                    reviewStatus: 'APPROVED',
+                    ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                    identityRequirements: { verified: true },
+                    permittedFields: ['propertyId', 'sectorNumber']
+                }
+            },
+            { upsert: true }
+        );
+
         const inventory = await Inventory.create({
             projectName: 'Phase 2.7 Dual Hash Test',
             unitNo: 'U-HASH-1',
@@ -645,7 +665,9 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
             authorityCode: 'CHD',
             runMode: 'SINGLE',
             status: 'COMPLETED',
-            requestedBy: userId
+            requestedBy: userId,
+            isFixtureMode: false,
+            provenance: 'LIVE'
         });
 
         const snapshot = await PropertyVerificationSnapshot.create({
@@ -654,6 +676,9 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
             runItemId: new mongoose.Types.ObjectId(),
             authorityCode: 'CHD',
             observedAt: new Date(),
+            isSynthetic: false,
+            provenance: 'LIVE',
+            isSealed: true,
             normalizedData: {
                 propertyId: 'PLOT-CHD-1',
                 sectorNumber: '34'
@@ -669,6 +694,8 @@ test('--- PHASE 2.7: EVIDENCE STATUS, PRIVACY STORAGE & SNAPSHOT HASH CONTRACT A
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
             snapshotId: snapshot._id,
+            isSynthetic: false,
+            provenance: 'LIVE',
             proposedChanges: [
                 {
                     field: 'authorityVerification.propertyId',

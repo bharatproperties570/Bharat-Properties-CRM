@@ -352,7 +352,7 @@ export const createVerificationRun = async (req, res) => {
         const tenantId = getTenantId(req);
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
-        const { authorityCode, runMode, inventoryIds, isFixtureMode = false, autoProcess = false } = req.body;
+        const { authorityCode, runMode = 'SINGLE', inventoryIds, isFixtureMode = false, autoProcess = false } = req.body;
 
         if (!authorityCode || !runMode) {
             return res.status(400).json({ success: false, message: 'authorityCode and runMode required' });
@@ -364,103 +364,34 @@ export const createVerificationRun = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Only SINGLE, BULK_MANUAL, and BULK_SCHEDULED modes supported' });
         }
 
-        // Check source activation status — MUST be fail-closed for live requests
-        const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
-        if (!sourceSettings) {
-            return res.status(422).json({
-                success: false,
-                message: 'Authority source not configured',
-                status: 'POLICY_REJECTED'
-            });
-        }
+        const ids = Array.isArray(inventoryIds) ? inventoryIds : (inventoryIds ? [inventoryIds] : []);
 
-        const activationCheck = sourceSettings.checkActivationEligibility();
-        if (!isFixtureMode && !sourceSettings.isEffectivelyActive()) {
-            // Create the run record but immediately mark as POLICY_REJECTED
-            const run = await PropertyVerificationRun.create({
-                tenantId,
-                authorityCode,
-                requestedBy: req.user._id,
-                runMode,
-                policyVersion: sourceSettings.policyVersion,
-                status: 'POLICY_REJECTED',
-                completedAt: new Date(),
-                totalItems: Array.isArray(inventoryIds) ? inventoryIds.length : 0,
-                policyRejectionReasons: activationCheck.blockers.length > 0
-                    ? activationCheck.blockers
-                    : ['Source is not effectively active (disabled or paused)'],
-                errorSummary: 'Verification source is not activated. Live adapters are not implemented in Phase 2.'
-            });
+        // Use bounded bulk creation service (eliminating serial lookups, preserving tenant isolation)
+        const run = await AuthorityBulkProcessor.createBulkRun({
+            tenantId,
+            authorityCode,
+            requestedBy: req.user._id,
+            inventoryIds: ids,
+            runMode,
+            isFixtureMode: Boolean(isFixtureMode)
+        });
 
+        if (run.status === 'POLICY_REJECTED') {
             await auditEvent(
                 'authority_run_policy_rejected',
                 req.user._id,
                 'authority_run',
                 run._id,
                 `Verification run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { runId: run._id, authorityCode, blockers: activationCheck.blockers }
+                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons }
             );
 
             return res.status(422).json({
                 success: false,
                 message: 'Verification source is not activated',
-                data: run.toSummary(),
-                blockers: activationCheck.blockers
+                data: run.toSummary ? run.toSummary() : run,
+                blockers: run.policyRejectionReasons || ['Source is not effectively active (disabled or paused)']
             });
-        }
-
-        // Source is active or executing in demonstration fixture mode — create run in CREATED state
-        const totalItems = Array.isArray(inventoryIds) ? inventoryIds.length : 1;
-
-        const run = await PropertyVerificationRun.create({
-            tenantId,
-            authorityCode,
-            requestedBy: req.user._id,
-            runMode,
-            policyVersion: sourceSettings.policyVersion,
-            status: 'CREATED',
-            totalItems,
-            isFixtureMode: Boolean(isFixtureMode),
-            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-            errorSummary: isFixtureMode
-                ? 'Demonstration run using synthetic fixtures'
-                : 'Run created. Live verification adapters are not yet implemented (Phase 2 foundation only).'
-        });
-
-        // Create run items for each inventory if provided
-        if (Array.isArray(inventoryIds) && inventoryIds.length > 0) {
-            const itemOps = [];
-            for (const invId of inventoryIds) {
-                // Verify inventory and link exist
-                const inv = await Inventory.findOne({ _id: invId, tenantId }).select('_id').lean();
-                if (!inv) continue;
-
-                const link = await PropertyAuthorityLink.findOne({
-                    tenantId, inventoryId: invId, authorityCode, isActive: true
-                });
-                if (!link) continue;
-
-                itemOps.push({
-                    tenantId,
-                    runId: run._id,
-                    inventoryId: invId,
-                    linkId: link._id,
-                    authorityCode,
-                    status: 'PENDING',
-                    isSynthetic: Boolean(isFixtureMode),
-                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
-                });
-            }
-
-            if (itemOps.length > 0) {
-                await PropertyVerificationRunItem.insertMany(itemOps, { ordered: false }).catch(err => {
-                    // Duplicates are ok — unique index on runId+inventoryId
-                    if (err.code !== 11000) throw err;
-                });
-            }
-
-            run.totalItems = itemOps.length;
-            await run.save();
         }
 
         await auditEvent(
@@ -468,14 +399,21 @@ export const createVerificationRun = async (req, res) => {
             req.user._id,
             'authority_run',
             run._id,
-            `Verification run created for ${authorityCode} (${runMode}, ${run.totalItems} items)`,
-            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems }
+            `Verification run created for ${authorityCode} (${runMode})`,
+            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode }
         );
 
-        res.status(201).json({ success: true, data: run.toSummary() });
+        if (autoProcess) {
+            AuthorityBulkProcessor.processRun(run._id, {
+                tenantId,
+                isFixtureMode: Boolean(isFixtureMode)
+            }).catch(err => console.error('[AutoProcess] Run error:', err));
+        }
+
+        res.status(201).json({ success: true, data: run.toSummary ? run.toSummary() : run });
     } catch (error) {
         console.error('createVerificationRun error:', error);
-        res.status(500).json({ success: false, message: 'Failed to create verification run' });
+        res.status(500).json({ success: false, message: error.message || 'Failed to create verification run' });
     }
 };
 
@@ -536,12 +474,27 @@ export const processVerificationRun = async (req, res) => {
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
         const { runId } = req.params;
-        const { batchSize = 50, isFixtureMode = true } = req.body;
+        const { batchSize = 50, isFixtureMode } = req.body;
+
+        const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
+        if (!run) {
+            return res.status(404).json({ success: false, message: 'Run not found' });
+        }
+
+        // Derive mode strictly from stored run; reject mode mismatch if provided
+        if (isFixtureMode !== undefined && Boolean(isFixtureMode) !== Boolean(run.isFixtureMode)) {
+            return res.status(422).json({
+                success: false,
+                code: 'MODE_MISMATCH',
+                message: 'Mode mismatch: requested isFixtureMode does not match persisted run configuration'
+            });
+        }
 
         const outcome = await AuthorityBulkProcessor.processRun(runId, {
             tenantId,
             batchSize: Number(batchSize) || 50,
-            isFixtureMode: Boolean(isFixtureMode)
+            isFixtureMode: Boolean(run.isFixtureMode),
+            userId: req.user._id
         });
 
         res.json({ success: true, data: outcome });
@@ -583,10 +536,25 @@ export const resumeVerificationRun = async (req, res) => {
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
         const { runId } = req.params;
-        const { isFixtureMode = true } = req.body;
+        const { isFixtureMode } = req.body;
+
+        const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
+        if (!run) {
+            return res.status(404).json({ success: false, message: 'Run not found' });
+        }
+
+        // Derive mode strictly from stored run; reject mode mismatch if provided
+        if (isFixtureMode !== undefined && Boolean(isFixtureMode) !== Boolean(run.isFixtureMode)) {
+            return res.status(422).json({
+                success: false,
+                code: 'MODE_MISMATCH',
+                message: 'Mode mismatch: requested isFixtureMode does not match persisted run configuration'
+            });
+        }
 
         const outcome = await AuthorityBulkProcessor.resumeRun(runId, tenantId, {
-            isFixtureMode: Boolean(isFixtureMode)
+            isFixtureMode: Boolean(run.isFixtureMode),
+            userId: req.user._id
         });
 
         res.json({ success: true, data: outcome });
@@ -683,6 +651,12 @@ export const submitReview = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
 
+        // Verify inventory exists and belongs to tenant
+        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
+        if (!inventory) {
+            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
+        }
+
         if (item.reviewerDecision !== 'PENDING') {
             return res.status(409).json({ success: false, message: 'Item already reviewed' });
         }
@@ -749,8 +723,17 @@ export const applyApprovedChanges = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
 
-        // SYNTHETIC FIXTURE PROTECTION: Rejects any synthetic fixture item, snapshot or run
-        if (item.isSynthetic || item.provenance === 'SYNTHETIC_FIXTURE') {
+        // Verify inventory exists and belongs to tenant
+        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
+        if (!inventory) {
+            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
+        }
+
+        // 1. Synthetic Fixture Protection: reject immediately if item is marked synthetic
+        if (
+            item.isSynthetic === true ||
+            item.provenance === 'SYNTHETIC_FIXTURE'
+        ) {
             return res.status(422).json({
                 success: false,
                 code: 'SYNTHETIC_FIXTURE_BLOCKED',
@@ -758,29 +741,7 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        if (item.snapshotId) {
-            const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
-            if (snapshot && (snapshot.isSynthetic || snapshot.provenance === 'SYNTHETIC_FIXTURE')) {
-                return res.status(422).json({
-                    success: false,
-                    code: 'SYNTHETIC_FIXTURE_BLOCKED',
-                    message: 'Cannot apply changes: synthetic fixture snapshot is prohibited from modifying Inventory records'
-                });
-            }
-        }
-
-        if (item.runId) {
-            const run = await PropertyVerificationRun.findOne({ _id: item.runId, tenantId });
-            if (run && (run.isFixtureMode || run.provenance === 'SYNTHETIC_FIXTURE')) {
-                return res.status(422).json({
-                    success: false,
-                    code: 'SYNTHETIC_FIXTURE_BLOCKED',
-                    message: 'Cannot apply changes: synthetic fixture run is prohibited from modifying Inventory records'
-                });
-            }
-        }
-
-        // Prevent duplicate application
+        // 2. Prevent duplicate application
         if (item.applied) {
             return res.status(409).json({
                 success: false,
@@ -790,7 +751,7 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // Must be reviewed and at least partially approved
+        // 3. Must be reviewed and at least partially approved
         if (!['APPROVED', 'PARTIAL'].includes(item.reviewerDecision)) {
             return res.status(422).json({
                 success: false,
@@ -940,24 +901,101 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
+        // ============================================================
+        // STRICT FAIL-CLOSED VERIFICATION & PROVENANCE GATES
+        // Must pass before any CRM Inventory mutation is permitted
+        // ============================================================
+
+        // 1. Snapshot existence and tenant matching
+        if (!item.snapshotId) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_SNAPSHOT',
+                message: 'Cannot apply changes: run item lacks a referenced verification snapshot'
+            });
+        }
+        const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
+        if (!snapshot) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_SNAPSHOT',
+                message: 'Cannot apply changes: referenced verification snapshot does not exist or tenant mismatch'
+            });
+        }
+
+        // 2. Run existence and tenant matching
+        if (!item.runId) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_RUN',
+                message: 'Cannot apply changes: run item lacks a referenced verification run'
+            });
+        }
+        const run = await PropertyVerificationRun.findOne({ _id: item.runId, tenantId });
+        if (!run) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_RUN',
+                message: 'Cannot apply changes: referenced verification run does not exist or tenant mismatch'
+            });
+        }
+
+        // 3. Strict Synthetic Protection: reject if any flag indicates fixture/synthetic mode
+        if (
+            item.isSynthetic === true ||
+            item.provenance === 'SYNTHETIC_FIXTURE' ||
+            snapshot.isSynthetic === true ||
+            snapshot.provenance === 'SYNTHETIC_FIXTURE' ||
+            run.isFixtureMode === true ||
+            run.provenance === 'SYNTHETIC_FIXTURE'
+        ) {
+            return res.status(422).json({
+                success: false,
+                code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                message: 'Cannot apply changes: synthetic fixture data is prohibited from modifying Inventory records'
+            });
+        }
+
+        // 4. Strict Explicit LIVE Provenance: do not infer LIVE from schema defaults or legacy missing values
+        const isExplicitLiveItem = item.isSynthetic === false && item.provenance === 'LIVE';
+        const isExplicitLiveSnapshot = snapshot.isSynthetic === false && snapshot.provenance === 'LIVE';
+        const isExplicitLiveRun = run.isFixtureMode === false && run.provenance === 'LIVE';
+
+        if (!isExplicitLiveItem || !isExplicitLiveSnapshot || !isExplicitLiveRun) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_PROVENANCE',
+                message: 'Cannot apply changes: explicit LIVE provenance required on run, item, and snapshot'
+            });
+        }
+
+        // 5. Authorized LIVE Source check: authority source must be actively approved & enabled
+        const authorityCode = item.authorityCode || run.authorityCode || snapshot.authorityCode;
+        const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!sourceSettings || !sourceSettings.isEffectivelyActive() || sourceSettings.permissionStatus !== 'GRANTED' || !sourceSettings.isEnabled) {
+            return res.status(422).json({
+                success: false,
+                code: 'SOURCE_NOT_AUTHORIZED',
+                message: `Cannot apply changes: authority source ${authorityCode} is not authorized for live operation`
+            });
+        }
+
+        // 6. Valid Source Evidence check: snapshot must be sealed with a genuine content hash
+        if (!snapshot.contentHash || typeof snapshot.contentHash !== 'string' || snapshot.contentHash.length < 32 || snapshot.isSealed !== true) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot lacks valid sealed content hash evidence'
+            });
+        }
+
         // Add verification audit metadata to subdocument
         updateOps['authorityVerification.lastVerifiedAt'] = new Date();
         updateOps['authorityVerification.authorityCode'] = item.authorityCode;
         updateOps['authorityVerification.verificationRunId'] = item.runId;
-        if (item.snapshotId) {
-            updateOps['authorityVerification.verificationSnapshotId'] = item.snapshotId;
-            const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
-            if (snapshot && snapshot.contentHash) {
-                updateOps['authorityVerification.snapshotContentHash'] = snapshot.contentHash;
-                updateOps['authorityVerification.rawSnapshotHash'] = snapshot.contentHash;
-            }
-        }
-
-        // Verify inventory still exists and belongs to tenant
-        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
-        if (!inventory) {
-            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
-        }
+        updateOps['authorityVerification.verificationSnapshotId'] = item.snapshotId;
+        updateOps['authorityVerification.snapshotContentHash'] = snapshot.contentHash;
+        updateOps['authorityVerification.rawSnapshotHash'] = snapshot.contentHash;
 
         // If legacy document has authorityVerification: null, initialize it to an empty object
         // so MongoDB dotted path $set does not fail with PathNotViable (code 28).

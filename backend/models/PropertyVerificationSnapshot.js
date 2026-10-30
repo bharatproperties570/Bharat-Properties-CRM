@@ -166,7 +166,6 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
     provenance: {
         type: String,
         enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
-        default: 'LIVE',
         index: true
     },
 
@@ -187,6 +186,13 @@ PropertyVerificationSnapshotSchema.index({ tenantId: 1, linkId: 1, observedAt: -
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, authorityCode: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ linkId: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, contentHash: 1 });
+PropertyVerificationSnapshotSchema.index(
+    { tenantId: 1, runItemId: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { runItemId: { $type: 'objectId' } }
+    }
+);
 PropertyVerificationSnapshotSchema.index({ runItemId: 1 });
 
 // Module-private policy collection (inaccessible and unmodifiable from outside)

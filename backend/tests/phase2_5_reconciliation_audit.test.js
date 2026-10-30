@@ -47,6 +47,7 @@ import PropertyVerificationRunItem, {
     ALLOWED_UPDATE_FIELDS
 } from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import { CANONICAL_FIELDS, SENTINEL, isSentinel } from '../services/authority/authorityFieldDictionary.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
 
@@ -418,8 +419,28 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
     describe('3. Legacy-Null Recovery & Absent Subdocument Safety', () => {
         let linkA;
         let runA;
+        let snapA;
 
         beforeEach(async () => {
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                {
+                    $set: {
+                        isEnabled: true,
+                        isPaused: false,
+                        permissionStatus: 'GRANTED',
+                        approvedAccessMethod: 'PUBLIC_API',
+                        approvalReference: 'GOV/HSVP/2026/001',
+                        approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                        reviewStatus: 'APPROVED',
+                        ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                        identityRequirements: { verified: true },
+                        permittedFields: ['propertyId', 'sectorNumber', 'propertyAreaValue', 'propertyAreaUnit']
+                    }
+                },
+                { upsert: true }
+            );
+
             linkA = await PropertyAuthorityLink.create({
                 tenantId: tenantA,
                 inventoryId: new mongoose.Types.ObjectId(),
@@ -434,8 +455,29 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 authorityCode: 'HSVP',
                 runMode: 'SINGLE',
                 status: 'COMPLETED',
-                requestedBy: adminUserA._id
+                requestedBy: adminUserA._id,
+                isFixtureMode: false,
+                provenance: 'LIVE'
             });
+
+            snapA = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: linkA._id,
+                runItemId: new mongoose.Types.ObjectId(),
+                observedAt: new Date(),
+                isSynthetic: false,
+                provenance: 'LIVE',
+                contentHash: '12345678901234567890123456789012',
+                isSealed: true
+            });
+        });
+
+        after(async () => {
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                { $set: { isEnabled: false, permissionStatus: 'NOT_OBTAINED' } }
+            );
         });
 
         it('3.1 document with authorityVerification: null recovers safely without PathNotViable (code 28)', async () => {
@@ -450,11 +492,14 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: runA._id,
+                snapshotId: snapA._id,
                 inventoryId: legacyDoc.insertedId,
                 linkId: linkA._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -507,11 +552,14 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: runA._id,
+                snapshotId: snapA._id,
                 inventoryId: newDoc._id,
                 linkId: linkA._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',

@@ -56,6 +56,25 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [selectedSnapshot, setSelectedSnapshot] = useState(null);
 
+    // Normalize history from controller (handles object keyed by authorityCode or array)
+    const extractSnapshots = useCallback((histData) => {
+        if (Array.isArray(histData)) return histData;
+        if (!histData || typeof histData !== 'object') return [];
+        const list = [];
+        for (const [authCode, entry] of Object.entries(histData)) {
+            if (Array.isArray(entry?.snapshots)) {
+                for (const s of entry.snapshots) {
+                    list.push({ ...s, authorityCode: s.authorityCode || authCode });
+                }
+            } else if (Array.isArray(entry)) {
+                for (const s of entry) {
+                    list.push({ ...s, authorityCode: s.authorityCode || authCode });
+                }
+            }
+        }
+        return list.sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
+    }, []);
+
     // Loading states
     const [isLoading, setIsLoading] = useState(true);
 
@@ -93,15 +112,15 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
 
             // Load verification history
             const histRes = await authorityAPI.getHistory(inventory._id);
-            if (histRes?.success && Array.isArray(histRes.data)) {
-                setHistory(histRes.data);
+            if (histRes?.success && histRes?.data) {
+                setHistory(extractSnapshots(histRes.data));
             }
         } catch (err) {
             console.error('[AuthorityVerificationPanel] Error loading data:', err);
         } finally {
             setIsLoading(false);
         }
-    }, [inventory?._id, inventory?.unitNo, inventory?.unitNumber, inventory?.sector, selectedAuthority]);
+    }, [inventory?._id, inventory?.unitNo, inventory?.unitNumber, inventory?.sector, selectedAuthority, extractSnapshots]);
 
     useEffect(() => {
         loadData();
@@ -186,7 +205,7 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
 
             // Reload history
             const histRes = await authorityAPI.getHistory(inventory._id);
-            if (histRes?.success) setHistory(histRes.data);
+            if (histRes?.success && histRes?.data) setHistory(extractSnapshots(histRes.data));
             if (onRefresh) onRefresh();
         } catch (err) {
             console.error('Run verification error:', err);
@@ -792,7 +811,7 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                                 </div>
                             ) : (
                                 history.map(snap => (
-                                    <div key={snap._id} style={{
+                                    <div key={snap._id} data-testid={`snapshot-${snap._id}`} style={{
                                         border: '1px solid var(--border-color)',
                                         borderRadius: '8px',
                                         padding: '12px 14px',
@@ -805,14 +824,14 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                                                 {snap.authorityCode} Snapshot
                                             </span>
                                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                                {new Date(snap.observedAt).toLocaleString()}
+                                                {new Date(snap.observedAt || snap.createdAt || Date.now()).toLocaleString()}
                                             </span>
                                         </div>
                                         <div style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
                                             SHA-256: {snap.contentHash || 'N/A'}
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', marginTop: '4px' }}>
-                                            Quality: <strong>{snap.dataQualityStatus || 'COMPLETE'}</strong> · Sealed: <strong>{snap.isSealed ? 'Yes (Immutable)' : 'No'}</strong>
+                                            Status: <strong>{snap.matchStatus || snap.status || 'MATCHED'}</strong> · Quality: <strong>{snap.dataQualityStatus || 'COMPLETE'}</strong> · Sealed: <strong>{snap.isSealed ? 'Yes (Immutable)' : 'No'}</strong>
                                         </div>
                                     </div>
                                 ))

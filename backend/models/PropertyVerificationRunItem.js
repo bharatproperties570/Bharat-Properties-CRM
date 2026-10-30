@@ -155,7 +155,6 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     provenance: {
         type: String,
         enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
-        default: 'LIVE',
         index: true
     },
     claimedBy: {
@@ -165,6 +164,11 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     claimedAt: {
         type: Date,
         default: null
+    },
+    leaseExpiresAt: {
+        type: Date,
+        default: null,
+        index: true
     },
     appliedAt: {
         type: Date,

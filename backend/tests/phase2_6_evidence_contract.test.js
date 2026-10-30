@@ -21,6 +21,7 @@ import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import Inventory from '../models/Inventory.js';
 import Lookup from '../models/Lookup.js';
 import Team from '../models/Team.js';
@@ -326,6 +327,25 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
     });
 
     await t.test('13. Controller applyApprovedChanges — Populates verificationSnapshotId AND rawSnapshotHash', async () => {
+        await AuthoritySourceSettings.findOneAndUpdate(
+            { tenantId, authorityCode: 'HSVP' },
+            {
+                $set: {
+                    isEnabled: true,
+                    isPaused: false,
+                    permissionStatus: 'GRANTED',
+                    approvedAccessMethod: 'PUBLIC_API',
+                    approvalReference: 'GOV/HSVP/2026/001',
+                    approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                    reviewStatus: 'APPROVED',
+                    ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                    identityRequirements: { verified: true },
+                    permittedFields: ['propertyId', 'sectorNumber']
+                }
+            },
+            { upsert: true }
+        );
+
         const inventory = await Inventory.create({
             projectName: 'Phase 2.6 Test Estate',
             unitNo: 'U-700',
@@ -353,6 +373,10 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
             tenantId,
             authorityCode: 'HSVP',
             linkId: link._id,
+            runItemId: new mongoose.Types.ObjectId(),
+            isSynthetic: false,
+            provenance: 'LIVE',
+            isSealed: true,
             normalizedData
         });
 
@@ -362,7 +386,9 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
             status: 'COMPLETED',
             runMode: 'SINGLE',
             totalProperties: 1,
-            requestedBy: new mongoose.Types.ObjectId()
+            requestedBy: new mongoose.Types.ObjectId(),
+            isFixtureMode: false,
+            provenance: 'LIVE'
         });
 
         const item = await PropertyVerificationRunItem.create({
@@ -375,6 +401,8 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
             matchStatus: 'EXACT_MATCH',
             snapshotId: snapshot._id,
             reviewerDecision: 'APPROVED',
+            isSynthetic: false,
+            provenance: 'LIVE',
             proposedChanges: [
                 {
                     field: 'authorityVerification.propertyId',
