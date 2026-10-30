@@ -930,12 +930,38 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
     const nextIndex = currentIndex + 1;
     if (nextIndex >= totalCount) {
         await job.log(`🎉 [BNA Campaign ${data.campaignId}] Broadcast Complete! Sent: ${currentStats.sent}, Accepted: ${currentStats.accepted || 0}, Suppressed: ${currentStats.suppressed || 0}, Failed: ${currentStats.failed}, Unknown: ${currentStats.unknown}, Skipped: ${currentStats.skipped}`);
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.recordRecipientProgress({
+                campaignId: data.campaignId,
+                recipientIndex: currentIndex,
+                totalRecipients: totalCount,
+                stats: currentStats
+            });
+        } catch (trackerErr) {}
         return { 
             status: 'COMPLETED', 
             campaignId: data.campaignId, 
             stats: currentStats, 
             completedAt: new Date().toISOString() 
         };
+    }
+
+    // 🛑 Operator Control: Halt chaining if campaign is paused or cancelled
+    try {
+        const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+        const haltCheck = await BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        if (haltCheck?.halted) {
+            await job.log(`🛑 [Operator Control] Campaign ${data.campaignId} is ${haltCheck.status}. Halting chained execution at recipient ${currentIndex + 1}/${totalCount}.`);
+            return {
+                status: haltCheck.status,
+                campaignId: data.campaignId,
+                haltedAtIndex: currentIndex,
+                progress: `${currentIndex + 1}/${totalCount}`
+            };
+        }
+    } catch (haltErr) {
+        await job.log(`[Operator Control] Halt check warning: ${haltErr.message}`);
     }
 
     // Determine Delay:
@@ -954,6 +980,17 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
         delayMs = jitterSeconds * 1000;
         await job.log(`⏳ [Safe Pacing] Scheduling recipient ${nextIndex + 1}/${totalCount} in ${jitterSeconds}s (randomized anti-spam jitter)...`);
     }
+
+    // Record upcoming cooldown / jitter pacing in BroadcastLiveTracker
+    try {
+        const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+        await BroadcastLiveTracker.recordCooldownOrPacing({
+            campaignId: data.campaignId,
+            nextIndex,
+            delayMs,
+            isBatchBoundary
+        });
+    } catch (trackDelayErr) {}
 
     const { marketingQueue } = await import('../queues/marketingQueue.js');
     await marketingQueue.add('bna-recipient-dispatch', {
@@ -995,6 +1032,25 @@ if (name === 'bna-broadcast') {
 
         const campaignId = data.campaignId || `bna_camp_${dealId || 'deal'}_${Date.now()}`;
         await job.log(`🚀 [BNA Campaign ${campaignId}] Initializing Chained Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
+
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.initCampaign({
+                campaignId,
+                name: data.name || `BNA Broadcast: ${meta?.title || 'Deal Broadcast'}`,
+                dealId,
+                dealIds: data.dealIds,
+                dealTitle: meta?.title || 'Broadcast Deal',
+                totalRecipients: recipients.length,
+                channels,
+                isBaileys: Boolean(isBaileys),
+                provider: isBaileys ? 'BAILEYS' : 'META',
+                campaignParams: { ...data, campaignId },
+                performedBy: performedBy || 'System'
+            });
+        } catch (trackerInitErr) {
+            await job.log(`Live Tracker Init Warning: ${trackerInitErr.message}`);
+        }
 
         // 1. Resolve Deal Document with full population
         let primaryDeal = data.deal;
@@ -1108,6 +1164,15 @@ if (name === 'bna-broadcast') {
 
         if (eligibleRecipients.length === 0) {
             await job.log(`🛡️ All ${recipients.length} recipients already received Deal ${dealId} recently. Broadcast completed with 0 new sends.`);
+            try {
+                const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+                await BroadcastLiveTracker.recordRecipientProgress({
+                    campaignId,
+                    recipientIndex: recipients.length - 1,
+                    totalRecipients: recipients.length,
+                    stats: { sent: 0, failed: 0, skipped: skippedDuplicates }
+                });
+            } catch (tErr) {}
             return { sent: 0, failed: 0, skipped: skippedDuplicates, completedAt: new Date().toISOString() };
         }
 
@@ -1175,6 +1240,18 @@ if (name === 'bna-broadcast') {
         const chatLabel = isGroup ? `Group '${recipient.name || recipient.mobile}'` : `Contact '${recipient.name || recipient.mobile}'`;
         const overallProgress = Math.round(((recipientIndex + 1) / recipients.length) * 100);
         await job.updateProgress(overallProgress);
+
+        // 0. Operator Control: Check if campaign was paused or cancelled by operator
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            const haltCheck = await BroadcastLiveTracker.isCampaignHalted(campaignId);
+            if (haltCheck?.halted) {
+                await job.log(`⏸️ [Operator Control] Campaign ${campaignId} is ${haltCheck.status}. Halting micro-job for recipient ${recipientIndex + 1}/${recipients.length}.`);
+                return { status: haltCheck.status, campaignId, recipientIndex };
+            }
+        } catch (haltErr) {
+            await job.log(`[Operator Control] Halt check notice: ${haltErr.message}`);
+        }
 
         // 1. Idempotency Check: Was this recipient already processed in this campaign?
         const recipientKey = String(recipient.mobile || recipient.id || '').trim();
@@ -1287,6 +1364,19 @@ if (name === 'bna-broadcast') {
         } else {
             stats.failed++;
             await job.log(`❌ Failed dispatch to ${chatLabel} [${isBaileys ? 'WhatsApp Web' : 'Meta Cloud API'}]: ${primaryWaResult?.error || 'Unknown error'}`);
+        }
+
+        // 4.5 Record live progress in BroadcastLiveTracker
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.recordRecipientProgress({
+                campaignId,
+                recipientIndex,
+                totalRecipients: recipients.length,
+                stats
+            });
+        } catch (trackProgressErr) {
+            await job.log(`Live progress tracking notice: ${trackProgressErr.message}`);
         }
 
         // 5. Chain to Next Recipient

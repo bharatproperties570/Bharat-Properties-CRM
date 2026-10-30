@@ -1,5 +1,6 @@
 import { useTheme } from '../../../context/ThemeContext';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import LiveBroadcastBoard from '../../../components/Marketing/LiveBroadcastBoard';
 import { api, socialAPI, systemSettingsAPI } from '../../../utils/api';
 import {
     whatsappTemplates as defaultWhatsappTemplates,
@@ -2128,6 +2129,9 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                     </div>
                 </div>
             )}
+
+            {/* ── Phase 4: Live Broadcast Progress Board & Recovery Controls ──── */}
+            <LiveBroadcastBoard dealId={dealId} />
 
             {/* ── Analytics Section ─────────────────────────────────────── */}
             {analytics && analytics.total > 0 && (

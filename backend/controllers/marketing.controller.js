@@ -1045,8 +1045,11 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const queue = await getMarketingQueue();
         const { isRedisOnline } = await import('../src/config/redis.js');
 
+        const campaignId = `bna_camp_${primaryDealId || 'deal'}_${Date.now()}`;
+
         const jobData = {
             name: `BNA Broadcast: ${meta.title}`,
+            campaignId,
             dealId: primaryDealId,
             dealIds: targetDealIds,
             deal: deals[0],
@@ -1068,11 +1071,32 @@ export const broadcastToBrokerGroup = async (req, res) => {
             performedBy: req.user?.fullName || req.user?.name || (req.user?.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : '') || 'Bharat Properties'
         };
 
+        // Initialize Live Broadcast State Tracker (Phase 4)
+        try {
+            const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.initCampaign({
+                campaignId,
+                name: `BNA Broadcast: ${meta.title}`,
+                dealId: primaryDealId,
+                dealIds: targetDealIds,
+                dealTitle: meta.title,
+                totalRecipients: recipients.length,
+                channels,
+                isBaileys: Boolean(isBaileys),
+                provider: isBaileys ? 'BAILEYS' : 'META',
+                campaignParams: jobData,
+                performedBy: jobData.performedBy
+            });
+        } catch (trackerInitErr) {
+            console.error('[broadcastToBrokerGroup] BroadcastLiveTracker init warning:', trackerInitErr.message);
+        }
+
         if (queue && isRedisOnline) {
             const job = await queue.add('bna-broadcast', jobData, { removeOnComplete: true });
             return res.json({ 
                 success: true, 
                 message: `Broadcast queued for ${recipients.length} brokers.`,
+                campaignId,
                 jobId: job.id,
                 dispatchCount: recipients.length
             });
@@ -1085,6 +1109,7 @@ export const broadcastToBrokerGroup = async (req, res) => {
         res.json({ 
             success: true, 
             message: `Broadcast started for ${recipients.length} brokers (Direct Mode).`,
+            campaignId,
             dispatchCount: recipients.length
         });
 
@@ -2271,3 +2296,103 @@ export const generateMatchLink = async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to generate match link' });
     }
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🚀 Phase 4: Live Broadcast Progress Board & Operator Controls
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const getLiveBroadcastState = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        if (!campaignId) {
+            return res.status(400).json({ success: false, error: 'campaignId is required' });
+        }
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const state = await BroadcastLiveTracker.getCampaignState(campaignId);
+        if (!state) {
+            return res.status(404).json({ success: false, error: `Campaign ${campaignId} not found` });
+        }
+        return res.json({ success: true, data: state });
+    } catch (err) {
+        console.error('[getLiveBroadcastState] Error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const getLiveBroadcasts = async (req, res) => {
+    try {
+        const { dealId, limit } = req.query;
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const parsedLimit = limit ? parseInt(limit, 10) : 10;
+        const campaigns = await BroadcastLiveTracker.listLiveCampaigns({ dealId, limit: parsedLimit });
+        return res.json({ success: true, data: campaigns });
+    } catch (err) {
+        console.error('[getLiveBroadcasts] Error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const pauseBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.pauseCampaign(campaignId, performedBy, reason);
+        return res.json(result);
+    } catch (err) {
+        console.error('[pauseBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONFLICT') ? 409 : 400);
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const resumeBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const queue = await getMarketingQueue();
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.resumeCampaign(campaignId, performedBy, reason, queue);
+        return res.json(result);
+    } catch (err) {
+        console.error('[resumeBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONFLICT') ? 409 : 400);
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const cancelBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.cancelCampaign(campaignId, performedBy, reason);
+        return res.json(result);
+    } catch (err) {
+        console.error('[cancelBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : 400;
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const retryFailedBroadcastRecipients = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const queue = await getMarketingQueue();
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.retryFailedRecipients(campaignId, performedBy, queue);
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+        return res.json(result);
+    } catch (err) {
+        console.error('[retryFailedBroadcastRecipients] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : 400;
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
