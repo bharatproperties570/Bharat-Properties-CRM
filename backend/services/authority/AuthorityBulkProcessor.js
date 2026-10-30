@@ -87,7 +87,14 @@ async function logMandatoryAuditEvent({
         origin = userId ? 'authenticated_user' : 'unknown';
     }
 
-    const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+    let resolvedUserAgent = null;
+    if (typeof userAgent === 'string' && userAgent.trim().length > 0) {
+        resolvedUserAgent = userAgent.trim();
+    } else if (resolvedIp === 'system' || origin === 'system') {
+        resolvedUserAgent = 'AuthorityRefreshScheduler/v4.4.2';
+    } else {
+        resolvedUserAgent = null;
+    }
 
     const auditDoc = {
         eventType,
@@ -146,7 +153,14 @@ async function logDiagnosticAuditEvent({
             origin = userId ? 'authenticated_user' : 'unknown';
         }
 
-        const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+        let resolvedUserAgent = null;
+        if (typeof userAgent === 'string' && userAgent.trim().length > 0) {
+            resolvedUserAgent = userAgent.trim();
+        } else if (resolvedIp === 'system' || origin === 'system') {
+            resolvedUserAgent = 'AuthorityRefreshScheduler/v4.4.2';
+        } else {
+            resolvedUserAgent = null;
+        }
 
         await AuditLog.create({
             eventType,

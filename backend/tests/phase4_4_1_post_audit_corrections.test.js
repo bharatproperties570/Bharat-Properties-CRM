@@ -343,11 +343,13 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
         });
 
         it('2.2 rejects stale run update when newer run already ran and preserves newer status (settingsUpdateStatus: SKIPPED_STALE_RUN)', async () => {
+            const newerRunId = new mongoose.Types.ObjectId();
             const futureCompletedAt = new Date(Date.now() + 1000000);
             await AuthoritySourceSettings.updateOne(
                 { _id: testSettings._id, tenantId: tenantA },
                 {
                     $set: {
+                        lastRunId: newerRunId,
                         lastRunAt: futureCompletedAt,
                         lastRunStatus: 'SUCCESS'
                     }
@@ -361,39 +363,42 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
                 authorityCode: 'HSVP',
                 requestedBy: reviewerUser._id,
                 runMode: 'BULK_SCHEDULED',
-                status: 'FAILED',
+                status: 'COMPLETED',
                 completedAt: olderCompletedAt,
                 isFixtureMode: true,
                 provenance: 'SYNTHETIC_FIXTURE'
             });
 
-            // Simulate the conditional update block from AuthorityRefreshScheduler
-            const updateResult = await AuthoritySourceSettings.updateOne(
-                {
-                    _id: testSettings._id,
+            const origCreateBulkRun = AuthorityBulkProcessor.createBulkRun;
+            const origProcessRun = AuthorityBulkProcessor.processRun;
+            AuthorityBulkProcessor.createBulkRun = async () => olderRun;
+            AuthorityBulkProcessor.processRun = async () => ({
+                runId: olderRun._id,
+                status: 'COMPLETED'
+            });
+
+            try {
+                const scheduler = new AuthorityRefreshScheduler();
+                const cycleResult = await scheduler.executeWeeklyCycle({
+                    isSimulation: true,
                     tenantId: tenantA,
-                    $or: [
-                        { lastRunAt: null },
-                        { lastRunAt: { $lte: olderCompletedAt } },
-                        { lastRunId: olderRun._id }
-                    ]
-                },
-                {
-                    $set: {
-                        lastRunId: olderRun._id,
-                        lastRunAt: olderCompletedAt,
-                        lastRunStatus: 'FAILED'
-                    }
-                }
-            );
+                    authorityCode: 'HSVP'
+                });
 
-            assert.equal(updateResult.matchedCount, 0, 'Must match 0 documents because lastRunAt is newer');
-            assert.equal(updateResult.modifiedCount, 0);
+                const hsvpResult = cycleResult.results.find(r => r.authorityCode === 'HSVP');
+                assert.ok(hsvpResult, 'HSVP scheduled result must exist in report');
+                assert.equal(hsvpResult.settingsUpdateStatus, 'SKIPPED_STALE_RUN', 'Real scheduler must report SKIPPED_STALE_RUN on stale run');
+                assert.equal(hsvpResult.settingsUpdateError, undefined);
 
-            // Verify settings were preserved intact
-            const currentSettings = await AuthoritySourceSettings.findById(testSettings._id).lean();
-            assert.equal(currentSettings.lastRunStatus, 'SUCCESS', 'Newer run status must not be overwritten');
-            assert.equal(currentSettings.lastRunAt.getTime(), futureCompletedAt.getTime());
+                // Verify the newer persisted lastRunId, lastRunAt, and lastRunStatus remain unchanged in MongoDB
+                const currentSettings = await AuthoritySourceSettings.findById(testSettings._id).lean();
+                assert.equal(currentSettings.lastRunStatus, 'SUCCESS', 'Newer run status must not be overwritten');
+                assert.equal(currentSettings.lastRunAt.getTime(), futureCompletedAt.getTime(), 'Newer lastRunAt must be preserved');
+                assert.equal(currentSettings.lastRunId.toString(), newerRunId.toString(), 'Newer lastRunId must be preserved');
+            } finally {
+                AuthorityBulkProcessor.createBulkRun = origCreateBulkRun;
+                AuthorityBulkProcessor.processRun = origProcessRun;
+            }
         });
 
         it('2.3 records settingsUpdateStatus: FAILED without silent suppression when updateOne encounters database failure', async () => {
@@ -420,23 +425,50 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
         });
 
         it('2.4 reports SKIPPED_STALE_RUN when settings document ID does not match (zero matched documents)', async () => {
-            const missingSettingsId = new mongoose.Types.ObjectId();
-            const updateResult = await AuthoritySourceSettings.updateOne(
-                {
-                    _id: missingSettingsId,
-                    tenantId: tenantA,
-                    $or: [
-                        { lastRunAt: null },
-                        { lastRunAt: { $lte: new Date() } }
-                    ]
-                },
-                {
-                    $set: { lastRunStatus: 'SUCCESS' }
-                }
-            );
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: reviewerUser._id,
+                runMode: 'BULK_SCHEDULED',
+                status: 'COMPLETED',
+                completedAt: new Date(),
+                isFixtureMode: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
 
-            assert.equal(updateResult.matchedCount, 0);
-            assert.equal(updateResult.modifiedCount, 0);
+            const origCreateBulkRun = AuthorityBulkProcessor.createBulkRun;
+            const origProcessRun = AuthorityBulkProcessor.processRun;
+            const origUpdateOne = AuthoritySourceSettings.updateOne;
+
+            AuthorityBulkProcessor.createBulkRun = async () => run;
+            AuthorityBulkProcessor.processRun = async () => ({
+                runId: run._id,
+                status: 'COMPLETED'
+            });
+            // Simulate zero matched documents on the conditional update
+            AuthoritySourceSettings.updateOne = async () => ({
+                matchedCount: 0,
+                modifiedCount: 0,
+                acknowledged: true
+            });
+
+            try {
+                const scheduler = new AuthorityRefreshScheduler();
+                const cycleResult = await scheduler.executeWeeklyCycle({
+                    isSimulation: true,
+                    tenantId: tenantA,
+                    authorityCode: 'HSVP'
+                });
+
+                const hsvpResult = cycleResult.results.find(r => r.authorityCode === 'HSVP');
+                assert.ok(hsvpResult, 'HSVP scheduled result must exist');
+                assert.equal(hsvpResult.settingsUpdateStatus, 'SKIPPED_STALE_RUN', 'Zero matched documents must be handled by scheduler as SKIPPED_STALE_RUN');
+                assert.equal(hsvpResult.settingsUpdateError, undefined);
+            } finally {
+                AuthorityBulkProcessor.createBulkRun = origCreateBulkRun;
+                AuthorityBulkProcessor.processRun = origProcessRun;
+                AuthoritySourceSettings.updateOne = origUpdateOne;
+            }
         });
     });
 
@@ -549,9 +581,84 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
             }).lean();
 
             assert.ok(audit);
-            assert.ok(audit.ipAddress !== '127.0.0.1' || audit.ipAddress === '127.0.0.1' || audit.ipAddress === '::1',
-                'Must reflect actual network request IP from Express req.ip');
+            const expectedIp = testServer.address().address; // explicitly bound to '127.0.0.1'
+            assert.equal(audit.ipAddress, expectedIp, `audit.ipAddress must equal expected Express req.ip (${expectedIp})`);
+            assert.equal(audit.userAgent, 'IntegrationAuditVerifier/4.4.1');
             assert.equal(audit.metadata.origin, 'authenticated_user');
+        });
+
+        it('3.5 records null userAgent when User-Agent is missing or omitted for non-system client requests', async () => {
+            // Direct service call with missing userAgent
+            const manualRun = await AuthorityBulkProcessor.createBulkRun({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                requestedBy: reviewerUser._id,
+                inventoryIds: [],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            }, {
+                ipAddress: '192.168.1.100',
+                userAgent: null // deliberately missing User-Agent
+            });
+
+            const manualAudit = await AuditLog.findOne({
+                eventType: 'authority_run_created',
+                targetId: manualRun._id.toString()
+            }).lean();
+
+            assert.ok(manualAudit);
+            assert.equal(manualAudit.userAgent, null, 'Must record null userAgent when missing, never synthetic AuthorityBulkProcessor');
+            assert.equal(manualAudit.ipAddress, '192.168.1.100');
+            assert.equal(manualAudit.metadata.origin, 'authenticated_user');
+
+            // HTTP request without User-Agent header via Node http.request
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'HTTP-PROV-NO-UA-02',
+                sector: 'Sector 15',
+                status: 'Available'
+            });
+
+            const httpPayload = JSON.stringify({
+                authorityCode: 'HSVP',
+                inventoryIds: [inv._id],
+                runMode: 'BULK_MANUAL',
+                isFixtureMode: true
+            });
+
+            const httpPort = testServer.address().port;
+            const httpRes = await new Promise((resolve, reject) => {
+                const req = http.request({
+                    host: '127.0.0.1',
+                    port: httpPort,
+                    path: '/api/authority/runs',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(httpPayload),
+                        Authorization: `Bearer ${reviewerToken}`
+                    }
+                }, (response) => {
+                    let body = '';
+                    response.on('data', chunk => body += chunk);
+                    response.on('end', () => resolve({ statusCode: response.statusCode, body: JSON.parse(body) }));
+                });
+                req.on('error', reject);
+                req.write(httpPayload);
+                req.end();
+            });
+
+            assert.equal(httpRes.statusCode, 201);
+            const httpRunId = httpRes.body.data._id;
+
+            const httpAudit = await AuditLog.findOne({
+                eventType: 'authority_run_created',
+                targetId: httpRunId
+            }).lean();
+
+            assert.ok(httpAudit);
+            assert.equal(httpAudit.userAgent, null, 'HTTP audit must record null userAgent when header is omitted');
+            assert.equal(httpAudit.metadata.origin, 'authenticated_user');
         });
     });
 
@@ -566,6 +673,25 @@ describe('--- PHASE 4.4.1: POST-REMEDIATION FORENSIC CORRECTIONS SUITE ---', () 
         let fixtureItem;
 
         beforeEach(async () => {
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                {
+                    $set: {
+                        isEnabled: true,
+                        schedulingEnabled: true,
+                        permissionStatus: 'GRANTED',
+                        approvedAccessMethod: 'PUBLIC_API',
+                        approvalReference: 'GOV/HSVP/2026/TEST',
+                        approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                        reviewStatus: 'APPROVED',
+                        ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                        identityRequirements: { verified: true },
+                        permittedFields: ['propertyId', 'sectorNumber', 'propertySize']
+                    }
+                },
+                { new: true, upsert: true }
+            );
+
             fixtureInventory = await Inventory.create({
                 tenantId: tenantA,
                 unitNo: 'F02-HARDEN-UNIT-01',
