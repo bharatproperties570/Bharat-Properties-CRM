@@ -136,6 +136,8 @@ const intakeSchema = new mongoose.Schema({
 
 intakeSchema.index({ receivedAt: -1 });
 intakeSchema.index({ status: 1 });
+// ⏳ Enterprise Auto-Purge TTL Index (30-day retention to prevent quota exhaustion)
+intakeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 const Intake = mongoose.model('Intake', intakeSchema);
 
