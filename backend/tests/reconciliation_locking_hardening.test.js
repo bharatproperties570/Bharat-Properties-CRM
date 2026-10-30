@@ -599,5 +599,163 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
                 BaileysConnectionManager.getSocket = origGetSocket;
             }
         });
+
+        it('16. Deterministic Section 3 Race: Issuance of fencing token 2 immediately fences Worker A even before Worker B executes its business write', async () => {
+            const idKey = 'durable_cas_race_section3_016';
+            const recipient = '919811100116';
+
+            // Seed dispatch record with reconcileGeneration = 0 and status AMBIGUOUS_TIMEOUT
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 0
+            });
+
+            let workerAPausedResolve;
+            const workerAPausedPromise = new Promise(r => { workerAPausedResolve = r; });
+            let workerAResumeResolve;
+            const workerAResumePromise = new Promise(r => { workerAResumeResolve = r; });
+
+            // Worker A attempts reconciliation in the background
+            const workerAPromise = WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'FAILED',
+                reason: 'Worker A stale timeout mark',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                hooks: {
+                    beforeMongoCas: async ({ lockContext }) => {
+                        // Signal that Worker A has acquired lock and entered hook
+                        workerAPausedResolve(lockContext);
+                        // Pause Worker A
+                        await workerAResumePromise;
+                    }
+                }
+            });
+
+            // Wait until Worker A has acquired the lock and paused before its MongoDB CAS
+            const workerALockContext = await workerAPausedPromise;
+            assert.equal(workerALockContext.fencingToken, 1, 'Worker A must have acquired fencing generation 1');
+
+            // Now, simulate Worker B arriving after Worker A's lease expires / steals lock.
+            // Worker B acquires the distributed lock and performs acquisition-time claiming in MongoDB!
+            const claimedDoc = await WhatsAppDispatch.findOneAndUpdate(
+                { idempotencyKey: idKey },
+                {
+                    $inc: { reconcileGeneration: 1 },
+                    $set: {
+                        reconcileLockWorkerId: 'worker_b_distributed_token_016',
+                        reconcileClaimedAt: new Date()
+                    }
+                },
+                { new: true }
+            );
+
+            assert.equal(claimedDoc.reconcileGeneration, 2, 'Issuance of lock to Worker B must advance reconcileGeneration to 2');
+
+            // CRITICAL SECTION 3 ASSERTION:
+            // Verify that Worker B has NOT yet executed its business write!
+            // Status in MongoDB must still be 'AMBIGUOUS_TIMEOUT', NOT 'DISPATCHED' or 'FAILED'
+            const docBeforeBWrites = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(docBeforeBWrites.status, 'AMBIGUOUS_TIMEOUT', 'MongoDB must still be AMBIGUOUS_TIMEOUT before Worker B writes');
+            assert.equal(docBeforeBWrites.reconcileGeneration, 2, 'MongoDB must have recorded generation 2 at acquisition time');
+
+            // Now resume Worker A! Worker A attempts its CAS with token 1.
+            workerAResumeResolve();
+            const workerARes = await workerAPromise;
+
+            // Worker A MUST fail closed and be rejected because generation 2 was issued, even though B has not written!
+            assert.equal(workerARes.success, false, 'Worker A must be rejected');
+            assert.ok(
+                workerARes.error.includes('STALE_FENCING_GENERATION'),
+                `Expected STALE_FENCING_GENERATION for Worker A, got: ${workerARes.error}`
+            );
+
+            // Verify that MongoDB state was NOT modified by Worker A
+            const docAfterAFails = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(docAfterAFails.status, 'AMBIGUOUS_TIMEOUT', 'Worker A must not have committed its status mutation');
+            assert.equal(docAfterAFails.reconcileGeneration, 2);
+
+            // Now Worker B executes its business write with generation 2
+            const workerBLockContext = {
+                fencingToken: 2,
+                lockToken: 'worker_b_distributed_token_016',
+                isLockLost: () => false,
+                validateOwnership: async () => true
+            };
+
+            const workerBRes = await WhatsAppService._manualReconcileDispatchInternal({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.worker_b.section3.016',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Worker B confirmed delivery after Worker A fenced'
+            }, workerBLockContext);
+
+            assert.equal(workerBRes.success, true, 'Worker B business mutation must succeed');
+
+            // Verify final state in MongoDB
+            const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(finalDoc.status, 'DISPATCHED');
+            assert.equal(finalDoc.providerMessageId, 'wamid.worker_b.section3.016');
+            assert.equal(finalDoc.reconcileGeneration, 2);
+            assert.equal(finalDoc.reconciliationReason, 'Worker B confirmed delivery after Worker A fenced');
+        });
+
+        it('17. Database failure during acquisition-time fencing fails closed with DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE', async () => {
+            const idKey = 'durable_db_fail_fencing_017';
+            const recipient = '919811100117';
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 0
+            });
+
+            // Mock findOneAndUpdate to throw an error during the fencing claim
+            const origFindOneAndUpdate = WhatsAppDispatch.findOneAndUpdate;
+            let callCount = 0;
+            WhatsAppDispatch.findOneAndUpdate = async function(filter, update, opts) {
+                if (filter?.idempotencyKey === idKey && update?.$inc?.reconcileGeneration) {
+                    callCount++;
+                    throw new Error('MongoNetworkTimeoutError: Simulated cluster timeout during fencing claim');
+                }
+                return origFindOneAndUpdate.call(this, filter, update, opts);
+            };
+
+            try {
+                const res = await WhatsAppService.manualReconcileDispatch({
+                    idempotencyKey: idKey,
+                    targetStatus: 'DISPATCHED',
+                    providerMessageId: 'wamid.017',
+                    actorContext: testUser,
+                    actorId: testUser._id.toString(),
+                    reason: 'Should fail closed on DB fencing error'
+                });
+
+                assert.equal(res.success, false);
+                assert.ok(
+                    res.error.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE'),
+                    `Expected DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE, got: ${res.error}`
+                );
+                assert.equal(callCount, 1, 'Fencing claim must have been attempted');
+
+                // Verify document remains untouched
+                const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+                assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+                assert.equal(doc.reconcileGeneration, 0);
+            } finally {
+                WhatsAppDispatch.findOneAndUpdate = origFindOneAndUpdate;
+            }
+        });
     });
 });

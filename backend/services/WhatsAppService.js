@@ -103,6 +103,31 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
 
             lockState.acquired = true;
 
+            // Section 3: MongoDB-Authoritative Fencing Token Acquisition
+            // Advance reconcileGeneration in MongoDB at lock-acquisition time so that any older worker
+            // is fenced IMMEDIATELY upon issuance of this lock, even before this worker executes its business write!
+            if (!options.skipMongoClaim && mongoose.connection && mongoose.connection.readyState === 1) {
+                try {
+                    const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+                    const claimedDoc = await WhatsAppDispatch.findOneAndUpdate(
+                        { idempotencyKey: idKey },
+                        {
+                            $inc: { reconcileGeneration: 1 },
+                            $set: {
+                                reconcileLockWorkerId: distributedLockToken,
+                                reconcileClaimedAt: new Date()
+                            }
+                        },
+                        { new: true }
+                    );
+                    if (claimedDoc) {
+                        fencingToken = claimedDoc.reconcileGeneration;
+                    }
+                } catch (dbClaimErr) {
+                    throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: MongoDB fencing generation claim failed for '${idKey}': ${dbClaimErr.message}`);
+                }
+            }
+
             // P0-D: Active Heartbeat Lease Renewal every 5s for 15s TTL
             renewalTimer = setInterval(async () => {
                 try {
@@ -874,6 +899,7 @@ class WhatsAppService {
                 updateQuery.$and = updateQuery.$and || [];
                 updateQuery.$and.push({
                     $or: [
+                        { reconcileGeneration: lockContext.fencingToken },
                         { reconcileGeneration: { $exists: false } },
                         { reconcileGeneration: null },
                         { reconcileGeneration: { $lt: lockContext.fencingToken } }
@@ -887,7 +913,7 @@ class WhatsAppService {
                 // A concurrent worker already advanced the document or recorded conflicting status
                 const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
                 if (currentDoc) {
-                    if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration >= lockContext.fencingToken) {
+                    if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
                         console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                         return {
                             reconciled: false,
@@ -1033,6 +1059,7 @@ class WhatsAppService {
                     updateQuery.$and = updateQuery.$and || [];
                     updateQuery.$and.push({
                         $or: [
+                            { reconcileGeneration: lockContext.fencingToken },
                             { reconcileGeneration: { $exists: false } },
                             { reconcileGeneration: null },
                             { reconcileGeneration: { $lt: lockContext.fencingToken } }
@@ -1060,7 +1087,7 @@ class WhatsAppService {
                 if (!updated) {
                     const currentDoc = await WhatsAppDispatch.findById(candidateByOpaque._id).lean();
                     if (currentDoc) {
-                        if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration >= lockContext.fencingToken) {
+                        if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
                             console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale fencing generation for '${candidateByOpaque.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                             return {
                                 reconciled: false,
@@ -1458,6 +1485,7 @@ class WhatsAppService {
             casFilter.$and = casFilter.$and || [];
             casFilter.$and.push({
                 $or: [
+                    { reconcileGeneration: lockContext.fencingToken },
                     { reconcileGeneration: { $exists: false } },
                     { reconcileGeneration: null },
                     { reconcileGeneration: { $lt: lockContext.fencingToken } }
@@ -1483,11 +1511,11 @@ class WhatsAppService {
             }
 
             // Check if rejected due to stale fencing generation
-            if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration >= lockContext.fencingToken) {
+            if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
                 console.warn(`[WhatsAppService] Reconciliation mutation rejected due to stale fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                 return {
                     success: false,
-                    error: `STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) >= current lock fencingToken (${lockContext.fencingToken})`,
+                    error: `STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) > current lock fencingToken (${lockContext.fencingToken})`,
                     reconcileGeneration: currentDoc.reconcileGeneration,
                     fencingToken: lockContext.fencingToken
                 };
