@@ -74,36 +74,41 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
             const idKey = 'durable_reconcile_lock_timeout_test';
             const lockKey = `lock:dispatch_reconcile:${idKey}`;
 
+            // Seed dispatch document in AMBIGUOUS_TIMEOUT
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100102',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true
+            });
+
             // Pre-seed Redis lock held by an external process
             await redisProxy.set(lockKey, 'external_holder_token', 'NX', 'EX', 30);
 
             try {
-                // Mock Redis set to continuously simulate lock contention for this key
-                const origSet = redisProxy.set;
-                redisProxy.set = async (k, v, ...args) => {
-                    if (k === lockKey && args.includes('NX')) {
-                        return null; // Always fail NX lock acquisition
-                    }
-                    return origSet.call(redisProxy, k, v, ...args);
-                };
-
-                const start = Date.now();
-                // Test directly via WhatsAppService._withReconcileKeyLock with a short wait simulation
-                // Or verify manualReconcileDispatch fails closed
-                const reconcilePromise = WhatsAppService.manualReconcileDispatch({
+                // Pass bounded maxWaitMs (150ms) to verify real timeout and fail-closed abortion
+                const res = await WhatsAppService.manualReconcileDispatch({
                     idempotencyKey: idKey,
                     targetStatus: 'DISPATCHED',
-                    providerMessageId: 'wamid.timeout.001',
-                    actorContext: testUser
+                    providerMessageId: 'wamid.timeout.002',
+                    actorContext: testUser,
+                    lockOptions: { maxWaitMs: 150 }
                 });
 
-                // Let it fail closed or timeout
-                // In our implementation MAX_LOCK_WAIT_MS is 10000ms. To keep test fast, we can verify the error format
-                // or restore after verifying lock error handling.
-                redisProxy.set = origSet;
-                await redisProxy.del(lockKey);
+                assert.equal(res.success, false);
+                assert.equal(res.error, 'DISTRIBUTED_LOCK_TIMEOUT');
+                assert.equal(res.idempotencyKey, idKey);
+
+                // Verify the database mutation NEVER executed
+                const record = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+                assert.equal(record.status, 'AMBIGUOUS_TIMEOUT');
+                assert.equal(record.providerMessageId, undefined);
+                assert.equal(record.reconciledAt, undefined);
             } finally {
                 await redisProxy.del(lockKey);
+                await redisProxy.del(`lock:dispatch_reconcile_gen:${idKey}`);
             }
         });
     });
@@ -229,46 +234,52 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
             const sessionId = 'test_session_stolen_008';
             const lockKey = `lock:baileys_outbound:${sessionId}`;
 
-            // We simulate renewal failure by wiping the lock token from Redis during a long task
             let taskStarted = false;
             let caughtError = null;
 
             try {
-                await BaileysConnectionManager.serializeSend(sessionId, async (lockContext) => {
-                    taskStarted = true;
-                    // Token is deleted or replaced by another worker in Redis
-                    await redisProxy.set(lockKey, 'stolen_by_another_worker_token');
+                await assert.rejects(async () => {
+                    await BaileysConnectionManager.serializeSend(sessionId, async (lockContext) => {
+                        taskStarted = true;
+                        // Replace token in Redis so renewal fails
+                        await redisProxy.set(lockKey, 'stolen_by_another_worker_token');
 
-                    // Simulate heartbeats running or abort signal listener
-                    // Manually invoke an eval renew that returns 0 or trigger renewal
-                    const LUA_RENEW_LOCK = `
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("expire", KEYS[1], tonumber(ARGV[2]))
-else
-    return 0
-end
-`;
-                    const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, lockKey, lockContext.getLockToken(), 30);
-                    assert.equal(renewed, 0, 'Renew script must return 0 because token was replaced');
-
-                    // Wait for task or check signal
-                    await new Promise(r => setTimeout(r, 100));
-                    return { success: true };
+                        // Wait longer than heartbeat interval (40ms) to allow production heartbeat callback to execute
+                        return new Promise((resolve) => setTimeout(resolve, 5000));
+                    }, { heartbeatIntervalMs: 40, skipCooloff: true });
+                }, (err) => {
+                    caughtError = err;
+                    return err.message.includes('DISTRIBUTED_LOCK_LOST');
                 });
-            } catch (err) {
-                caughtError = err;
             } finally {
                 await redisProxy.del(lockKey);
             }
-            assert.ok(taskStarted);
+
+            assert.ok(taskStarted, 'Send task must have started');
+            assert.ok(caughtError, 'Must catch error from rejected serializeSend');
+            assert.ok(caughtError.message.includes('DISTRIBUTED_LOCK_LOST'));
         });
 
-        it('9. _sendViaBaileys marks deliveryStatus as DELIVERY_UNKNOWN when outbound lock is lost', async () => {
+        it('9. _sendViaBaileys marks deliveryStatus as DELIVERY_UNKNOWN when outbound lock is lost during in-flight send', async () => {
             const config = { integrationId: 'test_session_lost_009', provider: 'BAILEYS' };
 
-            // Mock serializeSend to simulate DISTRIBUTED_LOCK_LOST thrown during send
+            const mockSocket = {
+                user: { id: '919811100109:1@s.whatsapp.net' },
+                ws: { isOpen: true },
+                sendMessage: async () => new Promise(() => {}),
+                sendPresenceUpdate: async () => {}
+            };
+            const origGetSocket = BaileysConnectionManager.getSocket;
+            BaileysConnectionManager.getSocket = (id) => (String(id) === 'test_session_lost_009' ? mockSocket : null);
+
+            // Mock serializeSend to simulate DISTRIBUTED_LOCK_LOST thrown after socket write initiated
             const origSerialize = BaileysConnectionManager.serializeSend;
             BaileysConnectionManager.serializeSend = async (intId, fn) => {
+                const abortController = new AbortController();
+                fn({ isLockLost: () => false, signal: abortController.signal });
+                // Let task initiate socket write
+                await new Promise(r => setTimeout(r, 20));
+                abortController.abort();
                 const err = new Error('DISTRIBUTED_LOCK_LOST: Outbound lock for Baileys session test_session_lost_009 expired or was acquired by another process.');
                 err.code = 'DISTRIBUTED_LOCK_LOST';
                 throw err;
@@ -281,6 +292,7 @@ end
                 assert.equal(sendResult.isDeliveryUnknown, true);
                 assert.ok(sendResult.error.includes('DISTRIBUTED_LOCK_LOST'));
             } finally {
+                BaileysConnectionManager.getSocket = origGetSocket;
                 BaileysConnectionManager.serializeSend = origSerialize;
             }
         });
@@ -360,6 +372,232 @@ end
             const record = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
             assert.equal(record.status, 'CLAIMED');
             assert.equal(record.deliveryStatus, undefined);
+        });
+
+        it('12. In-flight Baileys send safety: Unresolved socket send during lock renewal failure reports DELIVERY_UNKNOWN, zero retries, and blocks duplicate send', async () => {
+            const idempotencyKey = 'inflight_idemp_key_012';
+            const recipient = '919811100112';
+
+            const integration = await WhatsAppIntegration.create({
+                provider: 'BAILEYS',
+                phoneNumberId: 'phone_012',
+                displayPhoneNumber: '+91 98111 00112',
+                accountLabel: 'Inflight Test Line',
+                connectionType: 'QR_SCANNER',
+                status: 'ACTIVE',
+                isDefault: false
+            });
+
+            const lockKey = `lock:baileys_outbound:${integration._id}`;
+
+            let socketSendInvocations = 0;
+            const mockSocket = {
+                user: { id: '919811100112:1@s.whatsapp.net' },
+                ws: { isOpen: true },
+                sendMessage: async (jid, content) => {
+                    socketSendInvocations++;
+                    // Socket send remains unresolved while renewal fails in the background
+                    return new Promise(() => {});
+                },
+                sendPresenceUpdate: async () => {}
+            };
+
+            const origGetSocket = BaileysConnectionManager.getSocket;
+            BaileysConnectionManager.getSocket = (id) => {
+                if (String(id) === String(integration._id)) return mockSocket;
+                return origGetSocket ? origGetSocket(id) : null;
+            };
+
+            try {
+                const sendPromise = WhatsAppService.sendMessage(recipient, 'In flight message test', {
+                    idempotencyKey,
+                    integrationId: integration._id,
+                    provider: 'BAILEYS',
+                    channel: 'whatsapp_web',
+                    useBaileys: true,
+                    lockOptions: { heartbeatIntervalMs: 40, skipCooloff: true },
+                    hooks: {
+                        beforeSocketSend: async () => {
+                            // Steal lock in Redis immediately so renewal fails
+                            await redisProxy.set(lockKey, 'stolen_token_012');
+                        }
+                    }
+                });
+
+                const result = await sendPromise;
+
+                // 1. Caller receives ambiguous DELIVERY_UNKNOWN outcome
+                assert.equal(result.success, false);
+                assert.equal(result.deliveryStatus, 'DELIVERY_UNKNOWN');
+                assert.equal(result.isDeliveryUnknown, true);
+                assert.equal(result.isAmbiguous, true);
+
+                // 2. Exactly one socket write was initiated; no retry occurred
+                assert.equal(socketSendInvocations, 1, 'Exactly one socket write must be initiated; retry is forbidden');
+
+                // 3. Durable ledger records AMBIGUOUS_TIMEOUT
+                const dispatchRecord = await WhatsAppDispatch.findOne({ idempotencyKey }).lean();
+                assert.ok(dispatchRecord);
+                assert.equal(dispatchRecord.status, 'AMBIGUOUS_TIMEOUT');
+                assert.equal(dispatchRecord.isAmbiguous, true);
+
+                // 4. Duplicate send attempt with same idempotencyKey is blocked
+                const duplicateAttempt = await WhatsAppService.sendMessage(recipient, 'In flight message test', {
+                    idempotencyKey,
+                    integrationId: integration._id,
+                    provider: 'BAILEYS',
+                    useBaileys: true
+                });
+                assert.equal(duplicateAttempt.success, false);
+                assert.equal(duplicateAttempt.code, 'AMBIGUOUS_TIMEOUT_BLOCKED');
+                assert.equal(socketSendInvocations, 1, 'No additional socket writes must occur on blocked duplicate');
+            } finally {
+                BaileysConnectionManager.getSocket = origGetSocket;
+                await redisProxy.del(lockKey);
+            }
+        });
+
+        it('13. Reconciliation CAS race: Stale lock holder mutation rejected by monotonic fencing generation in MongoDB', async () => {
+            const idKey = 'durable_cas_race_013';
+            const recipient = '919811100113';
+
+            // Seed dispatch record
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 0
+            });
+
+            let workerAAttempted = false;
+
+            // Worker A attempts reconciliation
+            const workerARes = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'FAILED',
+                reason: 'Worker A stale failure marking',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                hooks: {
+                    beforeMongoCas: async ({ lockContext }) => {
+                        workerAAttempted = true;
+                        // Worker A is paused right between ownership validation and MongoDB CAS!
+                        // In the meantime, simulating Worker B running concurrently in another Node.js process:
+                        // Worker B has fencingToken = 2, commits to MongoDB and advances reconcileGeneration
+                        const workerBLockContext = {
+                            fencingToken: 2,
+                            lockToken: 'token_worker_b_013',
+                            isLockLost: () => false,
+                            validateOwnership: async () => true
+                        };
+
+                        const workerBRes = await WhatsAppService._manualReconcileDispatchInternal({
+                            idempotencyKey: idKey,
+                            targetStatus: 'DISPATCHED',
+                            providerMessageId: 'wamid.worker_b.013',
+                            actorContext: testUser,
+                            actorId: testUser._id.toString(),
+                            reason: 'Worker B confirmed delivery'
+                        }, workerBLockContext);
+
+                        assert.equal(workerBRes.success, true, 'Worker B must succeed');
+                        assert.equal(workerBRes.status, 'DISPATCHED');
+                    }
+                }
+            });
+
+            assert.ok(workerAAttempted, 'Worker A hook must have executed');
+
+            // Worker A's stale mutation must be rejected with STALE_FENCING_GENERATION
+            assert.equal(workerARes.success, false);
+            assert.ok(workerARes.error.includes('STALE_FENCING_GENERATION'), `Expected STALE_FENCING_GENERATION, got: ${workerARes.error}`);
+
+            // Verify the database contains Worker B's ground truth, NOT Worker A's stale mutation
+            const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(finalDoc.status, 'DISPATCHED');
+            assert.equal(finalDoc.providerMessageId, 'wamid.worker_b.013');
+            assert.equal(finalDoc.reconcileGeneration, 2);
+            assert.equal(finalDoc.reconciliationReason, 'Worker B confirmed delivery');
+        });
+
+        it('14. Redis connection error fails closed with DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE and zero database mutation', async () => {
+            const idKey = 'durable_redis_err_014';
+            const recipient = '919811100114';
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true
+            });
+
+            // Mock eval on redisProxy to simulate Redis connection failure
+            redisProxy.eval = async () => {
+                throw new Error('Connection lost to Redis server');
+            };
+
+            try {
+                const res = await WhatsAppService.manualReconcileDispatch({
+                    idempotencyKey: idKey,
+                    targetStatus: 'DISPATCHED',
+                    providerMessageId: 'wamid.redis_err.014',
+                    actorContext: testUser
+                });
+
+                assert.equal(res.success, false);
+                assert.equal(res.error, 'DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE');
+                assert.ok(res.detail.includes('Connection lost'));
+
+                // Verify zero database mutation
+                const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+                assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+                assert.equal(doc.providerMessageId, undefined);
+            } finally {
+                delete redisProxy.eval;
+            }
+        });
+
+        it('15. Baileys send lock lost BEFORE socket transmission reports FAILED (not DELIVERY_UNKNOWN), with zero socket writes', async () => {
+            let socketCalls = 0;
+            const mockSocket = {
+                user: { id: '919811100115:1@s.whatsapp.net' },
+                ws: { isOpen: true },
+                sendMessage: async () => {
+                    socketCalls++;
+                    return { key: { id: 'wamid.015' } };
+                },
+                sendPresenceUpdate: async () => {}
+            };
+
+            const origGetSocket = BaileysConnectionManager.getSocket;
+            BaileysConnectionManager.getSocket = () => mockSocket;
+
+            const config = { integrationId: 'session_lost_before_send_015', provider: 'BAILEYS' };
+
+            try {
+                // Simulate lock lost context before socket write
+                const sendResult = await WhatsAppService._executeSendViaBaileys(
+                    '919811100115',
+                    'Test message',
+                    config,
+                    {},
+                    { isLockLost: () => true, signal: { aborted: true } }
+                );
+
+                assert.equal(sendResult.success, false);
+                assert.equal(sendResult.deliveryStatus, 'FAILED');
+                assert.equal(sendResult.isDeliveryUnknown, false);
+                assert.equal(sendResult.isAmbiguous, false);
+                assert.ok(sendResult.error.includes('DISTRIBUTED_LOCK_LOST'));
+                assert.equal(socketCalls, 0, 'Zero socket writes must occur if lock was lost before transmission');
+            } finally {
+                BaileysConnectionManager.getSocket = origGetSocket;
+            }
         });
     });
 });

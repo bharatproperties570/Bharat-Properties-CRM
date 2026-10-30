@@ -671,7 +671,7 @@ export const BaileysConnectionManager = {
      * Eliminates WebSocket frame collisions (1006 / connection resets) when multiple broadcasts or concurrent requests send simultaneously.
      * Enforces a 5-second post-reconnect cool-off period so messages are never dispatched onto a stabilizing socket.
      */
-    async serializeSend(integrationId, sendTask) {
+    async serializeSend(integrationId, sendTask, options = {}) {
         const idStr = String(integrationId || 'default');
         const previousPromise = sessionSendQueues.get(idStr) || Promise.resolve();
 
@@ -684,7 +684,7 @@ export const BaileysConnectionManager = {
 
             // Connection cool-off guard: wait until socket has been established for at least 5 seconds
             const readyTs = connectionReadyTimestamps.get(idStr);
-            if (readyTs) {
+            if (readyTs && !options.skipCooloff) {
                 const elapsedSinceReady = Date.now() - readyTs;
                 const COOLOFF_WINDOW_MS = 5000;
                 if (elapsedSinceReady < COOLOFF_WINDOW_MS) {
@@ -699,9 +699,9 @@ export const BaileysConnectionManager = {
             let redisProxy = null;
             let renewalTimer = null;
             const outboundLockKey = `lock:baileys_outbound:${idStr}`;
-            const LOCK_TTL_SEC = 30; // 30s safeguard prevents deadlocks on worker crash
-            const HEARTBEAT_INTERVAL_MS = 10000;
-            const MAX_LOCK_WAIT_MS = 30000;
+            const LOCK_TTL_SEC = options.lockTtlSec || 30; // 30s safeguard prevents deadlocks on worker crash
+            const HEARTBEAT_INTERVAL_MS = options.heartbeatIntervalMs || 10000;
+            const MAX_LOCK_WAIT_MS = options.maxWaitMs !== undefined ? options.maxWaitMs : 30000;
 
             const abortController = new AbortController();
             const lockState = { acquired: false, lost: false, lossReason: null };
@@ -765,7 +765,20 @@ export const BaileysConnectionManager = {
             const lockContext = {
                 signal: abortController.signal,
                 isLockLost: () => lockState.lost,
-                getLockToken: () => distributedLockToken
+                getLockToken: () => distributedLockToken,
+                validateOwnership: async () => {
+                    if (lockState.lost || abortController.signal.aborted) return false;
+                    try {
+                        const cur = await redisProxy.get(outboundLockKey);
+                        if (cur !== distributedLockToken) {
+                            lockState.lost = true;
+                            return false;
+                        }
+                        return true;
+                    } catch (_) {
+                        return false;
+                    }
+                }
             };
 
             const abortPromise = new Promise((_, reject) => {
