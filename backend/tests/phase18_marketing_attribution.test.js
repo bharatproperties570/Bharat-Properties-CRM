@@ -25,6 +25,10 @@ import MarketingDelivery from '../models/MarketingDelivery.js';
 import MarketingTouch from '../models/MarketingTouch.js';
 import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
+import Activity from '../models/Activity.js';
+import Booking from '../models/Booking.js';
+import Lookup from '../models/Lookup.js';
+import Team from '../models/Team.js';
 import { AttributionService } from '../src/services/AttributionService.js';
 import { CampaignAnalyticsService } from '../src/services/CampaignAnalyticsService.js';
 
@@ -38,6 +42,12 @@ describe('Phase 18 — Marketing OS Attribution & Full-Funnel Analytics Suite', 
         await MarketingDelivery.init();
         await CampaignRun.init();
         await MarketingCampaign.init();
+        await Lead.init();
+        await Deal.init();
+        await Activity.init();
+        await Booking.init();
+        await Lookup.init();
+        await Team.init();
     });
 
     after(async () => {
@@ -401,6 +411,595 @@ describe('Phase 18 — Marketing OS Attribution & Full-Funnel Analytics Suite', 
             assert.strictEqual(stageRes.body.success, true);
             assert.ok(Array.isArray(stageRes.body.data.leads));
             assert.ok(Array.isArray(stageRes.body.data.deals));
+        });
+    });
+
+    describe('6. Multi-Tenant Isolation & Negative Database Cross-Contamination Tests', () => {
+        let getSiteVisitFunnelAnalytics, getCampaignAttributionAnalytics, getStageDensity;
+        const tenantAId = new mongoose.Types.ObjectId();
+        const tenantBId = new mongoose.Types.ObjectId();
+
+        const userTenantA = {
+            _id: new mongoose.Types.ObjectId(),
+            email: 'admin@tenanta.com',
+            role: { name: 'admin' },
+            tenantId: tenantAId,
+            dataScope: 'all'
+        };
+        const userTenantB = {
+            _id: new mongoose.Types.ObjectId(),
+            email: 'admin@tenantb.com',
+            role: { name: 'admin' },
+            tenantId: tenantBId,
+            dataScope: 'all'
+        };
+
+        let leadA1, leadA2, leadB1, leadB2;
+        let visitA1, visitA2, visitB1, visitB2, visitA_adversarial;
+        let dealA1, dealB1;
+        let bookingA1, bookingB1, bookingA_adversarial;
+
+        before(async () => {
+            const mod = await import('../controllers/analytics.controller.js');
+            getSiteVisitFunnelAnalytics = mod.getSiteVisitFunnelAnalytics;
+            getCampaignAttributionAnalytics = mod.getCampaignAttributionAnalytics;
+            getStageDensity = mod.getStageDensity;
+
+            // Seed Tenant A Leads
+            leadA1 = await Lead.create({
+                firstName: 'Aarav', lastName: 'Kumar', mobile: '919811111111',
+                tenantId: tenantAId, source: 'Meta Ads', campaign: 'tenant_a_festive_2026',
+                stage: 'Incoming', isLost: false, createdAt: new Date()
+            });
+            leadA2 = await Lead.create({
+                firstName: 'Aditi', lastName: 'Singh', mobile: '919811111112',
+                tenantId: tenantAId, source: 'Google Ads', campaign: 'tenant_a_festive_2026',
+                stage: 'Open', isLost: false, createdAt: new Date()
+            });
+
+            // Seed Tenant B Leads
+            leadB1 = await Lead.create({
+                firstName: 'Barun', lastName: 'Secret', mobile: '919822222221',
+                tenantId: tenantBId, source: 'Referral', campaign: 'tenant_b_confidential_2026',
+                stage: 'Incoming', isLost: false, createdAt: new Date()
+            });
+            leadB2 = await Lead.create({
+                firstName: 'Bina', lastName: 'Roy', mobile: '919822222222',
+                tenantId: tenantBId, source: 'Direct', campaign: 'tenant_b_confidential_2026',
+                stage: 'Open', isLost: false, createdAt: new Date()
+            });
+
+            // Seed Tenant A Site Visits
+            visitA1 = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Completed Visit A1',
+                entityType: 'Lead', entityId: leadA1._id, tenantId: tenantAId, dueDate: new Date(),
+                details: {
+                    projectName: 'A-Towers Luxury',
+                    customerFeedback: { rating: 5, comments: 'Superb project' }
+                },
+                tags: ['Site-Visit', 'High-Satisfaction'],
+                createdAt: new Date()
+            });
+            visitA2 = await Activity.create({
+                type: 'Site Visit', status: 'Scheduled', subject: 'Scheduled Visit A2',
+                entityType: 'Lead', entityId: leadA2._id, tenantId: tenantAId, dueDate: new Date(),
+                details: { projectName: 'A-Towers Luxury' },
+                tags: ['Site-Visit'],
+                createdAt: new Date()
+            });
+
+            // Seed Tenant B Site Visits
+            visitB1 = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Completed Visit B1',
+                entityType: 'Lead', entityId: leadB1._id, tenantId: tenantBId, dueDate: new Date(),
+                details: {
+                    projectName: 'B-Secret-Palace',
+                    customerFeedback: { rating: 1, comments: 'Unsatisfactory' }
+                },
+                tags: ['Site-Visit', 'Escalation-Negative-Feedback'],
+                createdAt: new Date()
+            });
+            visitB2 = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Completed Visit B2',
+                entityType: 'Lead', entityId: leadB2._id, tenantId: tenantBId, dueDate: new Date(),
+                details: { projectName: 'B-Secret-Palace' },
+                createdAt: new Date()
+            });
+
+            // Seed Tenant A Deal (Won: 15,000,000)
+            dealA1 = await Deal.create({
+                name: 'Villa A-101 Deal', price: 15000000, stage: 'Booked',
+                siteVisitId: visitA1._id, leadId: leadA1._id, tenantId: tenantAId,
+                projectName: 'A-Towers Luxury', isVisible: true,
+                marketingAttribution: { campaign: 'tenant_a_festive_2026', source: 'Meta Ads' },
+                createdAt: new Date()
+            });
+
+            // Seed Tenant B Deal (Won: 90,000,000)
+            dealB1 = await Deal.create({
+                name: 'Penthouse B-Secret Deal', price: 90000000, stage: 'Booked',
+                siteVisitId: visitB1._id, leadId: leadB1._id, tenantId: tenantBId,
+                projectName: 'B-Secret-Palace', isVisible: true,
+                marketingAttribution: { campaign: 'tenant_b_confidential_2026', source: 'Referral' },
+                createdAt: new Date()
+            });
+
+            // Adversarial Cross-Tenant Site Visit: Belongs to Tenant A, but attempts to link Tenant B's deal
+            visitA_adversarial = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Adversarial Link Visit',
+                entityType: 'Lead', entityId: leadA1._id, tenantId: tenantAId, dueDate: new Date(),
+                details: {
+                    projectName: 'A-Towers Luxury',
+                    linkedDealId: dealB1._id // Injected Tenant B deal ID
+                },
+                tags: ['Site-Visit'],
+                createdAt: new Date()
+            });
+
+            // Seed Tenant A Booking (Revenue: 15,000,000, Commission: 300,000)
+            bookingA1 = await Booking.create({
+                totalDealAmount: 15000000, commissionReceived: 300000,
+                dealId: dealA1._id, siteVisitId: visitA1._id, tenantId: tenantAId,
+                marketingAttribution: { campaign: 'tenant_a_festive_2026', source: 'Meta Ads' },
+                createdAt: new Date()
+            });
+
+            // Seed Tenant B Booking (Revenue: 90,000,000, Commission: 1,800,000)
+            bookingB1 = await Booking.create({
+                totalDealAmount: 90000000, commissionReceived: 1800000,
+                dealId: dealB1._id, siteVisitId: visitB1._id, tenantId: tenantBId,
+                marketingAttribution: { campaign: 'tenant_b_confidential_2026', source: 'Referral' },
+                createdAt: new Date()
+            });
+
+            // Adversarial Cross-Tenant Booking: Belongs to Tenant B, but attempts to reference Tenant A deal/visit
+            bookingA_adversarial = await Booking.create({
+                totalDealAmount: 50000000, commissionReceived: 1000000,
+                dealId: dealA1._id, siteVisitId: visitA1._id, tenantId: tenantBId,
+                createdAt: new Date()
+            });
+        });
+
+        it('TENANT-01: Tenant A Funnel Analytics completely isolates Tenant B data and cross-tenant injections', async () => {
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: userTenantA,
+                query: { timeframe: 'all' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            assert.strictEqual(res.body.success, true);
+            const { summary, projectBreakdown } = res.body.data;
+
+            // Visit counts: 3 Tenant A visits (A1, A2, A_adversarial). Zero Tenant B visits.
+            assert.strictEqual(summary.totalScheduled, 3);
+            assert.strictEqual(summary.totalCompleted, 2);
+            assert.strictEqual(summary.pendingVisits, 1);
+            assert.strictEqual(summary.cancelledVisits, 0);
+
+            // Feedback: Only Visit A1 (rating 5). Visit B1 (rating 1, negative escalation) MUST NOT leak into Tenant A.
+            assert.strictEqual(summary.feedbackReceived, 1);
+            assert.strictEqual(summary.averageRating, 5.0);
+            assert.strictEqual(summary.highSatisfactionCount, 1);
+            assert.strictEqual(summary.escalationCount, 0, 'Tenant B negative feedback escalation must not leak to Tenant A');
+
+            // Deals & Revenue: Deal A1 (15M). Deal B1 (90M, linked maliciously in visitA_adversarial) MUST be rejected by tenant scope!
+            assert.strictEqual(summary.dealsWon, 1, 'Adversarial cross-tenant deal must be filtered out');
+            assert.strictEqual(summary.totalDealValue, 15000000, 'Deal value must strictly equal 15,000,000');
+
+            // Bookings & Commission: Booking A1 (15M deal amount, 300k commission).
+            // bookingB1 (90M) and bookingA_adversarial (50M) MUST be rejected by tenant scope!
+            assert.strictEqual(summary.totalBookings, 1, 'Cross-tenant bookings must not be counted');
+            assert.strictEqual(summary.totalRevenue, 15000000, 'Total revenue must strictly equal 15,000,000');
+            assert.strictEqual(summary.totalCommission, 300000, 'Total commission must strictly equal 300,000');
+
+            // Project Breakdown: Contains ONLY A-Towers Luxury; ZERO B-Secret-Palace
+            assert.strictEqual(projectBreakdown.length, 1);
+            assert.strictEqual(projectBreakdown[0].projectName, 'A-Towers Luxury');
+            assert.strictEqual(projectBreakdown[0].visits, 2);
+            assert.strictEqual(projectBreakdown[0].dealsWon, 1);
+            assert.strictEqual(projectBreakdown[0].revenue, 15000000);
+            assert(!projectBreakdown.some(p => p.projectName === 'B-Secret-Palace'), 'Tenant B project name must not leak');
+        });
+
+        it('TENANT-02: Tenant B Funnel Analytics completely isolates Tenant A data', async () => {
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: userTenantB,
+                query: { timeframe: 'all' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            assert.strictEqual(res.body.success, true);
+            const { summary, projectBreakdown } = res.body.data;
+
+            // Visit counts: 2 Tenant B visits (B1, B2). Zero Tenant A visits.
+            assert.strictEqual(summary.totalScheduled, 2);
+            assert.strictEqual(summary.totalCompleted, 2);
+            assert.strictEqual(summary.feedbackReceived, 1);
+            assert.strictEqual(summary.averageRating, 1.0);
+            assert.strictEqual(summary.escalationCount, 1);
+            assert.strictEqual(summary.highSatisfactionCount, 0);
+
+            // Deals & Revenue: Deal B1 (90M). Zero Tenant A deals.
+            assert.strictEqual(summary.dealsWon, 1);
+            assert.strictEqual(summary.totalDealValue, 90000000);
+
+            // Bookings: bookingB1 (90M, 1.8M commission).
+            // bookingA_adversarial (pointing to Tenant A visit/deal) is strictly excluded.
+            assert.strictEqual(summary.totalBookings, 1);
+            assert.strictEqual(summary.totalRevenue, 90000000);
+            assert.strictEqual(summary.totalCommission, 1800000);
+
+            // Projects: Contains ONLY B-Secret-Palace; ZERO A-Towers Luxury
+            assert.strictEqual(projectBreakdown.length, 1);
+            assert.strictEqual(projectBreakdown[0].projectName, 'B-Secret-Palace');
+            assert.strictEqual(projectBreakdown[0].revenue, 90000000);
+            assert(!projectBreakdown.some(p => p.projectName === 'A-Towers Luxury'), 'Tenant A project name must not leak');
+        });
+
+        it('TENANT-03: Campaign Attribution Analytics enforces strict multi-tenant isolation', async () => {
+            const resA = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getCampaignAttributionAnalytics({
+                user: userTenantA,
+                query: { timeframe: 'all' }
+            }, resA);
+
+            assert.strictEqual(resA.statusCode, 200);
+            assert.strictEqual(resA.body.success, true);
+            const campaignsA = resA.body.data.campaigns;
+
+            // Tenant A must see its own campaign and NOT Tenant B's campaign
+            const campA = campaignsA.find(c => c.campaign === 'tenant_a_festive_2026');
+            assert.ok(campA, 'Tenant A campaign must be present in Tenant A results');
+            assert.strictEqual(campA.leadsCount, 2);
+            assert.strictEqual(campA.dealsWon, 1);
+            assert.strictEqual(campA.totalDealValue, 15000000);
+            assert.strictEqual(campA.totalRevenue, 15000000);
+
+            const leakedCampB = campaignsA.find(c => c.campaign === 'tenant_b_confidential_2026');
+            assert.strictEqual(leakedCampB, undefined, 'Tenant B campaign must NEVER leak into Tenant A results');
+
+            // Tenant B query
+            const resB = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getCampaignAttributionAnalytics({
+                user: userTenantB,
+                query: { timeframe: 'all' }
+            }, resB);
+
+            assert.strictEqual(resB.statusCode, 200);
+            const campaignsB = resB.body.data.campaigns;
+
+            const campB = campaignsB.find(c => c.campaign === 'tenant_b_confidential_2026');
+            assert.ok(campB, 'Tenant B campaign must be present in Tenant B results');
+            assert.strictEqual(campB.leadsCount, 2);
+            assert.strictEqual(campB.dealsWon, 1);
+            assert.strictEqual(campB.totalRevenue, 90000000);
+
+            const leakedCampA = campaignsB.find(c => c.campaign === 'tenant_a_festive_2026');
+            assert.strictEqual(leakedCampA, undefined, 'Tenant A campaign must NEVER leak into Tenant B results');
+        });
+
+        it('TENANT-04: Stage Density Analytics enforces strict multi-tenant isolation', async () => {
+            const resA = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getStageDensity({
+                user: userTenantA,
+                query: { timeframe: 'all' }
+            }, resA);
+
+            assert.strictEqual(resA.statusCode, 200);
+            assert.strictEqual(resA.body.success, true);
+            const { leads, deals } = resA.body.data;
+
+            // Leads must only be Tenant A leads
+            assert.ok(leads.length >= 2);
+            for (const l of leads) {
+                assert.notStrictEqual(l.firstName, 'Barun');
+                assert.notStrictEqual(l.firstName, 'Bina');
+            }
+
+            // Deals must only be Tenant A deals
+            assert.ok(deals.length >= 1);
+            for (const d of deals) {
+                assert.notStrictEqual(d.price, 90000000, 'Tenant B deal price of 90M must not appear in Tenant A deals');
+            }
+        });
+    });
+
+    describe('7. Role-Based Scoping & Visibility Contract Tests', () => {
+        let getSiteVisitFunnelAnalytics, getStageDensity;
+        const tenantScopedId = new mongoose.Types.ObjectId();
+        const agentOneId = new mongoose.Types.ObjectId();
+        const agentTwoId = new mongoose.Types.ObjectId();
+        const teamAlphaId = new mongoose.Types.ObjectId();
+        const teamBetaId = new mongoose.Types.ObjectId();
+
+        let visitAgent1, visitAgent2, visitTeamAlpha, visitTeamBeta;
+
+        before(async () => {
+            const mod = await import('../controllers/analytics.controller.js');
+            getSiteVisitFunnelAnalytics = mod.getSiteVisitFunnelAnalytics;
+            getStageDensity = mod.getStageDensity;
+
+            // Seed visits with distinct assignments and teams
+            visitAgent1 = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Agent 1 Visit',
+                entityType: 'Lead', entityId: new mongoose.Types.ObjectId(),
+                assignedTo: agentOneId, tenantId: tenantScopedId, dueDate: new Date(),
+                details: { projectName: 'Agent1 Project' }, createdAt: new Date()
+            });
+            visitAgent2 = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Agent 2 Visit',
+                entityType: 'Lead', entityId: new mongoose.Types.ObjectId(),
+                assignedTo: agentTwoId, tenantId: tenantScopedId, dueDate: new Date(),
+                details: { projectName: 'Agent2 Project' }, createdAt: new Date()
+            });
+            visitTeamAlpha = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Team Alpha Visit',
+                entityType: 'Lead', entityId: new mongoose.Types.ObjectId(),
+                teams: [teamAlphaId], tenantId: tenantScopedId, dueDate: new Date(),
+                details: { projectName: 'Team Alpha Project' }, createdAt: new Date()
+            });
+            visitTeamBeta = await Activity.create({
+                type: 'Site Visit', status: 'Completed', subject: 'Team Beta Visit',
+                entityType: 'Lead', entityId: new mongoose.Types.ObjectId(),
+                teams: [teamBetaId], tenantId: tenantScopedId, dueDate: new Date(),
+                details: { projectName: 'Team Beta Project' }, createdAt: new Date()
+            });
+        });
+
+        it('ROLE-01: Assigned-user scope restricts Funnel Analytics to assigned records only', async () => {
+            const userAgent1 = {
+                _id: agentOneId,
+                email: 'agent1@agency.com',
+                role: { name: 'agent' },
+                tenantId: tenantScopedId,
+                dataScope: 'assigned',
+                teams: []
+            };
+
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: userAgent1,
+                query: { timeframe: 'all' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            const { summary, projectBreakdown } = res.body.data;
+            assert.strictEqual(summary.totalScheduled, 1);
+            assert.strictEqual(projectBreakdown.length, 1);
+            assert.strictEqual(projectBreakdown[0].projectName, 'Agent1 Project');
+        });
+
+        it('ROLE-02: Team scope restricts Funnel Analytics to team-tagged records', async () => {
+            const userTeamAlpha = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'lead@teamalpha.com',
+                role: { name: 'team_lead' },
+                tenantId: tenantScopedId,
+                dataScope: 'team',
+                teams: [teamAlphaId]
+            };
+
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: userTeamAlpha,
+                query: { timeframe: 'all' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            const { summary, projectBreakdown } = res.body.data;
+            assert.strictEqual(summary.totalScheduled, 1);
+            assert.strictEqual(projectBreakdown[0].projectName, 'Team Alpha Project');
+            assert(!projectBreakdown.some(p => p.projectName === 'Team Beta Project'));
+        });
+
+        it('ROLE-03: Platform Super Admin receives unrestricted visibility across all tenants', async () => {
+            const platformAdmin = {
+                _id: new mongoose.Types.ObjectId(),
+                email: 'bharatproperties570@gmail.com', // System owner email recognized by Visibility Engine
+                role: { name: 'super admin' },
+                tenantId: null,
+                dataScope: 'all'
+            };
+
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: platformAdmin,
+                query: { timeframe: 'all' }
+            }, res);
+
+            assert.strictEqual(res.statusCode, 200);
+            const { summary, projectBreakdown } = res.body.data;
+            // Super Admin sees Tenant A, Tenant B, and the agent/team visits
+            assert.ok(summary.totalScheduled >= 6);
+            assert.ok(projectBreakdown.some(p => p.projectName === 'A-Towers Luxury'));
+            assert.ok(projectBreakdown.some(p => p.projectName === 'B-Secret-Palace'));
+        });
+
+        it('ROLE-04: Absent user context fails closed with { _id: null } and returns 0 records', async () => {
+            const resFunnel = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            // Call with user: undefined
+            await getSiteVisitFunnelAnalytics({
+                user: undefined,
+                query: { timeframe: 'all' }
+            }, resFunnel);
+
+            assert.strictEqual(resFunnel.statusCode, 200);
+            assert.strictEqual(resFunnel.body.data.summary.totalScheduled, 0, 'Absent user must see 0 scheduled visits');
+            assert.strictEqual(resFunnel.body.data.summary.totalCompleted, 0);
+            assert.strictEqual(resFunnel.body.data.summary.dealsWon, 0);
+            assert.strictEqual(resFunnel.body.data.summary.totalRevenue, 0);
+            assert.strictEqual(resFunnel.body.data.projectBreakdown.length, 0);
+
+            // Call Stage Density with user: undefined
+            const resStage = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+            await getStageDensity({
+                user: undefined,
+                query: { timeframe: 'all' }
+            }, resStage);
+
+            assert.strictEqual(resStage.statusCode, 200);
+            assert.strictEqual(resStage.body.data.leads.length, 0, 'Absent user must see 0 leads');
+            assert.strictEqual(resStage.body.data.deals.length, 0, 'Absent user must see 0 deals');
+        });
+    });
+
+    describe('8. Extended Query Contract, Edge Cases & Error Sanitization Tests', () => {
+        let getSiteVisitFunnelAnalytics, getCampaignAttributionAnalytics, getStageDensity;
+
+        before(async () => {
+            const mod = await import('../controllers/analytics.controller.js');
+            getSiteVisitFunnelAnalytics = mod.getSiteVisitFunnelAnalytics;
+            getCampaignAttributionAnalytics = mod.getCampaignAttributionAnalytics;
+            getStageDensity = mod.getStageDensity;
+        });
+
+        it('EDGE-01: Rejects decimal, negative, non-numeric and out-of-range timeframe values', async () => {
+            const invalidTimeframes = ['30.5', '-15', 'quarterly', '0', '5000', ' 20abc'];
+
+            for (const tf of invalidTimeframes) {
+                const res = {
+                    statusCode: 200, body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: { timeframe: tf } }, res);
+                assert.strictEqual(res.statusCode, 400, `Expected 400 for timeframe: ${tf}`);
+                assert.strictEqual(res.body.success, false);
+            }
+        });
+
+        it('EDGE-02: Accepts valid timeframe=all and positive integer strings', async () => {
+            const validTimeframes = ['all', '7', '30', '90', '365', 30];
+
+            for (const tf of validTimeframes) {
+                const res = {
+                    statusCode: 200, body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({
+                    user: { _id: new mongoose.Types.ObjectId(), tenantId: new mongoose.Types.ObjectId(), dataScope: 'all' },
+                    query: { timeframe: tf }
+                }, res);
+                assert.strictEqual(res.statusCode, 200, `Expected 200 for valid timeframe: ${tf}`);
+                assert.strictEqual(res.body.success, true);
+            }
+        });
+
+        it('EDGE-03: Rejects invalid or unparseable date strings and inverted date ranges', async () => {
+            const invalidDateCases = [
+                { startDate: 'yesterday-once-more', endDate: '2026-12-31' },
+                { startDate: '2026-01-01', endDate: 'neverland' },
+                { startDate: '2026-12-31', endDate: '2026-01-01' } // inverted
+            ];
+
+            for (const tc of invalidDateCases) {
+                const res = {
+                    statusCode: 200, body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: tc }, res);
+                assert.strictEqual(res.statusCode, 400, `Expected 400 for bad dates: ${JSON.stringify(tc)}`);
+                assert.strictEqual(res.body.success, false);
+            }
+        });
+
+        it('EDGE-04: Rejects array-shaped query parameters and dotted key injections', async () => {
+            const injectionQueries = [
+                { agentId: ['64b8a2f1c9e77a001234567a', '64b8a2f1c9e77a001234567b'] },
+                { 'details.projectName': 'Godrej' },
+                { '$where': 'true' }
+            ];
+
+            for (const q of injectionQueries) {
+                const res = {
+                    statusCode: 200, body: null,
+                    status(c) { this.statusCode = c; return this; },
+                    json(b) { this.body = b; return this; }
+                };
+                await getSiteVisitFunnelAnalytics({ query: q }, res);
+                assert.strictEqual(res.statusCode, 400);
+                assert.strictEqual(res.body.success, false);
+            }
+        });
+
+        it('EDGE-05: Database errors return safe, sanitized error responses without leaking stack traces', async () => {
+            const origActivityFind = Activity.find;
+            Activity.find = () => {
+                throw new Error('MongoNetworkTimeoutError: connection to 127.0.0.1:27017 timed out after 30000ms at internal/driver.js:42');
+            };
+
+            const res = {
+                statusCode: 200, body: null,
+                status(c) { this.statusCode = c; return this; },
+                json(b) { this.body = b; return this; }
+            };
+
+            await getSiteVisitFunnelAnalytics({
+                user: { _id: new mongoose.Types.ObjectId(), tenantId: new mongoose.Types.ObjectId(), dataScope: 'all' },
+                query: { timeframe: '30' }
+            }, res);
+
+            // Restore immediately
+            Activity.find = origActivityFind;
+
+            assert.strictEqual(res.statusCode, 500);
+            assert.strictEqual(res.body.success, false);
+            assert.strictEqual(res.body.message, 'Server error fetching site visit funnel analytics');
+            assert.strictEqual(res.body.error, undefined, 'Raw error message or stack trace must NOT be exposed in response body');
+            assert.strictEqual(res.body.stack, undefined, 'Stack trace must NOT be exposed');
         });
     });
 });

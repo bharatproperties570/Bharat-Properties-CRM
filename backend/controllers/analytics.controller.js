@@ -89,7 +89,7 @@ export const getStageDensity = async (req, res) => {
         }
         const dateFilter = dateResult.dateFilter;
 
-        let visibilityFilter = {};
+        let visibilityFilter = { _id: null };
         if (req.user) {
             try {
                 visibilityFilter = await getVisibilityFilter(req.user);
@@ -225,7 +225,7 @@ export const getSiteVisitFunnelAnalytics = async (req, res) => {
             visitMatch['details.projectName'] = trimmedProject;
         }
 
-        let visibilityFilter = {};
+        let visibilityFilter = { _id: null };
         if (req.user) {
             try {
                 visibilityFilter = await getVisibilityFilter(req.user);
@@ -371,7 +371,7 @@ export const getSiteVisitFunnelAnalytics = async (req, res) => {
         });
     } catch (error) {
         console.error('[SiteVisitFunnelAnalytics] Error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, message: 'Server error fetching site visit funnel analytics' });
     }
 };
 
@@ -388,7 +388,7 @@ export const getCampaignAttributionAnalytics = async (req, res) => {
         }
         const dateFilter = dateResult.dateFilter;
 
-        let visibilityFilter = {};
+        let visibilityFilter = { _id: null };
         if (req.user) {
             try {
                 visibilityFilter = await getVisibilityFilter(req.user);
@@ -555,6 +555,6 @@ export const getCampaignAttributionAnalytics = async (req, res) => {
         });
     } catch (error) {
         console.error('[CampaignAttributionAnalytics] Error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, message: 'Server error fetching campaign attribution analytics' });
     }
 };
