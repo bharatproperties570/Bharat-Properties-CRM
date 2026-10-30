@@ -1232,7 +1232,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 /**
  * Direct dispatch for BNA broadcasts when queue is unavailable or synchronous fallback
  */
-async function _dispatchBNADirectly(data) {
+export async function _dispatchBNADirectly(data) {
     const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const Activity = mongoose.model('Activity');
@@ -1355,7 +1355,7 @@ async function _dispatchBNADirectly(data) {
         </div>
     `;
 
-    for (const recipient of recipients) {
+    const dispatchSingleRecipient = async (recipient) => {
         const results = [];
         const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
 
@@ -1368,10 +1368,10 @@ async function _dispatchBNADirectly(data) {
             meta
         });
 
+        let text = '';
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
-                let text = '';
                 if (!isGroup && !isBaileys && activeTemplateId && templateRegistryData) {
                     const personalizedComponents = await resolveMetaComponents(
                         activeTemplateId, 
@@ -1479,6 +1479,8 @@ async function _dispatchBNADirectly(data) {
             } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
         }
 
+        const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
+
         // Log Activity
         try {
             await Activity.create({
@@ -1486,7 +1488,7 @@ async function _dispatchBNADirectly(data) {
                 subject: `BNA Broadcast: ${meta.title}`,
                 entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
                 entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
-                status: 'Completed',
+                status: success ? 'Completed' : 'Failed',
                 visibleTo: 'Everyone',
                 description: text || `Dispatched deal details to ${recipient.name} (${recipient.mobile}) via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
                 details: { 
@@ -1513,8 +1515,68 @@ async function _dispatchBNADirectly(data) {
             console.warn('[BNA/ActivityLog] Warning:', actErr.message);
         }
 
-        // Small delay to avoid rate limiting
-        await new Promise(r => setTimeout(r, 300));
+        return { success, results };
+    };
+
+    // 🛡️ Safe-Dispatch Pipeline (Direct Fallback Mode)
+    // 5 groups/batch, 8-15s intra-group jitter, 3-10m cooldown between batches, Single-Account only.
+    const directRecipients = recipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us'));
+    const groupRecipients = recipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us'));
+
+    // 1. Dispatch to direct 1-to-1 contacts first
+    if (directRecipients.length > 0) {
+        console.log(`[BNA_DIRECT] Dispatching to ${directRecipients.length} direct recipients...`);
+        for (const recipient of directRecipients) {
+            await dispatchSingleRecipient(recipient);
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 1500));
+        }
+    }
+
+    // 2. Dispatch to WhatsApp groups in batches of 5 with 3-10m cooldowns
+    const BATCH_SIZE = 5;
+    const totalGroups = groupRecipients.length;
+    const totalBatches = Math.ceil(totalGroups / BATCH_SIZE);
+
+    if (totalGroups > 0) {
+        console.log(`🛡️ [BNA_DIRECT_ANTI_BAN] Dispatching ${totalGroups} WhatsApp Groups in ${totalBatches} batches (${BATCH_SIZE} groups/batch, 8-15s intra-group jitter, 3-10m cooldown between batches).`);
+    }
+
+    for (let b = 0; b < totalBatches; b++) {
+        const batchStart = b * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalGroups);
+        const currentBatch = groupRecipients.slice(batchStart, batchEnd);
+
+        console.log(`🚀 [BNA_DIRECT] [Batch ${b + 1}/${totalBatches}] Dispatching ${currentBatch.length} groups (${batchStart + 1} to ${batchEnd} of ${totalGroups})...`);
+
+        for (let j = 0; j < currentBatch.length; j++) {
+            const group = currentBatch[j];
+            console.log(`[BNA_DIRECT] [Batch ${b + 1}/${totalBatches} - Group ${j + 1}/${currentBatch.length}] Sending to ${group.name || group.mobile}...`);
+            await dispatchSingleRecipient(group);
+
+            if (j < currentBatch.length - 1) {
+                const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s
+                console.log(`⏳ [BNA_DIRECT] Intra-batch pacing ${Math.round(intraJitterMs / 1000)}s before next group...`);
+                await new Promise(r => setTimeout(r, intraJitterMs));
+            }
+        }
+
+        // Inter-batch cooldown: 3 to 10 minutes between batches (only if more batches remain)
+        if (b < totalBatches - 1) {
+            const cooldownSeconds = Math.floor(Math.random() * (600 - 180 + 1)) + 180; // 180s to 600s
+            const cooldownMins = (cooldownSeconds / 60).toFixed(1);
+            console.log(`🛑 🛡️ [BNA_DIRECT_ANTI_BAN] Batch ${b + 1}/${totalBatches} finished. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) to comply with WhatsApp Business limits...`);
+
+            let elapsed = 0;
+            while (elapsed < cooldownSeconds) {
+                const step = Math.min(10, cooldownSeconds - elapsed);
+                await new Promise(r => setTimeout(r, step * 1000));
+                elapsed += step;
+                if (elapsed % 60 === 0 || elapsed === cooldownSeconds) {
+                    console.log(`⏳ [BNA_DIRECT_COOLDOWN] ${elapsed}/${cooldownSeconds}s elapsed (~${Math.ceil((cooldownSeconds - elapsed) / 60)}m remaining)...`);
+                }
+            }
+            console.log(`⚡ [BNA_DIRECT_COOLDOWN] Resuming WhatsApp Group Broadcast for Batch ${b + 2}/${totalBatches}...`);
+        }
     }
 }
 

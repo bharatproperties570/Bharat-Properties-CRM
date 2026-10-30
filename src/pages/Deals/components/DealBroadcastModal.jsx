@@ -2618,6 +2618,18 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                             <i className="fas fa-users" style={{ marginRight: '5px' }}></i>
                             Broadcast Audience: {audienceStats.totalAudienceReach} People ({audienceStats.totalDirectRecipients} Dispatches)
                         </span>
+                        {selectedWaGroups.length > 0 && (
+                            <span style={{
+                                padding: '3px 10px', borderRadius: '8px',
+                                background: isDark ? 'rgba(5, 150, 105, 0.15)' : '#ecfdf5',
+                                color: isDark ? '#34d399' : '#059669',
+                                border: isDark ? '1px solid rgba(5, 150, 105, 0.3)' : '1px solid #a7f3d0',
+                                fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '5px'
+                            }}>
+                                <i className="fas fa-shield-alt"></i>
+                                <span>5 Groups / Batch (3-10m Cooldown • Anti-Ban)</span>
+                            </span>
+                        )}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -757,8 +757,8 @@ if (name === 'bna-broadcast') {
             if (setting?.value) registryMapping = setting.value;
         } catch (e) { await job.log(`Registry Fetch Warning: ${e.message}`); }
 
-        for (let i = 0; i < recipients.length; i++) {
-            const recipient = recipients[i];
+        // 🧠 Helper: Dispatch to a single recipient (1-to-1 Contact or WhatsApp Group)
+        const dispatchSingleRecipient = async (recipient) => {
             const results = [];
             const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
             
@@ -880,7 +880,6 @@ if (name === 'bna-broadcast') {
             }
 
             const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
-            if (success) sent++; else failed++;
 
             // Log Activity
             try {
@@ -892,15 +891,15 @@ if (name === 'bna-broadcast') {
                     status: success ? 'Sent' : 'Failed',
                     visibleTo: 'Everyone',
                     description: success 
-                        ? (text || waMessage) 
+                        ? (text || 'Dispatched') 
                         : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`,
                     details: { 
                         results, 
                         dealId, 
                         shareableId, 
                         jobId: job.id,
-                        message: text || waMessage,
-                        renderedBody: text || waMessage,
+                        message: text,
+                        renderedBody: text,
                         isGroup: isGroup,
                         groupJid: isGroup ? recipient.mobile : null,
                         groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
@@ -918,10 +917,80 @@ if (name === 'bna-broadcast') {
                 await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
             }
 
-            await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
-            // 🛡️ Enterprise Anti-Throttling Pacing: 2.5s for mega-groups to avoid 1006 WebSocket overflow, 300ms for direct 1-to-1
-            const pacingDelayMs = isGroup ? 2500 : (channels.includes('whatsapp') ? 300 : 100);
-            await new Promise(r => setTimeout(r, pacingDelayMs));
+            return { success, results };
+        };
+
+        // 🛡️ ENTERPRISE SAFE-DISPATCH PIPELINE
+        // WhatsApp Business rules: 5-forward chat limit, 3-10m cooldown between batches, 8-15s intra-group jitter.
+        // Single Account Dispatch: Strictly restricted to the single active WhatsApp account (no multi-account routing).
+        const directRecipients = recipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us'));
+        const groupRecipients = recipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us'));
+
+        // 1. Dispatch to Direct 1-to-1 Recipients First (Leads, Brokers, Investors)
+        if (directRecipients.length > 0) {
+            await job.log(`[BNA] Dispatching to ${directRecipients.length} direct recipients...`);
+            for (let i = 0; i < directRecipients.length; i++) {
+                const recipient = directRecipients[i];
+                const { success } = await dispatchSingleRecipient(recipient);
+                if (success) sent++; else failed++;
+                await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
+                // Normal pacing for direct 1-to-1: 1.5s - 3s
+                await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 1500));
+            }
+        }
+
+        // 2. Dispatch to WhatsApp Groups in Strict Batches of 5 with 3-10m Cooldowns
+        const BATCH_SIZE = 5;
+        const totalGroups = groupRecipients.length;
+        const totalBatches = Math.ceil(totalGroups / BATCH_SIZE);
+
+        if (totalGroups > 0) {
+            await job.log(`🛡️ [WhatsApp Business Anti-Ban Rule] Initiating dispatch for ${totalGroups} WhatsApp Groups across ${totalBatches} batches (${BATCH_SIZE} groups/batch, 8-15s intra-group jitter, 3-10 min cooldown between batches). Single-account dispatch active.`);
+        }
+
+        for (let b = 0; b < totalBatches; b++) {
+            const batchStart = b * BATCH_SIZE;
+            const batchEnd = Math.min(batchStart + BATCH_SIZE, totalGroups);
+            const currentBatch = groupRecipients.slice(batchStart, batchEnd);
+
+            await job.log(`🚀 [Batch ${b + 1}/${totalBatches}] Dispatching 5-group forward batch (${currentBatch.length} groups: ${batchStart + 1} to ${batchEnd} of ${totalGroups})...`);
+
+            for (let j = 0; j < currentBatch.length; j++) {
+                const group = currentBatch[j];
+                const overallIdx = directRecipients.length + batchStart + j;
+
+                await job.log(`[Batch ${b + 1}/${totalBatches} - Group ${j + 1}/${currentBatch.length}] Sending to ${group.name || group.mobile}...`);
+                const { success } = await dispatchSingleRecipient(group);
+                if (success) sent++; else failed++;
+                await job.updateProgress(Math.round(((overallIdx + 1) / recipients.length) * 100));
+
+                // Intra-batch delay: 8 to 15 seconds jitter between groups within the batch
+                if (j < currentBatch.length - 1) {
+                    const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s
+                    await job.log(`⏳ Pacing ${Math.round(intraJitterMs / 1000)}s before next group in batch...`);
+                    await new Promise(r => setTimeout(r, intraJitterMs));
+                }
+            }
+
+            // Inter-batch cooldown: 3 to 10 minutes (180 to 600 seconds) between batches (only if more batches remain)
+            if (b < totalBatches - 1) {
+                const cooldownSeconds = Math.floor(Math.random() * (600 - 180 + 1)) + 180; // 180s to 600s
+                const cooldownMins = (cooldownSeconds / 60).toFixed(1);
+                await job.log(`🛑 🛡️ [Anti-Ban Cooldown] Batch ${b + 1}/${totalBatches} complete. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) to replicate WhatsApp Business app limits and protect your account from bans...`);
+
+                let elapsed = 0;
+                while (elapsed < cooldownSeconds) {
+                    const step = Math.min(10, cooldownSeconds - elapsed);
+                    await new Promise(r => setTimeout(r, step * 1000));
+                    elapsed += step;
+                    if (elapsed % 60 === 0 || elapsed === cooldownSeconds) {
+                        const remSec = cooldownSeconds - elapsed;
+                        const remMins = Math.ceil(remSec / 60);
+                        await job.log(`⏳ [Cooldown Status] ${elapsed}/${cooldownSeconds}s elapsed (~${remMins}m remaining). Resuming Batch ${b + 2}/${totalBatches} shortly...`);
+                    }
+                }
+                await job.log(`⚡ [Cooldown Complete] Resuming WhatsApp Group Broadcast for Batch ${b + 2}/${totalBatches}...`);
+            }
         }
 
         await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);
@@ -941,6 +1010,9 @@ export const marketingWorker = new Worker('marketingQueue', processMarketingJob,
         max: 20,           // Rate limit: max 20 jobs
         duration: 60000,   // Per 60 seconds (to respect API rate limits)
     },
+    lockDuration: 600000,  // 10 minutes lock duration to accommodate batch cooldowns
+    lockRenewTime: 15000,  // Renew lock every 15 seconds
+    stalledInterval: 60000 // Check stalled jobs every 60 seconds
 });
 
 marketingWorker.on('completed', (job, result) => {
