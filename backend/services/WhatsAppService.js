@@ -20,7 +20,7 @@ const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
 const _reconcileLocks = new Map();
 
-// 🔒 Atomic Redis Lua Script for Ownership-Safe Distributed Lock Release
+// 🔒 Atomic Redis Lua Scripts for Ownership-Safe Distributed Lock Operations
 const LUA_RELEASE_LOCK = `
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("del", KEYS[1])
@@ -29,12 +29,22 @@ else
 end
 `;
 
+const LUA_RENEW_LOCK = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], ARGV[2])
+else
+    return 0
+end
+`;
+
 async function _withReconcileKeyLock(key, fn) {
-    if (!key) return fn();
+    if (!key || typeof key !== 'string' || !key.trim()) {
+        throw new Error('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Valid reconciliation lock key is required');
+    }
     const idKey = String(key).trim();
     const prev = _reconcileLocks.get(idKey) || Promise.resolve();
-    let release;
-    const current = new Promise(resolve => { release = resolve; });
+    let releaseLocal;
+    const current = new Promise(resolve => { releaseLocal = resolve; });
     _reconcileLocks.set(idKey, current);
 
     // 1. Process-local queue to serialize requests within the same Node.js runtime
@@ -45,45 +55,102 @@ async function _withReconcileKeyLock(key, fn) {
     let distributedLockToken = null;
     const lockKey = `lock:dispatch_reconcile:${idKey}`;
     const LOCK_TTL_SEC = 15;
+    const HEARTBEAT_INTERVAL_MS = 5000;
     const MAX_LOCK_WAIT_MS = 10000;
+    let renewalTimer = null;
+    const abortController = new AbortController();
+    const lockState = { acquired: false, lost: false, lossReason: null };
 
     try {
         try {
             const redisMod = await import('../src/config/redis.js');
             redisProxy = redisMod.default;
-            if (redisProxy) {
-                distributedLockToken = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                const startWait = Date.now();
-                let lockAcquired = false;
-                while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
-                    const setRes = await redisProxy.set(lockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
-                    if (setRes === 'OK' || setRes === true) {
-                        lockAcquired = true;
-                        break;
-                    }
-                    await new Promise(r => setTimeout(r, 40 + Math.floor(Math.random() * 30)));
-                }
-                if (!lockAcquired) {
-                    throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for reconciliation lock '${lockKey}'`);
-                }
+            if (!redisProxy) {
+                throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Redis client is unavailable for key '${idKey}'. Distributed lock mandatory.`);
             }
+
+            distributedLockToken = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const startWait = Date.now();
+            let lockAcquired = false;
+
+            while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
+                const setRes = await redisProxy.set(lockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
+                if (setRes === 'OK' || setRes === true) {
+                    lockAcquired = true;
+                    break;
+                }
+                // Bounded jittered retry (40-70ms)
+                await new Promise(r => setTimeout(r, 40 + Math.floor(Math.random() * 30)));
+            }
+
+            if (!lockAcquired) {
+                throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for reconciliation lock '${lockKey}' after ${MAX_LOCK_WAIT_MS}ms`);
+            }
+
+            lockState.acquired = true;
+
+            // P0-D: Active Heartbeat Lease Renewal every 5s for 15s TTL
+            renewalTimer = setInterval(async () => {
+                try {
+                    const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, lockKey, distributedLockToken, LOCK_TTL_SEC);
+                    if (!renewed || renewed === 0) {
+                        lockState.lost = true;
+                        lockState.lossReason = 'TOKEN_EXPIRED_OR_REPLACED';
+                        abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Reconciliation lock for '${idKey}' expired or was acquired by another process.`));
+                        console.error(`[WhatsAppService] CRITICAL: Reconciliation lock lost for '${idKey}'. Aborting reconciliation.`);
+                    }
+                } catch (renewErr) {
+                    lockState.lost = true;
+                    lockState.lossReason = renewErr.message;
+                    abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Heartbeat renewal failed for '${idKey}': ${renewErr.message}`));
+                    console.error(`[WhatsAppService] CRITICAL: Reconciliation lock renewal error for '${idKey}': ${renewErr.message}. Aborting reconciliation.`);
+                }
+            }, HEARTBEAT_INTERVAL_MS);
+
         } catch (lockErr) {
-            if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')) {
+            // P0-A: Fail-Closed: Never execute fn() if Redis lock could not be acquired!
+            if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT') || lockErr.message?.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE')) {
                 throw lockErr;
             }
-            console.warn(`[WhatsAppService] Distributed reconciliation lock notice for '${idKey}': ${lockErr.message}`);
+            throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Failed to acquire distributed lock for '${idKey}': ${lockErr.message}`);
         }
 
-        return await fn();
+        if (lockState.lost) {
+            throw new Error(`DISTRIBUTED_LOCK_LOST: Reconciliation lock was lost before execution for '${idKey}'`);
+        }
+
+        const taskPromise = (async () => {
+            return await fn({ signal: abortController.signal, isLockLost: () => lockState.lost });
+        })();
+
+        const abortPromise = new Promise((_, reject) => {
+            if (abortController.signal.aborted) {
+                reject(abortController.signal.reason);
+            } else {
+                abortController.signal.addEventListener('abort', () => {
+                    reject(abortController.signal.reason);
+                }, { once: true });
+            }
+        });
+
+        return await Promise.race([taskPromise, abortPromise]);
     } finally {
+        if (renewalTimer) {
+            clearInterval(renewalTimer);
+            renewalTimer = null;
+        }
         if (distributedLockToken && redisProxy) {
             try {
                 await redisProxy.eval(LUA_RELEASE_LOCK, 1, lockKey, distributedLockToken);
             } catch (relErr) {
-                // Non-critical lock release error
+                console.error(`[WhatsAppService] Error releasing distributed reconciliation lock '${lockKey}':`, {
+                    error: relErr.message,
+                    key: lockKey,
+                    token: distributedLockToken
+                });
             }
         }
-        release();
+        releaseLocal();
         if (_reconcileLocks.get(idKey) === current) {
             _reconcileLocks.delete(idKey);
         }
@@ -588,25 +655,91 @@ class WhatsAppService {
         if (!statusObj || !statusObj.id) {
             return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
         }
-        let lockKey = statusObj.biz_opaque_callback_data;
-        if (!lockKey && mongoose.connection?.readyState === 1) {
+
+        // P0-B: Prefer biz_opaque_callback_data when it is a valid canonical dispatch idempotency key
+        let canonicalIdempotencyKey = null;
+        if (statusObj.biz_opaque_callback_data && typeof statusObj.biz_opaque_callback_data === 'string' && statusObj.biz_opaque_callback_data.trim()) {
+            canonicalIdempotencyKey = statusObj.biz_opaque_callback_data.trim();
+        }
+
+        // If absent, resolve canonical key from durable dispatch record using providerMessageId
+        if (!canonicalIdempotencyKey) {
+            if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+                console.error('[WhatsAppService] Database unavailable while resolving canonical lock key for webhook:', statusObj.id);
+                return { reconciled: false, reason: 'DATABASE_UNAVAILABLE' };
+            }
+
             try {
                 const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
                 const found = await WhatsAppDispatch.findOne({ providerMessageId: statusObj.id }).select('idempotencyKey').lean();
                 if (found?.idempotencyKey) {
-                    lockKey = found.idempotencyKey;
+                    canonicalIdempotencyKey = found.idempotencyKey.trim();
+                } else {
+                    // Check if ambiguous dispatches exist for recipient that need manual reconciliation flagging
+                    const rawRecipient = statusObj.recipient_id;
+                    const normalizedRecipient = this._normalizeTarget(rawRecipient) || String(rawRecipient || '');
+                    const ambiguousForRecipient = await WhatsAppDispatch.find({
+                        recipient: { $in: [normalizedRecipient, rawRecipient] },
+                        $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }]
+                    }).lean();
+
+                    if (ambiguousForRecipient.length > 0) {
+                        await WhatsAppDispatch.updateMany(
+                            { _id: { $in: ambiguousForRecipient.map(d => d._id) } },
+                            {
+                                $set: {
+                                    reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED',
+                                    reconciliationReason: `INSUFFICIENT_CORRELATION_DATA: Webhook ${statusObj.id} arrived without matching opaque correlation token. ${ambiguousForRecipient.length} ambiguous dispatch(es) exist for recipient.`
+                                }
+                            }
+                        );
+                        console.warn(`[WhatsAppService] Webhook ${statusObj.id} cannot be safely correlated: Missing deterministic correlation token. Flagged ${ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
+                        return {
+                            reconciled: false,
+                            reason: 'MANUAL_RECONCILIATION_REQUIRED',
+                            ambiguousCount: ambiguousForRecipient.length,
+                            providerMessageId: statusObj.id,
+                            recipient: normalizedRecipient
+                        };
+                    }
+
+                    // P0-B: No matching durable dispatch record exists. Return controlled outcome. Do NOT fallback to providerMessageId.
+                    console.warn(`[WhatsAppService] No durable dispatch record found for providerMessageId '${statusObj.id}'. Cannot resolve canonical lock key.`);
+                    return {
+                        reconciled: false,
+                        reason: 'DISPATCH_NOT_FOUND',
+                        providerMessageId: statusObj.id
+                    };
                 }
-            } catch (e) {}
+            } catch (dbErr) {
+                // P0-B: Do not silently swallow database lookup errors; abort reconciliation.
+                console.error(`[WhatsAppService] Database lookup error while resolving canonical lock key for '${statusObj.id}':`, dbErr.message);
+                return { reconciled: false, reason: 'DATABASE_ERROR', error: dbErr.message };
+            }
         }
-        if (!lockKey) {
-            lockKey = statusObj.id;
+
+        if (!canonicalIdempotencyKey) {
+            return { reconciled: false, reason: 'CANONICAL_KEY_UNRESOLVABLE', providerMessageId: statusObj.id };
         }
-        return _withReconcileKeyLock(lockKey, async () => {
-            return await this._reconcileWebhookStatusInternal(statusObj);
-        });
+
+        try {
+            return await _withReconcileKeyLock(canonicalIdempotencyKey, async (lockContext) => {
+                return await this._reconcileWebhookStatusInternal(statusObj, lockContext);
+            });
+        } catch (lockErr) {
+            console.error(`[WhatsAppService] Reconciliation aborted due to distributed lock failure for '${canonicalIdempotencyKey}':`, lockErr.message);
+            return {
+                reconciled: false,
+                reason: lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')
+                    ? 'DISTRIBUTED_LOCK_TIMEOUT'
+                    : 'DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE',
+                error: lockErr.message,
+                idempotencyKey: canonicalIdempotencyKey
+            };
+        }
     }
 
-    async _reconcileWebhookStatusInternal(statusObj) {
+    async _reconcileWebhookStatusInternal(statusObj, lockContext = null) {
         if (!statusObj || !statusObj.id) {
             return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
         }
@@ -680,6 +813,12 @@ class WhatsAppService {
                 _id: dispatch._id,
                 ...monotonicCondition
             };
+
+            // P0-D: Verify lease ownership before executing atomic state mutation
+            if (lockContext?.isLockLost?.()) {
+                console.error(`[WhatsAppService] Reconciliation lock lost before updating dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+                return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+            }
 
             const updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
             if (!updated) {
@@ -797,6 +936,12 @@ class WhatsAppService {
                     ],
                     ...monotonicCondition
                 };
+
+                // P0-D: Verify lease ownership before executing atomic state mutation
+                if (lockContext?.isLockLost?.()) {
+                    console.error(`[WhatsAppService] Reconciliation lock lost before updating dispatch '${candidateByOpaque.idempotencyKey}'. Aborting mutation.`);
+                    return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+                }
 
                 let updated;
                 try {
@@ -919,12 +1064,24 @@ class WhatsAppService {
         if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
             return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
         }
-        return _withReconcileKeyLock(idempotencyKey, async () => {
-            return await this._manualReconcileDispatchInternal(params);
-        });
+        try {
+            return await _withReconcileKeyLock(idempotencyKey, async (lockContext) => {
+                return await this._manualReconcileDispatchInternal(params, lockContext);
+            });
+        } catch (lockErr) {
+            console.error(`[WhatsAppService] Manual reconciliation aborted due to lock failure for '${idempotencyKey}':`, lockErr.message);
+            return {
+                success: false,
+                error: lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')
+                    ? 'DISTRIBUTED_LOCK_TIMEOUT'
+                    : 'DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE',
+                detail: lockErr.message,
+                idempotencyKey
+            };
+        }
     }
 
-    async _manualReconcileDispatchInternal({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}) {
+    async _manualReconcileDispatchInternal({ idempotencyKey, targetStatus, providerMessageId, actorId, actorContext, serviceContext, reason, recipient } = {}, lockContext = null) {
         if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
             return { success: false, error: 'IDEMPOTENCY_KEY_REQUIRED' };
         }
@@ -1160,6 +1317,15 @@ class WhatsAppService {
                 error: String(reason || 'Manually marked as failed by operator').trim(),
                 actorId: verifiedAuditActor
             });
+        }
+
+        // P0-D: Verify lease ownership before executing atomic state mutation
+        if (lockContext?.isLockLost?.()) {
+            console.error(`[WhatsAppService] Reconciliation lock lost before updating dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+            return {
+                success: false,
+                error: 'DISTRIBUTED_LOCK_LOST: Reconciliation lock was lost or expired before database update'
+            };
         }
 
         let updated;
@@ -1635,6 +1801,8 @@ class WhatsAppService {
                 });
             } else {
                 const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
+                    sendResult?.isDeliveryUnknown === true ||
+                    sendResult?.deliveryStatus === 'DELIVERY_UNKNOWN' ||
                     ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
                     String(sendResult?.error || '').toLowerCase().includes('timeout');
 
@@ -1680,14 +1848,38 @@ class WhatsAppService {
 
     async _sendViaBaileys(mobile, message, config, options = {}) {
         const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
-        return BaileysConnectionManager.serializeSend(config.integrationId, async () => {
-            return this._executeSendViaBaileys(mobile, message, config, options);
-        });
+        try {
+            return await BaileysConnectionManager.serializeSend(config.integrationId, async (lockContext) => {
+                return await this._executeSendViaBaileys(mobile, message, config, options, lockContext);
+            });
+        } catch (err) {
+            if (err?.message?.includes('DISTRIBUTED_LOCK_LOST') || err?.code === 'DISTRIBUTED_LOCK_LOST') {
+                return {
+                    success: false,
+                    deliveryStatus: 'DELIVERY_UNKNOWN',
+                    isDeliveryUnknown: true,
+                    error: err.message,
+                    provider: 'baileys'
+                };
+            }
+            throw err;
+        }
     }
 
-    async _executeSendViaBaileys(mobile, message, config, options = {}) {
+    async _executeSendViaBaileys(mobile, message, config, options = {}, lockContext = null) {
         const sendStartTime = Date.now();
         const { type = 'text', mediaUrl } = options;
+
+        if (lockContext?.isLockLost?.()) {
+            return {
+                success: false,
+                deliveryStatus: 'DELIVERY_UNKNOWN',
+                isDeliveryUnknown: true,
+                error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost before socket dispatch could begin',
+                provider: 'baileys',
+                latencyMs: Date.now() - sendStartTime
+            };
+        }
         try {
             const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
             let sock = BaileysConnectionManager.getSocket(config.integrationId.toString());
@@ -1794,13 +1986,46 @@ class WhatsAppService {
             const sendTimeoutMs = isGroupTarget ? 120000 : 30000;
             const retryTimeoutMs = isGroupTarget ? 80000 : 20000;
 
+            // P0-C: Verify distributed lock ownership immediately prior to socket transmission
+            if (lockContext?.isLockLost?.()) {
+                return {
+                    success: false,
+                    deliveryStatus: 'DELIVERY_UNKNOWN',
+                    isDeliveryUnknown: true,
+                    error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost immediately prior to socket write',
+                    provider: 'baileys',
+                    latencyMs: Date.now() - sendStartTime
+                };
+            }
+
+            const lockAbortPromise = new Promise((_, reject) => {
+                if (lockContext?.signal) {
+                    lockContext.signal.addEventListener('abort', () => {
+                        const err = new Error('DISTRIBUTED_LOCK_LOST: Outbound lock lost while waiting for socket write acknowledgement');
+                        err.code = 'DISTRIBUTED_LOCK_LOST';
+                        reject(err);
+                    }, { once: true });
+                }
+            });
+
             try {
                 const sendPromise = sock.sendMessage(jid, content);
                 const timeoutPromise = new Promise((_, reject) => 
                     setTimeout(() => reject(new Error(`WhatsApp Web send timed out after ${Math.round(sendTimeoutMs / 1000)} seconds. Please check device connectivity or QR pairing.`)), sendTimeoutMs)
                 );
-                sentMsg = await Promise.race([sendPromise, timeoutPromise]);
+                sentMsg = await Promise.race([sendPromise, timeoutPromise, lockAbortPromise]);
             } catch (firstAttemptErr) {
+                if (firstAttemptErr?.message?.includes('DISTRIBUTED_LOCK_LOST') || firstAttemptErr?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.()) {
+                    return {
+                        success: false,
+                        deliveryStatus: 'DELIVERY_UNKNOWN',
+                        isDeliveryUnknown: true,
+                        error: `WhatsApp Web send aborted: ${firstAttemptErr.message}. Lock ownership expired or was lost. Suppressing retry to prevent concurrent frame collisions.`,
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
+                    };
+                }
+
                 const errMsg = String(firstAttemptErr?.message || firstAttemptErr);
                 const isTimeout = errMsg.toLowerCase().includes('timed out');
                 const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed');
@@ -1835,12 +2060,22 @@ class WhatsAppService {
                 }
 
                 if (sock && sock.ws && sock.ws.isOpen && isSocketDead) {
+                    if (lockContext?.isLockLost?.()) {
+                        return {
+                            success: false,
+                            deliveryStatus: 'DELIVERY_UNKNOWN',
+                            isDeliveryUnknown: true,
+                            error: 'DISTRIBUTED_LOCK_LOST: Outbound lock lost before socket retry transmission',
+                            provider: 'baileys',
+                            latencyMs: Date.now() - sendStartTime
+                        };
+                    }
                     console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
                     const retryPromise = sock.sendMessage(jid, content);
                     const retryTimeout = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error(`WhatsApp Web send timed out on retry after ${Math.round(retryTimeoutMs / 1000)} seconds.`)), retryTimeoutMs)
                     );
-                    sentMsg = await Promise.race([retryPromise, retryTimeout]);
+                    sentMsg = await Promise.race([retryPromise, retryTimeout, lockAbortPromise]);
                 } else {
                     if (!isSocketDead) {
                         console.warn('[WhatsAppService/Baileys] Send ACK timed out, but socket is alive. Suppressing duplicate re-send to protect group from double messages.');
@@ -1858,6 +2093,16 @@ class WhatsAppService {
                 latencyMs: Date.now() - sendStartTime
             };
         } catch (error) {
+            if (error?.message?.includes('DISTRIBUTED_LOCK_LOST') || error?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.()) {
+                return {
+                    success: false,
+                    deliveryStatus: 'DELIVERY_UNKNOWN',
+                    isDeliveryUnknown: true,
+                    error: error?.message || 'DISTRIBUTED_LOCK_LOST: Outbound lock lost during Baileys dispatch',
+                    provider: 'baileys',
+                    latencyMs: Date.now() - sendStartTime
+                };
+            }
             let errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
             if (errText === '1006' || errText.includes('1006')) {
                 errText = 'WhatsApp Web socket temporarily disconnected (1006). Connection was auto-reestablished; please click Send again.';
@@ -2382,6 +2627,8 @@ class WhatsAppService {
                 });
             } else {
                 const isAmbiguousTimeout = sendResult?.category === 'NETWORK_ERROR' ||
+                    sendResult?.isDeliveryUnknown === true ||
+                    sendResult?.deliveryStatus === 'DELIVERY_UNKNOWN' ||
                     ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET'].includes(sendResult?.code) ||
                     String(sendResult?.error || '').toLowerCase().includes('timeout');
 

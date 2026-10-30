@@ -700,51 +700,90 @@ export const BaileysConnectionManager = {
             let renewalTimer = null;
             const outboundLockKey = `lock:baileys_outbound:${idStr}`;
             const LOCK_TTL_SEC = 30; // 30s safeguard prevents deadlocks on worker crash
+            const HEARTBEAT_INTERVAL_MS = 10000;
             const MAX_LOCK_WAIT_MS = 30000;
+
+            const abortController = new AbortController();
+            const lockState = { acquired: false, lost: false, lossReason: null };
 
             try {
                 const redisMod = await import('../../src/config/redis.js');
                 redisProxy = redisMod.default;
-                if (redisProxy) {
-                    distributedLockToken = `${instanceId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-                    const startWait = Date.now();
-                    let lockAcquired = false;
-                    while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
-                        const setRes = await redisProxy.set(outboundLockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
-                        if (setRes === 'OK' || setRes === true) {
-                            lockAcquired = true;
-                            break;
-                        }
-                        await new Promise(r => setTimeout(r, 60 + Math.floor(Math.random() * 40)));
-                    }
-
-                    if (!lockAcquired) {
-                        throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for exclusive outbound lock on Baileys session '${idStr}' after ${MAX_LOCK_WAIT_MS}ms. Aborting send to prevent socket frame collision.`);
-                    }
-
-                    // Lock Heartbeat Renewal: Renew lock every 10s while sendTask is executing
-                    renewalTimer = setInterval(async () => {
-                        try {
-                            const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, outboundLockKey, distributedLockToken, LOCK_TTL_SEC);
-                            if (!renewed) {
-                                console.warn(`[BaileysConnectionManager] Outbound lock renewal failed for session ${idStr}. Token expired or replaced.`);
-                            }
-                        } catch (e) {}
-                    }, 10000);
+                if (!redisProxy) {
+                    throw new Error(`DISTRIBUTED_LOCK_UNAVAILABLE: Redis client is unavailable for Baileys session '${idStr}'. Distributed lock mandatory.`);
                 }
+
+                distributedLockToken = `${instanceId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+                const startWait = Date.now();
+                let lockAcquired = false;
+                while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
+                    const setRes = await redisProxy.set(outboundLockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
+                    if (setRes === 'OK' || setRes === true) {
+                        lockAcquired = true;
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 60 + Math.floor(Math.random() * 40)));
+                }
+
+                if (!lockAcquired) {
+                    throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for exclusive outbound lock on Baileys session '${idStr}' after ${MAX_LOCK_WAIT_MS}ms. Aborting send to prevent socket frame collision.`);
+                }
+
+                lockState.acquired = true;
+
+                // Lock Heartbeat Renewal: Renew lock every 10s while sendTask is executing
+                // If renewal fails or throws, abort dispatch immediately to prevent concurrent sends
+                renewalTimer = setInterval(async () => {
+                    try {
+                        const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, outboundLockKey, distributedLockToken, LOCK_TTL_SEC);
+                        if (!renewed || renewed === 0) {
+                            lockState.lost = true;
+                            lockState.lossReason = 'TOKEN_EXPIRED_OR_REPLACED';
+                            abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Outbound lock for Baileys session '${idStr}' expired or was acquired by another process.`));
+                            console.error(`[BaileysConnectionManager] CRITICAL: Outbound lock lost for session '${idStr}'. Token expired or replaced.`);
+                        }
+                    } catch (renewErr) {
+                        lockState.lost = true;
+                        lockState.lossReason = `RENEWAL_EXCEPTION: ${renewErr.message}`;
+                        abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Outbound lock renewal error for session '${idStr}': ${renewErr.message}`));
+                        console.error(`[BaileysConnectionManager] CRITICAL: Outbound lock renewal error for session '${idStr}':`, renewErr.message);
+                    }
+                }, HEARTBEAT_INTERVAL_MS);
+
             } catch (lockErr) {
-                if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')) {
+                if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT') || lockErr.message?.includes('DISTRIBUTED_LOCK_UNAVAILABLE')) {
                     throw lockErr;
                 }
                 console.error(`[BaileysConnectionManager] Distributed lock error for ${idStr}:`, lockErr.message);
                 throw new Error(`DISTRIBUTED_LOCK_FAILURE: Cannot acquire outbound lock for Baileys session '${idStr}': ${lockErr.message}`);
             }
 
+            if (lockState.lost) {
+                throw new Error(`DISTRIBUTED_LOCK_LOST: Lock was lost before sendTask execution could begin (${lockState.lossReason})`);
+            }
+
+            const lockContext = {
+                signal: abortController.signal,
+                isLockLost: () => lockState.lost,
+                getLockToken: () => distributedLockToken
+            };
+
+            const abortPromise = new Promise((_, reject) => {
+                abortController.signal.addEventListener('abort', () => {
+                    const reason = abortController.signal.reason || new Error(`DISTRIBUTED_LOCK_LOST: Outbound lock lost during dispatch on session '${idStr}'`);
+                    reject(reason);
+                }, { once: true });
+            });
+
             try {
-                return await sendTask();
+                return await Promise.race([
+                    sendTask(lockContext),
+                    abortPromise
+                ]);
             } finally {
                 if (renewalTimer) {
                     clearInterval(renewalTimer);
+                    renewalTimer = null;
                 }
                 if (distributedLockToken && redisProxy) {
                     try {

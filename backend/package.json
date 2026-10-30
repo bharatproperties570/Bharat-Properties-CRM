@@ -14,7 +14,7 @@
         "test:regression": "node --test --test-force-exit --test-concurrency=1 tests/phase7_lead_distribution_concurrency.test.js tests/phase8_intake_activity_durability.test.js",
         "test:phase9.1": "node --test tests/phase9_durable_dispatch.test.js",
         "test:phase9": "node --test tests/phase9_whatsapp_automation_reliability.test.js",
-        "test:whatsapp-remediation": "node --test --test-force-exit --test-concurrency=1 tests/baileys_metadata_cache.test.js tests/campaign_progression_recovery.test.js tests/opt_out_fail_closed.test.js tests/worker_integration.test.js tests/distributed_lock_multiprocess.test.js",
+        "test:whatsapp-remediation": "node --test --test-force-exit --test-concurrency=1 tests/baileys_metadata_cache.test.js tests/campaign_progression_recovery.test.js tests/opt_out_fail_closed.test.js tests/worker_integration.test.js tests/distributed_lock_multiprocess.test.js tests/reconciliation_locking_hardening.test.js",
         "test:phase10": "node --test --test-force-exit --test-concurrency=1 tests/phase10_deals_domain_lifecycle.test.js",
         "test:phase11": "node --test --test-force-exit --test-concurrency=1 tests/phase11_document_storage.test.js tests/documentAPI.test.js tests/documentSignedUrl.test.js tests/documentStorage.test.js tests/documentFailureConsistency.test.js tests/documentLeakage.test.js tests/documentMalwareArchitecture.test.js tests/documentRecovery.test.js tests/providerRegistry.test.js",
         "test:phase12": "node --test --test-force-exit --test-concurrency=1 tests/phase12_bulk_deal_import_safety.test.js",
