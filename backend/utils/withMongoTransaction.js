@@ -22,16 +22,22 @@ export const withMongoTransaction = async (callback, options = {}) => {
         return await callback(options.session);
     }
 
-    // In-memory or disconnected test harness fallback: execute directly when not connected to MongoDB
-    // unless mongoose.startSession has been explicitly mocked by a test runner (e.g. feedbackSecurity.test.js)
-    if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-        const isMockedSession = typeof mongoose.startSession === 'function' && 
-            (mongoose.startSession.toString().includes('MockSession') || 
-             mongoose.startSession.toString().includes('mockSession') ||
-             process.argv.some(a => typeof a === 'string' && a.includes('feedbackSecurity')));
-        if (!isMockedSession) {
+    // Disconnected / unavailable transaction check
+    const isConnected = Boolean(mongoose.connection && mongoose.connection.readyState === 1);
+
+    if (!isConnected) {
+        const isProductionOrStaging = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+        const allowFallback = process.env.ALLOW_TRANSACTION_TEST_FALLBACK === 'true';
+
+        // Disconnected fallback is strictly forbidden in production and staging
+        if (!isProductionOrStaging && allowFallback) {
+            console.warn('[withMongoTransaction] Running non-transactional callback fallback (ALLOW_TRANSACTION_TEST_FALLBACK=true in non-production)');
             return await callback(null);
         }
+
+        const error = new Error('MONGO_TRANSACTION_UNAVAILABLE: MongoDB connection is not ready or transactions are unavailable');
+        error.code = 'MONGO_TRANSACTION_UNAVAILABLE';
+        throw error;
     }
 
     const maxRetries = options.maxRetries || 3;

@@ -209,6 +209,7 @@ patch_*.js
 test*.sh
 test*.js
 test_*.js
+!backend/tests/**
 debug_*.js
 old_*.js
 *.sh

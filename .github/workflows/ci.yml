@@ -109,6 +109,11 @@ jobs:
           npm run test:outbox
           npm run test:phase-e
 
+      - name: Run Phase 18 Site Visit & Marketing OS Attribution Tests
+        run: |
+          cd backend
+          npm run test:phase18-sitevisit
+
   build-frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest

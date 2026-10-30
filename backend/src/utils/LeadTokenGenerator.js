@@ -36,12 +36,7 @@ export class LeadTokenGenerator {
 
         const secret = process.env.JWT_SECRET;
         if (!secret) {
-            const stack = new Error().stack || '';
-            if (stack.includes('feedbackSecurity') || process.argv.some(a => typeof a === 'string' && a.includes('feedbackSecurity')) || process.env.THROW_ON_MISSING_SECRET) {
-                throw new Error('FATAL: JWT secret not configured');
-            }
-            console.error('[LeadTokenGenerator] Cannot generate token: JWT_SECRET environment variable is missing');
-            return '';
+            throw new Error('FATAL: JWT secret not configured');
         }
 
         const token = jwt.sign(payload, secret, {

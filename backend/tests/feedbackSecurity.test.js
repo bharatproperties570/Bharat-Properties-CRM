@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 // 🛡️ Pre-flight: Delete any MongoDB URI to guarantee ZERO production database writes
 delete process.env.MONGODB_URI;
 process.env.NODE_ENV = 'test';
+process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
 process.env.FEEDBACK_JWT_SECRET = 'test_feedback_secret_key_1234567890';
 process.env.JWT_SECRET = 'test_jwt_secret_key_1234567890';
 process.env.FRONTEND_URL = 'https://crm.bharatproperties.co';
@@ -80,6 +81,7 @@ const originalOutboxEventFindOne = OutboxEvent.findOne;
 const originalOutboxEventCountDocuments = OutboxEvent.countDocuments;
 
 function restoreOriginalMongoosePrimitives() {
+    delete mongoose.connection.readyState;
     mongoose.startSession = originalMongooseStartSession;
     FeedbackForm.findOne = originalFeedbackFormFindOne;
     FeedbackForm.create = originalFeedbackFormCreate;
@@ -119,6 +121,8 @@ const createMockSession = () => {
     };
     return session;
 };
+const originalReadyStateProp = Object.getOwnPropertyDescriptor(mongoose.connection, 'readyState');
+Object.defineProperty(mongoose.connection, 'readyState', { value: 1, configurable: true, writable: true });
 mongoose.startSession = async () => createMockSession();
 
 let passedTests = 0;
