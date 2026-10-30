@@ -864,7 +864,7 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
                     observedAt: new Date(),
                     isSynthetic: false,
                     provenance: 'LIVE',
-                    contentHash: '12345678901234567890123456789012',
+                    normalizedData: {},
                     isSealed: true
                 });
 

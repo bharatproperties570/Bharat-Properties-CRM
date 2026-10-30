@@ -630,7 +630,7 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
                 observedAt: new Date(),
                 isSynthetic: false,
                 provenance: 'LIVE',
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
             });
 

@@ -6,17 +6,19 @@
  * All sources default to DISABLED.
  */
 
+import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
     BLOCKED_UPDATE_FIELDS,
-    ALLOWED_UPDATE_FIELDS
+    ALLOWED_UPDATE_FIELDS,
+    CRM_TO_CANONICAL_FIELD_MAP
 } from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
-import { buildCompositeKey } from '../services/authority/authorityNormalizer.js';
+import { buildCompositeKey, computeSnapshotContentHash } from '../services/authority/authorityNormalizer.js';
 import { isSentinel } from '../services/authority/authorityFieldDictionary.js';
 import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
 
@@ -741,13 +743,15 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // 2. Prevent duplicate application
-        if (item.applied) {
+        // 2. Prevent duplicate application (idempotency check)
+        if (item.applied || item.applyState === 'APPLIED') {
             return res.status(409).json({
                 success: false,
+                code: 'ALREADY_APPLIED',
                 message: 'Changes already applied',
                 appliedAt: item.appliedAt,
-                appliedBy: item.appliedBy
+                appliedBy: item.appliedBy,
+                applicationAuditId: item.applicationAuditId
             });
         }
 
@@ -972,7 +976,7 @@ export const applyApprovedChanges = async (req, res) => {
         // 5. Authorized LIVE Source check: authority source must be actively approved & enabled
         const authorityCode = item.authorityCode || run.authorityCode || snapshot.authorityCode;
         const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
-        if (!sourceSettings || !sourceSettings.isEffectivelyActive() || sourceSettings.permissionStatus !== 'GRANTED' || !sourceSettings.isEnabled) {
+        if (!sourceSettings || sourceSettings.permissionStatus !== 'GRANTED' || !sourceSettings.isEnabled || sourceSettings.isPaused) {
             return res.status(422).json({
                 success: false,
                 code: 'SOURCE_NOT_AUTHORIZED',
@@ -980,15 +984,129 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // 6. Valid Source Evidence check: snapshot must be sealed with a genuine content hash
-        if (!snapshot.contentHash || typeof snapshot.contentHash !== 'string' || snapshot.contentHash.length < 32 || snapshot.isSealed !== true) {
+        const activationCheck = sourceSettings.checkActivationEligibility ? sourceSettings.checkActivationEligibility() : { canActivate: true, blockers: [] };
+        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => !b.includes('permitted fields'));
+        if (nonFieldBlockers.length > 0) {
             return res.status(422).json({
                 success: false,
-                code: 'INVALID_SOURCE_EVIDENCE',
-                message: 'Cannot apply changes: snapshot lacks valid sealed content hash evidence'
+                code: 'SOURCE_NOT_AUTHORIZED',
+                message: `Cannot apply changes: authority source ${authorityCode} has configuration blockers: ${nonFieldBlockers.join(', ')}`
             });
         }
 
+        // 6. Source-Specific Permitted Fields Enforcement (Finding 1)
+        const permittedList = Array.isArray(sourceSettings.permittedFields) ? sourceSettings.permittedFields : [];
+        const permittedSet = new Set(permittedList);
+        const unauthorizedSourceFields = [];
+
+        if (permittedList.length === 0) {
+            // Empty permissions list authorizes zero fields
+            for (const af of appliedFields) {
+                const canonicalName = CRM_TO_CANONICAL_FIELD_MAP[af.field] || af.field.replace(/^authorityVerification\./, '');
+                unauthorizedSourceFields.push({
+                    field: af.field,
+                    canonicalField: canonicalName,
+                    reason: `Authority source ${authorityCode} has an empty permittedFields list — no fields are authorized`
+                });
+            }
+        } else {
+            for (const af of appliedFields) {
+                const canonicalName = CRM_TO_CANONICAL_FIELD_MAP[af.field] || af.field.replace(/^authorityVerification\./, '');
+                if (!permittedSet.has(canonicalName) && !permittedSet.has(af.field)) {
+                    unauthorizedSourceFields.push({
+                        field: af.field,
+                        canonicalField: canonicalName,
+                        reason: `Field '${canonicalName}' is not in permittedFields for source ${authorityCode}`
+                    });
+                }
+            }
+        }
+
+        if (unauthorizedSourceFields.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'UNAUTHORIZED_SOURCE_FIELDS',
+                message: `Validation failed: source ${authorityCode} is not authorized to update field(s): ${unauthorizedSourceFields.map(f => f.canonicalField || f.field).join(', ')}`,
+                rejectedFields: unauthorizedSourceFields
+            });
+        }
+
+        // 7. Snapshot Cryptographic Integrity Verification (Finding 5)
+        if (snapshot.isSealed !== true) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot is not sealed'
+            });
+        }
+
+        if (!snapshot.contentHash || typeof snapshot.contentHash !== 'string' || !/^[a-f0-9]{32,64}$/i.test(snapshot.contentHash.trim())) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot lacks a valid cryptographic content hash'
+            });
+        }
+
+        // Recompute content hash over canonical normalized data
+        const recomputedHash = computeSnapshotContentHash(snapshot.normalizedData || {});
+        if (!recomputedHash || recomputedHash.toLowerCase() !== snapshot.contentHash.trim().toLowerCase()) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot cryptographic integrity verification failed (content hash mismatch)'
+            });
+        }
+
+        // 8. Atomic Apply-Claim & Concurrency Protection (Finding 2)
+        const claimNow = new Date();
+        const claimExpiry = new Date(claimNow.getTime() + 30000); // 30-second bounded claim lease
+        const claimId = new mongoose.Types.ObjectId();
+
+        const claimedItem = await PropertyVerificationRunItem.findOneAndUpdate(
+            {
+                _id: item._id,
+                tenantId,
+                applied: false,
+                $or: [
+                    { applyState: { $in: ['UNAPPLIED', 'FAILED', null] } },
+                    { 'applyClaim.leaseExpiresAt': { $lt: claimNow } }
+                ]
+            },
+            {
+                $set: {
+                    applyState: 'APPLYING',
+                    'applyClaim.claimedBy': req.user._id,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.claimedAt': claimNow,
+                    'applyClaim.leaseExpiresAt': claimExpiry,
+                    applyError: null
+                }
+            },
+            { new: true }
+        );
+
+        if (!claimedItem) {
+            // Concurrency contention or duplicate apply
+            const freshItem = await PropertyVerificationRunItem.findOne({ _id: item._id, tenantId });
+            if (freshItem?.applied || freshItem?.applyState === 'APPLIED') {
+                return res.status(409).json({
+                    success: false,
+                    code: 'ALREADY_APPLIED',
+                    message: 'Changes already applied',
+                    appliedAt: freshItem.appliedAt,
+                    appliedBy: freshItem.appliedBy,
+                    applicationAuditId: freshItem.applicationAuditId
+                });
+            }
+            return res.status(409).json({
+                success: false,
+                code: 'APPLICATION_IN_PROGRESS',
+                message: 'Application already in progress by another request'
+            });
+        }
+
+        // 9. Coordinate Mutation, AuditLog, and Run Item State (Finding 2)
         // Add verification audit metadata to subdocument
         updateOps['authorityVerification.lastVerifiedAt'] = new Date();
         updateOps['authorityVerification.authorityCode'] = item.authorityCode;
@@ -997,67 +1115,121 @@ export const applyApprovedChanges = async (req, res) => {
         updateOps['authorityVerification.snapshotContentHash'] = snapshot.contentHash;
         updateOps['authorityVerification.rawSnapshotHash'] = snapshot.contentHash;
 
-        // If legacy document has authorityVerification: null, initialize it to an empty object
-        // so MongoDB dotted path $set does not fail with PathNotViable (code 28).
-        // Retains strict tenant-scope filter on the recovery write.
-        if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
-            await Inventory.updateOne(
-                { _id: item.inventoryId, tenantId },
-                { $set: { authorityVerification: {} } }
-            );
+        let session = null;
+        let useTransaction = false;
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+        if (supportsTransactions) {
+            try {
+                session = await mongoose.startSession();
+                session.startTransaction();
+                useTransaction = true;
+            } catch {
+                if (session) {
+                    try { await session.endSession(); } catch {}
+                    session = null;
+                }
+                useTransaction = false;
+            }
         }
 
-        // Apply update with strict schema enforcement (strict: 'throw' and runValidators: true)
         try {
+            // If legacy document has authorityVerification: null, initialize it to an empty object
+            if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
+                await Inventory.updateOne(
+                    { _id: item.inventoryId, tenantId },
+                    { $set: { authorityVerification: {} } },
+                    useTransaction ? { session } : {}
+                );
+            }
+
+            // Apply update with strict schema enforcement
             await Inventory.findOneAndUpdate(
                 { _id: item.inventoryId, tenantId },
                 { $set: updateOps },
-                { strict: 'throw', runValidators: true }
+                { strict: 'throw', runValidators: true, ...(useTransaction ? { session } : {}) }
             );
-        } catch (dbError) {
-            if (dbError.name === 'StrictModeError' || (dbError.message && dbError.message.includes('strict mode is set to throw'))) {
+
+            // Create durable audit log record
+            const auditRecord = await auditEvent(
+                'authority_changes_applied',
+                req.user._id,
+                'inventory',
+                item.inventoryId,
+                `Authority verification changes applied from ${item.authorityCode}`,
+                {
+                    itemId: item._id,
+                    runId: item.runId,
+                    authorityCode: item.authorityCode,
+                    appliedFields,
+                    rejectedFields,
+                    changes: { before: {}, after: updateOps }
+                },
+                useTransaction ? { session } : {}
+            );
+
+            // Mark item as APPLIED atomically
+            const appliedAt = new Date();
+            await PropertyVerificationRunItem.findOneAndUpdate(
+                { _id: item._id, tenantId, 'applyClaim.claimId': claimId },
+                {
+                    $set: {
+                        applied: true,
+                        applyState: 'APPLIED',
+                        appliedAt,
+                        appliedBy: req.user._id,
+                        applicationAuditId: auditRecord?._id || null,
+                        'applyClaim.leaseExpiresAt': null
+                    }
+                },
+                useTransaction ? { session } : {}
+            );
+
+            if (useTransaction && session) {
+                await session.commitTransaction();
+                await session.endSession();
+                session = null;
+            }
+
+            return res.json({
+                success: true,
+                message: `Applied ${appliedFields.length} field(s)`,
+                data: {
+                    appliedFields,
+                    rejectedFields,
+                    auditId: auditRecord?._id
+                }
+            });
+        } catch (execErr) {
+            if (useTransaction && session) {
+                try { await session.abortTransaction(); } catch {}
+                try { await session.endSession(); } catch {}
+                session = null;
+            }
+
+            // Release claim and record recoverable failure state
+            await PropertyVerificationRunItem.findOneAndUpdate(
+                { _id: item._id, tenantId, 'applyClaim.claimId': claimId },
+                {
+                    $set: {
+                        applyState: 'FAILED',
+                        applyError: execErr.message,
+                        'applyClaim.leaseExpiresAt': null
+                    }
+                }
+            );
+
+            if (execErr.name === 'StrictModeError' || (execErr.message && execErr.message.includes('strict mode is set to throw'))) {
                 return res.status(422).json({
                     success: false,
-                    message: dbError.message,
+                    message: execErr.message,
                     errorType: 'StrictModeError'
                 });
             }
-            throw dbError;
+
+            throw execErr;
         }
-
-        // Create audit record
-        const auditRecord = await auditEvent(
-            'authority_changes_applied',
-            req.user._id,
-            'inventory',
-            item.inventoryId,
-            `Authority verification changes applied from ${item.authorityCode}`,
-            {
-                itemId: item._id,
-                runId: item.runId,
-                authorityCode: item.authorityCode,
-                appliedFields,
-                rejectedFields,
-                changes: { before: {}, after: updateOps }
-            }
-        );
-
-        // Mark item as applied
-        item.applied = true;
-        item.appliedAt = new Date();
-        item.appliedBy = req.user._id;
-        item.applicationAuditId = auditRecord?._id || null;
-        await item.save();
-
-        res.json({
-            success: true,
-            message: `Applied ${appliedFields.length} field(s)`,
-            data: {
-                appliedFields,
-                rejectedFields,
-                auditId: auditRecord?._id
-            }
-        });
     } catch (error) {
         console.error('applyApprovedChanges error:', error);
         res.status(500).json({ success: false, message: 'Failed to apply changes' });

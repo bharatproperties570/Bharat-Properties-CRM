@@ -134,7 +134,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             observedAt: new Date(),
             isSynthetic: false,
             provenance: 'LIVE',
-            contentHash: '12345678901234567890123456789012',
+            normalizedData: {},
             isSealed: true
         });
     });
@@ -479,7 +479,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 observedAt: new Date(),
                 isSynthetic: false,
                 provenance: 'LIVE',
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
             });
         });
@@ -790,7 +790,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 observedAt: new Date(),
                 isSynthetic: false,
                 provenance: 'LIVE',
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
             });
 

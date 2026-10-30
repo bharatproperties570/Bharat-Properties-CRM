@@ -468,7 +468,7 @@ describe('Phase 2.5 — Latest-Main Reconciliation & Final Contract Audit', () =
                 observedAt: new Date(),
                 isSynthetic: false,
                 provenance: 'LIVE',
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
             });
         });

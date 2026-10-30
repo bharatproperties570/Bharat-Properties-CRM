@@ -754,6 +754,45 @@ export const SOURCE_FIELD_MAPS = deepFreeze({
     },
 });
 
+/**
+ * Bi-directional mapping between source canonical fact names and CRM authorityVerification.* document paths.
+ */
+export const CANONICAL_TO_CRM_FIELD_MAP = deepFreeze({
+    propertyId: 'authorityVerification.propertyId',
+    fileNumber: 'authorityVerification.fileNumber',
+    formNumber: 'authorityVerification.formNumber',
+    sectorNumber: 'authorityVerification.sectorNumber',
+    phaseCode: 'authorityVerification.phaseCode',
+    blockCode: 'authorityVerification.blockCode',
+    schemeName: 'authorityVerification.schemeName',
+    urbanEstate: 'authorityVerification.urbanEstate',
+    estateOffice: 'authorityVerification.estateOffice',
+    propertyCategory: 'authorityVerification.propertyCategory',
+    propertyType: 'authorityVerification.propertyType',
+    propertySize: 'authorityVerification.propertySize',
+    propertyAreaValue: 'authorityVerification.propertyAreaValue',
+    propertyAreaUnit: 'authorityVerification.propertyAreaUnit',
+    allotmentDate: 'authorityVerification.allotmentDate',
+    transferDate: 'authorityVerification.transferDate',
+    possessionDate: 'authorityVerification.possessionDate',
+    allotmentMode: 'authorityVerification.allotmentMode',
+    possessionStatus: 'authorityVerification.possessionStatus',
+    buildingPlanApproved: 'authorityVerification.buildingPlanApproved',
+    occupancyCertificate: 'authorityVerification.occupancyCertificate',
+    litigationStatus: 'authorityVerification.litigationStatus',
+    mortgageStatus: 'authorityVerification.mortgageStatus',
+    authorityStatus: 'authorityVerification.authorityStatus',
+    duesStatus: 'authorityVerification.duesStatus',
+    leaseRentStatus: 'authorityVerification.leaseRentStatus'
+});
+
+export const CRM_TO_CANONICAL_FIELD_MAP = deepFreeze(
+    Object.entries(CANONICAL_TO_CRM_FIELD_MAP).reduce((acc, [canonical, crm]) => {
+        acc[crm] = canonical;
+        return acc;
+    }, {})
+);
+
 export default {
     createReadOnlySetGuard,
     createReadOnlySetProxy,
@@ -774,4 +813,6 @@ export default {
     INTERNAL_ENGINE_FIELDS,
     SOURCE_FIELD_MAPS,
     parseAreaString,
+    CANONICAL_TO_CRM_FIELD_MAP,
+    CRM_TO_CANONICAL_FIELD_MAP
 };

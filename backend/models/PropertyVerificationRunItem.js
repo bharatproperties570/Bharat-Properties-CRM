@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { CANONICAL_TO_CRM_FIELD_MAP, CRM_TO_CANONICAL_FIELD_MAP } from '../services/authority/authorityFieldDictionary.js';
 
 /**
  * PropertyVerificationRunItem
@@ -59,7 +60,8 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     linkId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'PropertyAuthorityLink',
-        required: true
+        required: false,
+        default: null
     },
     authorityCode: {
         type: String,
@@ -187,7 +189,39 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     // Prevent duplicate applications
     applied: {
         type: Boolean,
-        default: false
+        default: false,
+        index: true
+    },
+    // ========== Atomic Application State & Claim ==========
+    applyState: {
+        type: String,
+        enum: ['UNAPPLIED', 'APPLYING', 'APPLIED', 'FAILED'],
+        default: 'UNAPPLIED',
+        index: true
+    },
+    applyClaim: {
+        claimedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null
+        },
+        claimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        claimedAt: {
+            type: Date,
+            default: null
+        },
+        leaseExpiresAt: {
+            type: Date,
+            default: null,
+            index: true
+        }
+    },
+    applyError: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: true,
@@ -199,6 +233,7 @@ PropertyVerificationRunItemSchema.index({ runId: 1, status: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, runId: 1, status: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, inventoryId: 1, createdAt: -1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, reviewerDecision: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, applyState: 1 });
 // Prevent duplicate items for the same inventory in the same run
 PropertyVerificationRunItemSchema.index(
     { runId: 1, inventoryId: 1 },
@@ -314,5 +349,13 @@ PropertyVerificationRunItemSchema.statics.getPendingReview = function (tenantId)
         .sort({ createdAt: -1 });
 };
 
-export { ITEM_STATUSES, MATCH_STATUSES, REVIEWER_DECISIONS, BLOCKED_UPDATE_FIELDS, ALLOWED_UPDATE_FIELDS };
+export {
+    ITEM_STATUSES,
+    MATCH_STATUSES,
+    REVIEWER_DECISIONS,
+    BLOCKED_UPDATE_FIELDS,
+    ALLOWED_UPDATE_FIELDS,
+    CANONICAL_TO_CRM_FIELD_MAP,
+    CRM_TO_CANONICAL_FIELD_MAP
+};
 export default mongoose.model('PropertyVerificationRunItem', PropertyVerificationRunItemSchema);

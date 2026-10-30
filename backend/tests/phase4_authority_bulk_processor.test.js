@@ -895,7 +895,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
                 linkId: fixtureItem.linkId,
                 observedAt: new Date(),
                 isSynthetic: false,
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
                 // provenance undefined
             });
@@ -951,7 +951,7 @@ describe('Phase 4 — Controlled Bulk Verification Engine & Batch Processing', (
                 observedAt: new Date(),
                 isSynthetic: false,
                 provenance: 'LIVE',
-                contentHash: '12345678901234567890123456789012',
+                normalizedData: {},
                 isSealed: true
             });
 

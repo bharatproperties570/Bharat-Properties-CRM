@@ -62,6 +62,35 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
 }
 
 /**
+ * Safely inserts documents with ordered: false, trapping expected duplicate key errors (11000)
+ * while propagating any unexpected validation, disk, or network database errors.
+ */
+async function safeInsertMany(Model, docs, { ordered = false } = {}) {
+    if (!docs || docs.length === 0) return { insertedCount: 0, duplicateCount: 0 };
+    try {
+        const result = await Model.insertMany(docs, { ordered });
+        return {
+            insertedCount: Array.isArray(result) ? result.length : (result.insertedCount || docs.length),
+            duplicateCount: 0
+        };
+    } catch (err) {
+        const isDuplicateCode = (code) => code === 11000 || code === 11001;
+        const writeErrors = err.writeErrors || err.errorResponse?.writeErrors || [];
+        const isAllDuplicates = isDuplicateCode(err.code) || 
+            (writeErrors.length > 0 && writeErrors.every(e => isDuplicateCode(e.code)));
+
+        if (isAllDuplicates) {
+            const dupCount = writeErrors.length || 1;
+            const insCount = Math.max(0, docs.length - dupCount);
+            return { insertedCount: insCount, duplicateCount: dupCount };
+        }
+
+        // Propagate unexpected validation, network, and database errors
+        throw err;
+    }
+}
+
+/**
  * Generate a synthetic fixture payload for a specific authority and property/link context.
  * Strictly adheres to identity requirements: if required fields are missing, returns null.
  * NEVER invents fake identity values (no fallback '101' or '14').
@@ -106,7 +135,11 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
 
 const WORKER_LEASE_MS = 30 * 1000; // 30-second worker lease for resilient concurrent batch execution
 
+export { safeInsertMany };
+
 export class AuthorityBulkProcessor {
+    static safeInsertMany = safeInsertMany;
+
     /**
      * Create a new bulk verification run for a list of inventories using bounded operations.
      */
@@ -227,10 +260,12 @@ export class AuthorityBulkProcessor {
                 }
 
                 if (linksToCreate.length > 0) {
-                    await PropertyAuthorityLink.insertMany(linksToCreate, { ordered: false }).catch(() => {});
+                    await safeInsertMany(PropertyAuthorityLink, linksToCreate, { ordered: false });
                 }
 
                 const itemsChunk = [];
+                const foundInvMap = new Map(inventories.map(inv => [inv._id.toString(), inv]));
+
                 for (const inv of inventories) {
                     const invIdStr = inv._id.toString();
                     const link = linkMap.get(invIdStr);
@@ -249,8 +284,29 @@ export class AuthorityBulkProcessor {
                     }
                 }
 
+                // If not onlyEligible, create explicit failure items for any requested IDs not found in tenant inventory
+                if (!onlyEligible) {
+                    for (const reqId of chunkIds) {
+                        const reqIdStr = reqId.toString();
+                        if (!foundInvMap.has(reqIdStr)) {
+                            itemsChunk.push({
+                                tenantId,
+                                runId: run._id,
+                                inventoryId: reqId,
+                                linkId: null,
+                                authorityCode,
+                                status: 'FAILED',
+                                errorMessage: 'Inventory record not found in tenant inventory or access denied',
+                                isSynthetic: Boolean(isFixtureMode),
+                                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                                processedAt: new Date()
+                            });
+                        }
+                    }
+                }
+
                 if (itemsChunk.length > 0) {
-                    await PropertyVerificationRunItem.insertMany(itemsChunk, { ordered: false }).catch(() => {});
+                    await safeInsertMany(PropertyVerificationRunItem, itemsChunk, { ordered: false });
                 }
             }
         }
@@ -391,14 +447,28 @@ export class AuthorityBulkProcessor {
                     leaseExpiresAt: { $gte: now }
                 });
 
-                if (stillProcessing === 0 || emptyWaitAttempts >= 3) {
-                    hasRemaining = false;
-                    break;
+                const maxWaitAttempts = options.maxWaitAttempts !== undefined ? options.maxWaitAttempts : 3;
+                if (stillProcessing > 0 && emptyWaitAttempts < maxWaitAttempts) {
+                    emptyWaitAttempts++;
+                    await new Promise(r => setTimeout(r, options.waitIntervalMs || 50));
+                    continue;
                 }
-                emptyWaitAttempts++;
-                // Yield briefly and recheck
-                await new Promise(r => setTimeout(r, 50));
-                continue;
+
+                // Check if any items are pending
+                const pendingCount = await PropertyVerificationRunItem.countDocuments({
+                    tenantId,
+                    runId: run._id,
+                    status: 'PENDING'
+                });
+
+                if (pendingCount > 0 && emptyWaitAttempts < maxWaitAttempts) {
+                    emptyWaitAttempts++;
+                    await new Promise(r => setTimeout(r, options.waitIntervalMs || 50));
+                    continue;
+                }
+
+                hasRemaining = false;
+                break;
             }
             emptyWaitAttempts = 0;
 
@@ -512,14 +582,33 @@ export class AuthorityBulkProcessor {
             await new Promise(resolve => setImmediate(resolve));
         }
 
-        // Finalize run status
+        // Check authoritative terminal state: do NOT finalize run while active leases or pending items exist
+        const nonTerminalCount = await PropertyVerificationRunItem.countDocuments({
+            tenantId,
+            runId: run._id,
+            status: { $in: ['PENDING', 'PROCESSING'] }
+        });
+
+        if (nonTerminalCount > 0) {
+            const currentRun = await PropertyVerificationRun.findById(runId);
+            return {
+                runId: run._id,
+                status: currentRun?.status || 'PROCESSING',
+                totalItems: run.totalItems,
+                processedItems: currentRun?.processedItems || 0,
+                succeededItems: currentRun?.succeededItems || 0,
+                failedItems: currentRun?.failedItems || 0
+            };
+        }
+
+        // Finalize run status directly from authoritative item states in database
         const finalCounts = await PropertyVerificationRunItem.aggregate([
             { $match: { runId: run._id, tenantId } },
             { $group: { _id: '$status', count: { $sum: 1 } } }
         ]);
         const countMap = Object.fromEntries(finalCounts.map(c => [c._id, c.count]));
         const totalSucceeded = countMap.SUCCEEDED || 0;
-        const totalFailed = (countMap.FAILED || 0) + (countMap.NO_MATCH || 0);
+        const totalFailed = (countMap.FAILED || 0) + (countMap.NO_MATCH || 0) + (countMap.SKIPPED || 0);
         const totalProcessed = totalSucceeded + totalFailed;
 
         const finalStatus = totalFailed === 0
@@ -528,7 +617,7 @@ export class AuthorityBulkProcessor {
 
         const completedAt = new Date();
         const completedRun = await PropertyVerificationRun.findOneAndUpdate(
-            { _id: runId, tenantId, status: { $nin: ['CANCELLED', 'PAUSED'] } },
+            { _id: runId, tenantId, status: { $nin: ['CANCELLED', 'PAUSED', 'COMPLETED', 'PARTIAL', 'FAILED'] } },
             {
                 $set: {
                     status: finalStatus,
@@ -571,6 +660,30 @@ export class AuthorityBulkProcessor {
     }
 
     /**
+     * Renew active worker lease for an in-flight run item.
+     * 
+     * @param {string|mongoose.Types.ObjectId} itemId 
+     * @param {string|mongoose.Types.ObjectId} tenantId 
+     * @param {string} workerId 
+     * @returns {Promise<PropertyVerificationRunItem|null>}
+     */
+    static async renewItemLease(itemId, tenantId, workerId) {
+        const newExpiry = new Date(Date.now() + WORKER_LEASE_MS);
+        return PropertyVerificationRunItem.findOneAndUpdate(
+            {
+                _id: itemId,
+                tenantId,
+                claimedBy: workerId,
+                status: 'PROCESSING'
+            },
+            {
+                $set: { leaseExpiresAt: newExpiry }
+            },
+            { new: true }
+        );
+    }
+
+    /**
      * Process an individual RunItem.
      * Safe, idempotent, and error-isolated.
      */
@@ -590,6 +703,7 @@ export class AuthorityBulkProcessor {
             item.status = 'FAILED';
             item.errorMessage = 'Authority link not found or cross-tenant access rejected';
             item.processedAt = new Date();
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'LINK_NOT_FOUND' };
         }
@@ -602,6 +716,7 @@ export class AuthorityBulkProcessor {
             item.status = 'FAILED';
             item.errorMessage = 'Inventory record not found or cross-tenant access rejected';
             item.processedAt = new Date();
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'INVENTORY_NOT_FOUND' };
         }
@@ -620,6 +735,7 @@ export class AuthorityBulkProcessor {
             item.processedAt = new Date();
             item.isSynthetic = Boolean(isFixtureMode);
             item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'INCOMPLETE_IDENTITY' };
         }
@@ -631,6 +747,7 @@ export class AuthorityBulkProcessor {
             item.processedAt = new Date();
             item.isSynthetic = false;
             item.provenance = 'LIVE';
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'LIVE_DISABLED' };
         }
@@ -646,6 +763,7 @@ export class AuthorityBulkProcessor {
             item.isSynthetic = true;
             item.provenance = 'SYNTHETIC_FIXTURE';
             item.processedAt = new Date();
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: true, snapshotId: existingSnapshot._id, alreadyProcessed: true };
         }
@@ -659,6 +777,7 @@ export class AuthorityBulkProcessor {
             item.processedAt = new Date();
             item.isSynthetic = Boolean(isFixtureMode);
             item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'NO_FIXTURE' };
         }
@@ -672,6 +791,7 @@ export class AuthorityBulkProcessor {
             item.processedAt = new Date();
             item.isSynthetic = Boolean(isFixtureMode);
             item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
+            item.leaseExpiresAt = null;
             await item.save();
             return { success: false, reason: 'QUALITY_REJECTED' };
         }
@@ -748,6 +868,7 @@ export class AuthorityBulkProcessor {
         item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
         item.processedAt = new Date();
         item.errorMessage = null;
+        item.leaseExpiresAt = null;
 
         await item.save();
 
