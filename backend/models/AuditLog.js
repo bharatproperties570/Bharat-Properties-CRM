@@ -438,6 +438,9 @@ AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, 
         targetName: maskScalarPII(targetName),
         description: maskScalarPII(description),
         changes: redactedChanges,
+        metadata: options.metadata || { origin: userId ? 'authenticated_user' : 'unknown' },
+        ipAddress: options.ipAddress || null,
+        userAgent: options.userAgent || null,
         status: 'success',
         correlationId: options.correlationId
     }], mongooseOptions).then(docs => docs[0]);

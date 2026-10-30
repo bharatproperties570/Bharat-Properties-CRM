@@ -36,7 +36,7 @@ import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
 import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
 
-// Mandatory operational audit logging helper (Phase 4.4 - Finding F-03)
+// Operational audit logging helpers (Phase 4.4 - Finding F-03, Phase 4.4.1 - Finding F-08)
 // Critical business/security audit records must NOT be silently swallowed.
 async function logMandatoryAuditEvent({
     eventType,
@@ -47,7 +47,10 @@ async function logMandatoryAuditEvent({
     metadata = {},
     status = 'success',
     tenantId = null,
-    session = null
+    session = null,
+    ipAddress = null,
+    userAgent = null,
+    isSystem = false
 }) {
     let user = null;
     if (userId && mongoose.Types.ObjectId.isValid(userId)) {
@@ -69,20 +72,39 @@ async function logMandatoryAuditEvent({
         return existingAudit;
     }
 
+    // Trusted provenance resolution (Phase 4.4.1 - Finding F-08)
+    // Never record a fabricated IP address (e.g. hardcoded 127.0.0.1)
+    let resolvedIp = null;
+    let origin = 'unknown';
+
+    if (isSystem || (!userId && (metadata?.runMode === 'BULK_SCHEDULED' || metadata?.origin === 'system' || ipAddress === 'system'))) {
+        resolvedIp = 'system';
+        origin = 'system';
+    } else if (typeof ipAddress === 'string' && ipAddress.trim().length > 0 && ipAddress.trim().toLowerCase() !== 'unknown') {
+        resolvedIp = ipAddress.trim();
+        origin = userId ? 'authenticated_user' : 'network_client';
+    } else {
+        resolvedIp = null;
+        origin = userId ? 'authenticated_user' : 'unknown';
+    }
+
+    const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+
     const auditDoc = {
         eventType,
         userId: userId || null,
-        userName: user?.fullName || 'System/AuthorityEngine',
-        userEmail: user?.email || 'system@crm.internal',
+        userName: user?.fullName || (resolvedIp === 'system' ? 'System/AuthorityScheduler' : 'System/AuthorityEngine'),
+        userEmail: user?.email || (resolvedIp === 'system' ? 'scheduler@crm.internal' : 'system@crm.internal'),
         targetType,
         targetId: targetId ? targetId.toString() : null,
         description,
         metadata: {
             ...metadata,
+            origin,
             ...(tenantId ? { tenantId: tenantId.toString() } : {})
         },
-        ipAddress: '127.0.0.1',
-        userAgent: 'AuthorityBulkProcessor/v4.4',
+        ipAddress: resolvedIp,
+        userAgent: resolvedUserAgent,
         status
     };
 
@@ -90,7 +112,7 @@ async function logMandatoryAuditEvent({
     return created;
 }
 
-// Diagnostic audit logging helper (Phase 4.4 - Finding F-03)
+// Diagnostic audit logging helper (Phase 4.4 - Finding F-03, Phase 4.4.1 - Finding F-08)
 // Best-effort progress events are non-fatal.
 async function logDiagnosticAuditEvent({
     eventType,
@@ -100,27 +122,49 @@ async function logDiagnosticAuditEvent({
     description,
     metadata = {},
     status = 'success',
-    tenantId = null
+    tenantId = null,
+    ipAddress = null,
+    userAgent = null,
+    isSystem = false
 }) {
     try {
         let user = null;
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             user = await User.findById(userId).select('fullName email').lean();
         }
+
+        // Trusted provenance resolution
+        let resolvedIp = null;
+        let origin = 'unknown';
+
+        if (isSystem || (!userId && (metadata?.runMode === 'BULK_SCHEDULED' || metadata?.origin === 'system' || ipAddress === 'system'))) {
+            resolvedIp = 'system';
+            origin = 'system';
+        } else if (typeof ipAddress === 'string' && ipAddress.trim().length > 0 && ipAddress.trim().toLowerCase() !== 'unknown') {
+            resolvedIp = ipAddress.trim();
+            origin = userId ? 'authenticated_user' : 'network_client';
+        } else {
+            resolvedIp = null;
+            origin = userId ? 'authenticated_user' : 'unknown';
+        }
+
+        const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+
         await AuditLog.create({
             eventType,
             userId: userId || null,
-            userName: user?.fullName || 'System/AuthorityEngine',
-            userEmail: user?.email || 'system@crm.internal',
+            userName: user?.fullName || (resolvedIp === 'system' ? 'System/AuthorityScheduler' : 'System/AuthorityEngine'),
+            userEmail: user?.email || (resolvedIp === 'system' ? 'scheduler@crm.internal' : 'system@crm.internal'),
             targetType,
             targetId: targetId ? targetId.toString() : null,
             description,
             metadata: {
                 ...metadata,
+                origin,
                 ...(tenantId ? { tenantId: tenantId.toString() } : {})
             },
-            ipAddress: '127.0.0.1',
-            userAgent: 'AuthorityBulkProcessor/v4.4',
+            ipAddress: resolvedIp,
+            userAgent: resolvedUserAgent,
             status
         });
     } catch (err) {
@@ -129,7 +173,7 @@ async function logDiagnosticAuditEvent({
 }
 
 // Legacy signature bridge delegating to logMandatoryAuditEvent
-async function logAuditEvent(eventType, userId, targetType, targetId, description, metadata = {}, status = 'success', tenantId = null) {
+async function logAuditEvent(eventType, userId, targetType, targetId, description, metadata = {}, status = 'success', tenantId = null, options = {}) {
     return logMandatoryAuditEvent({
         eventType,
         userId,
@@ -138,7 +182,10 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
         description,
         metadata,
         status,
-        tenantId
+        tenantId,
+        ipAddress: options.ipAddress || null,
+        userAgent: options.userAgent || null,
+        isSystem: options.isSystem || false
     });
 }
 
@@ -192,19 +239,62 @@ async function safeInsertMany(Model, docs, { ordered = false } = {}) {
 
             // Confirmed: Every single write error is a duplicate-key error
             const duplicateCount = writeErrors.length;
-            const insertedCount = (typeof err.result?.insertedCount === 'number')
-                ? err.result.insertedCount
-                : Math.max(0, docs.length - duplicateCount);
+            let insertedCount = null;
+            if (typeof err.result?.insertedCount === 'number') {
+                insertedCount = err.result.insertedCount;
+            } else if (typeof err.result?.nInserted === 'number') {
+                insertedCount = err.result.nInserted;
+            } else if (Array.isArray(err.insertedDocs)) {
+                insertedCount = err.insertedDocs.length;
+            } else if (typeof err.insertedCount === 'number') {
+                insertedCount = err.insertedCount;
+            } else {
+                insertedCount = Math.max(0, docs.length - duplicateCount);
+            }
             return { insertedCount, duplicateCount };
         }
 
-        // Top-level duplicate error code where writeErrors is empty
+        // Top-level duplicate error code where individual writeErrors is missing or empty
         // Must NOT suppress if there are signs of validation or unexpected issues
         if (isDuplicateCode(err.code) && !err.message?.toLowerCase().includes('validation')) {
-            return {
-                insertedCount: Math.max(0, docs.length - 1),
-                duplicateCount: 1
-            };
+            // Extract insertedCount from reliable driver result metadata wherever available (Finding F-06)
+            let reliableInsertedCount = null;
+            if (typeof err.result?.insertedCount === 'number') {
+                reliableInsertedCount = err.result.insertedCount;
+            } else if (typeof err.result?.nInserted === 'number') {
+                reliableInsertedCount = err.result.nInserted;
+            } else if (Array.isArray(err.insertedDocs)) {
+                reliableInsertedCount = err.insertedDocs.length;
+            } else if (typeof err.insertedCount === 'number') {
+                reliableInsertedCount = err.insertedCount;
+            }
+
+            if (reliableInsertedCount !== null) {
+                const duplicateCount = Math.max(0, docs.length - reliableInsertedCount);
+                return {
+                    insertedCount: reliableInsertedCount,
+                    duplicateCount
+                };
+            }
+
+            // If exactly 1 document was provided in the batch and it failed with E11000/E11001,
+            // we know definitively: 0 inserted, 1 duplicate.
+            if (docs.length === 1) {
+                return {
+                    insertedCount: 0,
+                    duplicateCount: 1
+                };
+            }
+
+            // When multiple documents exist in docs and driver metadata (writeErrors, insertedCount, nInserted, insertedDocs)
+            // is missing, we must NEVER invent an arbitrary count (e.g. docs.length - 1).
+            // Propagate the error fail-closed to prevent run counter corruption (Finding F-06).
+            const indeterminateErr = new Error(
+                `INDETERMINATE_BULK_WRITE_RESULT: Duplicate error (${err.code}) occurred on batch of ${docs.length} docs, but driver metadata is insufficient to determine exact inserted/duplicate counts safely.`
+            );
+            indeterminateErr.code = err.code;
+            indeterminateErr.originalError = err;
+            throw indeterminateErr;
         }
 
         // Propagate unexpected validation, network, and database errors
@@ -315,7 +405,7 @@ export class AuthorityBulkProcessor {
         runMode = 'BULK_MANUAL',
         isFixtureMode = false,
         onlyEligible = false
-    }) {
+    }, options = {}) {
         if (!tenantId || !authorityCode || !requestedBy) {
             throw new Error('MISSING_PARAM: tenantId, authorityCode, and requestedBy are required.');
         }
@@ -358,7 +448,10 @@ export class AuthorityBulkProcessor {
                     targetId: rejectedRun._id,
                     description: `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
                     metadata: { authorityCode, runMode, blockers },
-                    tenantId
+                    tenantId,
+                    ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                    userAgent: options.userAgent || null,
+                    isSystem: options.isSystem || runMode === 'BULK_SCHEDULED'
                 });
             } catch (auditErr) {
                 await PropertyVerificationRun.deleteOne({ _id: rejectedRun._id, tenantId });
@@ -499,7 +592,10 @@ export class AuthorityBulkProcessor {
                 targetId: run._id,
                 description: `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
                 metadata: { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || runMode === 'BULK_SCHEDULED'
             });
         } catch (auditErr) {
             // Roll back created run and items to prevent unaudited operations
@@ -794,7 +890,10 @@ export class AuthorityBulkProcessor {
                     batchSucceeded,
                     batchFailed
                 },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
             });
 
             if (typeof onProgress === 'function') {
@@ -876,7 +975,10 @@ export class AuthorityBulkProcessor {
                         succeededItems: totalSucceeded,
                         failedItems: totalFailed
                     },
-                    tenantId
+                    tenantId,
+                    ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                    userAgent: options.userAgent || null,
+                    isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
                 });
             } catch (auditErr) {
                 // Roll back completed run status to PROCESSING to prevent unaudited completion
@@ -1263,7 +1365,7 @@ export class AuthorityBulkProcessor {
     /**
      * Pause a verification run safely at batch boundary.
      */
-    static async pauseRun(runId, tenantId, userId, reason = 'Paused by user') {
+    static async pauseRun(runId, tenantId, userId, reason = 'Paused by user', options = {}) {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
         if (!run) {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
@@ -1292,7 +1394,10 @@ export class AuthorityBulkProcessor {
                 targetId: run._id,
                 description: `Verification run ${run._id} paused: ${reason}`,
                 metadata: { runId: run._id, reason },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
             });
         } catch (auditErr) {
             run.status = previousStatus;
@@ -1311,7 +1416,7 @@ export class AuthorityBulkProcessor {
     /**
      * Safely cancel a verification run.
      */
-    static async cancelRun(runId, tenantId, userId, reason = 'Cancelled by user') {
+    static async cancelRun(runId, tenantId, userId, reason = 'Cancelled by user', options = {}) {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
         if (!run) {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
@@ -1340,7 +1445,10 @@ export class AuthorityBulkProcessor {
                 targetId: run._id,
                 description: `Verification run ${run._id} cancelled: ${reason}`,
                 metadata: { runId: run._id, reason },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
             });
         } catch (auditErr) {
             run.status = previousStatus;
@@ -1414,7 +1522,10 @@ export class AuthorityBulkProcessor {
                 targetId: run._id,
                 description: `Verification run ${run._id} resumed`,
                 metadata: { runId: run._id, tenantId },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
             });
         } catch (auditErr) {
             run.status = previousStatus;

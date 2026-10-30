@@ -146,6 +146,10 @@ export class AuthorityRefreshScheduler {
                 inventoryIds,
                 runMode: 'BULK_SCHEDULED',
                 isFixtureMode: isSimulation || !settings.isEffectivelyActive()
+            }, {
+                isSystem: true,
+                ipAddress: 'system',
+                userAgent: 'AuthorityRefreshScheduler/v4.4.1'
             });
 
             let processOutcome = null;
@@ -155,7 +159,10 @@ export class AuthorityRefreshScheduler {
                     processOutcome = await AuthorityBulkProcessor.processRun(run._id, {
                         tenantId: tId,
                         batchSize: 50,
-                        isFixtureMode: isSimulation || !settings.isEffectivelyActive()
+                        isFixtureMode: isSimulation || !settings.isEffectivelyActive(),
+                        isSystem: true,
+                        ipAddress: 'system',
+                        userAgent: 'AuthorityRefreshScheduler/v4.4.1'
                     });
                 } catch (procErr) {
                     executionError = procErr;
@@ -182,29 +189,46 @@ export class AuthorityRefreshScheduler {
                 derivedStatus = 'FAILED';
             }
 
-            // Update settings last run metadata conditionally so older retries do not overwrite newer runs
-            await AuthoritySourceSettings.updateOne(
-                {
-                    _id: settings._id,
-                    tenantId: tId,
-                    $or: [
-                        { lastRunAt: null },
-                        { lastRunAt: { $lte: completedAt } },
-                        { lastRunId: run._id }
-                    ]
-                },
-                {
-                    $set: {
-                        lastRunId: run._id,
-                        lastRunAt: completedAt,
-                        lastRunStatus: derivedStatus
-                    }
-                }
-            ).catch(() => {});
+            // Update settings last run metadata conditionally so older retries do not overwrite newer runs (Phase 4.4.1 - Finding F-07)
+            let settingsUpdateStatus = 'SKIPPED_STALE_RUN';
+            let settingsUpdateError = null;
+            let updateResult = null;
 
-            settings.lastRunId = run._id;
-            settings.lastRunAt = completedAt;
-            settings.lastRunStatus = derivedStatus;
+            try {
+                updateResult = await AuthoritySourceSettings.updateOne(
+                    {
+                        _id: settings._id,
+                        tenantId: tId,
+                        $or: [
+                            { lastRunAt: null },
+                            { lastRunAt: { $lte: completedAt } },
+                            { lastRunId: run._id }
+                        ]
+                    },
+                    {
+                        $set: {
+                            lastRunId: run._id,
+                            lastRunAt: completedAt,
+                            lastRunStatus: derivedStatus
+                        }
+                    }
+                );
+
+                if (updateResult.matchedCount > 0) {
+                    settingsUpdateStatus = 'UPDATED';
+                    // Update in-memory settings only when database matched and updated
+                    settings.lastRunId = run._id;
+                    settings.lastRunAt = completedAt;
+                    settings.lastRunStatus = derivedStatus;
+                } else {
+                    // Document was not matched by conditional query: a newer run already ran or exists
+                    settingsUpdateStatus = 'SKIPPED_STALE_RUN';
+                }
+            } catch (dbErr) {
+                // Database write failure: do NOT silently suppress, and do NOT treat in-memory settings as updated
+                settingsUpdateStatus = 'FAILED';
+                settingsUpdateError = dbErr.message;
+            }
 
             results.push({
                 tenantId: tId,
@@ -212,6 +236,8 @@ export class AuthorityRefreshScheduler {
                 runId: run._id,
                 status: finalRunStatus,
                 lastRunStatus: derivedStatus,
+                settingsUpdateStatus,
+                ...(settingsUpdateError ? { settingsUpdateError } : {}),
                 totalItems: freshRun?.totalItems || run.totalItems,
                 processOutcome,
                 ...(executionError ? { error: executionError.message } : {})
