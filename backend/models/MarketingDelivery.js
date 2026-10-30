@@ -8,7 +8,7 @@ const marketingDeliverySchema = new mongoose.Schema({
     campaignName: { type: String },
     status: { 
         type: String, 
-        enum: ['IN_PROGRESS', 'SENT', 'FAILED_RETRYABLE', 'FAILED_FINAL'],
+        enum: ['IN_PROGRESS', 'SENT', 'ACCEPTED', 'DELIVERY_UNKNOWN', 'FAILED_RETRYABLE', 'FAILED_FINAL'],
         default: 'IN_PROGRESS' 
     },
     providerMessageId: { type: String },
