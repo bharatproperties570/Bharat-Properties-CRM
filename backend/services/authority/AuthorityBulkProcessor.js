@@ -409,6 +409,13 @@ export class AuthorityBulkProcessor {
     static safeInsertMany = safeInsertMany;
 
     /**
+     * Reconciles duplicate authority links within a tenant (R-05).
+     */
+    static async reconcileDuplicateLinks(tenantId, options = {}) {
+        return PropertyAuthorityLink.reconcileDuplicateLinks(tenantId, options);
+    }
+
+    /**
      * Create a new bulk verification run for a list of inventories using bounded operations.
      */
     static async createBulkRun({
@@ -814,6 +821,7 @@ export class AuthorityBulkProcessor {
                                 runId: run._id,
                                 workerId,
                                 claimToken: item.workerClaimToken,
+                                fenceToken: item.workerFenceToken,
                                 status: 'FAILED',
                                 updateData: {
                                     errorMessage: 'MODE_MISMATCH: Item synthetic flag does not match run mode',
@@ -837,6 +845,7 @@ export class AuthorityBulkProcessor {
                         authorityCode: run.authorityCode,
                         workerId,
                         claimToken: item.workerClaimToken,
+                        fenceToken: item.workerFenceToken,
                         runId: run._id
                     });
 
@@ -859,6 +868,7 @@ export class AuthorityBulkProcessor {
                             runId: run._id,
                             workerId,
                             claimToken: item.workerClaimToken,
+                            fenceToken: item.workerFenceToken,
                             status: 'FAILED',
                             updateData: {
                                 errorMessage: itemErr.message || 'Item processing error',
@@ -1064,6 +1074,7 @@ export class AuthorityBulkProcessor {
         runId = null,
         workerId = null,
         claimToken = null,
+        fenceToken = null,
         status,
         updateData = {}
     }) {
@@ -1084,6 +1095,9 @@ export class AuthorityBulkProcessor {
         if (claimToken) {
             query.workerClaimToken = claimToken;
         }
+        if (fenceToken !== null && fenceToken !== undefined) {
+            query.workerFenceToken = fenceToken;
+        }
 
         const update = {
             $set: {
@@ -1096,7 +1110,7 @@ export class AuthorityBulkProcessor {
 
         const updated = await PropertyVerificationRunItem.findOneAndUpdate(query, update, { new: true });
         if (!updated) {
-            const err = new Error(`STALE_WORKER: Worker ${workerId || 'unknown'} lost lease or ownership for item ${itemId}. Write rejected to prevent state corruption.`);
+            const err = new Error(`STALE_WORKER: Worker ${workerId || 'unknown'} lost lease, claimToken or fenceToken for item ${itemId}. Write rejected to prevent state corruption.`);
             err.code = 'STALE_WORKER';
             throw err;
         }
@@ -1108,9 +1122,10 @@ export class AuthorityBulkProcessor {
      * Safe, idempotent, and error-isolated.
      */
     static async processItem(item, options = {}) {
-        const { tenantId, isFixtureMode = true, authorityCode, workerId: optWorkerId, claimToken: optClaimToken, runId: optRunId } = options;
+        const { tenantId, isFixtureMode = true, authorityCode, workerId: optWorkerId, claimToken: optClaimToken, fenceToken: optFenceToken, runId: optRunId } = options;
         const workerId = optWorkerId || item.claimedBy || null;
         const claimToken = optClaimToken || item.workerClaimToken || null;
+        const fenceToken = optFenceToken ?? item.workerFenceToken ?? null;
         const runId = optRunId || item.runId || null;
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
@@ -1134,6 +1149,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'FAILED',
                     updateData: {
                         errorMessage: 'Authority link not found or cross-tenant access rejected',
@@ -1154,6 +1170,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'FAILED',
                     updateData: {
                         errorMessage: 'Inventory record not found or cross-tenant access rejected',
@@ -1177,6 +1194,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'FAILED',
                     updateData: {
                         matchStatus: 'IDENTITY_MISMATCH',
@@ -1197,6 +1215,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'FAILED',
                     updateData: {
                         errorMessage: 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.',
@@ -1220,6 +1239,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'SUCCEEDED',
                     updateData: {
                         snapshotId: existingSnapshot._id,
@@ -1240,6 +1260,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'NO_MATCH',
                     updateData: {
                         matchStatus: 'NO_MATCH',
@@ -1261,6 +1282,7 @@ export class AuthorityBulkProcessor {
                     runId,
                     workerId,
                     claimToken,
+                    fenceToken,
                     status: 'FAILED',
                     updateData: {
                         matchStatus: 'NOT_ATTEMPTED',
@@ -1347,6 +1369,7 @@ export class AuthorityBulkProcessor {
                 runId,
                 workerId,
                 claimToken,
+                fenceToken,
                 status: 'SUCCEEDED',
                 updateData: {
                     matchStatus: candidate.matchEvidence?.confidence === 'EXACT'
