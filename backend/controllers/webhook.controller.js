@@ -489,6 +489,32 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         console.error('[WhatsApp Webhook] Dispatch status reconciliation error:', dispatchSyncErr.message);
                     }
 
+                    // 4. Synchronize status onto MarketingDelivery ledger for Campaign tracking
+                    try {
+                        const { default: MarketingDelivery } = await import('../models/MarketingDelivery.js');
+                        let deliveryStatus = null;
+                        if (statusVal === 'sent') deliveryStatus = 'SENT';
+                        else if (statusVal === 'delivered') deliveryStatus = 'DELIVERED';
+                        else if (statusVal === 'read') deliveryStatus = 'READ';
+                        else if (statusVal === 'failed') deliveryStatus = 'FAILED_FINAL';
+
+                        if (deliveryStatus) {
+                            const updateFields = {
+                                status: deliveryStatus,
+                                lastAttemptAt: statusTimestamp
+                            };
+                            if (statusVal === 'failed' && status.errors && status.errors.length > 0) {
+                                updateFields.error = status.errors[0]?.message || status.errors[0]?.title || 'Meta delivery failure';
+                            }
+                            await MarketingDelivery.updateMany(
+                                { providerMessageId: status.id },
+                                { $set: updateFields }
+                            );
+                        }
+                    } catch (mktgErr) {
+                        console.error('[WhatsApp Webhook] MarketingDelivery sync error:', mktgErr.message);
+                    }
+
                     RealtimeHub.emitStatusUpdate({
                         messageId: status.id,
                         status: statusVal,

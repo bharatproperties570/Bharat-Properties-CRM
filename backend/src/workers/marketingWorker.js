@@ -686,6 +686,36 @@ async function dispatchSingleRecipientCore({
 
     if (channels.includes('whatsapp') && recipient.mobile) {
         try {
+            // 🛡️ Enterprise Opt-out Check
+            const isOptedOut = await waService.isRecipientOptedOut(recipient.mobile);
+            if (isOptedOut) {
+                if (job?.log) await job.log(`⚠️ 🛡️ [Opt-Out Policy] Recipient ${recipient.name || recipient.mobile} has opted out of WhatsApp communications. Suppressing send.`);
+                try {
+                    const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+                    await MarketingDelivery.findOneAndUpdate(
+                        { jobId: campaignId || String(job?.id), recipientId: String(recipient.mobile || recipient.id).trim(), channel: 'whatsapp' },
+                        {
+                            $set: {
+                                status: 'SUPPRESSED_OPTOUT',
+                                provider: isBaileys ? 'BAILEYS' : 'META',
+                                campaignName: meta.title,
+                                error: 'Recipient opted out of WhatsApp communications',
+                                lastAttemptAt: new Date()
+                            }
+                        },
+                        { upsert: true, new: true }
+                    );
+                } catch (e) {}
+                primaryWaResult = {
+                    channel: 'whatsapp',
+                    status: 'suppressed',
+                    deliveryStatus: 'SUPPRESSED_OPTOUT',
+                    error: 'Recipient opted out of WhatsApp communications'
+                };
+                results.push(primaryWaResult);
+                return { success: false, suppressed: true, results, primaryWaResult };
+            }
+
             let waRes;
             if (!isGroup && !isBaileys && templateId) {
                 const personalizedComponents = await resolveMetaComponents(
@@ -745,7 +775,7 @@ async function dispatchSingleRecipientCore({
             primaryWaResult = {
                 channel: 'whatsapp', 
                 status: waRes.success ? 'success' : 'failed', 
-                deliveryStatus: waRes.deliveryStatus || (waRes.success ? 'ACCEPTED' : 'FAILED'),
+                deliveryStatus: waRes.deliveryStatus || (waRes.success ? 'ACCEPTED' : (waRes.isRetryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL')),
                 latencyMs: waRes.latencyMs || null,
                 messageId: waRes.messageId || waRes.messages?.[0]?.id || null,
                 isDeliveryUnknown: Boolean(waRes.isDeliveryUnknown),
@@ -875,6 +905,7 @@ async function dispatchSingleRecipientCore({
                 $set: {
                     campaignName: meta.title,
                     status: deliveryStatus,
+                    provider: isBaileys ? 'BAILEYS' : 'META',
                     providerMessageId: primaryWaResult?.messageId || null,
                     error: primaryWaResult?.error || null,
                     lastAttemptAt: new Date()
@@ -898,7 +929,7 @@ async function dispatchSingleRecipientCore({
 async function chainNextRecipient(job, data, currentIndex, currentStats, totalCount) {
     const nextIndex = currentIndex + 1;
     if (nextIndex >= totalCount) {
-        await job.log(`🎉 [BNA Campaign ${data.campaignId}] Broadcast Complete! Sent: ${currentStats.sent}, Failed: ${currentStats.failed}, Unknown: ${currentStats.unknown}, Skipped: ${currentStats.skipped}`);
+        await job.log(`🎉 [BNA Campaign ${data.campaignId}] Broadcast Complete! Sent: ${currentStats.sent}, Accepted: ${currentStats.accepted || 0}, Suppressed: ${currentStats.suppressed || 0}, Failed: ${currentStats.failed}, Unknown: ${currentStats.unknown}, Skipped: ${currentStats.skipped}`);
         return { 
             status: 'COMPLETED', 
             campaignId: data.campaignId, 
@@ -1099,6 +1130,8 @@ if (name === 'bna-broadcast') {
             performedBy: performedBy || 'Bharat Properties',
             stats: {
                 sent: 0,
+                accepted: 0,
+                suppressed: 0,
                 failed: 0,
                 unknown: 0,
                 skipped: skippedDuplicates
@@ -1147,8 +1180,8 @@ if (name === 'bna-broadcast') {
                 channel: 'whatsapp'
             }).lean();
 
-            if (existing && ['SENT', 'ACCEPTED'].includes(existing.status)) {
-                await job.log(`⏭️ [Idempotency] Recipient ${chatLabel} already confirmed sent in campaign ${campaignId}. Skipping.`);
+            if (existing && ['SENT', 'ACCEPTED', 'DELIVERED', 'READ'].includes(existing.status)) {
+                await job.log(`⏭️ [Idempotency] Recipient ${chatLabel} already confirmed (${existing.status}) in campaign ${campaignId}. Skipping.`);
                 stats.skipped++;
                 return await chainNextRecipient(job, data, recipientIndex, stats, recipients.length);
             }
@@ -1161,7 +1194,7 @@ if (name === 'bna-broadcast') {
         let dealsList = data.deals;
         let registryMapping = data.registryMapping || { "1": "customer_name", "2": "property_list_default", "3": "assignedTo" };
 
-        const { success, results, primaryWaResult } = await dispatchSingleRecipientCore({
+        const dispatchRes = await dispatchSingleRecipientCore({
             recipient,
             primaryDeal,
             dealsList,
@@ -1182,11 +1215,14 @@ if (name === 'bna-broadcast') {
             dealId,
             job
         });
+        const { success, results, primaryWaResult, suppressed } = dispatchRes;
 
-        // 3. Circuit Breaker Check: If socket was offline/reconnecting, pause campaign and retry SAME recipient
+        // 3. Circuit Breaker Check: Socket offline (Baileys) or Rate Limit (Meta)
         const circuitAttempt = data.circuitAttempt || 0;
         const errMsg = String(primaryWaResult?.error || '').toLowerCase();
-        const isSocketOffline = errMsg.includes('reconnecting or offline') || errMsg.includes('socket not connected');
+        const isSocketOffline = isBaileys && (errMsg.includes('reconnecting or offline') || errMsg.includes('socket not connected'));
+        const isMetaRateLimit = !isBaileys && (errMsg.includes('130429') || errMsg.includes('rate limit') || errMsg.includes('429'));
+
         if (isSocketOffline && circuitAttempt < 5) {
             const pauseSeconds = 30;
             await job.log(`⚠️ 🛡️ [Circuit Breaker] WhatsApp socket offline/reconnecting during dispatch to ${chatLabel}. Pausing campaign for ${pauseSeconds}s (attempt ${circuitAttempt + 1}/5)...`);
@@ -1203,16 +1239,39 @@ if (name === 'bna-broadcast') {
             return { status: 'CIRCUIT_BREAKER_PAUSED', recipientIndex, circuitAttempt: circuitAttempt + 1 };
         }
 
+        if (isMetaRateLimit && circuitAttempt < 3) {
+            const pauseSeconds = 60;
+            await job.log(`⚠️ 🛡️ [Meta Cloud API Rate Limit] Throughput limit reached during dispatch to ${chatLabel}. Pausing campaign for ${pauseSeconds}s (attempt ${circuitAttempt + 1}/3)...`);
+            const { marketingQueue } = await import('../queues/marketingQueue.js');
+            await marketingQueue.add('bna-recipient-dispatch', {
+                ...data,
+                circuitAttempt: circuitAttempt + 1,
+                recipientIndex, // Retry the SAME recipient
+                stats
+            }, {
+                delay: pauseSeconds * 1000,
+                removeOnComplete: true
+            });
+            return { status: 'META_RATE_LIMIT_PAUSED', recipientIndex, circuitAttempt: circuitAttempt + 1 };
+        }
+
         // 4. Update Stats
-        if (primaryWaResult?.deliveryStatus === 'DELIVERY_UNKNOWN') {
+        const isOptedOut = suppressed || primaryWaResult?.deliveryStatus === 'SUPPRESSED_OPTOUT';
+        if (isOptedOut) {
+            stats.suppressed = (stats.suppressed || 0) + 1;
+            await job.log(`⚠️ Recipient ${chatLabel} suppressed due to opt-out policy.`);
+        } else if (primaryWaResult?.deliveryStatus === 'DELIVERY_UNKNOWN') {
             stats.unknown++;
             await job.log(`⚠️ Delivery confirmation timed out for ${chatLabel}. Marked DELIVERY_UNKNOWN; auto-retry suppressed.`);
         } else if (success) {
             stats.sent++;
-            await job.log(`✅ Successfully dispatched to ${chatLabel}.`);
+            if (primaryWaResult?.deliveryStatus === 'ACCEPTED') {
+                stats.accepted = (stats.accepted || 0) + 1;
+            }
+            await job.log(`✅ Successfully dispatched to ${chatLabel} via ${isBaileys ? 'WhatsApp Web (Baileys)' : 'Meta Cloud API'}.`);
         } else {
             stats.failed++;
-            await job.log(`❌ Failed dispatch to ${chatLabel}: ${primaryWaResult?.error || 'Unknown error'}`);
+            await job.log(`❌ Failed dispatch to ${chatLabel} [${isBaileys ? 'WhatsApp Web' : 'Meta Cloud API'}]: ${primaryWaResult?.error || 'Unknown error'}`);
         }
 
         // 5. Chain to Next Recipient

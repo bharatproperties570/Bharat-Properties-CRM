@@ -20,7 +20,7 @@ export class CampaignAnalyticsService {
             { $match: { campaignRunId: runId } },
             { $group: {
                 _id: null,
-                sent: { $sum: { $cond: [{ $eq: ["$status", "SENT"] }, 1, 0] } },
+                sent: { $sum: { $cond: [{ $in: ["$status", ["SENT", "ACCEPTED", "DELIVERED", "READ"]] }, 1, 0] } },
                 failed: { $sum: { $cond: [{ $in: ["$status", ["FAILED_FINAL", "FAILED_RETRYABLE"]] }, 1, 0] } }
             }}
         ]);
