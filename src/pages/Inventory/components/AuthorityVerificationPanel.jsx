@@ -30,10 +30,17 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
         phaseCode: '',
         blockCode: '',
         fileNumber: '',
-        urbanEstate: 'PANCHKULA'
+        urbanEstate: inventory?.city || inventory?.location || ''
     }));
     const [isSavingLink, setIsSavingLink] = useState(false);
     const [existingLink, setExistingLink] = useState(null);
+
+    // Identify completeness check
+    const isIdentityComplete = Boolean(
+        linkData.propertyId &&
+        linkData.sectorNumber &&
+        (selectedAuthority !== 'HSVP' || linkData.urbanEstate)
+    );
 
     // Verification Run state
     const [activeRun, setActiveRun] = useState(null);
@@ -79,7 +86,7 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                         phaseCode: '',
                         blockCode: '',
                         fileNumber: '',
-                        urbanEstate: 'PANCHKULA'
+                        urbanEstate: inventory?.city || inventory?.location || ''
                     });
                 }
             }
@@ -233,6 +240,18 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
         if (!runItem?._id) return;
         if (!canApprove) {
             toast.error('Permission denied: Requires "approveAuthorityChanges" approval right.');
+            return;
+        }
+
+        const isSyntheticRecord = Boolean(
+            runItem.isSynthetic ||
+            runItem.provenance === 'SYNTHETIC_FIXTURE' ||
+            activeRun?.isFixtureMode ||
+            activeRun?.provenance === 'SYNTHETIC_FIXTURE'
+        );
+
+        if (isSyntheticRecord) {
+            toast.error('Application blocked: Synthetic demonstration data is strictly prohibited from modifying CRM Inventory.');
             return;
         }
 
@@ -475,6 +494,12 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                     </div>
                 </div>
 
+                {!isIdentityComplete && (
+                    <div style={{ fontSize: '0.7rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
+                        <i className="fas fa-exclamation-circle"></i> Incomplete identity mapping: Plot/Property ID and Sector are required for verification matching.
+                    </div>
+                )}
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
                     <button
                         type="submit"
@@ -496,16 +521,17 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
                     <button
                         type="button"
                         onClick={handleRunVerification}
-                        disabled={isRunningVerification}
+                        disabled={isRunningVerification || !isIdentityComplete}
+                        title={!isIdentityComplete ? 'Complete required identity fields first' : 'Verify Record (Demo)'}
                         style={{
                             padding: '6px 14px',
                             borderRadius: '6px',
                             border: 'none',
-                            background: '#4f46e5',
+                            background: !isIdentityComplete ? '#94a3b8' : '#4f46e5',
                             color: '#fff',
                             fontSize: '0.75rem',
                             fontWeight: 700,
-                            cursor: 'pointer',
+                            cursor: !isIdentityComplete ? 'not-allowed' : 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px'
@@ -650,28 +676,68 @@ export default function AuthorityVerificationPanel({ inventory, onRefresh }) {
 
                         <div>
                             {['APPROVED', 'PARTIAL'].includes(runItem.reviewerDecision) && !runItem.applied && (
-                                <button
-                                    type="button"
-                                    onClick={handleApplyChanges}
-                                    disabled={!canApprove || isApplying}
-                                    title={!canApprove ? 'Requires approveAuthorityChanges permission' : 'Apply verified changes into CRM'}
-                                    style={{
-                                        padding: '6px 16px',
-                                        borderRadius: '6px',
-                                        border: 'none',
-                                        background: canApprove ? '#4f46e5' : '#94a3b8',
-                                        color: '#fff',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        cursor: canApprove ? 'pointer' : 'not-allowed',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px'
-                                    }}
-                                >
-                                    <i className="fas fa-check-double"></i>
-                                    {isApplying ? 'Applying...' : 'Apply Approved Changes to CRM'}
-                                </button>
+                                (() => {
+                                    const isSynthetic = Boolean(
+                                        runItem.isSynthetic ||
+                                        runItem.provenance === 'SYNTHETIC_FIXTURE' ||
+                                        activeRun?.isFixtureMode ||
+                                        activeRun?.provenance === 'SYNTHETIC_FIXTURE'
+                                    );
+                                    if (isSynthetic) {
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <button
+                                                    type="button"
+                                                    disabled={true}
+                                                    title="Synthetic demonstration data is prohibited from modifying CRM Inventory"
+                                                    style={{
+                                                        padding: '6px 14px',
+                                                        borderRadius: '6px',
+                                                        border: '1px solid #cbd5e1',
+                                                        background: '#f1f5f9',
+                                                        color: '#64748b',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 700,
+                                                        cursor: 'not-allowed',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <i className="fas fa-lock"></i>
+                                                    Apply Prohibited (Synthetic Demonstration Data)
+                                                </button>
+                                                <span style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
+                                                    Live authorization required
+                                                </span>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <button
+                                            type="button"
+                                            onClick={handleApplyChanges}
+                                            disabled={!canApprove || isApplying}
+                                            title={!canApprove ? 'Requires approveAuthorityChanges permission' : 'Apply verified changes into CRM'}
+                                            style={{
+                                                padding: '6px 16px',
+                                                borderRadius: '6px',
+                                                border: 'none',
+                                                background: canApprove ? '#4f46e5' : '#94a3b8',
+                                                color: '#fff',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 800,
+                                                cursor: canApprove ? 'pointer' : 'not-allowed',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            <i className="fas fa-check-double"></i>
+                                            {isApplying ? 'Applying...' : 'Apply Approved Changes to CRM'}
+                                        </button>
+                                    );
+                                })()
                             )}
                             {runItem.applied && (
                                 <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>

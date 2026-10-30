@@ -18,6 +18,7 @@ const RUN_STATUSES = [
     'CREATED',      // Run record created, not yet started
     'QUEUED',       // Submitted to queue for processing
     'PROCESSING',   // Actively being processed
+    'PAUSED',       // Temporarily paused at batch boundary
     'COMPLETED',    // All items processed
     'PARTIAL',      // Some items succeeded, some failed
     'FAILED',       // Run-level failure (e.g., source disabled)
@@ -60,6 +61,15 @@ const PropertyVerificationRunSchema = new mongoose.Schema({
         type: String,
         default: null  // Policy version at time of request
     },
+    isFixtureMode: {
+        type: Boolean,
+        default: false
+    },
+    provenance: {
+        type: String,
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
+        default: 'LIVE'
+    },
 
     // ========== Lifecycle ==========
     status: {
@@ -75,6 +85,21 @@ const PropertyVerificationRunSchema = new mongoose.Schema({
     },
     completedAt: {
         type: Date,
+        default: null
+    },
+
+    // ========== Pause Tracking ==========
+    pausedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    pausedAt: {
+        type: Date,
+        default: null
+    },
+    pauseReason: {
+        type: String,
         default: null
     },
 
@@ -148,6 +173,8 @@ PropertyVerificationRunSchema.methods.toSummary = function () {
         _id: this._id,
         authorityCode: this.authorityCode,
         runMode: this.runMode,
+        isFixtureMode: Boolean(this.isFixtureMode),
+        provenance: this.provenance || (this.isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'),
         status: this.status,
         totalItems: this.totalItems,
         processedItems: this.processedItems,
@@ -156,6 +183,8 @@ PropertyVerificationRunSchema.methods.toSummary = function () {
         skippedItems: this.skippedItems,
         requestedAt: this.requestedAt,
         completedAt: this.completedAt,
+        pausedAt: this.pausedAt,
+        pauseReason: this.pauseReason,
         policyRejectionReasons: this.policyRejectionReasons
     };
 };

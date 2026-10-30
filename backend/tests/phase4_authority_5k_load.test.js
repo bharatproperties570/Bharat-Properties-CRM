@@ -76,6 +76,7 @@ describe('Phase 4 — 5,000+ Synthetic Inventory Bulk Verification Load Test', (
                 tenantId,
                 unitNo: `PLOT-${i}`,
                 sector: `${(i % 50) + 1}`,
+                city: 'Panchkula',
                 projectName: 'Grand Haryana Township',
                 status: 'Available',
                 createdBy: userId

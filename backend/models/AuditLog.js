@@ -164,6 +164,8 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_run_created',
             'authority_run_policy_rejected',
             'authority_run_batch_processed',
+            'authority_run_paused',
+            'authority_run_resumed',
             'authority_run_completed',
             'authority_run_cancelled',
             'authority_review_submitted',

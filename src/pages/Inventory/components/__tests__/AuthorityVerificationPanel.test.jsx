@@ -47,6 +47,7 @@ describe('AuthorityVerificationPanel Frontend Component', () => {
         _id: 'inv-456',
         unitNo: '101',
         sector: '14',
+        city: 'Panchkula',
         projectName: 'Urban Heights',
         status: 'Available',
         authorityVerification: {
@@ -148,6 +149,50 @@ describe('AuthorityVerificationPanel Frontend Component', () => {
             expect(screen.getByText(/Verification Comparison & Proposed Changes/i)).toBeInTheDocument();
             expect(screen.getByText(/propertyAreaValue/i)).toBeInTheDocument();
             expect(screen.getByText('350')).toBeInTheDocument();
+        });
+    });
+
+    it('disables the Apply action for synthetic fixture records with explicit warning label', async () => {
+        authorityAPI.getRunById.mockResolvedValue({
+            success: true,
+            data: {
+                run: { _id: 'run-999', status: 'COMPLETED', isFixtureMode: true, provenance: 'SYNTHETIC_FIXTURE' },
+                items: [{
+                    _id: 'item-888',
+                    status: 'SUCCEEDED',
+                    matchStatus: 'EXACT_MATCH',
+                    reviewerDecision: 'APPROVED',
+                    isSynthetic: true,
+                    provenance: 'SYNTHETIC_FIXTURE',
+                    proposedChanges: [
+                        {
+                            field: 'authorityVerification.propertyAreaValue',
+                            currentValue: 250,
+                            proposedValue: 350,
+                            changeType: 'UPDATE',
+                            approved: true
+                        }
+                    ]
+                }]
+            }
+        });
+
+        authorityAPI.createRun.mockResolvedValue({
+            success: true,
+            data: { _id: 'run-999', authorityCode: 'HSVP', status: 'CREATED', isFixtureMode: true }
+        });
+        authorityAPI.processRun.mockResolvedValue({ success: true, data: { status: 'COMPLETED' } });
+
+        render(<AuthorityVerificationPanel inventory={mockInventory} />);
+
+        const verifyBtn = screen.getByRole('button', { name: /Verify Record \(Demo\)/i });
+        fireEvent.click(verifyBtn);
+
+        await waitFor(() => {
+            const applyDisabledBtn = screen.getByRole('button', { name: /Apply Prohibited \(Synthetic Demonstration Data\)/i });
+            expect(applyDisabledBtn).toBeInTheDocument();
+            expect(applyDisabledBtn).toBeDisabled();
+            expect(screen.getByText(/Live authorization required/i)).toBeInTheDocument();
         });
     });
 });

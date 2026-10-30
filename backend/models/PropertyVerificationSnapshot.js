@@ -157,6 +157,19 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         default: true
     },
 
+    // ========== Provenance & Fixture Protection ==========
+    isSynthetic: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    provenance: {
+        type: String,
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
+        default: 'LIVE',
+        index: true
+    },
+
     // ========== Cryptographic Integrity ==========
     // Deterministic SHA-256 hash of normalized permitted facts (excludes cookies, tokens, PII)
     contentHash: {

@@ -81,6 +81,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             tenantId: tenantA,
             unitNo: 'SCHED-101',
             sector: '14',
+            city: 'Panchkula',
             projectName: 'Township A',
             status: 'Available',
             createdBy: userA._id
@@ -90,6 +91,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             tenantId: tenantA,
             unitNo: 'SCHED-102',
             sector: '14',
+            city: 'Panchkula',
             projectName: 'Township A',
             status: 'Available',
             createdBy: userA._id
@@ -99,6 +101,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             tenantId: tenantB,
             unitNo: 'SCHED-B1',
             sector: '20',
+            city: 'Panchkula',
             projectName: 'Township B',
             status: 'Available',
             createdBy: userB._id
@@ -111,6 +114,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             authorityCode: 'HSVP',
             propertyId: 'SCHED-101',
             sectorNumber: '14',
+            urbanEstate: 'Panchkula',
             matchEligibility: 'ELIGIBLE',
             isActive: true,
             createdBy: userA._id
@@ -122,6 +126,7 @@ describe('Phase 4 — Weekly Scheduled Refresh Orchestration Readiness', () => {
             authorityCode: 'HSVP',
             propertyId: 'SCHED-102',
             sectorNumber: '14',
+            urbanEstate: 'Panchkula',
             matchEligibility: 'ELIGIBLE',
             isActive: true,
             createdBy: userA._id

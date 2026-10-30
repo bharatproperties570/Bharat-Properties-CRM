@@ -147,6 +147,25 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     },
 
     // ========== Application Audit ==========
+    isSynthetic: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    provenance: {
+        type: String,
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
+        default: 'LIVE',
+        index: true
+    },
+    claimedBy: {
+        type: String,
+        default: null
+    },
+    claimedAt: {
+        type: Date,
+        default: null
+    },
     appliedAt: {
         type: Date,
         default: null

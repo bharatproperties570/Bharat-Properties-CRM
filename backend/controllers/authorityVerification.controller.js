@@ -420,6 +420,8 @@ export const createVerificationRun = async (req, res) => {
             policyVersion: sourceSettings.policyVersion,
             status: 'CREATED',
             totalItems,
+            isFixtureMode: Boolean(isFixtureMode),
+            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
             errorSummary: isFixtureMode
                 ? 'Demonstration run using synthetic fixtures'
                 : 'Run created. Live verification adapters are not yet implemented (Phase 2 foundation only).'
@@ -444,7 +446,9 @@ export const createVerificationRun = async (req, res) => {
                     inventoryId: invId,
                     linkId: link._id,
                     authorityCode,
-                    status: 'PENDING'
+                    status: 'PENDING',
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
                 });
             }
 
@@ -558,7 +562,8 @@ export const pauseVerificationRun = async (req, res) => {
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
         const { runId } = req.params;
-        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, 'Paused by user');
+        const { reason = 'Paused by user' } = req.body;
+        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason);
 
         res.json({ success: true, data: run.toSummary() });
     } catch (error) {
@@ -742,6 +747,37 @@ export const applyApprovedChanges = async (req, res) => {
         const item = await PropertyVerificationRunItem.findOne({ _id: itemId, tenantId });
         if (!item) {
             return res.status(404).json({ success: false, message: 'Item not found' });
+        }
+
+        // SYNTHETIC FIXTURE PROTECTION: Rejects any synthetic fixture item, snapshot or run
+        if (item.isSynthetic || item.provenance === 'SYNTHETIC_FIXTURE') {
+            return res.status(422).json({
+                success: false,
+                code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                message: 'Cannot apply changes: synthetic fixture data is prohibited from modifying Inventory records'
+            });
+        }
+
+        if (item.snapshotId) {
+            const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
+            if (snapshot && (snapshot.isSynthetic || snapshot.provenance === 'SYNTHETIC_FIXTURE')) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                    message: 'Cannot apply changes: synthetic fixture snapshot is prohibited from modifying Inventory records'
+                });
+            }
+        }
+
+        if (item.runId) {
+            const run = await PropertyVerificationRun.findOne({ _id: item.runId, tenantId });
+            if (run && (run.isFixtureMode || run.provenance === 'SYNTHETIC_FIXTURE')) {
+                return res.status(422).json({
+                    success: false,
+                    code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                    message: 'Cannot apply changes: synthetic fixture run is prohibited from modifying Inventory records'
+                });
+            }
         }
 
         // Prevent duplicate application

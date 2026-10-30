@@ -4,17 +4,21 @@
  *  Phase 4: Controlled Bulk Verification & Scalable Batch Processing
  * ============================================================================
  * 
- *  1. BOUNDED BATCH PROCESSING: Processes items in configurable chunks (default 50-100)
+ *  1. BOUNDED BATCH PROCESSING: Processes items in configurable chunks (default 50-250)
  *     to eliminate memory bloat, with capability to scale past 5,000+ records.
- *  2. IDEMPOTENT RUN & ITEM EXECUTION: Prevents duplicate processing of already completed items.
- *  3. ERROR ISOLATION: Per-item try-catch ensures single-item errors do not abort the run.
- *  4. PAUSE, RESUME & SAFE CANCELLATION: Full lifecycle state machine support.
- *  5. STRICT MULTI-TENANCY: All queries and mutations strictly scoped to tenantId.
- *  6. FAIL-CLOSED LIVE BOUNDARY: Live requests fail closed while authorizationStatus is NOT_OBTAINED.
- *     Synthetic fixtures used for safe pre-live testing and verification.
+ *  2. CONCURRENCY PROTECTION & ATOMIC CLAIMING: Atomic item claims via workerId prevent
+ *     duplicate snapshots and duplicate processing when multiple workers run concurrently.
+ *  3. IDENTITY INTEGRITY: No fallback '101' or '14'. Missing identity fields remain
+ *     INCOMPLETE and ineligible; incomplete links are never processed or marked eligible.
+ *  4. REAL PAUSE & RESUME LIFECYCLE: Safe stop at batch boundaries with PAUSED state,
+ *     atomic counter preservation, and seamless resumption without duplicates.
+ *  5. PROVENANCE & SYNTHETIC PROTECTION: Runs, items, and snapshots explicitly record
+ *     isSynthetic and provenance ('SYNTHETIC_FIXTURE' vs 'LIVE').
+ *  6. STRICT MULTI-TENANCY: All operations strictly scoped by tenantId.
+ *  7. FAIL-CLOSED LIVE BOUNDARY: Live requests reject while authorizationStatus is NOT_OBTAINED.
  * 
  *  @module services/authority/AuthorityBulkProcessor
- *  @version 4.0.0-phase4
+ *  @version 4.1.0-phase4
  */
 
 import mongoose from 'mongoose';
@@ -29,7 +33,7 @@ import Inventory from '../../models/Inventory.js';
 import AuditLog from '../../models/AuditLog.js';
 import User from '../../models/User.js';
 import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
-import { getAdapter, executeFixturePipeline, isKnownAuthority } from './adapterRegistry.js';
+import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
 
 // Safe audit logging helper
@@ -49,7 +53,7 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
             description,
             metadata,
             ipAddress: '127.0.0.1',
-            userAgent: 'AuthorityBulkProcessor/v4.0',
+            userAgent: 'AuthorityBulkProcessor/v4.1',
             status
         });
     } catch (err) {
@@ -59,14 +63,23 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
 
 /**
  * Generate a synthetic fixture payload for a specific authority and property/link context.
- * Used during demonstration, development, and load testing.
+ * Strictly adheres to identity requirements: if required fields are missing, returns null.
+ * NEVER invents fake identity values (no fallback '101' or '14').
  */
 function getSyntheticFixtureForLink(authorityCode, link, inventory) {
     const code = authorityCode.toUpperCase().trim();
-    const sector = link.sectorNumber || inventory?.sector || '14';
-    const propId = link.propertyId || inventory?.unitNo || inventory?.unitNumber || '101';
-    const uEstate = link.urbanEstate || 'PANCHKULA';
-    const phase = link.phaseCode || 'PHASE-1';
+    const sector = link?.sectorNumber || inventory?.sector;
+    const propId = link?.propertyId || inventory?.unitNo || inventory?.unitNumber;
+    const uEstate = link?.urbanEstate || inventory?.city || inventory?.location;
+    const phase = link?.phaseCode;
+
+    // Strict validation: Required fields MUST be present
+    if (!propId || !sector) {
+        return null;
+    }
+    if (code === 'HSVP' && !uEstate) {
+        return null;
+    }
 
     if (code === 'HSVP') {
         const raw = JSON.parse(JSON.stringify(HSVP_SYNTHETIC.VALID_STRUCTURED.rawData));
@@ -83,6 +96,9 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
         const raw = JSON.parse(JSON.stringify(GMADA_SYNTHETIC.VALID_IT_CITY_SECTOR_66A.rawData));
         raw['Plot No. / Property No.'] = propId;
         raw['Sector / Phase'] = sector.startsWith('Sector') ? sector : `Sector ${sector}`;
+        if (phase) {
+            raw['Phase'] = phase;
+        }
         return raw;
     }
     return null;
@@ -90,7 +106,7 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
 
 export class AuthorityBulkProcessor {
     /**
-     * Create a new bulk verification run for a list of inventories.
+     * Create a new bulk verification run for a list of inventories using bounded operations.
      */
     static async createBulkRun({
         tenantId,
@@ -128,6 +144,8 @@ export class AuthorityBulkProcessor {
                 status: 'POLICY_REJECTED',
                 completedAt: new Date(),
                 totalItems: inventoryIds.length,
+                isFixtureMode: false,
+                provenance: 'LIVE',
                 policyRejectionReasons: blockers,
                 errorSummary: 'Authority source is not activated. Live fetching is strictly prohibited.'
             });
@@ -144,7 +162,7 @@ export class AuthorityBulkProcessor {
             return rejectedRun;
         }
 
-        // Create run in CREATED state
+        // Create run in CREATED state with explicit provenance
         const run = await PropertyVerificationRun.create({
             tenantId,
             authorityCode,
@@ -153,18 +171,19 @@ export class AuthorityBulkProcessor {
             policyVersion: sourceSettings?.policyVersion || '1.2.0',
             status: 'CREATED',
             totalItems: inventoryIds.length,
+            isFixtureMode: Boolean(isFixtureMode),
+            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
             errorSummary: isFixtureMode ? 'Demonstration run using synthetic fixtures' : null
         });
 
-        // Create item records in bulk with duplicate prevention
+        // Create item records in bulk using bounded chunks (500 per chunk)
         if (inventoryIds.length > 0) {
-            const itemsToInsert = [];
-            const chunkSize = 1000;
+            const chunkSize = 500;
 
             for (let i = 0; i < inventoryIds.length; i += chunkSize) {
                 const chunkIds = inventoryIds.slice(i, i + chunkSize);
                 const inventories = await Inventory.find({ _id: { $in: chunkIds }, tenantId })
-                    .select('_id unitNo unitNumber projectName sector')
+                    .select('_id unitNo unitNumber projectName sector city location')
                     .lean();
 
                 const existingLinks = await PropertyAuthorityLink.find({
@@ -180,14 +199,23 @@ export class AuthorityBulkProcessor {
                     const invIdStr = inv._id.toString();
                     if (!linkMap.has(invIdStr)) {
                         const newLinkId = new mongoose.Types.ObjectId();
+                        const propId = inv.unitNo || inv.unitNumber || null;
+                        const sector = inv.sector || null;
+                        const urbanEstate = authorityCode === 'HSVP' ? (inv.city || inv.location || null) : null;
+
+                        // Strict identity evaluation: Never mark incomplete links ELIGIBLE
+                        const hasRequired = Boolean(propId && sector && (authorityCode !== 'HSVP' || urbanEstate));
+                        const eligibility = hasRequired ? 'ELIGIBLE' : 'INCOMPLETE';
+
                         const newLink = {
                             _id: newLinkId,
                             tenantId,
                             inventoryId: inv._id,
                             authorityCode,
-                            propertyId: inv.unitNo || inv.unitNumber || '101',
-                            sectorNumber: inv.sector || '14',
-                            matchEligibility: 'ELIGIBLE',
+                            propertyId: propId,
+                            sectorNumber: sector,
+                            urbanEstate,
+                            matchEligibility: eligibility,
                             createdBy: requestedBy
                         };
                         linksToCreate.push(newLink);
@@ -199,34 +227,28 @@ export class AuthorityBulkProcessor {
                     await PropertyAuthorityLink.insertMany(linksToCreate, { ordered: false }).catch(() => {});
                 }
 
+                const itemsChunk = [];
                 for (const inv of inventories) {
                     const invIdStr = inv._id.toString();
                     const link = linkMap.get(invIdStr);
                     if (link) {
-                        itemsToInsert.push({
+                        itemsChunk.push({
                             tenantId,
                             runId: run._id,
                             inventoryId: inv._id,
                             linkId: link._id,
                             authorityCode,
-                            status: 'PENDING'
+                            status: 'PENDING',
+                            isSynthetic: Boolean(isFixtureMode),
+                            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
                         });
                     }
                 }
-            }
 
-            if (itemsToInsert.length > 0) {
-                for (let j = 0; j < itemsToInsert.length; j += 1000) {
-                    const subBatch = itemsToInsert.slice(j, j + 1000);
-                    await PropertyVerificationRunItem.insertMany(subBatch, { ordered: false }).catch(err => {
-                        if (err.code !== 11000) throw err;
-                    });
+                if (itemsChunk.length > 0) {
+                    await PropertyVerificationRunItem.insertMany(itemsChunk, { ordered: false }).catch(() => {});
                 }
             }
-
-            // Update actual count
-            run.totalItems = itemsToInsert.length;
-            await run.save();
         }
 
         await logAuditEvent(
@@ -234,15 +256,15 @@ export class AuthorityBulkProcessor {
             requestedBy,
             'authority_run',
             run._id,
-            `Verification run created for ${authorityCode} (${runMode}, ${run.totalItems} items)`,
-            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode }
+            `Bulk verification run created for ${authorityCode} (${inventoryIds.length} items, mode: ${runMode}, provenance: ${run.provenance})`,
+            { runId: run._id, authorityCode, totalItems: inventoryIds.length, runMode, isFixtureMode }
         );
 
         return run;
     }
 
     /**
-     * Process an existing verification run in bounded batches.
+     * Process an existing verification run in bounded batches with atomic concurrency protection.
      * 
      * @param {string|mongoose.Types.ObjectId} runId 
      * @param {object} options 
@@ -264,7 +286,7 @@ export class AuthorityBulkProcessor {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found for this tenant.`);
         }
 
-        // Idempotency check: Don't re-run completed or rejected runs
+        // Idempotency check: Don't re-run completed, paused or rejected runs
         if (['COMPLETED', 'POLICY_REJECTED'].includes(run.status)) {
             return {
                 runId: run._id,
@@ -276,12 +298,19 @@ export class AuthorityBulkProcessor {
             };
         }
 
-        // If cancelled, do not process
         if (run.status === 'CANCELLED') {
             return {
                 runId: run._id,
                 status: 'CANCELLED',
                 cancellationReason: run.cancellationReason
+            };
+        }
+
+        if (run.status === 'PAUSED') {
+            return {
+                runId: run._id,
+                status: 'PAUSED',
+                pauseReason: run.pauseReason
             };
         }
 
@@ -291,43 +320,88 @@ export class AuthorityBulkProcessor {
         await run.save();
 
         const safeBatchSize = Math.max(1, Math.min(batchSize, 500));
-        let totalProcessed = run.processedItems || 0;
-        let totalSucceeded = run.succeededItems || 0;
-        let totalFailed = run.failedItems || 0;
+        const workerId = `worker_${new mongoose.Types.ObjectId().toString()}`;
         let hasRemaining = true;
 
         while (hasRemaining) {
-            // Check cancellation signal between batches
-            const checkRun = await PropertyVerificationRun.findOne({ _id: runId, tenantId }).select('status cancellationReason').lean();
+            // Check cancellation or pause signal between batches
+            const checkRun = await PropertyVerificationRun.findOne({ _id: runId, tenantId })
+                .select('status cancellationReason pauseReason')
+                .lean();
+
             if (checkRun?.status === 'CANCELLED') {
                 return {
                     runId: run._id,
                     status: 'CANCELLED',
                     cancellationReason: checkRun.cancellationReason,
-                    processedItems: totalProcessed
+                    processedItems: run.processedItems
                 };
             }
 
-            // Fetch a bounded batch of PENDING items
-            const batchItems = await PropertyVerificationRunItem.find({
+            if (checkRun?.status === 'PAUSED') {
+                // Release any unclaimed/in-flight items back to PENDING
+                await PropertyVerificationRunItem.updateMany(
+                    { tenantId, runId: run._id, status: 'PROCESSING', claimedBy: workerId },
+                    { $set: { status: 'PENDING', claimedBy: null } }
+                );
+                return {
+                    runId: run._id,
+                    status: 'PAUSED',
+                    pauseReason: checkRun.pauseReason,
+                    processedItems: run.processedItems
+                };
+            }
+
+            // Find candidates for processing
+            const candidates = await PropertyVerificationRunItem.find({
                 tenantId,
                 runId: run._id,
-                status: { $in: ['PENDING', 'PROCESSING'] }
+                status: 'PENDING'
             })
+                .select('_id')
                 .sort({ _id: 1 })
                 .limit(safeBatchSize)
-                .populate('linkId')
-                .populate('inventoryId');
+                .lean();
 
-            if (batchItems.length === 0) {
-                hasRemaining = false;
-                break;
+            if (candidates.length === 0) {
+                // Check if any items are still being processed by other workers
+                const stillProcessing = await PropertyVerificationRunItem.countDocuments({
+                    tenantId,
+                    runId: run._id,
+                    status: 'PROCESSING'
+                });
+
+                if (stillProcessing === 0) {
+                    hasRemaining = false;
+                    break;
+                }
+                // Yield briefly and recheck
+                await new Promise(r => setTimeout(r, 100));
+                continue;
+            }
+
+            // Atomically claim items for this worker to prevent concurrent duplicate execution
+            const claimedItems = [];
+            for (const cand of candidates) {
+                const claimed = await PropertyVerificationRunItem.findOneAndUpdate(
+                    { _id: cand._id, tenantId, status: 'PENDING' },
+                    { $set: { status: 'PROCESSING', claimedBy: workerId, claimedAt: new Date() } },
+                    { new: true }
+                ).populate('linkId').populate('inventoryId');
+
+                if (claimed) {
+                    claimedItems.push(claimed);
+                }
+            }
+
+            if (claimedItems.length === 0) {
+                continue;
             }
 
             let batchSucceeded = 0;
             let batchFailed = 0;
 
-            for (const item of batchItems) {
+            for (const item of claimedItems) {
                 try {
                     const result = await this.processItem(item, {
                         tenantId,
@@ -341,7 +415,6 @@ export class AuthorityBulkProcessor {
                         batchFailed++;
                     }
                 } catch (itemErr) {
-                    // Isolated item failure — do NOT fail the whole run
                     batchFailed++;
                     item.status = 'FAILED';
                     item.errorMessage = itemErr.message || 'Item processing error';
@@ -350,16 +423,12 @@ export class AuthorityBulkProcessor {
                 }
             }
 
-            // Atomically update run counters
-            totalProcessed += batchItems.length;
-            totalSucceeded += batchSucceeded;
-            totalFailed += batchFailed;
-
+            // Atomically increment run counters to prevent lost updates across concurrent workers
             await PropertyVerificationRun.updateOne(
                 { _id: runId, tenantId },
                 {
                     $inc: {
-                        processedItems: batchItems.length,
+                        processedItems: claimedItems.length,
                         succeededItems: batchSucceeded,
                         failedItems: batchFailed
                     }
@@ -372,65 +441,80 @@ export class AuthorityBulkProcessor {
                 run.requestedBy,
                 'authority_run',
                 run._id,
-                `Batch of ${batchItems.length} items processed for run ${run._id}`,
+                `Batch of ${claimedItems.length} items processed for run ${run._id}`,
                 {
                     runId: run._id,
-                    batchSize: batchItems.length,
+                    batchSize: claimedItems.length,
                     batchSucceeded,
-                    batchFailed,
-                    totalProcessed
+                    batchFailed
                 }
             );
 
             if (typeof onProgress === 'function') {
+                const currentUpdatedRun = await PropertyVerificationRun.findById(runId).select('processedItems succeededItems failedItems totalItems').lean();
                 onProgress({
                     runId: run._id,
-                    processed: totalProcessed,
+                    processed: currentUpdatedRun?.processedItems || 0,
                     total: run.totalItems,
-                    succeeded: totalSucceeded,
-                    failed: totalFailed
+                    succeeded: currentUpdatedRun?.succeededItems || 0,
+                    failed: currentUpdatedRun?.failedItems || 0
                 });
             }
 
             // Yield control briefly to event loop for cooperative concurrency
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise(resolve => setImmediate(resolve));
         }
 
         // Finalize run status
+        const finalCounts = await PropertyVerificationRunItem.aggregate([
+            { $match: { runId: run._id, tenantId } },
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+        ]);
+        const countMap = Object.fromEntries(finalCounts.map(c => [c._id, c.count]));
+        const totalSucceeded = countMap.SUCCEEDED || 0;
+        const totalFailed = (countMap.FAILED || 0) + (countMap.NO_MATCH || 0);
+        const totalProcessed = totalSucceeded + totalFailed;
+
         const finalStatus = totalFailed === 0
             ? 'COMPLETED'
             : (totalSucceeded > 0 ? 'PARTIAL' : 'FAILED');
 
         const completedAt = new Date();
-        await PropertyVerificationRun.updateOne(
-            { _id: runId, tenantId },
+        const completedRun = await PropertyVerificationRun.findOneAndUpdate(
+            { _id: runId, tenantId, status: { $nin: ['CANCELLED', 'PAUSED'] } },
             {
                 $set: {
                     status: finalStatus,
-                    completedAt
+                    completedAt,
+                    processedItems: totalProcessed,
+                    succeededItems: totalSucceeded,
+                    failedItems: totalFailed
                 }
-            }
+            },
+            { new: true }
         );
 
-        await logAuditEvent(
-            'authority_run_completed',
-            run.requestedBy,
-            'authority_run',
-            run._id,
-            `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
-            {
-                runId: run._id,
-                status: finalStatus,
-                totalItems: run.totalItems,
-                processedItems: totalProcessed,
-                succeededItems: totalSucceeded,
-                failedItems: totalFailed
-            }
-        );
+        if (completedRun) {
+            await logAuditEvent(
+                'authority_run_completed',
+                run.requestedBy,
+                'authority_run',
+                run._id,
+                `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
+                {
+                    runId: run._id,
+                    status: finalStatus,
+                    totalItems: run.totalItems,
+                    processedItems: totalProcessed,
+                    succeededItems: totalSucceeded,
+                    failedItems: totalFailed
+                }
+            );
+        }
 
         return {
             runId: run._id,
-            status: finalStatus,
+            status: completedRun?.status || finalStatus,
             totalItems: run.totalItems,
             processedItems: totalProcessed,
             succeededItems: totalSucceeded,
@@ -447,12 +531,8 @@ export class AuthorityBulkProcessor {
         const { tenantId, isFixtureMode = true, authorityCode } = options;
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
-            // Already processed idempotently
             return { success: true, alreadyProcessed: true };
         }
-
-        item.status = 'PROCESSING';
-        await item.save();
 
         // 1. Fetch link & inventory with tenant isolation (or use pre-populated docs)
         const link = (item.linkId && typeof item.linkId === 'object' && item.linkId.authorityCode && String(item.linkId.tenantId) === String(tenantId))
@@ -479,23 +559,59 @@ export class AuthorityBulkProcessor {
             return { success: false, reason: 'INVENTORY_NOT_FOUND' };
         }
 
-        // 2. Execution boundary: Live vs Fixture
+        // 2. Strict Identity Evaluation: Reject incomplete identity without inventing fake values
+        const auth = authorityCode || item.authorityCode;
+        if (
+            link.matchEligibility === 'INCOMPLETE' ||
+            !link.propertyId ||
+            !link.sectorNumber ||
+            (auth === 'HSVP' && !link.urbanEstate)
+        ) {
+            item.status = 'FAILED';
+            item.matchStatus = 'IDENTITY_MISMATCH';
+            item.errorMessage = 'Incomplete identity: propertyId and sectorNumber are required';
+            item.processedAt = new Date();
+            item.isSynthetic = Boolean(isFixtureMode);
+            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
+            await item.save();
+            return { success: false, reason: 'INCOMPLETE_IDENTITY' };
+        }
+
+        // 3. Execution boundary: Live vs Fixture
         if (!isFixtureMode) {
-            // Live authority fetching is strictly prohibited without authorization
             item.status = 'FAILED';
             item.errorMessage = 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.';
             item.processedAt = new Date();
+            item.isSynthetic = false;
+            item.provenance = 'LIVE';
             await item.save();
             return { success: false, reason: 'LIVE_DISABLED' };
         }
 
-        // 3. Fixture pipeline execution
-        const rawFixture = getSyntheticFixtureForLink(authorityCode || item.authorityCode, link, inventory);
+        // 4. Concurrency Protection: Check if a snapshot already exists for this run item
+        const existingSnapshot = await PropertyVerificationSnapshot.findOne({
+            runItemId: item._id,
+            tenantId
+        });
+        if (existingSnapshot) {
+            item.status = 'SUCCEEDED';
+            item.snapshotId = existingSnapshot._id;
+            item.isSynthetic = true;
+            item.provenance = 'SYNTHETIC_FIXTURE';
+            item.processedAt = new Date();
+            await item.save();
+            return { success: true, snapshotId: existingSnapshot._id, alreadyProcessed: true };
+        }
+
+        // 5. Fixture pipeline execution
+        const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
         if (!rawFixture) {
             item.status = 'NO_MATCH';
             item.matchStatus = 'NO_MATCH';
-            item.errorMessage = `No fixture available for authority ${item.authorityCode}`;
+            item.errorMessage = `No fixture available for authority ${item.authorityCode} with current identity`;
             item.processedAt = new Date();
+            item.isSynthetic = Boolean(isFixtureMode);
+            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
             await item.save();
             return { success: false, reason: 'NO_FIXTURE' };
         }
@@ -507,11 +623,13 @@ export class AuthorityBulkProcessor {
             item.matchStatus = 'NOT_ATTEMPTED';
             item.errorMessage = `Quality rejection: ${(candidate.errors || []).join('; ')}`;
             item.processedAt = new Date();
+            item.isSynthetic = Boolean(isFixtureMode);
+            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
             await item.save();
             return { success: false, reason: 'QUALITY_REJECTED' };
         }
 
-        // 4. Create immutable verification snapshot
+        // 6. Create immutable verification snapshot with explicit synthetic provenance
         const snapshot = await PropertyVerificationSnapshot.create({
             tenantId,
             authorityCode: item.authorityCode,
@@ -519,6 +637,8 @@ export class AuthorityBulkProcessor {
             runItemId: item._id,
             sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
             observedAt: new Date(),
+            isSynthetic: Boolean(isFixtureMode),
+            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
             identityEvidence: {
                 compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
                 sectorNumber: link.sectorNumber || null,
@@ -532,13 +652,11 @@ export class AuthorityBulkProcessor {
             dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
         });
 
-        // 5. Build proposed changes (filtering strictly against allowlist/blocklist)
+        // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
         const proposedChanges = [];
         if (Array.isArray(candidate.proposedChanges)) {
             for (const pc of candidate.proposedChanges) {
-                // Reject blocked fields
                 if (BLOCKED_UPDATE_FIELDS.has(pc.field)) continue;
-                // Allow only allowlisted fields
                 if (!ALLOWED_UPDATE_FIELDS.has(pc.field)) continue;
 
                 proposedChanges.push({
@@ -551,7 +669,7 @@ export class AuthorityBulkProcessor {
             }
         }
 
-        // 6. Update item status to SUCCEEDED
+        // 8. Update item status to SUCCEEDED with explicit synthetic provenance
         item.status = 'SUCCEEDED';
         item.matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
             ? 'EXACT_MATCH'
@@ -559,6 +677,8 @@ export class AuthorityBulkProcessor {
         item.snapshotId = snapshot._id;
         item.proposedChanges = proposedChanges;
         item.reviewerDecision = 'PENDING';
+        item.isSynthetic = Boolean(isFixtureMode);
+        item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
         item.processedAt = new Date();
         item.errorMessage = null;
 
@@ -574,7 +694,38 @@ export class AuthorityBulkProcessor {
     }
 
     /**
-     * Pause or safely cancel a verification run.
+     * Pause a verification run safely at batch boundary.
+     */
+    static async pauseRun(runId, tenantId, userId, reason = 'Paused by user') {
+        const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
+        if (!run) {
+            throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
+        }
+
+        if (['COMPLETED', 'CANCELLED', 'POLICY_REJECTED', 'FAILED'].includes(run.status)) {
+            return run;
+        }
+
+        run.status = 'PAUSED';
+        run.pausedBy = userId || null;
+        run.pausedAt = new Date();
+        run.pauseReason = reason;
+        await run.save();
+
+        await logAuditEvent(
+            'authority_run_paused',
+            userId,
+            'authority_run',
+            run._id,
+            `Verification run ${run._id} paused: ${reason}`,
+            { runId: run._id, reason }
+        );
+
+        return run;
+    }
+
+    /**
+     * Safely cancel a verification run.
      */
     static async cancelRun(runId, tenantId, userId, reason = 'Cancelled by user') {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
@@ -613,16 +764,30 @@ export class AuthorityBulkProcessor {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
         }
 
-        if (run.status === 'COMPLETED') {
-            return { message: 'Run already completed', run };
+        if (['CANCELLED', 'COMPLETED', 'POLICY_REJECTED'].includes(run.status)) {
+            throw new Error(`Cannot resume run in ${run.status} state`);
         }
 
-        // Reset to CREATED or PROCESSING
+        // Reset any orphaned PROCESSING items back to PENDING so they are cleanly claimed
+        await PropertyVerificationRunItem.updateMany(
+            { tenantId, runId: run._id, status: 'PROCESSING' },
+            { $set: { status: 'PENDING', claimedBy: null } }
+        );
+
         run.status = 'PROCESSING';
-        run.cancellationReason = null;
-        run.cancelledBy = null;
-        run.cancelledAt = null;
+        run.pausedAt = null;
+        run.pauseReason = null;
+        run.pausedBy = null;
         await run.save();
+
+        await logAuditEvent(
+            'authority_run_resumed',
+            options.userId || null,
+            'authority_run',
+            run._id,
+            `Verification run ${run._id} resumed`,
+            { runId: run._id }
+        );
 
         return this.processRun(runId, {
             tenantId,
@@ -668,6 +833,8 @@ export class AuthorityBulkProcessor {
             failedItems: failedCount,
             startedAt: run.startedAt,
             completedAt: run.completedAt,
+            pausedAt: run.pausedAt,
+            pauseReason: run.pauseReason,
             isCompleted: ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED', 'POLICY_REJECTED'].includes(run.status)
         };
     }
