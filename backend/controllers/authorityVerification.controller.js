@@ -794,8 +794,28 @@ export const compensateApplySaga = async ({
         }
     }
 
-    // 2. Record durable compensation audit record (integrity over silent deletion)
-    if (compensation?.auditId) {
+    // 2. Record durable compensation audit record (R-04: crash window protection)
+    let targetAuditId = compensation?.auditId || null;
+    if (!targetAuditId && claimId) {
+        try {
+            const existingAudit = await AuditLog.findOne({
+                $or: [
+                    { 'changes.claimId': claimId.toString() },
+                    { 'changes.claimId': claimId },
+                    { 'metadata.claimId': claimId.toString() },
+                    { 'metadata.claimId': claimId }
+                ],
+                eventType: 'authority_changes_applied'
+            });
+            if (existingAudit) {
+                targetAuditId = existingAudit._id;
+            }
+        } catch (findErr) {
+            console.warn('[SagaCompensation] Error resolving auditId by claimId:', findErr.message);
+        }
+    }
+
+    if (targetAuditId) {
         try {
             await auditEvent(
                 'authority_changes_apply_compensated',
@@ -806,9 +826,9 @@ export const compensateApplySaga = async ({
                 {
                     before: {
                         claimId: claimId ? claimId.toString() : null,
-                        originalAuditId: compensation.auditId ? compensation.auditId.toString() : null,
+                        originalAuditId: targetAuditId ? targetAuditId.toString() : null,
                         stage,
-                        revertedChanges: compensation.inventoryBefore
+                        revertedChanges: compensation?.inventoryBefore || {}
                     },
                     after: {
                         status: 'COMPENSATED',
@@ -821,20 +841,22 @@ export const compensateApplySaga = async ({
             );
 
             // Update original audit record status to compensated
-            try {
-                await AuditLog.updateOne(
-                    { _id: compensation.auditId },
-                    {
-                        $set: {
-                            status: 'compensated',
-                            'metadata.compensated': true,
-                            'metadata.compensationClaimId': claimId ? claimId.toString() : null
-                        }
-                    },
-                    session ? { session } : {}
-                );
-            } catch (origErr) {
-                console.warn(`[SagaCompensation] Warning updating original audit ${compensation.auditId}:`, origErr);
+            if (targetAuditId) {
+                try {
+                    await AuditLog.updateOne(
+                        { _id: targetAuditId },
+                        {
+                            $set: {
+                                status: 'compensated',
+                                'metadata.compensated': true,
+                                'metadata.compensationClaimId': claimId ? claimId.toString() : null
+                            }
+                        },
+                        session ? { session } : {}
+                    );
+                } catch (origErr) {
+                    console.warn(`[SagaCompensation] Warning updating original audit ${targetAuditId}:`, origErr);
+                }
             }
         } catch (auditErr) {
             console.error(`[SagaCompensation] Error recording compensation audit for item ${itemId}:`, auditErr);
@@ -927,20 +949,22 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
     const reconcilerClaimId = new mongoose.Types.ObjectId();
     const reconcilerExpiry = new Date(now.getTime() + 30000);
 
+    const stageBeforeRec = claim.stageBeforeReconciliation || (claim.stage !== 'RECONCILING' ? claim.stage : 'INVENTORY_MUTATING');
+
     const reservedItem = await PropertyVerificationRunItem.findOneAndUpdate(
         {
             _id: itemId,
             tenantId,
             applyState: 'APPLYING',
             'applyClaim.claimId': claim.claimId,
-            'applyClaim.leaseExpiresAt': { $lt: now },
-            'applyClaim.stage': { $ne: 'RECONCILING' }
+            'applyClaim.leaseExpiresAt': { $lt: now }
         },
         {
             $set: {
                 'applyClaim.stage': 'RECONCILING',
                 'applyClaim.reconcilerClaimId': reconcilerClaimId,
-                'applyClaim.leaseExpiresAt': reconcilerExpiry
+                'applyClaim.leaseExpiresAt': reconcilerExpiry,
+                'applyClaim.stageBeforeReconciliation': stageBeforeRec
             }
         },
         { new: true }
@@ -950,10 +974,10 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
         return { reconciled: false, reason: 'LOCKED_BY_ANOTHER_RECONCILER_OR_INELIGIBLE' };
     }
 
-    const originalStage = claim.stage;
+    const effectiveStage = reservedItem.applyClaim?.stageBeforeReconciliation || stageBeforeRec;
     let inventoryMutated = false;
 
-    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(effectiveStage)) {
         const inv = await Inventory.findOne({
             _id: reservedItem.inventoryId,
             tenantId,
@@ -964,13 +988,13 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
         }
     }
 
-    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(effectiveStage)) {
         await compensateApplySaga({
             itemId: reservedItem._id,
             tenantId,
             inventoryId: reservedItem.inventoryId,
             claimId: claim.claimId,
-            stage: originalStage,
+            stage: effectiveStage,
             compensation: claim.compensation,
             errorMsg: 'Interrupted apply saga lease expired; compensated by reconciler'
         });
@@ -985,6 +1009,7 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
                     applyState: 'FAILED',
                     'applyClaim.stage': 'COMPENSATED',
                     'applyClaim.leaseExpiresAt': null,
+                    'applyClaim.reconcilerClaimId': null,
                     applyError: 'Lease expired before mutation stage; claim released'
                 }
             }
@@ -1594,15 +1619,21 @@ export const applyApprovedChanges = async (req, res) => {
             }
             currentStage = 'INVENTORY_MUTATING';
 
-            // Stage 1b: Mutate Inventory with strict claim fencing
-            if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
-                await Inventory.updateOne(
-                    { _id: item.inventoryId, tenantId },
-                    { $set: { authorityVerification: {} } },
-                    useTransaction ? { session } : {}
-                );
-            }
+            // Ensure authorityVerification subdocument is initialized if null (R-02: conditional initialize prevents PathNotViable while avoiding race conditions)
+            await Inventory.updateOne(
+                {
+                    _id: item.inventoryId,
+                    tenantId,
+                    $or: [
+                        { authorityVerification: null },
+                        { authorityVerification: { $type: 10 } }
+                    ]
+                },
+                { $set: { authorityVerification: {} } },
+                useTransaction ? { session } : {}
+            );
 
+            // Stage 1b: Mutate Inventory with strict claim fencing (R-02: atomic conditional update prevents race conditions)
             const inventoryFilter = {
                 _id: item.inventoryId,
                 tenantId
