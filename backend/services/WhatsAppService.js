@@ -1567,6 +1567,14 @@ class WhatsAppService {
     }
 
     async _sendViaBaileys(mobile, message, config, options = {}) {
+        const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
+        return BaileysConnectionManager.serializeSend(config.integrationId, async () => {
+            return this._executeSendViaBaileys(mobile, message, config, options);
+        });
+    }
+
+    async _executeSendViaBaileys(mobile, message, config, options = {}) {
+        const sendStartTime = Date.now();
         const { type = 'text', mediaUrl } = options;
         try {
             const { BaileysConnectionManager } = await import('./baileysQueue/BaileysConnectionManager.js');
@@ -1585,10 +1593,10 @@ class WhatsAppService {
                 const errorDetail = isDev
                     ? 'Local Dev Environment: WhatsApp Web socket is hosted on Production (api.bharatproperties.co) to prevent session conflicts. Please send group messages from https://crm.bharatproperties.co'
                     : 'WhatsApp socket not connected or still pairing';
-                return { success: false, error: errorDetail, provider: 'baileys' };
+                return { success: false, deliveryStatus: 'FAILED', error: errorDetail, provider: 'baileys', latencyMs: Date.now() - sendStartTime };
             }
             if (!sock.user || !sock.user.id) {
-                return { success: false, error: 'WhatsApp Web is not fully connected. Please scan the QR code in Profile page.', provider: 'baileys' };
+                return { success: false, deliveryStatus: 'FAILED', error: 'WhatsApp Web is not fully connected. Please scan the QR code in Profile page.', provider: 'baileys', latencyMs: Date.now() - sendStartTime };
             }
 
             if (!sock.ws || !sock.ws.isOpen) {
@@ -1603,8 +1611,10 @@ class WhatsAppService {
                 if (!sock.ws || !sock.ws.isOpen) {
                     return { 
                         success: false, 
+                        deliveryStatus: 'FAILED',
                         error: 'WhatsApp Web socket is currently reconnecting or offline. Please check connection in Profile.', 
-                        provider: 'baileys' 
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
                     };
                 }
             }
@@ -1622,7 +1632,7 @@ class WhatsAppService {
             if (!jid.includes('@s.whatsapp.net') && !jid.includes('@g.us') && !jid.includes('@lid')) {
                 const normalized = this._normalizeTarget(jid);
                 if (!normalized) {
-                    return { success: false, error: 'Invalid phone number format for WhatsApp', provider: 'baileys' };
+                    return { success: false, deliveryStatus: 'FAILED', error: 'Invalid phone number format for WhatsApp', provider: 'baileys', latencyMs: Date.now() - sendStartTime };
                 }
                 jid = `${normalized}@s.whatsapp.net`;
             }
@@ -1680,8 +1690,22 @@ class WhatsAppService {
                 sentMsg = await Promise.race([sendPromise, timeoutPromise]);
             } catch (firstAttemptErr) {
                 const errMsg = String(firstAttemptErr?.message || firstAttemptErr);
+                const isTimeout = errMsg.toLowerCase().includes('timed out');
                 const isSocketDead = !sock.ws || !sock.ws.isOpen || errMsg.includes('1006') || errMsg.includes('Connection Terminated') || errMsg.includes('closed');
-                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket dead:', isSocketDead);
+                console.warn('[WhatsAppService/Baileys] First send attempt failed:', errMsg, '| Socket dead:', isSocketDead, '| Timeout:', isTimeout);
+
+                if (isTimeout && !isSocketDead) {
+                    // WhatsApp ACK timed out while socket remains alive.
+                    // Enterprise rule: Do NOT blindly retry; mark as DELIVERY_UNKNOWN to prevent duplicate messages in groups.
+                    return {
+                        success: false,
+                        deliveryStatus: 'DELIVERY_UNKNOWN',
+                        isDeliveryUnknown: true,
+                        error: `WhatsApp Web ACK timed out after ${Math.round(sendTimeoutMs / 1000)}s while connection remained alive. Suppressing duplicate retry to protect recipient from double messages.`,
+                        provider: 'baileys',
+                        latencyMs: Date.now() - sendStartTime
+                    };
+                }
 
                 if (isSocketDead) {
                     try {
@@ -1716,8 +1740,10 @@ class WhatsAppService {
             return { 
                 success: true, 
                 provider: 'baileys', 
+                deliveryStatus: 'ACCEPTED',
                 messageId: sentMsg?.key?.id || 'baileys-unknown-id',
-                messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }] 
+                messages: [{ id: sentMsg?.key?.id || 'baileys-unknown-id' }],
+                latencyMs: Date.now() - sendStartTime
             };
         } catch (error) {
             let errText = error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
@@ -1725,7 +1751,13 @@ class WhatsAppService {
                 errText = 'WhatsApp Web socket temporarily disconnected (1006). Connection was auto-reestablished; please click Send again.';
             }
             console.error(`[WhatsAppService/Baileys] Send error:`, errText);
-            return { success: false, error: errText, provider: 'baileys' };
+            return { 
+                success: false, 
+                deliveryStatus: 'FAILED',
+                error: errText, 
+                provider: 'baileys',
+                latencyMs: Date.now() - sendStartTime
+            };
         }
     }
 
@@ -1803,6 +1835,7 @@ class WhatsAppService {
                 messageId: msgId,
                 messages: [{ id: msgId }],
                 provider: 'meta',
+                deliveryStatus: 'ACCEPTED',
                 type
             };
         } catch (err) {

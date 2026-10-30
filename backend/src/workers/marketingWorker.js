@@ -838,10 +838,14 @@ if (name === 'bna-broadcast') {
                     results.push({ 
                         channel: 'whatsapp', 
                         status: waRes.success ? 'success' : 'failed', 
+                        deliveryStatus: waRes.deliveryStatus || (waRes.success ? 'ACCEPTED' : 'FAILED'),
+                        latencyMs: waRes.latencyMs || null,
+                        messageId: waRes.messageId || waRes.messages?.[0]?.id || null,
+                        isDeliveryUnknown: Boolean(waRes.isDeliveryUnknown),
                         error: waRes.error,
                         messageContent: text 
                     });
-                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
+                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', deliveryStatus: 'FAILED', error: e.message }); }
             }
 
             if (channels.includes('sms') && recipient.mobile && !isGroup) {
@@ -898,6 +902,8 @@ if (name === 'bna-broadcast') {
             }
 
             const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
+            const primaryWa = results.find(r => r.channel === 'whatsapp');
+            const isDeliveryUnknown = Boolean(primaryWa?.isDeliveryUnknown);
 
             // Log Activity
             try {
@@ -910,7 +916,9 @@ if (name === 'bna-broadcast') {
                     visibleTo: 'Everyone',
                     description: success 
                         ? (text || 'Dispatched') 
-                        : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`,
+                        : (isDeliveryUnknown
+                            ? `Delivery Unknown: Timeout waiting for WhatsApp ACK. Flagged for review; duplicate auto-retry suppressed.`
+                            : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`),
                     details: { 
                         results, 
                         dealId, 
@@ -923,7 +931,11 @@ if (name === 'bna-broadcast') {
                         groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
                         phoneNumber: recipient.mobile,
                         whatsappIntegrationId: integrationId || null,
-                        platform: isGroup ? 'WhatsApp Web' : 'WhatsApp'
+                        platform: isGroup ? 'WhatsApp Web' : 'WhatsApp',
+                        deliveryStatus: primaryWa?.deliveryStatus || (success ? 'ACCEPTED' : 'FAILED'),
+                        latencyMs: primaryWa?.latencyMs || null,
+                        providerMessageId: primaryWa?.messageId || null,
+                        isDeliveryUnknown
                     },
                     participants: [
                         { name: recipient.name || (isGroup ? 'WhatsApp Group' : 'Partner'), mobile: recipient.mobile }
@@ -982,8 +994,9 @@ if (name === 'bna-broadcast') {
                     type: 'Marketing',
                     'details.dealId': dealQuery,
                     status: { $in: ['Sent', 'Completed', 'sent', 'completed'] },
+                    'details.deliveryStatus': { $ne: 'DELIVERY_UNKNOWN' },
                     createdAt: { $gte: cutoffDate }
-                }).select('details.groupJid details.phoneNumber participants.mobile createdAt').lean();
+                }).select('details.groupJid details.phoneNumber details.deliveryStatus participants.mobile createdAt').lean();
 
                 recentActivities.forEach(act => {
                     const jid = act.details?.groupJid || act.details?.phoneNumber || act.participants?.[0]?.mobile;
@@ -1060,6 +1073,13 @@ if (name === 'bna-broadcast') {
                     const step = Math.min(10, cooldownSeconds - elapsed);
                     await new Promise(r => setTimeout(r, step * 1000));
                     elapsed += step;
+
+                    // Active lock renewal: touching job in Redis keeps BullMQ stalled timer from triggering
+                    try {
+                        const currentOverall = otherRecipients.length + batchEnd;
+                        await job.updateProgress(Math.round((currentOverall / recipients.length) * 100));
+                    } catch (touchErr) {}
+
                     if (elapsed % 60 === 0 || elapsed === cooldownSeconds) {
                         const remSec = cooldownSeconds - elapsed;
                         const remMins = Math.ceil(remSec / 60);
@@ -1082,13 +1102,14 @@ if (name === 'bna-broadcast') {
 
 export const marketingWorker = new Worker('marketingQueue', processMarketingJob, {
     connection: redisConnection,
-    concurrency: 5,  // Process up to 5 marketing jobs in parallel
+    concurrency: 2,  // Reduced from 5 to 2 to eliminate socket saturation while keeping throughput
     limiter: {
         max: 20,           // Rate limit: max 20 jobs
         duration: 60000,   // Per 60 seconds (to respect API rate limits)
     },
     lockDuration: 600000,  // 10 minutes lock duration to accommodate batch cooldowns
     lockRenewTime: 15000,  // Renew lock every 15 seconds
+    maxStalledCount: 3,    // Allow up to 3 stalls before marking unrecoverable
     stalledInterval: 60000 // Check stalled jobs every 60 seconds
 });
 

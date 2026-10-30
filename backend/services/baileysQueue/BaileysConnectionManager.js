@@ -11,6 +11,10 @@ const connections = new Map();
 const inFlightPromises = new Map();
 const reconnectTimers = new Map();
 const integrationGroupSubjectCache = new Map();
+const integrationGroupMetadataCache = new Map();
+const sessionSendQueues = new Map();
+const connectionReadyTimestamps = new Map();
+const GROUP_METADATA_TTL_MS = 30 * 60 * 1000; // 30-min TTL
 const instanceId = `${process.pid}_${Math.random().toString(36).substring(2, 9)}`;
 const activeHeartbeats = new Map();
 const lidPhoneCache = new Map();
@@ -23,6 +27,18 @@ function safeSetBoundedCache(map, key, value) {
         if (firstKey) map.delete(firstKey);
     }
     map.set(key, value);
+}
+
+function safeSetGroupMetadata(integrationId, jid, metadata) {
+    const idStr = String(integrationId || 'default');
+    if (!integrationGroupMetadataCache.has(idStr)) {
+        integrationGroupMetadataCache.set(idStr, new Map());
+    }
+    const cache = integrationGroupMetadataCache.get(idStr);
+    safeSetBoundedCache(cache, String(jid).trim(), {
+        data: metadata,
+        fetchedAt: Date.now()
+    });
 }
 
 /**
@@ -273,7 +289,10 @@ export const BaileysConnectionManager = {
                     connectTimeoutMs: 30000,
                     keepAliveIntervalMs: 25000,
                     defaultQueryTimeoutMs: 20000,
-                    fireInitQueries: false
+                    fireInitQueries: false,
+                    cachedGroupMetadata: async (jid) => {
+                        return BaileysConnectionManager.getCachedGroupMetadata(integrationId, jid);
+                    }
                 });
 
                 connections.set(integrationId, sock);
@@ -294,6 +313,7 @@ export const BaileysConnectionManager = {
                     }
 
                     if (connection === 'close') {
+                        connectionReadyTimestamps.delete(String(integrationId));
                         if (activeHeartbeats.has(integrationId)) {
                             clearInterval(activeHeartbeats.get(integrationId));
                             activeHeartbeats.delete(integrationId);
@@ -383,6 +403,7 @@ export const BaileysConnectionManager = {
                         }, 2500);
                         reconnectTimers.set(integrationId, timer);
                     } else if (connection === 'open') {
+                        connectionReadyTimestamps.set(String(integrationId), Date.now());
                         console.log(`[BaileysConnectionManager] opened connection for integration ${integrationId}`);
                         try {
                             const phone = sock.user?.id ? sock.user.id.split(':')[0].replace(/\D/g, '') : undefined;
@@ -440,16 +461,21 @@ export const BaileysConnectionManager = {
                             });
                             console.log(`[BaileysConnectionManager] Integration ${integrationId} marked as ACTIVE / CONNECTED (Phone: ${phone})`);
 
-                            // 👥 Auto-cache all participating group subjects
+                            // 👥 Auto-cache all participating group subjects and full metadata
                             sock.groupFetchAllParticipating().then(groups => {
+                                let count = 0;
                                 Object.values(groups || {}).forEach(g => {
-                                    if (g.id && g.subject) {
-                                        BaileysConnectionManager.setGroupSubject(integrationId, g.id, g.subject);
+                                    if (g.id) {
+                                        count++;
+                                        if (g.subject) {
+                                            BaileysConnectionManager.setGroupSubject(integrationId, g.id, g.subject);
+                                        }
+                                        BaileysConnectionManager.setCachedGroupMetadata(integrationId, g.id, g);
                                     }
                                 });
-                                console.log(`[BaileysConnectionManager] Cached group subjects for integration ${integrationId}`);
+                                console.log(`[BaileysConnectionManager] Cached metadata and subjects for ${count} groups (Integration: ${integrationId})`);
                             }).catch(err => {
-                                console.warn('[BaileysConnectionManager] Group subject sync notice:', err.message);
+                                console.warn('[BaileysConnectionManager] Group subject/metadata sync notice:', err.message);
                             });
                         } catch (openErr) {
                             console.error('[BaileysConnectionManager] Error updating integration on open:', openErr.message);
@@ -458,6 +484,24 @@ export const BaileysConnectionManager = {
                 });
 
                 sock.ev.on('creds.update', saveCreds);
+
+                // Real-time group cache invalidation
+                sock.ev.on('groups.update', (updates) => {
+                    for (const u of (updates || [])) {
+                        if (u.id) {
+                            BaileysConnectionManager.invalidateCachedGroupMetadata(integrationId, u.id);
+                            if (u.subject) {
+                                BaileysConnectionManager.setGroupSubject(integrationId, u.id, u.subject);
+                            }
+                        }
+                    }
+                });
+
+                sock.ev.on('group-participants.update', ({ id }) => {
+                    if (id) {
+                        BaileysConnectionManager.invalidateCachedGroupMetadata(integrationId, id);
+                    }
+                });
 
         // Handle incoming and outgoing messages from WhatsApp Web (Real-time & 24h catch-up)
         const CATCHUP_HORIZON_SECONDS = Math.floor(Date.now() / 1000) - 86400; // 24-hour catchup horizon
@@ -594,12 +638,100 @@ export const BaileysConnectionManager = {
         return resolveJidToPhone(jid, integrationId);
     },
 
+    /**
+     * Strict Outbound Serial Lane (Concurrency: 1 per Baileys session)
+     * Eliminates WebSocket frame collisions (1006 / connection resets) when multiple broadcasts or concurrent requests send simultaneously.
+     * Enforces a 5-second post-reconnect cool-off period so messages are never dispatched onto a stabilizing socket.
+     */
+    async serializeSend(integrationId, sendTask) {
+        const idStr = String(integrationId || 'default');
+        const previousPromise = sessionSendQueues.get(idStr) || Promise.resolve();
+
+        const currentTaskPromise = (async () => {
+            try {
+                await previousPromise;
+            } catch (err) {
+                // Prior send failure must never block subsequent queued sends
+            }
+
+            // Connection cool-off guard: wait until socket has been established for at least 5 seconds
+            const readyTs = connectionReadyTimestamps.get(idStr);
+            if (readyTs) {
+                const elapsedSinceReady = Date.now() - readyTs;
+                const COOLOFF_WINDOW_MS = 5000;
+                if (elapsedSinceReady < COOLOFF_WINDOW_MS) {
+                    const waitMs = COOLOFF_WINDOW_MS - elapsedSinceReady;
+                    await new Promise(r => setTimeout(r, waitMs));
+                }
+            }
+
+            return await sendTask();
+        })();
+
+        // Store tail promise with catch handler to prevent unhandled rejection crashes
+        sessionSendQueues.set(idStr, currentTaskPromise.catch(() => {}));
+
+        return currentTaskPromise;
+    },
+
+    /**
+     * Retrieves cached group metadata if present and younger than 30 minutes.
+     * If not found, falls back to fetching once from live socket and caching the result.
+     */
+    async getCachedGroupMetadata(integrationId, jid) {
+        if (!jid) return null;
+        const idStr = String(integrationId || 'default');
+        const cleanJid = String(jid).trim();
+
+        const cache = integrationGroupMetadataCache.get(idStr);
+        if (cache && cache.has(cleanJid)) {
+            const entry = cache.get(cleanJid);
+            if (entry && (Date.now() - entry.fetchedAt < GROUP_METADATA_TTL_MS)) {
+                return entry.data;
+            }
+        }
+
+        // Live fallback: fetch once from active socket if open and cache
+        const sock = connections.get(integrationId);
+        if (sock && sock.ws && sock.ws.isOpen && typeof sock.groupMetadata === 'function') {
+            try {
+                const data = await sock.groupMetadata(cleanJid);
+                if (data && Array.isArray(data.participants)) {
+                    safeSetGroupMetadata(integrationId, cleanJid, data);
+                    if (data.subject) {
+                        this.setGroupSubject(integrationId, cleanJid, data.subject);
+                    }
+                    return data;
+                }
+            } catch (fetchErr) {
+                console.warn(`[BaileysConnectionManager] Live groupMetadata fetch failed for ${cleanJid}:`, fetchErr.message);
+            }
+        }
+
+        return null;
+    },
+
+    setCachedGroupMetadata(integrationId, jid, metadata) {
+        safeSetGroupMetadata(integrationId, jid, metadata);
+    },
+
+    invalidateCachedGroupMetadata(integrationId, jid) {
+        const idStr = String(integrationId || 'default');
+        const cache = integrationGroupMetadataCache.get(idStr);
+        if (cache && jid) {
+            cache.delete(String(jid).trim());
+        }
+    },
+
     async logout(integrationId) {
         if (activeHeartbeats.has(integrationId)) {
             clearInterval(activeHeartbeats.get(integrationId));
             activeHeartbeats.delete(integrationId);
         }
         integrationGroupSubjectCache.delete(String(integrationId));
+        integrationGroupMetadataCache.delete(String(integrationId));
+        sessionSendQueues.delete(String(integrationId));
+        connectionReadyTimestamps.delete(String(integrationId));
         inFlightPromises.delete(integrationId);
         try {
             const { default: redisProxy } = await import('../../src/config/redis.js');
