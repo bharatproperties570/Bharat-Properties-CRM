@@ -169,7 +169,8 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_run_completed',
             'authority_run_cancelled',
             'authority_review_submitted',
-            'authority_changes_applied'
+            'authority_changes_applied',
+            'authority_changes_apply_compensated'
         ],
         index: true
     },
@@ -229,7 +230,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Status ==========
     status: {
         type: String,
-        enum: ['success', 'failure', 'warning'],
+        enum: ['success', 'failure', 'warning', 'compensated'],
         default: 'success'
     },
     department: { type: String, index: true }, // Regional tracking for Enterprise Isolation

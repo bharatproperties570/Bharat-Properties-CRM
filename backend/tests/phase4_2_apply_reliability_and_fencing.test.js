@@ -296,12 +296,12 @@ describe('Phase 4.2 — Final Apply Reliability & Bulk Concurrency Remediation',
             assert.equal(freshInv.authorityVerification?.fileNumber, null, 'Inventory must be restored to null');
             assert.equal(freshInv.authorityVerification?.applyClaimId, null);
 
-            // Verify AuditLog record was deleted/compensated
-            const auditLogs = await AuditLog.find({
-                eventType: 'authority_changes_applied',
+            // Verify durable compensation audit record was created linked to original claim
+            const compAuditLogs = await AuditLog.find({
+                eventType: 'authority_changes_apply_compensated',
                 targetId: inventory._id.toString()
             });
-            assert.equal(auditLogs.length, 0, 'Dangling audit record must be cleaned up during compensation');
+            assert.equal(compAuditLogs.length, 1, 'Durable compensation audit event must be recorded instead of silent deletion');
 
             // Verify RunItem state
             const freshItem = await PropertyVerificationRunItem.findById(item._id);
@@ -422,7 +422,8 @@ describe('Phase 4.2 — Final Apply Reliability & Bulk Concurrency Remediation',
                     assert.equal(audits.length >= 1, true, 'Applied item must have corresponding audit log');
                 } else {
                     assert.equal(itm.applied, false);
-                    assert.equal(audits.length, 0, 'Unapplied/failed item must not have an applied audit log');
+                    const activeAudits = audits.filter(a => a.status !== 'compensated');
+                    assert.equal(activeAudits.length, 0, 'Unapplied/failed item must not have an active applied audit log');
                 }
             }
         });
@@ -479,8 +480,8 @@ describe('Phase 4.2 — Final Apply Reliability & Bulk Concurrency Remediation',
 
             // Inventory must NOT retain the proposed mutation
             const freshInv = await Inventory.findById(inventory._id);
-            assert.equal(freshInv.authorityVerification?.fileNumber, null);
-            assert.equal(freshInv.authorityVerification?.applyClaimId, null);
+            assert.equal(freshInv.authorityVerification?.fileNumber ?? null, null);
+            assert.equal(freshInv.authorityVerification?.applyClaimId ?? null, null);
 
             // RunItem must remain unapplied
             const freshItem = await PropertyVerificationRunItem.findById(item._id);

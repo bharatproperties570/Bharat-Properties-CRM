@@ -195,7 +195,7 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     // ========== Atomic Application State & Claim ==========
     applyState: {
         type: String,
-        enum: ['UNAPPLIED', 'APPLYING', 'APPLIED', 'FAILED'],
+        enum: ['UNAPPLIED', 'APPLYING', 'APPLIED', 'FAILED', 'COMPENSATION_FAILED'],
         default: 'UNAPPLIED',
         index: true
     },
@@ -206,6 +206,10 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
             default: null
         },
         claimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        reconcilerClaimId: {
             type: mongoose.Schema.Types.ObjectId,
             default: null
         },
@@ -224,8 +228,12 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
         },
         stage: {
             type: String,
-            enum: ['IDLE', 'CLAIMED', 'INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING', 'COMPLETED', 'FAILED', 'COMPENSATING', 'COMPENSATED'],
+            enum: ['IDLE', 'CLAIMED', 'INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING', 'COMPLETED', 'FAILED', 'COMPENSATING', 'COMPENSATED', 'COMPENSATION_FAILED', 'RECONCILING'],
             default: 'IDLE'
+        },
+        expectedPreviousClaimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
         },
         idempotencyKey: {
             type: String,

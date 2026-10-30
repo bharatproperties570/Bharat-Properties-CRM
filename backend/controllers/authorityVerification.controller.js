@@ -706,9 +706,9 @@ export const submitReview = async (req, res) => {
 // ============================================================
 
 /**
- * Compensates an interrupted or failed apply saga to ensure atomic consistency.
- * Restores Inventory to pre-apply values (matching claimId), deletes dangling audit logs,
- * and records FAILED/COMPENSATED state on PropertyVerificationRunItem.
+ * Durably compensates an interrupted or failed apply saga (standalone MongoDB fallback).
+ * Restores Inventory to pre-apply values (matching claimId), records durable compensation audit,
+ * and records FAILED/COMPENSATED or COMPENSATION_FAILED state on PropertyVerificationRunItem.
  */
 export const compensateApplySaga = async ({
     itemId,
@@ -718,51 +718,141 @@ export const compensateApplySaga = async ({
     stage,
     compensation,
     errorMsg,
+    appliedBy = null,
     session = null
 }) => {
-    // 1. Revert Inventory mutation if stage passed INVENTORY_MUTATING
+    let inventoryRevertError = null;
+    let auditCompensationError = null;
+
+    // 1. Revert Inventory mutation if stage indicates possible or confirmed mutation
     if (stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(stage)) {
         if (compensation?.inventoryBefore && typeof compensation.inventoryBefore === 'object') {
-            const revertOps = {};
-            for (const [key, val] of Object.entries(compensation.inventoryBefore)) {
-                revertOps[key] = (val === undefined || val === null) ? null : val;
-            }
-            revertOps['authorityVerification.applyClaimId'] = null;
-
             try {
-                await Inventory.updateOne(
-                    {
-                        _id: inventoryId,
-                        tenantId,
-                        $or: [
-                            { 'authorityVerification.applyClaimId': claimId },
-                            { 'authorityVerification.applyClaimId': null }
-                        ]
-                    },
-                    { $set: revertOps },
-                    session ? { session } : {}
-                );
+                // Check whether Inventory was actually tagged/mutated with this claimId
+                const mutatedDoc = await Inventory.findOne({
+                    _id: inventoryId,
+                    tenantId,
+                    'authorityVerification.applyClaimId': claimId
+                });
+
+                if (mutatedDoc) {
+                    const revertOps = {};
+                    for (const [key, val] of Object.entries(compensation.inventoryBefore)) {
+                        revertOps[key] = (val === undefined || val === null) ? null : val;
+                    }
+                    revertOps['authorityVerification.applyClaimId'] = null;
+
+                    const invRes = await Inventory.updateOne(
+                        {
+                            _id: inventoryId,
+                            tenantId,
+                            'authorityVerification.applyClaimId': claimId
+                        },
+                        { $set: revertOps },
+                        session ? { session } : {}
+                    );
+
+                    if (invRes.matchedCount !== 1) {
+                        throw new Error(`Inventory rollback failed: matchedCount was ${invRes.matchedCount}`);
+                    }
+                } else if (stage !== 'INVENTORY_MUTATING') {
+                    // Stage indicated mutated, but document does not have this claimId.
+                    // Verify if it is already reverted (idempotency check)
+                    const existingInv = await Inventory.findOne({ _id: inventoryId, tenantId });
+                    if (existingInv?.authorityVerification?.applyClaimId && String(existingInv.authorityVerification.applyClaimId) !== String(claimId)) {
+                        console.warn(`[SagaCompensation] Inventory ${inventoryId} claimed by another claim ${existingInv.authorityVerification.applyClaimId}; skipping overwrite`);
+                    }
+                }
             } catch (invErr) {
                 console.error(`[SagaCompensation] Error reverting inventory ${inventoryId}:`, invErr);
+                inventoryRevertError = invErr;
             }
         }
     }
 
-    // 2. Delete dangling AuditLog record if one was created
+    // 2. Record durable compensation audit record (integrity over silent deletion)
     if (compensation?.auditId) {
         try {
-            await AuditLog.deleteOne(
-                { _id: compensation.auditId },
+            await auditEvent(
+                'authority_changes_apply_compensated',
+                appliedBy || null,
+                'inventory',
+                inventoryId,
+                `Authority verification changes apply compensated for claim ${claimId}`,
+                {
+                    before: {
+                        claimId: claimId ? claimId.toString() : null,
+                        originalAuditId: compensation.auditId ? compensation.auditId.toString() : null,
+                        stage,
+                        revertedChanges: compensation.inventoryBefore
+                    },
+                    after: {
+                        status: 'COMPENSATED',
+                        applyState: 'FAILED',
+                        revertedAt: new Date(),
+                        error: errorMsg
+                    }
+                },
                 session ? { session } : {}
             );
+
+            // Update original audit record status to compensated
+            try {
+                await AuditLog.updateOne(
+                    { _id: compensation.auditId },
+                    {
+                        $set: {
+                            status: 'compensated',
+                            'metadata.compensated': true,
+                            'metadata.compensationClaimId': claimId ? claimId.toString() : null
+                        }
+                    },
+                    session ? { session } : {}
+                );
+            } catch (origErr) {
+                console.warn(`[SagaCompensation] Warning updating original audit ${compensation.auditId}:`, origErr);
+            }
         } catch (auditErr) {
-            console.error(`[SagaCompensation] Error deleting auditLog ${compensation.auditId}:`, auditErr);
+            console.error(`[SagaCompensation] Error recording compensation audit for item ${itemId}:`, auditErr);
+            auditCompensationError = auditErr;
         }
     }
 
-    // 3. Mark RunItem as FAILED with stage COMPENSATED and release lease
+    // 3. Mark RunItem state: fail-closed if any compensation step failed
+    if (inventoryRevertError || auditCompensationError) {
+        const failureDetails = [
+            inventoryRevertError ? `Inventory revert failed: ${inventoryRevertError.message}` : null,
+            auditCompensationError ? `Audit compensation failed: ${auditCompensationError.message}` : null
+        ].filter(Boolean).join('; ');
+
+        try {
+            await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: itemId,
+                    tenantId,
+                    'applyClaim.claimId': claimId
+                },
+                {
+                    $set: {
+                        applyState: 'COMPENSATION_FAILED',
+                        'applyClaim.stage': 'COMPENSATION_FAILED',
+                        'applyClaim.leaseExpiresAt': null,
+                        applyError: `Compensation failed: ${failureDetails}`
+                    }
+                },
+                session ? { session } : {}
+            );
+        } catch (itemErr) {
+            console.error(`[SagaCompensation] Error updating run item ${itemId} to COMPENSATION_FAILED:`, itemErr);
+        }
+
+        const compErr = new Error(`Compensation failed: ${failureDetails}`);
+        compErr.code = 'COMPENSATION_FAILED';
+        throw compErr;
+    }
+
     try {
-        await PropertyVerificationRunItem.updateOne(
+        const itemRes = await PropertyVerificationRunItem.updateOne(
             {
                 _id: itemId,
                 tenantId,
@@ -778,14 +868,19 @@ export const compensateApplySaga = async ({
             },
             session ? { session } : {}
         );
+        if (itemRes.matchedCount !== 1) {
+            console.warn(`[SagaCompensation] RunItem ${itemId} not updated during compensation: matchedCount was ${itemRes.matchedCount}`);
+        }
     } catch (itemErr) {
         console.error(`[SagaCompensation] Error updating run item ${itemId}:`, itemErr);
+        throw itemErr;
     }
 };
 
 /**
  * Reconciles an interrupted or stale apply claim whose lease has expired.
- * Rolls back any partial Inventory mutation or audit logs, returning the item to a clean FAILED/COMPENSATED state.
+ * Atomically claims ownership of the expired saga, rolls back any partial Inventory mutation,
+ * records durable compensation audit logs, and returns the item to a clean FAILED/COMPENSATED state.
  */
 export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
     const item = await PropertyVerificationRunItem.findOne({ _id: itemId, tenantId });
@@ -793,54 +888,126 @@ export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
         return { reconciled: false, reason: 'ALREADY_COMPLETED' };
     }
 
+    if (item.applyState === 'COMPENSATION_FAILED' || item.applyClaim?.stage === 'COMPENSATION_FAILED') {
+        return { reconciled: false, reason: 'COMPENSATION_UNRESOLVED' };
+    }
+
     const claim = item.applyClaim;
     const now = new Date();
-    if (item.applyState === 'APPLYING' && claim?.leaseExpiresAt && claim.leaseExpiresAt < now) {
-        if (claim.stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(claim.stage)) {
-            await compensateApplySaga({
-                itemId: item._id,
-                tenantId,
-                inventoryId: item.inventoryId,
-                claimId: claim.claimId,
-                stage: claim.stage,
-                compensation: claim.compensation,
-                errorMsg: 'Interrupted apply saga lease expired; compensated by reconciler'
-            });
-            return { reconciled: true, action: 'COMPENSATED' };
-        } else {
-            // Stage was CLAIMED or IDLE; just release the expired claim
-            await PropertyVerificationRunItem.updateOne(
-                { _id: item._id, tenantId, 'applyClaim.claimId': claim.claimId },
-                {
-                    $set: {
-                        applyState: 'FAILED',
-                        'applyClaim.stage': 'COMPENSATED',
-                        'applyClaim.leaseExpiresAt': null,
-                        applyError: 'Lease expired before mutation stage; claim released'
-                    }
-                }
-            );
-            return { reconciled: true, action: 'RELEASED' };
+
+    if (item.applyState !== 'APPLYING' || !claim?.leaseExpiresAt || claim.leaseExpiresAt >= now) {
+        return { reconciled: false, reason: 'NOT_ELIGIBLE_OR_LEASE_ACTIVE' };
+    }
+
+    // Atomically reserve the expired saga for this reconciler (prevents concurrent double-reconciliation)
+    const reconcilerClaimId = new mongoose.Types.ObjectId();
+    const reconcilerExpiry = new Date(now.getTime() + 30000);
+
+    const reservedItem = await PropertyVerificationRunItem.findOneAndUpdate(
+        {
+            _id: itemId,
+            tenantId,
+            applyState: 'APPLYING',
+            'applyClaim.claimId': claim.claimId,
+            'applyClaim.leaseExpiresAt': { $lt: now },
+            'applyClaim.stage': { $ne: 'RECONCILING' }
+        },
+        {
+            $set: {
+                'applyClaim.stage': 'RECONCILING',
+                'applyClaim.reconcilerClaimId': reconcilerClaimId,
+                'applyClaim.leaseExpiresAt': reconcilerExpiry
+            }
+        },
+        { new: true }
+    );
+
+    if (!reservedItem) {
+        return { reconciled: false, reason: 'LOCKED_BY_ANOTHER_RECONCILER_OR_INELIGIBLE' };
+    }
+
+    const originalStage = claim.stage;
+    let inventoryMutated = false;
+
+    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+        const inv = await Inventory.findOne({
+            _id: reservedItem.inventoryId,
+            tenantId,
+            'authorityVerification.applyClaimId': claim.claimId
+        });
+        if (inv) {
+            inventoryMutated = true;
         }
     }
-    return { reconciled: false, reason: 'NO_ACTION_NEEDED' };
+
+    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+        await compensateApplySaga({
+            itemId: reservedItem._id,
+            tenantId,
+            inventoryId: reservedItem.inventoryId,
+            claimId: claim.claimId,
+            stage: originalStage,
+            compensation: claim.compensation,
+            errorMsg: 'Interrupted apply saga lease expired; compensated by reconciler'
+        });
+        return { reconciled: true, action: 'COMPENSATED' };
+    } else {
+        // Stage was CLAIMED or INVENTORY_MUTATING (where Inventory was never mutated)
+        // Safely release the expired claim
+        await PropertyVerificationRunItem.updateOne(
+            { _id: reservedItem._id, tenantId, 'applyClaim.claimId': claim.claimId },
+            {
+                $set: {
+                    applyState: 'FAILED',
+                    'applyClaim.stage': 'COMPENSATED',
+                    'applyClaim.leaseExpiresAt': null,
+                    applyError: 'Lease expired before mutation stage; claim released'
+                }
+            }
+        );
+        return { reconciled: true, action: 'RELEASED' };
+    }
 };
 
 /**
  * Renews the active lease on an in-progress apply claim.
- * Fails closed if the claim has expired or was preempted by another worker.
+ * Fails closed if the claim has expired, fenceToken mismatches, or was preempted by another worker.
+ * Supports flexible signature:
+ * - renewApplyClaimLease(itemId, tenantId, claimId, extensionMs)
+ * - renewApplyClaimLease(itemId, tenantId, claimId, fenceToken, extensionMs)
+ * - renewApplyClaimLease(itemId, tenantId, claimId, { fenceToken, extensionMs })
  */
-export const renewApplyClaimLease = async (itemId, tenantId, claimId, extensionMs = 30000) => {
+export const renewApplyClaimLease = async (itemId, tenantId, claimId, fenceTokenOrExtension = null, extensionMs = 30000) => {
+    let fenceToken = null;
+    let extension = extensionMs;
+
+    if (typeof fenceTokenOrExtension === 'number') {
+        if (fenceTokenOrExtension >= 1000) {
+            // Called as renewApplyClaimLease(itemId, tenantId, claimId, extensionMs)
+            extension = fenceTokenOrExtension;
+        } else {
+            // Called as renewApplyClaimLease(itemId, tenantId, claimId, fenceToken, extensionMs)
+            fenceToken = fenceTokenOrExtension;
+        }
+    } else if (typeof fenceTokenOrExtension === 'object' && fenceTokenOrExtension !== null) {
+        fenceToken = fenceTokenOrExtension.fenceToken ?? null;
+        extension = fenceTokenOrExtension.extensionMs ?? extensionMs;
+    }
+
     const now = new Date();
-    const newExpiry = new Date(now.getTime() + extensionMs);
+    const newExpiry = new Date(now.getTime() + extension);
+    const filter = {
+        _id: itemId,
+        tenantId,
+        'applyClaim.claimId': claimId,
+        'applyClaim.leaseExpiresAt': { $gt: now },
+        applyState: 'APPLYING'
+    };
+    if (fenceToken !== null && fenceToken !== undefined) {
+        filter['applyClaim.fenceToken'] = fenceToken;
+    }
     const updated = await PropertyVerificationRunItem.findOneAndUpdate(
-        {
-            _id: itemId,
-            tenantId,
-            'applyClaim.claimId': claimId,
-            'applyClaim.leaseExpiresAt': { $gt: now },
-            applyState: 'APPLYING'
-        },
+        filter,
         {
             $set: {
                 'applyClaim.leaseExpiresAt': newExpiry
@@ -879,6 +1046,16 @@ export const applyApprovedChanges = async (req, res) => {
         const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
         if (!inventory) {
             return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
+        }
+
+        // 0. Fail-Closed Check: previous compensation failed and requires manual reconciliation
+        if (item.applyState === 'COMPENSATION_FAILED' || item.applyClaim?.stage === 'COMPENSATION_FAILED') {
+            return res.status(422).json({
+                success: false,
+                code: 'COMPENSATION_UNRESOLVED',
+                message: 'Cannot apply changes: previous application compensation failed and requires manual reconciliation',
+                error: item.applyError
+            });
         }
 
         // 1. Synthetic Fixture Protection: reject immediately if item is marked synthetic
@@ -1233,6 +1410,7 @@ export const applyApprovedChanges = async (req, res) => {
             previousValues[key] = currentAv[fieldPath] !== undefined ? currentAv[fieldPath] : null;
         }
         previousValues['authorityVerification.applyClaimId'] = currentAv.applyClaimId || null;
+        const expectedPreviousClaimId = currentAv.applyClaimId || null;
 
         const claimNow = new Date();
         const claimExpiry = new Date(claimNow.getTime() + 30000); // 30-second bounded claim lease
@@ -1264,6 +1442,7 @@ export const applyApprovedChanges = async (req, res) => {
                     'applyClaim.leaseExpiresAt': claimExpiry,
                     'applyClaim.stage': 'CLAIMED',
                     'applyClaim.idempotencyKey': idempotencyKey,
+                    'applyClaim.expectedPreviousClaimId': expectedPreviousClaimId,
                     'applyClaim.compensation': {
                         inventoryBefore: previousValues,
                         auditId: null
@@ -1314,10 +1493,17 @@ export const applyApprovedChanges = async (req, res) => {
                 session = await mongoose.startSession();
                 session.startTransaction();
                 useTransaction = true;
-            } catch {
+            } catch (sessionErr) {
                 if (session) {
                     try { await session.endSession(); } catch {}
                     session = null;
+                }
+                if (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true') {
+                    return res.status(503).json({
+                        success: false,
+                        code: 'TRANSACTIONS_UNAVAILABLE',
+                        message: `Cannot apply changes: Failed to initialize replica set transaction: ${sessionErr.message}`
+                    });
                 }
                 useTransaction = false;
             }
@@ -1327,10 +1513,31 @@ export const applyApprovedChanges = async (req, res) => {
         let recordedAuditId = null;
 
         try {
-            // Stage 1: Inventory Mutation
+            // Stage 1a: Persist INVENTORY_MUTATING conditionally BEFORE touching Inventory
+            const mutatingRes = await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: item._id,
+                    tenantId,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
+                    'applyClaim.leaseExpiresAt': { $gt: new Date() },
+                    applyState: 'APPLYING'
+                },
+                {
+                    $set: {
+                        'applyClaim.stage': 'INVENTORY_MUTATING'
+                    }
+                },
+                useTransaction ? { session } : {}
+            );
+            if (mutatingRes.matchedCount !== 1) {
+                const err = new Error('APPLY_CLAIM_PREEMPTED_OR_EXPIRED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
             currentStage = 'INVENTORY_MUTATING';
 
-            // If legacy document has authorityVerification: null, initialize it to an empty object
+            // Stage 1b: Mutate Inventory with strict claim fencing
             if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
                 await Inventory.updateOne(
                     { _id: item.inventoryId, tenantId },
@@ -1339,19 +1546,37 @@ export const applyApprovedChanges = async (req, res) => {
                 );
             }
 
-            // Apply update with strict schema enforcement
-            await Inventory.findOneAndUpdate(
-                { _id: item.inventoryId, tenantId },
-                { $set: updateOps },
-                { strict: 'throw', runValidators: true, ...(useTransaction ? { session } : {}) }
-            );
+            const inventoryFilter = {
+                _id: item.inventoryId,
+                tenantId
+            };
+            if (expectedPreviousClaimId) {
+                inventoryFilter['authorityVerification.applyClaimId'] = expectedPreviousClaimId;
+            } else {
+                inventoryFilter['$or'] = [
+                    { 'authorityVerification.applyClaimId': null },
+                    { 'authorityVerification.applyClaimId': { $exists: false } }
+                ];
+            }
 
-            // Record stage INVENTORY_MUTATED conditionally validating lease & claim
+            const mutatedInventory = await Inventory.findOneAndUpdate(
+                inventoryFilter,
+                { $set: updateOps },
+                { strict: 'throw', runValidators: true, new: true, ...(useTransaction ? { session } : {}) }
+            );
+            if (!mutatedInventory) {
+                const err = new Error('INVENTORY_MUTATION_FENCED_PREEMPTED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+
+            // Stage 1c: Persist INVENTORY_MUTATED conditionally validating lease & claim
             const stage1Res = await PropertyVerificationRunItem.updateOne(
                 {
                     _id: item._id,
                     tenantId,
                     'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
                     'applyClaim.leaseExpiresAt': { $gt: new Date() },
                     applyState: 'APPLYING'
                 },
@@ -1394,6 +1619,7 @@ export const applyApprovedChanges = async (req, res) => {
                     _id: item._id,
                     tenantId,
                     'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
                     'applyClaim.leaseExpiresAt': { $gt: new Date() },
                     applyState: 'APPLYING'
                 },
@@ -1420,6 +1646,7 @@ export const applyApprovedChanges = async (req, res) => {
                     _id: item._id,
                     tenantId,
                     'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
                     'applyClaim.leaseExpiresAt': { $gt: new Date() },
                     applyState: 'APPLYING'
                 },
@@ -1467,24 +1694,38 @@ export const applyApprovedChanges = async (req, res) => {
             }
 
             // Execute durable saga compensation
-            await compensateApplySaga({
-                itemId: item._id,
-                tenantId,
-                inventoryId: item.inventoryId,
-                claimId,
-                stage: currentStage,
-                compensation: {
-                    inventoryBefore: previousValues,
-                    auditId: recordedAuditId
-                },
-                errorMsg: execErr.message
-            });
+            try {
+                await compensateApplySaga({
+                    itemId: item._id,
+                    tenantId,
+                    inventoryId: item.inventoryId,
+                    claimId,
+                    stage: currentStage,
+                    compensation: {
+                        inventoryBefore: previousValues,
+                        auditId: recordedAuditId
+                    },
+                    errorMsg: execErr.message,
+                    appliedBy: req.user._id
+                });
+            } catch (compErr) {
+                console.error(`[applyApprovedChanges] Compensation execution error:`, compErr);
+            }
 
-            if (execErr.code === 'CLAIM_PREEMPTED' || execErr.message === 'APPLY_CLAIM_PREEMPTED_OR_EXPIRED') {
+            if (
+                execErr.code === 'CLAIM_PREEMPTED' ||
+                execErr.message === 'APPLY_CLAIM_PREEMPTED_OR_EXPIRED' ||
+                execErr.message === 'INVENTORY_MUTATION_FENCED_PREEMPTED' ||
+                execErr.codeName === 'WriteConflict' ||
+                execErr.code === 112 ||
+                execErr.codeName === 'LockTimeout' ||
+                execErr.code === 24 ||
+                (typeof execErr.hasErrorLabel === 'function' && execErr.hasErrorLabel('TransientTransactionError'))
+            ) {
                 return res.status(409).json({
                     success: false,
                     code: 'CLAIM_PREEMPTED',
-                    message: 'Apply claim expired or was preempted by another request before completion'
+                    message: 'Apply claim expired or was preempted by concurrent write conflict before completion'
                 });
             }
 
