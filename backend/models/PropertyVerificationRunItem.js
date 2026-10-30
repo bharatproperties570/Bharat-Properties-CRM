@@ -209,6 +209,10 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
             type: mongoose.Schema.Types.ObjectId,
             default: null
         },
+        fenceToken: {
+            type: Number,
+            default: 0
+        },
         claimedAt: {
             type: Date,
             default: null
@@ -217,6 +221,26 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
             type: Date,
             default: null,
             index: true
+        },
+        stage: {
+            type: String,
+            enum: ['IDLE', 'CLAIMED', 'INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING', 'COMPLETED', 'FAILED', 'COMPENSATING', 'COMPENSATED'],
+            default: 'IDLE'
+        },
+        idempotencyKey: {
+            type: String,
+            default: null
+        },
+        compensation: {
+            inventoryBefore: {
+                type: mongoose.Schema.Types.Mixed,
+                default: null
+            },
+            auditId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'AuditLog',
+                default: null
+            }
         }
     },
     applyError: {
@@ -234,6 +258,8 @@ PropertyVerificationRunItemSchema.index({ tenantId: 1, runId: 1, status: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, inventoryId: 1, createdAt: -1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, reviewerDecision: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, applyState: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, 'applyClaim.claimId': 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, 'applyClaim.leaseExpiresAt': 1 });
 // Prevent duplicate items for the same inventory in the same run
 PropertyVerificationRunItemSchema.index(
     { runId: 1, inventoryId: 1 },

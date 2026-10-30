@@ -25,7 +25,7 @@
         "test:authority:foundation": "node --test tests/phase2_authority_foundation.test.js",
         "test:authority:suites": "node --test --test-force-exit --test-concurrency=1 tests/phase_authority_field_contract.test.js tests/phase2_1_integration.test.js tests/phase2_2_security_runtime.test.js tests/phase2_3_strict_schema.test.js tests/phase2_4_strict_alignment.test.js tests/phase2_5_reconciliation_audit.test.js tests/phase2_6_evidence_contract.test.js tests/phase2_7_evidence_privacy_hash.test.js tests/phase2_8_final_contract.test.js tests/phase2_9_runtime_boundary.test.js tests/phase2_10_policy_crosswalk.test.js tests/phase2_11_status_derivation.test.js tests/phase2_12_status_contract.test.js tests/phase3a_fixture_adapters.test.js tests/phase3b_adapter_conformance.test.js",
         "test:authority": "npm run test:authority:foundation && npm run test:authority:suites",
-        "test:phase4-authority": "node --test --test-force-exit --test-concurrency=1 tests/phase4_authority_bulk_processor.test.js tests/phase4_authority_scheduler.test.js tests/phase4_authority_5k_load.test.js tests/phase4_1_reliability_remediation.test.js"
+        "test:phase4-authority": "node --test --test-force-exit --test-concurrency=1 tests/phase4_authority_bulk_processor.test.js tests/phase4_authority_scheduler.test.js tests/phase4_authority_5k_load.test.js tests/phase4_1_reliability_remediation.test.js tests/phase4_2_apply_reliability_and_fencing.test.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1159.0",
