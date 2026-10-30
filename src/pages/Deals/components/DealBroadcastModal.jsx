@@ -95,6 +95,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
     }, []);
 
     const [sending, setSending] = useState(false);
+    const [skipRecentDuplicates, setSkipRecentDuplicates] = useState(true);
 
     // 1. WhatsApp Templates State
     const [templates, setTemplates] = useState([]);
@@ -977,7 +978,9 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                     name: selectedEmailTemplate?.name || 'Default Corporate Deal Bulletin HTML',
                     subject: emailPreviewData.subject,
                     html: emailPreviewData.customHtml || undefined
-                } : undefined
+                } : undefined,
+                forceBroadcast: !skipRecentDuplicates,
+                deduplicationWindowHours: 4
             };
 
             const res = await api.post('/marketing/broadcast/bna', payload);
@@ -2627,9 +2630,32 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                 fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '5px'
                             }}>
                                 <i className="fas fa-shield-alt"></i>
-                                <span>5 Chats / Batch (3-10m Cooldown • Contacts & Groups Anti-Ban)</span>
+                                <span>5 Chats / Batch (3-10m Cooldown • Anti-Ban)</span>
                             </span>
                         )}
+                        <label style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                            padding: '3px 10px',
+                            borderRadius: '8px',
+                            background: skipRecentDuplicates ? (isDark ? 'rgba(99, 102, 241, 0.15)' : '#eef2ff') : (isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2'),
+                            color: skipRecentDuplicates ? (isDark ? '#a5b4fc' : '#4f46e5') : (isDark ? '#f87171' : '#dc2626'),
+                            border: skipRecentDuplicates ? (isDark ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid #c7d2fe') : (isDark ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid #fecaca'),
+                            fontSize: '0.74rem',
+                            fontWeight: 800,
+                            userSelect: 'none'
+                        }} title="Skip any groups or contacts that already received this deal in the last 4 hours">
+                            <input
+                                type="checkbox"
+                                checked={skipRecentDuplicates}
+                                onChange={(e) => setSkipRecentDuplicates(e.target.checked)}
+                                style={{ accentColor: '#4f46e5', cursor: 'pointer' }}
+                            />
+                            <i className="fas fa-filter"></i>
+                            <span>{skipRecentDuplicates ? 'Anti-Duplicate: 4h Protection Active' : 'Force All (Duplicates Allowed)'}</span>
+                        </label>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

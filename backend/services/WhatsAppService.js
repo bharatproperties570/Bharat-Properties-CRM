@@ -1698,7 +1698,7 @@ class WhatsAppService {
                     }
                 }
 
-                if (sock && sock.ws && sock.ws.isOpen) {
+                if (sock && sock.ws && sock.ws.isOpen && isSocketDead) {
                     console.log('[WhatsAppService/Baileys] Retrying send after socket re-acquisition...');
                     const retryPromise = sock.sendMessage(jid, content);
                     const retryTimeout = new Promise((_, reject) => 
@@ -1706,6 +1706,9 @@ class WhatsAppService {
                     );
                     sentMsg = await Promise.race([retryPromise, retryTimeout]);
                 } else {
+                    if (!isSocketDead) {
+                        console.warn('[WhatsAppService/Baileys] Send ACK timed out, but socket is alive. Suppressing duplicate re-send to protect group from double messages.');
+                    }
                     throw firstAttemptErr;
                 }
             }

@@ -851,8 +851,13 @@ export const publishMarketingContent = async (req, res) => {
 
 export const broadcastToBrokerGroup = async (req, res) => {
     try {
-        const { dealId, dealIds, groupIds, contactGroupIds, leadIds, whatsappGroupJids, integrationId, channels = ['whatsapp'], templateId, language, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = req.body;
-        console.log(`[BNA] Dispatching to audience: Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'})`);
+        const { 
+            dealId, dealIds, groupIds, contactGroupIds, leadIds, whatsappGroupJids, 
+            integrationId, channels = ['whatsapp'], templateId, language, templateText, 
+            isBaileys, smsTemplate, rcsTemplate, emailTemplate,
+            forceBroadcast = false, deduplicationWindowHours = 4 
+        } = req.body;
+        console.log(`[BNA] Dispatching to audience: Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'}, Force: ${Boolean(forceBroadcast)})`);
         
         const hasCompanyGroups = Array.isArray(groupIds) && groupIds.length > 0;
         const hasContactGroups = Array.isArray(contactGroupIds) && contactGroupIds.length > 0;
@@ -1058,6 +1063,8 @@ export const broadcastToBrokerGroup = async (req, res) => {
             smsTemplate: smsTemplate || null,
             rcsTemplate: rcsTemplate || null,
             emailTemplate: emailTemplate || null,
+            forceBroadcast: Boolean(forceBroadcast),
+            deduplicationWindowHours: Number(deduplicationWindowHours) || 4,
             performedBy: req.user?.fullName || req.user?.name || (req.user?.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : '') || 'Bharat Properties'
         };
 
@@ -1233,7 +1240,11 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
  * Direct dispatch for BNA broadcasts when queue is unavailable or synchronous fallback
  */
 export async function _dispatchBNADirectly(data) {
-    const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+    const { 
+        dealId, channels, recipients, meta, templateId, language, shareableId, 
+        performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate,
+        forceBroadcast = false, deduplicationWindowHours = 4 
+    } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const Activity = mongoose.model('Activity');
 
@@ -1538,6 +1549,36 @@ export async function _dispatchBNADirectly(data) {
         }
     }
 
+    // 🛡️ CROSS-JOB DEDUPLICATION GUARD (Direct Mode)
+    const deduplicationWindowMs = (Number(deduplicationWindowHours) || 4) * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - deduplicationWindowMs);
+    const recentlyMessagedJids = new Set();
+
+    if (!forceBroadcast && dealId) {
+        try {
+            const dealObjId = mongoose.Types.ObjectId.isValid(dealId) ? new mongoose.Types.ObjectId(dealId) : null;
+            const dealQuery = dealObjId ? { $in: [String(dealId), dealObjId] } : String(dealId);
+
+            const recentActivities = await Activity.find({
+                type: 'Marketing',
+                'details.dealId': dealQuery,
+                status: { $in: ['Sent', 'Completed', 'sent', 'completed'] },
+                createdAt: { $gte: cutoffDate }
+            }).select('details.groupJid details.phoneNumber participants.mobile createdAt').lean();
+
+            recentActivities.forEach(act => {
+                const jid = act.details?.groupJid || act.details?.phoneNumber || act.participants?.[0]?.mobile;
+                if (jid) recentlyMessagedJids.add(String(jid).trim());
+            });
+
+            if (recentlyMessagedJids.size > 0) {
+                console.log(`🛡️ [BNA_DIRECT_DEDUPLICATION] Active: Found ${recentlyMessagedJids.size} recipients that already received Deal ${dealId} in the last ${deduplicationWindowHours || 4}h.`);
+            }
+        } catch (dupCheckErr) {
+            console.warn(`[BNA_DIRECT_DEDUPLICATION] Warning: ${dupCheckErr.message}`);
+        }
+    }
+
     // 2. Dispatch WhatsApp Web chats (Individual Contacts & Groups) in batches of 5 with 3-10m cooldowns
     const BATCH_SIZE = 5;
     const totalWaChats = waWebRecipients.length;
@@ -1560,9 +1601,16 @@ export async function _dispatchBNADirectly(data) {
             const target = currentBatch[j];
             const isGroup = target.isGroup || String(target.mobile || '').includes('@g.us');
             const chatLabel = isGroup ? `Group '${target.name || target.mobile}'` : `Contact '${target.name || target.mobile}'`;
+            const targetMobile = String(target.mobile || '').trim();
+
+            if (!forceBroadcast && targetMobile && recentlyMessagedJids.has(targetMobile)) {
+                console.log(`⏭️ [BNA_DIRECT_DEDUPLICATION] Skipped ${chatLabel} (Already sent Deal in last ${deduplicationWindowHours || 4}h).`);
+                continue;
+            }
 
             console.log(`[BNA_DIRECT] [Batch ${b + 1}/${totalBatches} - Chat ${j + 1}/${currentBatch.length}] Sending to ${chatLabel}...`);
             await dispatchSingleRecipient(target);
+            if (targetMobile) recentlyMessagedJids.add(targetMobile);
 
             if (j < currentBatch.length - 1) {
                 const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s

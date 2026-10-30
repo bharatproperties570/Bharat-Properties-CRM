@@ -643,12 +643,17 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
 // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
 if (name === 'bna-broadcast') {
-        const { dealId, recipients, channels: rawChannels, meta, templateId, language, integrationId, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+        const { 
+            dealId, recipients, channels: rawChannels, meta, templateId, language, 
+            integrationId, shareableId, performedBy, templateText, isBaileys, 
+            smsTemplate, rcsTemplate, emailTemplate,
+            forceBroadcast = false, deduplicationWindowHours = 4 
+        } = data;
         const normalizedChannels = Array.isArray(rawChannels)
             ? rawChannels
             : (rawChannels && typeof rawChannels === 'object' ? Object.keys(rawChannels).filter(k => rawChannels[k]) : ['whatsapp']);
         const channels = normalizedChannels.length > 0 ? normalizedChannels : ['whatsapp'];
-        let sent = 0, failed = 0;
+        let sent = 0, failed = 0, skippedDuplicates = 0;
         await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
 
         const { default: Activity } = await import('../../models/Activity.js');
@@ -948,6 +953,38 @@ if (name === 'bna-broadcast') {
             }
         }
 
+        // 🛡️ CROSS-JOB DEDUPLICATION GUARD
+        // Pre-fetches recent successful dispatches for this Deal within the protection window (default 4 hours)
+        // to prevent duplicate spamming if the user re-triggers a broadcast or includes previously messaged groups.
+        const deduplicationWindowMs = (Number(deduplicationWindowHours) || 4) * 60 * 60 * 1000;
+        const cutoffDate = new Date(Date.now() - deduplicationWindowMs);
+        const recentlyMessagedJids = new Set();
+
+        if (!forceBroadcast && dealId) {
+            try {
+                const dealObjId = mongoose.Types.ObjectId.isValid(dealId) ? new mongoose.Types.ObjectId(dealId) : null;
+                const dealQuery = dealObjId ? { $in: [String(dealId), dealObjId] } : String(dealId);
+
+                const recentActivities = await Activity.find({
+                    type: 'Marketing',
+                    'details.dealId': dealQuery,
+                    status: { $in: ['Sent', 'Completed', 'sent', 'completed'] },
+                    createdAt: { $gte: cutoffDate }
+                }).select('details.groupJid details.phoneNumber participants.mobile createdAt').lean();
+
+                recentActivities.forEach(act => {
+                    const jid = act.details?.groupJid || act.details?.phoneNumber || act.participants?.[0]?.mobile;
+                    if (jid) recentlyMessagedJids.add(String(jid).trim());
+                });
+
+                if (recentlyMessagedJids.size > 0) {
+                    await job.log(`🛡️ [DeduplicationGuard] Active: Found ${recentlyMessagedJids.size} recipients that already received Deal ${dealId} in the last ${deduplicationWindowHours || 4}h. Duplicate sends will be prevented.`);
+                }
+            } catch (dupCheckErr) {
+                await job.log(`[DeduplicationGuard] Warning checking recent activities: ${dupCheckErr.message}`);
+            }
+        }
+
         // 2. Dispatch WhatsApp Web Chats (Individual Contacts & Groups) in Strict 5-Chat Batches with 3-10m Cooldowns
         const BATCH_SIZE = 5;
         const totalWaChats = waWebRecipients.length;
@@ -971,10 +1008,24 @@ if (name === 'bna-broadcast') {
                 const isGroup = target.isGroup || String(target.mobile || '').includes('@g.us');
                 const chatLabel = isGroup ? `Group '${target.name || target.mobile}'` : `Contact '${target.name || target.mobile}'`;
                 const overallIdx = otherRecipients.length + batchStart + j;
+                const targetMobile = String(target.mobile || '').trim();
+
+                // 🛡️ Cross-Job Deduplication Check
+                if (!forceBroadcast && targetMobile && recentlyMessagedJids.has(targetMobile)) {
+                    await job.log(`⏭️ [DeduplicationGuard] Skipped ${chatLabel} (Already successfully received Deal in the last ${deduplicationWindowHours || 4}h).`);
+                    skippedDuplicates++;
+                    await job.updateProgress(Math.round(((overallIdx + 1) / recipients.length) * 100));
+                    continue;
+                }
 
                 await job.log(`[Batch ${b + 1}/${totalBatches} - Chat ${j + 1}/${currentBatch.length}] Sending to ${chatLabel}...`);
                 const { success } = await dispatchSingleRecipient(target);
-                if (success) sent++; else failed++;
+                if (success) {
+                    sent++;
+                    if (targetMobile) recentlyMessagedJids.add(targetMobile);
+                } else {
+                    failed++;
+                }
                 await job.updateProgress(Math.round(((overallIdx + 1) / recipients.length) * 100));
 
                 // Intra-chat delay: 8 to 15 seconds jitter between chats within the batch
@@ -1006,8 +1057,8 @@ if (name === 'bna-broadcast') {
             }
         }
 
-        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);
-        return { sent, failed, completedAt: new Date().toISOString() };
+        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed, ${skippedDuplicates} skipped as recent duplicates`);
+        return { sent, failed, skipped: skippedDuplicates, completedAt: new Date().toISOString() };
     }
 
     throw new Error(`Unknown marketing job type: ${name}`);

@@ -1188,6 +1188,8 @@ export class WorkflowEngine {
             smsTemplate: notif.templates?.sms ? { id: notif.templates.sms } : null,
             rcsTemplate: notif.templates?.rcs ? { id: notif.templates.rcs } : null,
             emailTemplate: notif.templates?.email ? { id: notif.templates.email } : null,
+            forceBroadcast: false,
+            deduplicationWindowHours: 4,
             performedBy: `Automated Action: ${actionConfig.name || 'System Workflow'}`
         };
 
