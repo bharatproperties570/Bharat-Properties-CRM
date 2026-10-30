@@ -600,6 +600,7 @@ export const BaileysConnectionManager = {
             activeHeartbeats.delete(integrationId);
         }
         integrationGroupSubjectCache.delete(String(integrationId));
+        inFlightPromises.delete(integrationId);
         try {
             const { default: redisProxy } = await import('../../src/config/redis.js');
             if (redisProxy && !redisProxy.isMock) {

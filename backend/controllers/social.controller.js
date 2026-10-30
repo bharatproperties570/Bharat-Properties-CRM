@@ -1308,10 +1308,13 @@ export const getWhatsAppAccounts = async (req, res) => {
  */
 export const startBaileysConnection = async (req, res) => {
     try {
-        const { displayPhoneNumber, accountLabel } = req.body;
+        const { displayPhoneNumber, accountLabel, forceReclaim } = req.body;
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+        const isAdmin = WhatsAppAccountAuthorizationService.isAdmin(req.user);
+        const userEmail = (req.user?.email || '').toLowerCase().trim();
+        const isCompanyUser = isAdmin || userEmail.endsWith('@bharatproperties.co') || userEmail.endsWith('@bharatproperties.com');
         
-        // 🔒 STRICT CRM-WIDE PHONE UNIQUENESS VALIDATION:
-        // One phone number can only be connected to ONE user across the entire CRM
+        // 🔒 CRM-WIDE PHONE UNIQUENESS & AUTHORIZED RECLAIM LOGIC:
         const { normalizePhone } = await import('../utils/normalization.js');
         const normalizedInput = displayPhoneNumber ? normalizePhone(displayPhoneNumber) : '';
         if (normalizedInput) {
@@ -1326,11 +1329,29 @@ export const startBaileysConnection = async (req, res) => {
             }).populate('connectedBy', 'fullName name email');
 
             if (existingConflict) {
-                const ownerName = existingConflict.connectedBy?.fullName || existingConflict.connectedBy?.name || 'dusre user';
-                return res.status(409).json({
-                    success: false,
-                    error: `Yeh WhatsApp number (${displayPhoneNumber}) pehle se hi "${ownerName}" ke account pr active hai. Pure CRM me ek WhatsApp number sirf ek hi user ke scanner pr link ho sakta hai.`
-                });
+                // If requesting user is Admin, Company User, or passes forceReclaim, allow re-linking!
+                if (isCompanyUser || forceReclaim) {
+                    console.log(`[SocialController] Authorized user ${req.user.email} reclaiming WhatsApp number ${displayPhoneNumber} from integration ${existingConflict._id}`);
+                    existingConflict.status = 'REVOKED';
+                    existingConflict.onboardingStatus = 'REVOKED';
+                    existingConflict.failureReason = `Reclaimed by authorized user (${req.user.email})`;
+                    await existingConflict.save();
+
+                    try {
+                        const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+                        await BaileysConnectionManager.logout(existingConflict._id.toString());
+                        const { default: BaileysAuthModel } = await import('../models/BaileysAuth.js');
+                        await BaileysAuthModel.deleteMany({ sessionId: existingConflict._id.toString() });
+                    } catch (recErr) {
+                        console.warn('[SocialController] Conflict cleanup warning:', recErr.message);
+                    }
+                } else {
+                    const ownerName = existingConflict.connectedBy?.fullName || existingConflict.connectedBy?.name || 'dusre user';
+                    return res.status(409).json({
+                        success: false,
+                        error: `Yeh WhatsApp number (${displayPhoneNumber}) pehle se hi "${ownerName}" ke account pr active hai. CRM me ek number sirf ek hi user ke account pr link ho sakta hai.`
+                    });
+                }
             }
         }
         
@@ -1361,7 +1382,7 @@ export const startBaileysConnection = async (req, res) => {
             if (displayPhoneNumber) integration.displayPhoneNumber = displayPhoneNumber;
             if (accountLabel) integration.accountLabel = accountLabel;
 
-            // Clear old auth data to force new QR generation
+            // Clear old auth data to force brand new QR generation
             const { default: BaileysAuthModel } = await import('../models/BaileysAuth.js');
             await BaileysAuthModel.deleteMany({ sessionId: integration._id.toString() });
 
@@ -1412,13 +1433,15 @@ export const getBaileysStatus = async (req, res) => {
 
         let status = integration.status;
         let onboardingStatus = integration.onboardingStatus;
-        let qrDataUrl = onboardingStatus === 'QR_PENDING' ? integration.failureReason : null;
+        const isQrImage = typeof integration.failureReason === 'string' && integration.failureReason.startsWith('data:image/');
+        let qrDataUrl = isQrImage ? integration.failureReason : null;
 
         // 🚀 ENTERPRISE STATE VERIFICATION:
         // Check if active socket exists in memory
         const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
         const { normalizePhone } = await import('../utils/normalization.js');
         const sock = BaileysConnectionManager.getSocket(req.params.id);
+        const isSocketAlive = !!(sock && sock.user && sock.user.id && sock.ws && (sock.ws.isOpen || sock.ws.isConnecting));
 
         if (sock && sock.user && sock.user.id) {
             const rawPhone = sock.user.id.split(':')[0].replace(/\D/g, '');
@@ -1466,52 +1489,6 @@ export const getBaileysStatus = async (req, res) => {
                     failureReason: null
                 });
             }
-        } else if (onboardingStatus !== 'CONNECTED' || status !== 'ACTIVE') {
-            // Check if MongoDB already has creds saved (i.e. scanned earlier)
-            const { useMongoDBAuthState } = await import('../services/baileysQueue/useMongoDBAuthState.js');
-            const { state } = await useMongoDBAuthState(req.params.id);
-            if (state && state.creds && state.creds.me && state.creds.me.id) {
-                const rawPhone = state.creds.me.id.split(':')[0].replace(/\D/g, '');
-                const norm = normalizePhone(rawPhone);
-
-                const duplicate = await WhatsAppIntegration.findOne({
-                    _id: { $ne: req.params.id },
-                    provider: 'BAILEYS',
-                    status: 'ACTIVE',
-                    connectedBy: { $ne: integration.connectedBy },
-                    $or: [
-                        { displayPhoneNumber: { $regex: norm + '$' } },
-                        { phoneNumberId: { $regex: norm + '$' } }
-                    ]
-                }).populate('connectedBy', 'fullName name');
-
-                if (duplicate) {
-                    const dupName = duplicate.connectedBy?.fullName || duplicate.connectedBy?.name || 'another user';
-                    const errorMsg = `Yeh WhatsApp number (${rawPhone}) pehle se "${dupName}" ke account pr linked hai.`;
-                    await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
-                        status: 'ERROR',
-                        onboardingStatus: 'ERROR',
-                        failureReason: errorMsg
-                    });
-                    return res.json({ success: true, status: 'ERROR', onboardingStatus: 'ERROR', error: errorMsg });
-                }
-
-                status = 'ACTIVE';
-                onboardingStatus = 'CONNECTED';
-                qrDataUrl = null;
-                const phone = rawPhone;
-                const name = state.creds.me.name || integration.accountLabel || 'Bharat Properties';
-                await WhatsAppIntegration.findByIdAndUpdate(req.params.id, {
-                    status: 'ACTIVE',
-                    onboardingStatus: 'CONNECTED',
-                    displayPhoneNumber: phone,
-                    phoneNumberId: phone,
-                    accountLabel: name,
-                    failureReason: null
-                });
-                // Ensure socket is connected in memory
-                BaileysConnectionManager.connect(req.params.id).catch(() => {});
-            }
         }
 
         res.json({ 
@@ -1519,11 +1496,52 @@ export const getBaileysStatus = async (req, res) => {
             status,
             onboardingStatus,
             qrDataUrl,
-            error: integration.failureReason
+            isSocketAlive,
+            phoneNumber: integration.displayPhoneNumber || integration.phoneNumberId,
+            accountLabel: integration.accountLabel,
+            error: isQrImage ? null : integration.failureReason
         });
     } catch (error) {
         console.error('[SocialController] getBaileysStatus error:', error.message);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/social/whatsapp/baileys/disconnect/:id
+ * Disconnect and unlink a Baileys session cleanly
+ */
+export const disconnectBaileysConnection = async (req, res) => {
+    try {
+        const { default: WhatsAppIntegration } = await import('../models/WhatsAppIntegration.js');
+        const integration = await WhatsAppIntegration.findById(req.params.id);
+        
+        if (!integration) {
+            return res.status(404).json({ success: false, error: 'Integration not found' });
+        }
+
+        const WhatsAppAccountAuthorizationService = (await import('../services/WhatsAppAccountAuthorizationService.js')).default;
+        if (!WhatsAppAccountAuthorizationService.canUserAccessAccount(req.user, integration)) {
+            return res.status(403).json({ success: false, error: 'Unauthorized to disconnect this WhatsApp account' });
+        }
+
+        try {
+            const { BaileysConnectionManager } = await import('../services/baileysQueue/BaileysConnectionManager.js');
+            await BaileysConnectionManager.logout(integration._id.toString());
+        } catch (e) {}
+
+        const { default: BaileysAuthModel } = await import('../models/BaileysAuth.js');
+        await BaileysAuthModel.deleteMany({ sessionId: integration._id.toString() });
+
+        integration.status = 'REVOKED';
+        integration.onboardingStatus = 'REVOKED';
+        integration.failureReason = 'Manually unlinked by user';
+        await integration.save();
+
+        res.json({ success: true, message: 'WhatsApp Web unlinked successfully.' });
+    } catch (err) {
+        console.error('[SocialController] disconnectBaileysConnection error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
     }
 };
 
