@@ -486,9 +486,19 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
                         workerAAttempted = true;
                         // Worker A is paused right between ownership validation and MongoDB CAS!
                         // In the meantime, simulating Worker B running concurrently in another Node.js process:
-                        // Worker B has fencingToken = 2, commits to MongoDB and advances reconcileGeneration
+                        // Worker B acquires distributed lock and atomically claims generation in MongoDB:
+                        const claimedB = await WhatsAppDispatch.findOneAndUpdate(
+                            { idempotencyKey: idKey },
+                            {
+                                $inc: { reconcileGeneration: 1 },
+                                $set: { reconcileLockWorkerId: 'token_worker_b_013', reconcileClaimedAt: new Date() }
+                            },
+                            { new: true }
+                        );
+                        assert.equal(claimedB.reconcileGeneration, 2, 'Worker B must claim generation 2');
+
                         const workerBLockContext = {
-                            fencingToken: 2,
+                            fencingToken: claimedB.reconcileGeneration,
                             lockToken: 'token_worker_b_013',
                             isLockLost: () => false,
                             validateOwnership: async () => true
@@ -756,6 +766,152 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
             } finally {
                 WhatsAppDispatch.findOneAndUpdate = origFindOneAndUpdate;
             }
+        });
+
+        it('18. Fails closed with DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE when MongoDB is disconnected before acquisition', async () => {
+            const idKey = 'durable_db_down_before_acq_018';
+
+            const origReadyState = mongoose.connection.readyState;
+            Object.defineProperty(mongoose.connection, 'readyState', { value: 0, configurable: true });
+
+            try {
+                const res = await WhatsAppService.manualReconcileDispatch({
+                    idempotencyKey: idKey,
+                    targetStatus: 'DISPATCHED',
+                    providerMessageId: 'wamid.018',
+                    actorContext: testUser,
+                    actorId: testUser._id.toString(),
+                    reason: 'Should abort when DB disconnected'
+                });
+
+                assert.equal(res.success, false);
+                assert.ok(
+                    res.error.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE'),
+                    `Expected DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE, got: ${res.error}`
+                );
+            } finally {
+                Object.defineProperty(mongoose.connection, 'readyState', { value: origReadyState, configurable: true });
+            }
+        });
+
+        it('19. Fails closed with DISPATCH_LEDGER_NOT_FOUND when dispatch record does not exist during acquisition', async () => {
+            const nonExistentKey = 'non_existent_dispatch_key_019';
+
+            const res = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: nonExistentKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.019',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Should fail closed on missing ledger record'
+            });
+
+            assert.equal(res.success, false);
+            assert.ok(
+                res.error.includes('DISPATCH_LEDGER_NOT_FOUND'),
+                `Expected DISPATCH_LEDGER_NOT_FOUND, got: ${res.error}`
+            );
+        });
+
+        it('20. Safely releases Redis lock if MongoDB acquisition claim fails or throws', async () => {
+            const idKey = 'durable_redis_release_on_mongo_err_020';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100120',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 0
+            });
+
+            // Mock findOneAndUpdate to throw an error during the claim
+            const origFindOneAndUpdate = WhatsAppDispatch.findOneAndUpdate;
+            WhatsAppDispatch.findOneAndUpdate = async function(filter, update, opts) {
+                if (filter?.idempotencyKey === idKey && update?.$inc?.reconcileGeneration) {
+                    throw new Error('MongoWriteException: Simulated claim failure');
+                }
+                return origFindOneAndUpdate.call(this, filter, update, opts);
+            };
+
+            try {
+                const res = await WhatsAppService.manualReconcileDispatch({
+                    idempotencyKey: idKey,
+                    targetStatus: 'DISPATCHED',
+                    providerMessageId: 'wamid.020',
+                    actorContext: testUser,
+                    actorId: testUser._id.toString(),
+                    reason: 'Lock cleanup verification'
+                });
+
+                assert.equal(res.success, false);
+                assert.ok(res.error.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE'));
+
+                // Verify Redis lock was released cleanly in finally block!
+                const lockVal = await redisProxy.get(lockKey);
+                assert.equal(lockVal, null, 'Redis lock must be released when MongoDB claim fails');
+            } finally {
+                WhatsAppDispatch.findOneAndUpdate = origFindOneAndUpdate;
+                await redisProxy.del(lockKey);
+            }
+        });
+
+        it('21. Protected entry points reject absent or zero fencing token (FENCING_CONTEXT_REQUIRED)', async () => {
+            const idKey = 'durable_no_fencing_context_021';
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100121',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            // 1. _manualReconcileDispatchInternal without lockContext
+            const manualResNoLock = await WhatsAppService._manualReconcileDispatchInternal({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.no_lock.021',
+                actorContext: testUser,
+                actorId: testUser._id.toString()
+            }, null);
+            assert.equal(manualResNoLock.success, false);
+            assert.ok(manualResNoLock.error.includes('FENCING_CONTEXT_REQUIRED'));
+
+            // 2. _manualReconcileDispatchInternal with zero fencing token
+            const manualResZero = await WhatsAppService._manualReconcileDispatchInternal({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.zero.021',
+                actorContext: testUser,
+                actorId: testUser._id.toString()
+            }, { fencingToken: 0, isLockLost: () => false, validateOwnership: async () => true });
+            assert.equal(manualResZero.success, false);
+            assert.ok(manualResZero.error.includes('FENCING_CONTEXT_REQUIRED'));
+
+            // 3. _reconcileWebhookStatusInternal without lockContext
+            const webhookResNoLock = await WhatsAppService._reconcileWebhookStatusInternal({
+                id: 'wamid.no_lock_wh.021',
+                status: 'delivered',
+                recipient_id: '919811100121',
+                biz_opaque_callback_data: idKey
+            }, null);
+            assert.equal(webhookResNoLock.reconciled, false);
+            assert.equal(webhookResNoLock.reason, 'FENCING_CONTEXT_REQUIRED');
+
+            // 4. reconcileAmbiguousDispatch with non-existent dispatch fails closed
+            await assert.rejects(
+                async () => {
+                    await WhatsAppService.reconcileAmbiguousDispatch('completely_non_existent_key_021', {
+                        providerMessageId: 'wamid.ambig.021'
+                    });
+                },
+                /DISPATCH_LEDGER_NOT_FOUND|DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE/
+            );
         });
     });
 });

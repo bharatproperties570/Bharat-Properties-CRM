@@ -52,15 +52,22 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
         throw new Error('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Valid reconciliation lock key is required');
     }
     const idKey = String(key).trim();
+
+    // 1. Mandatory MongoDB Connection Verification (Fail-Closed)
+    // Protected reconciliation path strictly requires a durable dispatch record and linearizable state
+    if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+        throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Database unavailable during reconciliation lock acquisition for '${idKey}'`);
+    }
+
     const prev = _reconcileLocks.get(idKey) || Promise.resolve();
     let releaseLocal;
     const current = new Promise(resolve => { releaseLocal = resolve; });
     _reconcileLocks.set(idKey, current);
 
-    // 1. Process-local queue to serialize requests within the same Node.js runtime
+    // 2. Process-local queue to serialize requests within the same Node.js runtime
     await prev;
 
-    // 2. Distributed Exclusive Synchronization across separate Node.js processes / PM2 cluster
+    // 3. Distributed Exclusive Synchronization across separate Node.js processes / PM2 cluster
     let redisProxy = null;
     let distributedLockToken = null;
     let fencingToken = 0;
@@ -90,7 +97,6 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
                 const genRes = Number(res);
                 if (genRes > 0) {
                     lockAcquired = true;
-                    fencingToken = genRes;
                     break;
                 }
                 // Bounded jittered retry (40-70ms)
@@ -103,29 +109,39 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
 
             lockState.acquired = true;
 
-            // Section 3: MongoDB-Authoritative Fencing Token Acquisition
-            // Advance reconcileGeneration in MongoDB at lock-acquisition time so that any older worker
-            // is fenced IMMEDIATELY upon issuance of this lock, even before this worker executes its business write!
-            if (!options.skipMongoClaim && mongoose.connection && mongoose.connection.readyState === 1) {
-                try {
-                    const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
-                    const claimedDoc = await WhatsAppDispatch.findOneAndUpdate(
-                        { idempotencyKey: idKey },
-                        {
-                            $inc: { reconcileGeneration: 1 },
-                            $set: {
-                                reconcileLockWorkerId: distributedLockToken,
-                                reconcileClaimedAt: new Date()
-                            }
-                        },
-                        { new: true }
-                    );
-                    if (claimedDoc) {
-                        fencingToken = claimedDoc.reconcileGeneration;
-                    }
-                } catch (dbClaimErr) {
-                    throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: MongoDB fencing generation claim failed for '${idKey}': ${dbClaimErr.message}`);
-                }
+            // 4. Mandatory Fail-Closed MongoDB Authoritative Fencing Token Acquisition
+            // Verify connection is still active at acquisition time
+            if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+                throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Database disconnected before fencing generation claim for '${idKey}'`);
+            }
+
+            let claimedDoc;
+            try {
+                const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+                claimedDoc = await WhatsAppDispatch.findOneAndUpdate(
+                    { idempotencyKey: idKey },
+                    {
+                        $inc: { reconcileGeneration: 1 },
+                        $set: {
+                            reconcileLockWorkerId: distributedLockToken,
+                            reconcileClaimedAt: new Date()
+                        }
+                    },
+                    { new: true }
+                );
+            } catch (dbClaimErr) {
+                throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: MongoDB fencing generation claim failed for '${idKey}': ${dbClaimErr.message}`);
+            }
+
+            // Abort if no dispatch document exists in durable ledger
+            if (!claimedDoc) {
+                throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: DISPATCH_LEDGER_NOT_FOUND: Durable dispatch ledger record not found for '${idKey}'`);
+            }
+
+            // Derives fencingToken strictly from authoritative MongoDB generation
+            fencingToken = Number(claimedDoc.reconcileGeneration);
+            if (!fencingToken || fencingToken <= 0 || isNaN(fencingToken)) {
+                throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Invalid fencing generation ${fencingToken} obtained for '${idKey}'`);
             }
 
             // P0-D: Active Heartbeat Lease Renewal every 5s for 15s TTL
@@ -659,34 +675,64 @@ class WhatsAppService {
         }
     }
 
-    async reconcileAmbiguousDispatch(idempotencyKey, { providerMessageId, status = 'DISPATCHED', resolutionReason = 'Webhook reconciliation' } = {}) {
-        if (!idempotencyKey) throw new Error('idempotencyKey is required for reconciliation');
+    async reconcileAmbiguousDispatch(idempotencyKey, { providerMessageId, status = 'DISPATCHED', resolutionReason = 'Webhook reconciliation' } = {}, options = {}) {
+        if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
+            throw new Error('idempotencyKey is required for reconciliation');
+        }
         if (!mongoose.connection || mongoose.connection.readyState !== 1) {
             throw new Error('Database is unavailable for reconciliation');
         }
-        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
-        const targetStatus = status === 'FAILED' ? 'FAILED' : 'DISPATCHED';
-        const update = {
-            $set: {
-                status: targetStatus,
-                isAmbiguous: false,
-                reconciledAt: new Date(),
-                reconciliationStatus: 'RECONCILED',
-                reconciliationReason: resolutionReason
+
+        return await _withReconcileKeyLock(idempotencyKey.trim(), async (lockContext) => {
+            if (!lockContext || !lockContext.fencingToken || lockContext.fencingToken <= 0) {
+                throw new Error('FENCING_CONTEXT_REQUIRED: Mandatory fencing context missing or zero');
             }
-        };
-        if (providerMessageId) {
-            update.$set.providerMessageId = providerMessageId;
-        }
-        const reconciled = await WhatsAppDispatch.findOneAndUpdate(
-            { idempotencyKey, status: 'AMBIGUOUS_TIMEOUT' },
-            update,
-            { new: true }
-        );
-        if (reconciled && targetStatus === 'DISPATCHED') {
-            this._setIdempotentResult(idempotencyKey, reconciled.responsePayload || { messageId: providerMessageId, success: true }, reconciled.recipient, reconciled.requestPayloadHash);
-        }
-        return reconciled;
+            if (lockContext.isLockLost && lockContext.isLockLost()) {
+                throw new Error('DISTRIBUTED_LOCK_LOST: Reconciliation lock lost before execution');
+            }
+            if (lockContext.validateOwnership) {
+                const isOwner = await lockContext.validateOwnership();
+                if (!isOwner) throw new Error('DISTRIBUTED_LOCK_LOST: Lock ownership validation failed');
+            }
+
+            const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+            const targetStatus = status === 'FAILED' ? 'FAILED' : 'DISPATCHED';
+            const update = {
+                $set: {
+                    status: targetStatus,
+                    isAmbiguous: false,
+                    reconcileGeneration: lockContext.fencingToken,
+                    reconciledAt: new Date(),
+                    reconciliationStatus: 'RECONCILED',
+                    reconciliationReason: resolutionReason
+                }
+            };
+            if (providerMessageId) {
+                update.$set.providerMessageId = providerMessageId;
+            }
+
+            const reconciled = await WhatsAppDispatch.findOneAndUpdate(
+                {
+                    idempotencyKey: idempotencyKey.trim(),
+                    status: 'AMBIGUOUS_TIMEOUT',
+                    reconcileGeneration: lockContext.fencingToken
+                },
+                update,
+                { new: true }
+            );
+
+            if (!reconciled) {
+                const currentDoc = await WhatsAppDispatch.findOne({ idempotencyKey: idempotencyKey.trim() }).lean();
+                if (currentDoc && currentDoc.reconcileGeneration && currentDoc.reconcileGeneration > lockContext.fencingToken) {
+                    throw new Error(`STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) > current lock fencingToken (${lockContext.fencingToken})`);
+                }
+            }
+
+            if (reconciled && targetStatus === 'DISPATCHED') {
+                this._setIdempotentResult(idempotencyKey.trim(), reconciled.responsePayload || { messageId: providerMessageId, success: true }, reconciled.recipient, reconciled.requestPayloadHash);
+            }
+            return reconciled;
+        }, options);
     }
 
     _buildMonotonicQueryCondition(newStatus) {
@@ -789,6 +835,36 @@ class WhatsAppService {
             }, lockOptions);
         } catch (lockErr) {
             console.error(`[WhatsAppService] Reconciliation aborted due to distributed lock failure for '${canonicalIdempotencyKey}':`, lockErr.message);
+            if (lockErr.message?.includes('DISPATCH_LEDGER_NOT_FOUND')) {
+                // If opaque callback data was unregistered or non-existent in ledger:
+                // Check if ambiguous dispatches exist for recipient, or return controlled NO_MATCHING_DISPATCH
+                const rawRecipient = statusObj.recipient_id;
+                const normalizedRecipient = this._normalizeTarget(rawRecipient) || String(rawRecipient || '');
+                if (mongoose.connection && mongoose.connection.readyState === 1) {
+                    try {
+                        const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+                        const ambiguousForRecipient = await WhatsAppDispatch.find({
+                            recipient: { $in: [normalizedRecipient, rawRecipient] },
+                            $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }]
+                        }).lean();
+                        if (ambiguousForRecipient.length > 0) {
+                            return {
+                                reconciled: false,
+                                reason: 'MANUAL_RECONCILIATION_REQUIRED',
+                                ambiguousCount: ambiguousForRecipient.length,
+                                providerMessageId: statusObj.id,
+                                recipient: normalizedRecipient
+                            };
+                        }
+                    } catch (_) {}
+                }
+                return {
+                    reconciled: false,
+                    reason: 'NO_MATCHING_DISPATCH',
+                    providerMessageId: statusObj.id,
+                    idempotencyKey: canonicalIdempotencyKey
+                };
+            }
             return {
                 reconciled: false,
                 reason: lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')
@@ -894,27 +970,21 @@ class WhatsAppService {
                 await statusObj.hooks.beforeMongoCas({ updateQuery, updateFields, lockContext, dispatch });
             }
 
-            // Monotonic fencing token enforcement
-            if (lockContext?.fencingToken) {
-                updateQuery.$and = updateQuery.$and || [];
-                updateQuery.$and.push({
-                    $or: [
-                        { reconcileGeneration: lockContext.fencingToken },
-                        { reconcileGeneration: { $exists: false } },
-                        { reconcileGeneration: null },
-                        { reconcileGeneration: { $lt: lockContext.fencingToken } }
-                    ]
-                });
-                updateFields.reconcileGeneration = lockContext.fencingToken;
+            // Strict exact-generation fencing enforcement (Fail-Closed)
+            if (!lockContext || !lockContext.fencingToken || lockContext.fencingToken <= 0) {
+                console.error(`[WhatsAppService] Protected webhook reconciliation aborted: missing or invalid fencingToken for '${dispatch.idempotencyKey}'`);
+                return { reconciled: false, reason: 'FENCING_CONTEXT_REQUIRED' };
             }
+            updateQuery.reconcileGeneration = lockContext.fencingToken;
+            updateFields.reconcileGeneration = lockContext.fencingToken;
 
             const updated = await WhatsAppDispatch.findOneAndUpdate(updateQuery, { $set: updateFields }, { new: true });
             if (!updated) {
                 // A concurrent worker already advanced the document or recorded conflicting status
                 const currentDoc = await WhatsAppDispatch.findById(dispatch._id).lean();
                 if (currentDoc) {
-                    if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
-                        console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
+                    if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration !== lockContext.fencingToken) {
+                        console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale/mismatched fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                         return {
                             reconciled: false,
                             reason: 'STALE_FENCING_GENERATION',
@@ -1054,19 +1124,13 @@ class WhatsAppService {
                     await statusObj.hooks.beforeMongoCas({ updateQuery, updateFields, lockContext, dispatch: candidateByOpaque });
                 }
 
-                // Monotonic fencing token enforcement
-                if (lockContext?.fencingToken) {
-                    updateQuery.$and = updateQuery.$and || [];
-                    updateQuery.$and.push({
-                        $or: [
-                            { reconcileGeneration: lockContext.fencingToken },
-                            { reconcileGeneration: { $exists: false } },
-                            { reconcileGeneration: null },
-                            { reconcileGeneration: { $lt: lockContext.fencingToken } }
-                        ]
-                    });
-                    updateFields.reconcileGeneration = lockContext.fencingToken;
+                // Strict exact-generation fencing enforcement (Fail-Closed)
+                if (!lockContext || !lockContext.fencingToken || lockContext.fencingToken <= 0) {
+                    console.error(`[WhatsAppService] Protected webhook reconciliation aborted: missing or invalid fencingToken for '${candidateByOpaque.idempotencyKey}'`);
+                    return { reconciled: false, reason: 'FENCING_CONTEXT_REQUIRED' };
                 }
+                updateQuery.reconcileGeneration = lockContext.fencingToken;
+                updateFields.reconcileGeneration = lockContext.fencingToken;
 
                 let updated;
                 try {
@@ -1087,8 +1151,8 @@ class WhatsAppService {
                 if (!updated) {
                     const currentDoc = await WhatsAppDispatch.findById(candidateByOpaque._id).lean();
                     if (currentDoc) {
-                        if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
-                            console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale fencing generation for '${candidateByOpaque.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
+                        if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration !== lockContext.fencingToken) {
+                            console.warn(`[WhatsAppService] Webhook reconciliation rejected due to stale/mismatched fencing generation for '${candidateByOpaque.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                             return {
                                 reconciled: false,
                                 reason: 'STALE_FENCING_GENERATION',
@@ -1206,6 +1270,13 @@ class WhatsAppService {
             }, lockOptions);
         } catch (lockErr) {
             console.error(`[WhatsAppService] Manual reconciliation aborted due to lock failure for '${idempotencyKey}':`, lockErr.message);
+            if (lockErr.message?.includes('DISPATCH_LEDGER_NOT_FOUND')) {
+                return {
+                    success: false,
+                    error: 'DISPATCH_LEDGER_NOT_FOUND: Durable dispatch ledger record not found for idempotencyKey',
+                    idempotencyKey
+                };
+            }
             return {
                 success: false,
                 error: lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')
@@ -1480,19 +1551,15 @@ class WhatsAppService {
             await hooks.beforeMongoCas({ casFilter, updateFields, lockContext, dispatch });
         }
 
-        // Monotonic fencing token condition
-        if (lockContext?.fencingToken) {
-            casFilter.$and = casFilter.$and || [];
-            casFilter.$and.push({
-                $or: [
-                    { reconcileGeneration: lockContext.fencingToken },
-                    { reconcileGeneration: { $exists: false } },
-                    { reconcileGeneration: null },
-                    { reconcileGeneration: { $lt: lockContext.fencingToken } }
-                ]
-            });
-            updateFields.reconcileGeneration = lockContext.fencingToken;
+        // Mandatory exact-generation fencing enforcement (Fail-Closed)
+        if (!lockContext || !lockContext.fencingToken || lockContext.fencingToken <= 0) {
+            return {
+                success: false,
+                error: 'FENCING_CONTEXT_REQUIRED: Protected reconciliation mutation requires valid, non-zero fencingToken'
+            };
         }
+        casFilter.reconcileGeneration = lockContext.fencingToken;
+        updateFields.reconcileGeneration = lockContext.fencingToken;
 
         let updated;
         try {
@@ -1511,11 +1578,11 @@ class WhatsAppService {
             }
 
             // Check if rejected due to stale fencing generation
-            if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration > lockContext.fencingToken) {
-                console.warn(`[WhatsAppService] Reconciliation mutation rejected due to stale fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
+            if (currentDoc.reconcileGeneration && lockContext?.fencingToken && currentDoc.reconcileGeneration !== lockContext.fencingToken) {
+                console.warn(`[WhatsAppService] Reconciliation mutation rejected due to stale/mismatched fencing generation for '${dispatch.idempotencyKey}': docGen=${currentDoc.reconcileGeneration}, lockGen=${lockContext.fencingToken}`);
                 return {
                     success: false,
-                    error: `STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) > current lock fencingToken (${lockContext.fencingToken})`,
+                    error: `STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) does not match current lock fencingToken (${lockContext.fencingToken})`,
                     reconcileGeneration: currentDoc.reconcileGeneration,
                     fencingToken: lockContext.fencingToken
                 };
