@@ -232,7 +232,12 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 // WhatsApp Accounts
                 const rawAccounts = accountsRes.data || [];
                 setAccounts(rawAccounts);
-                const defaultOrFirst = rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') || rawAccounts.find(a => a.status === 'ACTIVE') || rawAccounts[0];
+                const defaultOrFirst = 
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE') ||
+                    rawAccounts[0];
                 if (defaultOrFirst) {
                     const accId = defaultOrFirst.id || defaultOrFirst._id;
                     setSelectedAccountId(accId);
@@ -812,7 +817,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
                         : selectedTemplate?.name)
                     : undefined,
-                templateText: channels.whatsapp && isBaileys && selectedWebTemplate ? webTemplatePreviewText : undefined,
+                templateText: channels.whatsapp && isBaileys ? (webTemplatePreviewText || richPreviewText || undefined) : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
                 smsTemplate: channels.sms ? {
@@ -1043,11 +1048,14 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                 {accounts.map(acc => {
                                                     const accId = acc.id || acc._id;
                                                     const isWhatsAppWeb = acc.provider === 'BAILEYS';
+                                                    const label = acc.accountLabel || acc.name || (acc.displayPhoneNumber ? `+${String(acc.displayPhoneNumber).replace(/^\+/, '')}` : 'WhatsApp Line');
+                                                    const phone = acc.displayPhoneNumber || acc.phoneNumber || acc.phoneNumberId || '';
                                                     return (
                                                         <option key={accId} value={accId}>
                                                             {isWhatsAppWeb ? '🟢 [WhatsApp Web] ' : '🔵 [Meta Cloud API] '}
-                                                            {acc.name || acc.phoneNumber || 'WhatsApp Account'}
-                                                            {acc.phoneNumber ? ` (+${acc.phoneNumber.replace(/^\+/, '')})` : ''}
+                                                            {label}
+                                                            {phone && !label.includes(phone) ? ` (${phone})` : ''}
+                                                            {acc.isDefault ? ' ⭐ Default' : ''}
                                                         </option>
                                                     );
                                                 })}

@@ -803,6 +803,19 @@ if (name === 'bna-broadcast') {
                                 `Contact us for full dossiers, commission splits, and site inspections.`,
                                 contextMap
                             );
+                        } else if (recipient.context?.originalType === 'Lead') {
+                            text = interpolateUniversalTemplate(
+                                `*🌟 PROPERTY RECOMMENDATION: {{projectName}}*\n\n` +
+                                `Hello *{{customer_name}}*,\n` +
+                                `Here is an exclusive property opportunity matching your requirement:\n\n` +
+                                `💰 *Price:* {{price}}\n` +
+                                `📍 *Location:* {{location}}\n` +
+                                `📐 *Specs:* {{size}}\n\n` +
+                                `📝 *Overview:* {{description}}\n\n` +
+                                `🔗 *Ref:* {{dealCode}}\n` +
+                                `Reply directly to this message to schedule a site inspection!`,
+                                contextMap
+                            );
                         } else {
                             text = interpolateUniversalTemplate(
                                 `*🏢 BROKER UPDATE: {{projectName}}*\n\n` +

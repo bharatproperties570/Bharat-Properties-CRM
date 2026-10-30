@@ -317,7 +317,12 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
 
                 const rawAccounts = accountsRes.data || [];
                 setAccounts(rawAccounts);
-                const defaultOrFirst = rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') || rawAccounts.find(a => a.status === 'ACTIVE') || rawAccounts[0];
+                const defaultOrFirst = 
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE') ||
+                    rawAccounts[0];
                 if (defaultOrFirst) {
                     const accId = defaultOrFirst.id || defaultOrFirst._id;
                     setSelectedAccountId(accId);
@@ -954,8 +959,10 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
                         : selectedTemplate?.name)
                     : undefined,
-                templateText: channels.whatsapp && isBaileys && selectedWebTemplate 
-                    ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
+                templateText: channels.whatsapp && isBaileys 
+                    ? (selectedWebTemplate 
+                        ? (composeFullWebTemplateText(selectedWebTemplate) || webTemplatePreviewText) 
+                        : (richPreviewText || undefined))
                     : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
@@ -1393,11 +1400,14 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                                         {accounts.map(acc => {
                                                             const accId = acc.id || acc._id;
                                                             const isWAWeb = acc.provider === 'BAILEYS';
+                                                            const label = acc.accountLabel || acc.name || (acc.displayPhoneNumber ? `+${String(acc.displayPhoneNumber).replace(/^\+/, '')}` : 'WhatsApp Line');
+                                                            const phone = acc.displayPhoneNumber || acc.phoneNumber || acc.phoneNumberId || '';
                                                             return (
                                                                 <option key={accId} value={accId}>
                                                                     {isWAWeb ? '🟢 [WhatsApp Web] ' : '🔵 [Meta Cloud API] '}
-                                                                    {acc.name || acc.phoneNumber || 'WhatsApp Line'}
-                                                                    {acc.phoneNumber ? ` (+${acc.phoneNumber.replace(/^\+/, '')})` : ''}
+                                                                    {label}
+                                                                    {phone && !label.includes(phone) ? ` (${phone})` : ''}
+                                                                    {acc.isDefault ? ' ⭐ Default' : ''}
                                                                 </option>
                                                             );
                                                         })}

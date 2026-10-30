@@ -1258,6 +1258,8 @@ export const getWhatsAppAccounts = async (req, res) => {
                 wabaId: i.wabaId,
                 displayPhoneNumber: i.displayPhoneNumber || 'WhatsApp Business',
                 accountLabel: i.accountLabel || (i.provider === 'BAILEYS' ? `WhatsApp Web (${i.displayPhoneNumber || ''})` : i.connectionType === 'COEXISTENCE' ? `WhatsApp Business App (${i.displayPhoneNumber || ''})` : `WhatsApp Cloud API (${i.displayPhoneNumber || ''})`),
+                name: i.accountLabel || i.displayPhoneNumber || 'WhatsApp Account',
+                phoneNumber: i.displayPhoneNumber || i.phoneNumberId || '',
                 connectionType: i.connectionType,
                 provider: i.provider || (i.connectionType === 'QR_SCANNER' ? 'BAILEYS' : 'META_CLOUD'),
                 onboardingStatus: i.onboardingStatus,
