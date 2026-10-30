@@ -1191,7 +1191,10 @@ if (name === 'bna-broadcast') {
                 stats.skipped++;
                 return await chainNextRecipient(job, data, recipientIndex, stats, recipients.length);
             }
-        } catch (idempErr) {}
+        } catch (idempErr) {
+            await job.log(`❌ [Idempotency] Database lookup failed for ${chatLabel} in campaign ${campaignId}: ${idempErr.message}. Aborting dispatch to trigger safe retry.`);
+            throw new Error(`IDEMPOTENCY_LOOKUP_FAILED: Cannot verify recipient delivery state for ${chatLabel} (${idempErr.message}). Safe retry required.`);
+        }
 
         // 2. Dispatch
         await job.log(`[Batch Progress: ${recipientIndex + 1}/${recipients.length}] Sending to ${chatLabel}...`);

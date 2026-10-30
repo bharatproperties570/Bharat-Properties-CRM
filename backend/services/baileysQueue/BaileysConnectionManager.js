@@ -19,6 +19,23 @@ const instanceId = `${process.pid}_${Math.random().toString(36).substring(2, 9)}
 const activeHeartbeats = new Map();
 const lidPhoneCache = new Map();
 
+// 🔒 Atomic Redis Lua Scripts for Ownership-Safe Distributed Locks
+const LUA_RELEASE_LOCK = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+`;
+
+const LUA_RENEW_LOCK = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], tonumber(ARGV[2]))
+else
+    return 0
+end
+`;
+
 // 🚀 Phase 4 Enterprise Optimization: Bounded Memory Caches (Max 2,000 entries)
 const MAX_CACHE_ENTRIES = 2000;
 function safeSetBoundedCache(map, key, value) {
@@ -680,14 +697,16 @@ export const BaileysConnectionManager = {
             // Acquire distributed Redis lock across workers before transmitting onto Baileys session
             let distributedLockToken = null;
             let redisProxy = null;
+            let renewalTimer = null;
             const outboundLockKey = `lock:baileys_outbound:${idStr}`;
+            const LOCK_TTL_SEC = 30; // 30s safeguard prevents deadlocks on worker crash
+            const MAX_LOCK_WAIT_MS = 30000;
+
             try {
                 const redisMod = await import('../../src/config/redis.js');
                 redisProxy = redisMod.default;
-                if (redisProxy && !redisProxy.isMock) {
+                if (redisProxy) {
                     distributedLockToken = `${instanceId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-                    const LOCK_TTL_SEC = 30; // 30s safeguard prevents deadlocks on worker crash
-                    const MAX_LOCK_WAIT_MS = 30000;
                     const startWait = Date.now();
                     let lockAcquired = false;
                     while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
@@ -698,24 +717,41 @@ export const BaileysConnectionManager = {
                         }
                         await new Promise(r => setTimeout(r, 60 + Math.floor(Math.random() * 40)));
                     }
+
                     if (!lockAcquired) {
-                        console.warn(`[BaileysConnectionManager] Timed out waiting for distributed outbound lock on session ${idStr}. Proceeding under local serialization.`);
+                        throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for exclusive outbound lock on Baileys session '${idStr}' after ${MAX_LOCK_WAIT_MS}ms. Aborting send to prevent socket frame collision.`);
                     }
+
+                    // Lock Heartbeat Renewal: Renew lock every 10s while sendTask is executing
+                    renewalTimer = setInterval(async () => {
+                        try {
+                            const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, outboundLockKey, distributedLockToken, LOCK_TTL_SEC);
+                            if (!renewed) {
+                                console.warn(`[BaileysConnectionManager] Outbound lock renewal failed for session ${idStr}. Token expired or replaced.`);
+                            }
+                        } catch (e) {}
+                    }, 10000);
                 }
             } catch (lockErr) {
-                console.warn(`[BaileysConnectionManager] Distributed lock warning for ${idStr}:`, lockErr.message);
+                if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')) {
+                    throw lockErr;
+                }
+                console.error(`[BaileysConnectionManager] Distributed lock error for ${idStr}:`, lockErr.message);
+                throw new Error(`DISTRIBUTED_LOCK_FAILURE: Cannot acquire outbound lock for Baileys session '${idStr}': ${lockErr.message}`);
             }
 
             try {
                 return await sendTask();
             } finally {
+                if (renewalTimer) {
+                    clearInterval(renewalTimer);
+                }
                 if (distributedLockToken && redisProxy) {
                     try {
-                        const currentVal = await redisProxy.get(outboundLockKey);
-                        if (currentVal === distributedLockToken) {
-                            await redisProxy.del(outboundLockKey);
-                        }
-                    } catch (relErr) {}
+                        await redisProxy.eval(LUA_RELEASE_LOCK, 1, outboundLockKey, distributedLockToken);
+                    } catch (relErr) {
+                        console.warn(`[BaileysConnectionManager] Error releasing outbound lock for ${idStr}:`, relErr.message);
+                    }
                 }
             }
         })();

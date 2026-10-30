@@ -77,6 +77,7 @@ jobs:
           cd backend
           npm run test:phase9.1
           npm run test:phase9
+          npm run test:whatsapp-remediation
 
       - name: Run Phase 10 Deals Domain Lifecycle Tests
         run: |

@@ -20,24 +20,74 @@ const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
 const _reconcileLocks = new Map();
 
-function _withReconcileKeyLock(key, fn) {
+// 🔒 Atomic Redis Lua Script for Ownership-Safe Distributed Lock Release
+const LUA_RELEASE_LOCK = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+`;
+
+async function _withReconcileKeyLock(key, fn) {
     if (!key) return fn();
     const idKey = String(key).trim();
     const prev = _reconcileLocks.get(idKey) || Promise.resolve();
     let release;
     const current = new Promise(resolve => { release = resolve; });
     _reconcileLocks.set(idKey, current);
-    return (async () => {
+
+    // 1. Process-local queue to serialize requests within the same Node.js runtime
+    await prev;
+
+    // 2. Distributed Exclusive Synchronization across separate Node.js processes / PM2 cluster
+    let redisProxy = null;
+    let distributedLockToken = null;
+    const lockKey = `lock:dispatch_reconcile:${idKey}`;
+    const LOCK_TTL_SEC = 15;
+    const MAX_LOCK_WAIT_MS = 10000;
+
+    try {
         try {
-            await prev;
-            return await fn();
-        } finally {
-            release();
-            if (_reconcileLocks.get(idKey) === current) {
-                _reconcileLocks.delete(idKey);
+            const redisMod = await import('../src/config/redis.js');
+            redisProxy = redisMod.default;
+            if (redisProxy) {
+                distributedLockToken = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const startWait = Date.now();
+                let lockAcquired = false;
+                while (Date.now() - startWait < MAX_LOCK_WAIT_MS) {
+                    const setRes = await redisProxy.set(lockKey, distributedLockToken, 'NX', 'EX', LOCK_TTL_SEC);
+                    if (setRes === 'OK' || setRes === true) {
+                        lockAcquired = true;
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 40 + Math.floor(Math.random() * 30)));
+                }
+                if (!lockAcquired) {
+                    throw new Error(`DISTRIBUTED_LOCK_TIMEOUT: Timed out waiting for reconciliation lock '${lockKey}'`);
+                }
+            }
+        } catch (lockErr) {
+            if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT')) {
+                throw lockErr;
+            }
+            console.warn(`[WhatsAppService] Distributed reconciliation lock notice for '${idKey}': ${lockErr.message}`);
+        }
+
+        return await fn();
+    } finally {
+        if (distributedLockToken && redisProxy) {
+            try {
+                await redisProxy.eval(LUA_RELEASE_LOCK, 1, lockKey, distributedLockToken);
+            } catch (relErr) {
+                // Non-critical lock release error
             }
         }
-    })();
+        release();
+        if (_reconcileLocks.get(idKey) === current) {
+            _reconcileLocks.delete(idKey);
+        }
+    }
 }
 
 class WhatsAppService {
@@ -538,7 +588,19 @@ class WhatsAppService {
         if (!statusObj || !statusObj.id) {
             return { reconciled: false, reason: 'INVALID_STATUS_PAYLOAD' };
         }
-        const lockKey = statusObj.biz_opaque_callback_data || statusObj.id;
+        let lockKey = statusObj.biz_opaque_callback_data;
+        if (!lockKey && mongoose.connection?.readyState === 1) {
+            try {
+                const WhatsAppDispatch = mongoose.models.WhatsAppDispatch || (await import('../models/WhatsAppDispatch.js')).default;
+                const found = await WhatsAppDispatch.findOne({ providerMessageId: statusObj.id }).select('idempotencyKey').lean();
+                if (found?.idempotencyKey) {
+                    lockKey = found.idempotencyKey;
+                }
+            } catch (e) {}
+        }
+        if (!lockKey) {
+            lockKey = statusObj.id;
+        }
         return _withReconcileKeyLock(lockKey, async () => {
             return await this._reconcileWebhookStatusInternal(statusObj);
         });
@@ -1181,9 +1243,10 @@ class WhatsAppService {
         const clean10 = digits.slice(-10);
         const phoneFormats = [digits, `+${digits}`, clean10, `91${clean10}`, `+91${clean10}`];
 
-        // Fail-Closed Policy: If database is disconnected or unreachable, un-keyed dispatches in test mode continue, but any query error fails closed
+        // 🛡️ Fail-Closed Policy: If database is disconnected or unreachable, treat as opted-out to prevent compliance breach
         if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-            return false;
+            console.warn(`[WhatsAppService] Database unavailable while verifying opt-out status for ${mobile}. Failing closed (treating as opted out).`);
+            return true;
         }
 
         try {
@@ -1977,20 +2040,7 @@ class WhatsAppService {
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        // 1. Opt-out policy enforcement
-        const isOptedOut = await this.isRecipientOptedOut(mobile);
-        if (isOptedOut && !options?.overrideOptOut) {
-            console.warn(`[WhatsAppService] Outbound WhatsApp template to ${mobile} blocked: Recipient has opted out.`);
-            return {
-                success: false,
-                error: 'Recipient has opted out of WhatsApp communications',
-                code: 'RECIPIENT_OPTED_OUT',
-                optedOut: true,
-                provider: 'policy'
-            };
-        }
-
-        // 2. Idempotency Check (Durable L2 + L1 cache)
+        // 1. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = options?.idempotencyKey;
         let dispatchClaim = null;
         if (idempotencyKey) {
@@ -2018,6 +2068,19 @@ class WhatsAppService {
                     code: dispatchClaim.code
                 };
             }
+        }
+
+        // 2. Opt-out policy enforcement
+        const isOptedOut = await this.isRecipientOptedOut(mobile);
+        if (isOptedOut && !options?.overrideOptOut) {
+            console.warn(`[WhatsAppService] Outbound WhatsApp template to ${mobile} blocked: Recipient has opted out.`);
+            return {
+                success: false,
+                error: 'Recipient has opted out of WhatsApp communications',
+                code: 'RECIPIENT_OPTED_OUT',
+                optedOut: true,
+                provider: 'policy'
+            };
         }
 
         const targetAccount = options?.integrationId || options?.phoneId || null;
@@ -2193,20 +2256,7 @@ class WhatsAppService {
             return { messages: [{ id: "staging-blocked" }] };
         }
 
-        // 1. Opt-out policy enforcement
-        const isOptedOut = await this.isRecipientOptedOut(mobile);
-        if (isOptedOut && !extraOptions?.overrideOptOut) {
-            console.warn(`[WhatsAppService] Outbound WhatsApp media to ${mobile} blocked: Recipient has opted out.`);
-            return {
-                success: false,
-                error: 'Recipient has opted out of WhatsApp communications',
-                code: 'RECIPIENT_OPTED_OUT',
-                optedOut: true,
-                provider: 'policy'
-            };
-        }
-
-        // 2. Idempotency Check (Durable L2 + L1 cache)
+        // 1. Idempotency Check (Durable L2 + L1 cache)
         const idempotencyKey = extraOptions?.idempotencyKey;
         let dispatchClaim = null;
         if (idempotencyKey) {
@@ -2234,6 +2284,19 @@ class WhatsAppService {
                     code: dispatchClaim.code
                 };
             }
+        }
+
+        // 2. Opt-out policy enforcement
+        const isOptedOut = await this.isRecipientOptedOut(mobile);
+        if (isOptedOut && !extraOptions?.overrideOptOut) {
+            console.warn(`[WhatsAppService] Outbound WhatsApp media to ${mobile} blocked: Recipient has opted out.`);
+            return {
+                success: false,
+                error: 'Recipient has opted out of WhatsApp communications',
+                code: 'RECIPIENT_OPTED_OUT',
+                optedOut: true,
+                provider: 'policy'
+            };
         }
 
         const targetAccount = extraOptions?.integrationId || extraOptions?.phoneId || null;

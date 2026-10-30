@@ -50,6 +50,46 @@ class MockRedis extends EventEmitter {
         return 'OK'; 
     }
     async del(key) { this.data.delete(key); return 1; }
+    async expire(key, seconds) {
+        if (!this.data.has(key)) return 0;
+        const val = this.data.get(key);
+        setTimeout(() => {
+            if (this.data.get(key) === val) {
+                this.data.delete(key);
+            }
+        }, seconds * 1000);
+        return 1;
+    }
+    async eval(script, numkeys, ...args) {
+        const keys = args.slice(0, numkeys);
+        const argv = args.slice(numkeys);
+        const s = String(script || '');
+
+        // Canonical release lock script: if get(k) == token then del(k) return 1 else return 0
+        if (s.includes('del') && s.includes('get')) {
+            const key = keys[0];
+            const token = argv[0];
+            if (this.data.get(key) === token) {
+                this.data.delete(key);
+                return 1;
+            }
+            return 0;
+        }
+
+        // Canonical renew lock script: if get(k) == token then expire(k, ttl) return 1 else return 0
+        if (s.includes('expire') && s.includes('get')) {
+            const key = keys[0];
+            const token = argv[0];
+            const seconds = parseInt(argv[1], 10) || 30;
+            if (this.data.get(key) === token) {
+                await this.expire(key, seconds);
+                return 1;
+            }
+            return 0;
+        }
+
+        return 1;
+    }
     async quit() { return 'OK'; }
     async ping() { return 'PONG'; }
 }
