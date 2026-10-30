@@ -47,7 +47,10 @@ async function logMandatoryAuditEvent({
     metadata = {},
     status = 'success',
     tenantId = null,
-    session = null
+    session = null,
+    ipAddress = null,
+    userAgent = null,
+    isSystem = false
 }) {
     let user = null;
     if (userId && mongoose.Types.ObjectId.isValid(userId)) {
@@ -69,20 +72,38 @@ async function logMandatoryAuditEvent({
         return existingAudit;
     }
 
+    // Trusted provenance resolution (Phase 4.4.1 - Finding F-08)
+    let resolvedIp = null;
+    let origin = 'unknown';
+
+    if (isSystem || (!userId && (metadata?.runMode === 'BULK_SCHEDULED' || metadata?.origin === 'system' || ipAddress === 'system'))) {
+        resolvedIp = 'system';
+        origin = 'system';
+    } else if (typeof ipAddress === 'string' && ipAddress.trim().length > 0 && ipAddress.trim().toLowerCase() !== 'unknown') {
+        resolvedIp = ipAddress.trim();
+        origin = userId ? 'authenticated_user' : 'network_client';
+    } else {
+        resolvedIp = null;
+        origin = userId ? 'authenticated_user' : 'unknown';
+    }
+
+    const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+
     const auditDoc = {
         eventType,
         userId: userId || null,
-        userName: user?.fullName || 'System/AuthorityEngine',
-        userEmail: user?.email || 'system@crm.internal',
+        userName: user?.fullName || (resolvedIp === 'system' ? 'System/AuthorityScheduler' : 'System/AuthorityEngine'),
+        userEmail: user?.email || (resolvedIp === 'system' ? 'scheduler@crm.internal' : 'system@crm.internal'),
         targetType,
         targetId: targetId ? targetId.toString() : null,
         description,
         metadata: {
             ...metadata,
+            origin,
             ...(tenantId ? { tenantId: tenantId.toString() } : {})
         },
-        ipAddress: '127.0.0.1',
-        userAgent: 'AuthorityBulkProcessor/v4.4',
+        ipAddress: resolvedIp,
+        userAgent: resolvedUserAgent,
         status
     };
 
@@ -100,7 +121,10 @@ async function logDiagnosticAuditEvent({
     description,
     metadata = {},
     status = 'success',
-    tenantId = null
+    tenantId = null,
+    ipAddress = null,
+    userAgent = null,
+    isSystem = false
 }) {
     try {
         let user = null;
@@ -108,20 +132,37 @@ async function logDiagnosticAuditEvent({
             user = await User.findById(userId).select('fullName email').lean();
         }
 
+        let resolvedIp = null;
+        let origin = 'unknown';
+
+        if (isSystem || (!userId && (metadata?.runMode === 'BULK_SCHEDULED' || metadata?.origin === 'system' || ipAddress === 'system'))) {
+            resolvedIp = 'system';
+            origin = 'system';
+        } else if (typeof ipAddress === 'string' && ipAddress.trim().length > 0 && ipAddress.trim().toLowerCase() !== 'unknown') {
+            resolvedIp = ipAddress.trim();
+            origin = userId ? 'authenticated_user' : 'network_client';
+        } else {
+            resolvedIp = null;
+            origin = userId ? 'authenticated_user' : 'unknown';
+        }
+
+        const resolvedUserAgent = userAgent || (resolvedIp === 'system' ? 'AuthorityRefreshScheduler/v4.4.1' : 'AuthorityBulkProcessor/v4.4.1');
+
         await AuditLog.create({
             eventType,
             userId: userId || null,
-            userName: user?.fullName || 'System/AuthorityEngine',
-            userEmail: user?.email || 'system@crm.internal',
+            userName: user?.fullName || (resolvedIp === 'system' ? 'System/AuthorityScheduler' : 'System/AuthorityEngine'),
+            userEmail: user?.email || (resolvedIp === 'system' ? 'scheduler@crm.internal' : 'system@crm.internal'),
             targetType,
             targetId: targetId ? targetId.toString() : null,
             description,
             metadata: {
                 ...metadata,
+                origin,
                 ...(tenantId ? { tenantId: tenantId.toString() } : {})
             },
-            ipAddress: '127.0.0.1',
-            userAgent: 'AuthorityBulkProcessor/v4.4',
+            ipAddress: resolvedIp,
+            userAgent: resolvedUserAgent,
             status
         });
     } catch (err) {
@@ -430,7 +471,7 @@ export class AuthorityBulkProcessor {
         runMode = 'BULK_MANUAL',
         isFixtureMode = false,
         onlyEligible = false
-    }) {
+    }, options = {}) {
         if (!tenantId || !authorityCode || !requestedBy) {
             throw new Error('MISSING_PARAM: tenantId, authorityCode, and requestedBy are required.');
         }
@@ -473,7 +514,10 @@ export class AuthorityBulkProcessor {
                     targetId: rejectedRun._id,
                     description: `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
                     metadata: { authorityCode, runMode, blockers },
-                    tenantId
+                    tenantId,
+                    ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                    userAgent: options.userAgent || null,
+                    isSystem: options.isSystem || runMode === 'BULK_SCHEDULED'
                 });
             } catch (auditErr) {
                 await PropertyVerificationRun.deleteOne({ _id: rejectedRun._id, tenantId });
@@ -614,7 +658,10 @@ export class AuthorityBulkProcessor {
                 targetId: run._id,
                 description: `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
                 metadata: { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId },
-                tenantId
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || runMode === 'BULK_SCHEDULED'
             });
         } catch (auditErr) {
             await PropertyVerificationRunItem.deleteMany({ runId: run._id, tenantId });
@@ -989,21 +1036,36 @@ export class AuthorityBulkProcessor {
         );
 
         if (completedRun) {
-            await logAuditEvent(
-                'authority_run_completed',
-                run.requestedBy,
-                'authority_run',
-                run._id,
-                `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
-                {
-                    runId: run._id,
-                    status: finalStatus,
-                    totalItems: run.totalItems,
-                    processedItems: totalProcessed,
-                    succeededItems: totalSucceeded,
-                    failedItems: totalFailed
-                }
-            );
+            try {
+                await logMandatoryAuditEvent({
+                    eventType: 'authority_run_completed',
+                    userId: run.requestedBy,
+                    targetType: 'authority_run',
+                    targetId: run._id,
+                    description: `Run ${run._id} finished with status ${finalStatus} (${totalProcessed} processed, ${totalSucceeded} succeeded, ${totalFailed} failed)`,
+                    metadata: {
+                        runId: run._id,
+                        status: finalStatus,
+                        totalItems: run.totalItems,
+                        processedItems: totalProcessed,
+                        succeededItems: totalSucceeded,
+                        failedItems: totalFailed
+                    },
+                    tenantId,
+                    ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                    userAgent: options.userAgent || null,
+                    isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
+                });
+            } catch (auditErr) {
+                // Roll back completed run status to PROCESSING to prevent unaudited completion
+                await PropertyVerificationRun.updateOne(
+                    { _id: run._id, tenantId },
+                    { $set: { status: 'PROCESSING', completedAt: null } }
+                );
+                const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to create audit log for run completion: ${auditErr.message}`);
+                err.code = 'AUDIT_LOG_FAILED';
+                throw err;
+            }
         }
 
         return {
@@ -2681,20 +2743,40 @@ export class AuthorityBulkProcessor {
             }
         );
 
+        const previousStatus = run.status;
+        const previousPausedAt = run.pausedAt;
+        const previousPauseReason = run.pauseReason;
+        const previousPausedBy = run.pausedBy;
+
         run.status = 'PROCESSING';
         run.pausedAt = null;
         run.pauseReason = null;
         run.pausedBy = null;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_resumed',
-            options.userId || null,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} resumed`,
-            { runId: run._id, tenantId }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_resumed',
+                userId: options.userId || null,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} resumed`,
+                metadata: { runId: run._id, tenantId },
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.pausedAt = previousPausedAt;
+            run.pauseReason = previousPauseReason;
+            run.pausedBy = previousPausedBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_resumed audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return this.processRun(runId, {
             tenantId,

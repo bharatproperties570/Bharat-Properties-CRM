@@ -376,6 +376,9 @@ export const createVerificationRun = async (req, res) => {
             inventoryIds: ids,
             runMode,
             isFixtureMode: Boolean(isFixtureMode)
+        }, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         if (run.status === 'POLICY_REJECTED') {
@@ -385,7 +388,11 @@ export const createVerificationRun = async (req, res) => {
                 'authority_run',
                 run._id,
                 `Verification run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons }
+                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons },
+                {
+                    ipAddress: req.ip || null,
+                    userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+                }
             );
 
             return res.status(422).json({
@@ -402,13 +409,20 @@ export const createVerificationRun = async (req, res) => {
             'authority_run',
             run._id,
             `Verification run created for ${authorityCode} (${runMode})`,
-            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode }
+            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode },
+            {
+                ipAddress: req.ip || null,
+                userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+            }
         );
 
         if (autoProcess) {
             AuthorityBulkProcessor.processRun(run._id, {
                 tenantId,
-                isFixtureMode: Boolean(isFixtureMode)
+                isFixtureMode: Boolean(isFixtureMode),
+                userId: req.user._id,
+                ipAddress: req.ip || null,
+                userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
             }).catch(err => console.error('[AutoProcess] Run error:', err));
         }
 
@@ -496,7 +510,9 @@ export const processVerificationRun = async (req, res) => {
             tenantId,
             batchSize: Number(batchSize) || 50,
             isFixtureMode: Boolean(run.isFixtureMode),
-            userId: req.user._id
+            userId: req.user._id,
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         res.json({ success: true, data: outcome });
@@ -518,7 +534,10 @@ export const pauseVerificationRun = async (req, res) => {
 
         const { runId } = req.params;
         const { reason = 'Paused by user' } = req.body;
-        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason);
+        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+        });
 
         res.json({ success: true, data: run.toSummary() });
     } catch (error) {
@@ -556,7 +575,9 @@ export const resumeVerificationRun = async (req, res) => {
 
         const outcome = await AuthorityBulkProcessor.resumeRun(runId, tenantId, {
             isFixtureMode: Boolean(run.isFixtureMode),
-            userId: req.user._id
+            userId: req.user._id,
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
         });
 
         res.json({ success: true, data: outcome });
@@ -579,7 +600,10 @@ export const cancelVerificationRun = async (req, res) => {
         const { runId } = req.params;
         const { reason = 'Cancelled by user' } = req.body;
 
-        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason);
+        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason, {
+            ipAddress: req.ip || null,
+            userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+        });
 
         res.json({ success: true, data: run.toSummary() });
     } catch (error) {
@@ -1035,6 +1059,18 @@ export const applyApprovedChanges = async (req, res) => {
         const tenantId = getTenantId(req);
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
+        // Authenticated Applier Identity Required (Phase 4.4.1 - Finding F-02 Hardening)
+        // Must fail closed if req.user or req.user._id is unavailable.
+        // Never accept client-supplied reviewer or applier IDs from body, params, or headers.
+        if (!req.user || !req.user._id) {
+            return res.status(401).json({
+                success: false,
+                code: 'AUTHENTICATION_REQUIRED',
+                message: 'Authenticated applier identity (req.user._id) is required to apply approved changes'
+            });
+        }
+        const applierUserId = req.user._id.toString();
+
         const { itemId } = req.params;
 
         const item = await PropertyVerificationRunItem.findOne({ _id: itemId, tenantId });
@@ -1385,9 +1421,9 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // 8. Maker-Checker Separation Gate (Phase 4.4 - Finding F-02)
+        // 8. Maker-Checker Separation Gate (Phase 4.4 - Finding F-02 & Phase 4.4.1 Hardening)
         // The reviewer who approved the changes cannot be the user applying them.
-        // Server-side identity verified via req.user._id (ignoring any request payload).
+        // Server-side identity verified strictly via authenticated req.user._id (ignoring any request payload).
         if (!item.reviewedBy) {
             return res.status(422).json({
                 success: false,
@@ -1396,10 +1432,9 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        const applierUserId = req.user?._id?.toString();
-        const reviewerUserId = item.reviewedBy?.toString();
+        const reviewerUserId = item.reviewedBy.toString();
 
-        if (applierUserId && reviewerUserId && applierUserId === reviewerUserId) {
+        if (applierUserId === reviewerUserId) {
             return res.status(403).json({
                 success: false,
                 code: 'MAKER_CHECKER_VIOLATION',
@@ -1631,7 +1666,11 @@ export const applyApprovedChanges = async (req, res) => {
                     claimId: claimId.toString(),
                     changes: { before: previousValues, after: updateOps }
                 },
-                useTransaction ? { session } : {}
+                {
+                    ...(useTransaction ? { session } : {}),
+                    ipAddress: req.ip || null,
+                    userAgent: req.get ? req.get('user-agent') : (req.headers ? req.headers['user-agent'] : null)
+                }
             );
             recordedAuditId = auditRecord?._id || null;
 
