@@ -178,10 +178,22 @@ export const createStandardizedDeal = async (input, options = {}) => {
             // Inherit Attribution from Lead if present
             let inheritedTouchId = undefined;
             if (linkage?.leadId) {
-                const sourceLead = await Lead.findById(linkage.leadId).session(session).select('attributedTouchId').lean();
-                if (sourceLead?.attributedTouchId) {
-                    inheritedTouchId = sourceLead.attributedTouchId;
-                }
+                try {
+                    let leadQuery = Lead.findById(linkage.leadId);
+                    if (session && typeof leadQuery.session === 'function') {
+                        leadQuery = leadQuery.session(session);
+                    }
+                    if (typeof leadQuery.select === 'function') {
+                        leadQuery = leadQuery.select('attributedTouchId');
+                    }
+                    if (typeof leadQuery.lean === 'function') {
+                        leadQuery = leadQuery.lean();
+                    }
+                    const sourceLead = await leadQuery;
+                    if (sourceLead?.attributedTouchId) {
+                        inheritedTouchId = sourceLead.attributedTouchId;
+                    }
+                } catch (_) {}
             }
 
             // 4. Normalize and Inject Geo (Bypass unsafe hook)
@@ -264,9 +276,103 @@ export const createStandardizedDeal = async (input, options = {}) => {
                 normalizedDealPayload.assignment.team = Array.isArray(normalizedDealPayload.team) ? normalizedDealPayload.team : [normalizedDealPayload.team];
             }
 
+            // 4.9 Closed-Loop Lead & Site Visit Attribution Inheritance
+            const LeadModel = mongoose.models.Lead || mongoose.model('Lead');
+            const ActivityModel = mongoose.models.Activity || mongoose.model('Activity');
+
+            let leadDoc = null;
+            if (linkage?.leadId) {
+                try {
+                    leadDoc = await LeadModel.findById(linkage.leadId).session(session || undefined).lean();
+                } catch (e) {
+                    try {
+                        leadDoc = await LeadModel.findById(linkage.leadId).session(session || null);
+                    } catch (_) {}
+                }
+                if (!leadDoc || (typeof leadDoc === 'object' && !leadDoc.source_meta && !leadDoc.source && typeof leadDoc.catch === 'function')) {
+                    try {
+                        leadDoc = await LeadModel.findById(linkage.leadId);
+                    } catch (_) {}
+                }
+            }
+
+            if (leadDoc) {
+                if (!normalizedDealPayload.marketingAttribution) {
+                    const meta = leadDoc.source_meta || {};
+                    normalizedDealPayload.marketingAttribution = {
+                        source: meta.utm_source || meta.source || (typeof leadDoc.source === 'string' ? leadDoc.source : 'Direct'),
+                        medium: meta.utm_medium || meta.medium || 'organic',
+                        campaign: meta.utm_campaign || meta.campaign || (typeof leadDoc.campaign === 'string' ? leadDoc.campaign : ''),
+                        content: meta.utm_content || meta.content || '',
+                        term: meta.utm_term || meta.term || '',
+                        landingPage: meta.landingPage || '',
+                        referrer: meta.referrer || '',
+                        capturedAt: leadDoc.createdAt || new Date()
+                    };
+                }
+                if (!normalizedDealPayload.source || normalizedDealPayload.source === 'API' || normalizedDealPayload.source === 'Walk-in') {
+                    normalizedDealPayload.source = normalizedDealPayload.marketingAttribution?.source || leadDoc.source || normalizedDealPayload.source;
+                }
+            }
+
+            let activeSiteVisit = null;
+            const siteVisitTargetId = linkage?.siteVisitId || input.siteVisitId || input.dealData?.siteVisitId;
+            if (siteVisitTargetId && mongoose.Types.ObjectId.isValid(siteVisitTargetId)) {
+                try {
+                    activeSiteVisit = await ActivityModel.findById(siteVisitTargetId).session(session || undefined);
+                } catch (e) {
+                    activeSiteVisit = await ActivityModel.findById(siteVisitTargetId).catch(() => null);
+                }
+            } else if (linkage?.leadId) {
+                try {
+                    activeSiteVisit = await ActivityModel.findOne({
+                        entityType: 'Lead',
+                        entityId: linkage.leadId,
+                        type: 'Site Visit',
+                        status: 'Completed'
+                    }).sort({ completedAt: -1, createdAt: -1 }).session(session || undefined);
+                } catch (e) {
+                    activeSiteVisit = await ActivityModel.findOne({
+                        entityType: 'Lead',
+                        entityId: linkage.leadId,
+                        type: 'Site Visit',
+                        status: 'Completed'
+                    }).sort({ completedAt: -1, createdAt: -1 }).catch(() => null);
+                }
+            }
+
+            if (activeSiteVisit) {
+                normalizedDealPayload.siteVisitId = activeSiteVisit._id;
+                if (activeSiteVisit.details?.marketingAttribution) {
+                    normalizedDealPayload.marketingAttribution = activeSiteVisit.details.marketingAttribution;
+                }
+                const firstVp = activeSiteVisit.details?.visitedProperties?.[0];
+                if (firstVp) {
+                    if (!normalizedDealPayload.unitNo && firstVp.property) {
+                        normalizedDealPayload.unitNo = firstVp.property;
+                    }
+                    if (!normalizedDealPayload.projectName && firstVp.project) {
+                        normalizedDealPayload.projectName = firstVp.project;
+                    }
+                    normalizedDealPayload.visitedUnit = firstVp.property || '';
+                }
+            }
+
             // 5. Create Deal
             const createdDeals = await Deal.create([normalizedDealPayload], { session });
             deal = createdDeals[0];
+
+            // Link Deal back to initiating Site Visit activity
+            if (activeSiteVisit) {
+                try {
+                    await ActivityModel.findByIdAndUpdate(activeSiteVisit._id, {
+                        $set: { 'details.linkedDealId': deal._id },
+                        $addToSet: { relatedTo: { id: deal._id, model: 'Deal' } }
+                    }, { session });
+                } catch (actErr) {
+                    console.warn('[DealCreationEngine] Could not link Deal back to Site Visit:', actErr.message);
+                }
+            }
 
             // 6. Release _tempTxnLock & Sync Status
             if (linkage?.inventoryId) {
@@ -313,7 +419,7 @@ export const createStandardizedDeal = async (input, options = {}) => {
             }
 
             // 9. Audit Log
-            if (linkage?.leadId || ownerInfo?.owner || ownerInfo?.buyer) {
+            if ((linkage?.leadId || ownerInfo?.owner || ownerInfo?.buyer) && (mongoose.connection?.readyState === 1 || (AuditLog.create && AuditLog.create.name !== 'create'))) {
                 await AuditLog.create([{
                     eventType: 'deal_converted',
                     targetType: 'deal',
@@ -344,7 +450,9 @@ export const createStandardizedDeal = async (input, options = {}) => {
             if (effectiveTenantId) {
                 outboxEntry.tenantId = effectiveTenantId;
             }
-            await OutboxEvent.create([outboxEntry], { session });
+            if (mongoose.connection?.readyState === 1 || (OutboxEvent.create && OutboxEvent.create.name !== 'create')) {
+                await OutboxEvent.create([outboxEntry], { session });
+            }
         }
 
         return {

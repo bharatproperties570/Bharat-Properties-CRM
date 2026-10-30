@@ -25,15 +25,30 @@ class MockSession {
     }
 }
 
-// Override mongoose.startSession
+// Override mongoose.startSession and readyState for mock tests
 const originalStartSession = mongoose.startSession;
-mongoose.startSession = async () => new MockSession();
+const originalReadyState = mongoose.connection ? mongoose.connection.readyState : 0;
+
+function setMockConnectionReady(ready) {
+    if (!mongoose.connection) {
+        mongoose.connection = {};
+    }
+    Object.defineProperty(mongoose.connection, 'readyState', {
+        value: ready ? 1 : 0,
+        configurable: true,
+        writable: true
+    });
+}
 
 export const runTransactionTests = async () => {
     try {
         console.log("Running withMongoTransaction Unit Tests...");
 
-        // TEST A: No existing session
+        // Setup mock connection as ready (readyState: 1)
+        setMockConnectionReady(true);
+        mongoose.startSession = async () => new MockSession();
+
+        // TEST A: No existing session (Active mock connection)
         let testA_sessionReceived = null;
         const resultA = await withMongoTransaction(async (session) => {
             testA_sessionReceived = session;
@@ -80,7 +95,6 @@ export const runTransactionTests = async () => {
         console.log("✅ TEST D PASSED: Callback error (Transaction aborts correctly)");
 
         // TEST E: Return value
-        // Result propagation was already verified in A and B, but explicitly:
         const resultE = await withMongoTransaction(async () => {
             return { complex: "object", nested: true };
         });
@@ -88,13 +102,58 @@ export const runTransactionTests = async () => {
         assert.strictEqual(resultE.nested, true, "TEST E: Return value nested missing");
         console.log("✅ TEST E PASSED: Return value propagates successfully");
 
-        // Restore mongoose
+        // TEST G: Disconnected Failure: throws MONGO_TRANSACTION_UNAVAILABLE when readyState !== 1 and fallback disabled
+        setMockConnectionReady(false);
+        delete process.env.ALLOW_TRANSACTION_TEST_FALLBACK;
+        let disconnectedThrew = false;
+        try {
+            await withMongoTransaction(async () => "ShouldNotRun");
+        } catch (err) {
+            if (err.code === 'MONGO_TRANSACTION_UNAVAILABLE' || err.message.includes('MONGO_TRANSACTION_UNAVAILABLE')) {
+                disconnectedThrew = true;
+            }
+        }
+        assert.ok(disconnectedThrew, "TEST G: Must throw MONGO_TRANSACTION_UNAVAILABLE when disconnected and fallback disabled");
+        console.log("✅ TEST G PASSED: Disconnected failure (throws MONGO_TRANSACTION_UNAVAILABLE)");
+
+        // TEST H: Test Fallback: executes callback(null) when ALLOW_TRANSACTION_TEST_FALLBACK === 'true' in non-production
+        process.env.ALLOW_TRANSACTION_TEST_FALLBACK = 'true';
+        const origNodeEnv = process.env.NODE_ENV;
+        process.env.NODE_ENV = 'test';
+        let fallbackSession = 'unset';
+        const fallbackResult = await withMongoTransaction(async (session) => {
+            fallbackSession = session;
+            return "FallbackSuccess";
+        });
+        assert.strictEqual(fallbackResult, "FallbackSuccess", "TEST H: Return value from fallback");
+        assert.strictEqual(fallbackSession, null, "TEST H: Session passed to fallback must be null");
+        console.log("✅ TEST H PASSED: Explicit test fallback (executes callback(null) when enabled in test env)");
+
+        // TEST I: Production/Staging Protection: throws MONGO_TRANSACTION_UNAVAILABLE even if ALLOW_TRANSACTION_TEST_FALLBACK === 'true'
+        process.env.NODE_ENV = 'production';
+        let prodThrew = false;
+        try {
+            await withMongoTransaction(async () => "ShouldNotRunInProd");
+        } catch (err) {
+            if (err.code === 'MONGO_TRANSACTION_UNAVAILABLE' || err.message.includes('MONGO_TRANSACTION_UNAVAILABLE')) {
+                prodThrew = true;
+            }
+        }
+        assert.ok(prodThrew, "TEST I: Production must NEVER allow fallback when disconnected");
+        console.log("✅ TEST I PASSED: Production protection (strictly fails closed when disconnected)");
+
+        // Clean up environment
+        process.env.NODE_ENV = origNodeEnv;
+        delete process.env.ALLOW_TRANSACTION_TEST_FALLBACK;
+        setMockConnectionReady(originalReadyState === 1);
         mongoose.startSession = originalStartSession;
-        
+
         console.log("✅ TEST F PASSED: Existing callers remain compatible (API backwards compatibility maintained)");
-        
+        console.log("\nAll withMongoTransaction tests PASSED successfully!");
+
     } catch (err) {
         mongoose.startSession = originalStartSession;
+        setMockConnectionReady(originalReadyState === 1);
         console.error("❌ TEST FAILED:", err.message);
         process.exit(1);
     }

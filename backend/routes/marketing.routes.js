@@ -29,7 +29,8 @@ import {
     broadcastToBrokerGroup,
     getBNAAnalytics,
     getVariableRegistry,
-    generateMatchLink
+    generateMatchLink,
+    createCampaignTrackedLink
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -87,6 +88,7 @@ router.post('/broadcast/bna',  broadcastToBrokerGroup);
 router.get('/broadcast/analytics/:dealId', getBNAAnalytics);
 
 router.post('/generate-match-link', generateMatchLink);
+router.post('/tracked-link', createCampaignTrackedLink);
 
 router.get('/whatsapp/variable-registry', getVariableRegistry);
 router.post('/import-audience', upload.single('file'), importAudience);

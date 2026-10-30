@@ -59,6 +59,8 @@ import notificationSettingRoutes from "./routes/notificationSetting.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 import googleSettingsRoutes from "./routes/googleSettings.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
+import siteVisitRoutes from "./src/modules/siteVisit/siteVisit.routes.js";
+import siteVisitJourneyRoutes from "./src/modules/siteVisit/siteVisitJourney.routes.js";
 import integrationSettingsRoutes from "./routes/integrationSettings.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
 import aiAgentRoutes from "./routes/aiAgent.routes.js";
@@ -282,11 +284,14 @@ app.use("/api/stage-engine", stageEngineRoutes);
 app.use("/api/sms-gateway", smsRoutes);
 app.use("/api/activities", activityRoutes); // Standard activities
 app.use("/api/activities/completion", activityCompletionRoutes); // Specialized completion logic
+app.use("/api/site-visits", siteVisitRoutes); // Canonical Site Visit Domain Workflow
 app.use("/api/rules/stage-transitions", stageTransitionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/sales-goals", salesGoalRoutes);
 app.use("/api/notification-settings", notificationSettingRoutes);
+app.use("/api/public/site-visit/journey", siteVisitJourneyRoutes); // Client Site Visit Journey (Public, Token-Gated)
+app.use("/api/site-visits/journey", siteVisitJourneyRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks

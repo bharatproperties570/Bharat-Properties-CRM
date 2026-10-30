@@ -16,6 +16,7 @@ const CaptureFormPage = lazy(() => import('../pages/Public/CaptureFormPage'));
 // Lazy Loaded Public Pages
 const MatchBrochure = lazy(() => import('../pages/Public/MatchBrochure'));
 const PublicPortfolioPage = lazy(() => import('../pages/Public/PublicPortfolioPage'));
+const ClientSiteVisitJourneyPage = lazy(() => import('../pages/Public/ClientSiteVisitJourneyPage'));
 
 // Lazy Loaded Protected Pages
 const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage'));
@@ -158,7 +159,9 @@ export const router = createBrowserRouter([
             { path: '/public/feedback/:slug', element: <WithNav Component={PublicFeedbackForm} /> },
             { path: '/capture/:slug', element: <WithNav Component={CaptureFormPage} /> },
             { path: '/matches/:id', element: <WithNav Component={MatchBrochure} /> },
-            { path: '/p/:slug', element: <WithNav Component={PublicPortfolioPage} /> }
+            { path: '/p/:slug', element: <WithNav Component={PublicPortfolioPage} /> },
+            { path: '/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> },
+            { path: '/public/journey/:token', element: <WithNav Component={ClientSiteVisitJourneyPage} /> }
         ]
     },
 

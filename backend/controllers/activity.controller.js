@@ -272,6 +272,7 @@ const AT_RISK_THRESHOLD = 3;
  */
 const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     try {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) return;
         const outcomeNorm = (resolvedOutcome || '').toLowerCase().trim();
         const isNegative = NEGATIVE_OUTCOMES.has(outcomeNorm) ||
             [...NEGATIVE_OUTCOMES].some(n => outcomeNorm.includes(n));
@@ -337,11 +338,20 @@ const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
     }
 };
 
-export const autoTriggerStageChange = async (activity, userId = null) => {
+export const autoTriggerStageChange = async (activityInput, userId = null) => {
     try {
-        if (activity.entityType?.toLowerCase() !== 'lead') return;
-        if (activity.status?.toLowerCase() !== 'completed') return;
-        if (!activity.entityId) return;
+        let activity = activityInput;
+        if (!activity) return null;
+        if (typeof activity === 'string' || activity instanceof mongoose.Types.ObjectId) {
+            activity = await Activity.findById(activity);
+        } else if (activity._id && !activity.type) {
+            activity = await Activity.findById(activity._id);
+        }
+        if (!activity) return null;
+
+        if (activity.entityType?.toLowerCase() !== 'lead') return null;
+        if (activity.status?.toLowerCase() !== 'completed') return null;
+        if (!activity.entityId) return null;
 
         const leadId = activity.entityId;
         const actType = activity.type;
