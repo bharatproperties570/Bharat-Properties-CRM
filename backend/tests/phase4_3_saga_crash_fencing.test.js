@@ -199,7 +199,7 @@ describe('Phase 4.3 — Durable Saga Crash-Safety, Compensation Integrity & Inve
             authorityCode,
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
-            reviewedBy: userA._id,
+            reviewedBy: options.reviewedBy || new mongoose.Types.ObjectId(),
             reviewedAt: new Date(),
             proposedChanges,
             isSynthetic: false,

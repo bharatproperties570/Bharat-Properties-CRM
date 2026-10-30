@@ -36,6 +36,99 @@ import AuthoritySourceSettings from '../../models/AuthoritySourceSettings.js';
 import { executeFixturePipeline } from './adapterRegistry.js';
 import { HSVP_SYNTHETIC, CHD_SYNTHETIC, GMADA_SYNTHETIC } from './fixtures/syntheticPhase3AFixtures.js';
 
+// Mandatory operational audit logging helper (Phase 4.4 - Finding F-03)
+// Critical business/security audit records must NOT be silently swallowed.
+async function logMandatoryAuditEvent({
+    eventType,
+    userId,
+    targetType,
+    targetId,
+    description,
+    metadata = {},
+    status = 'success',
+    tenantId = null,
+    session = null
+}) {
+    let user = null;
+    if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+        user = await User.findById(userId).select('fullName email').lean();
+    }
+
+    // Idempotency check: avoid duplicate mandatory audit records on retries
+    const query = {
+        eventType,
+        targetType,
+        targetId: targetId ? targetId.toString() : null,
+        status
+    };
+    if (metadata?.runId) {
+        query['metadata.runId'] = metadata.runId;
+    }
+    const existingAudit = await AuditLog.findOne(query);
+    if (existingAudit && ['authority_run_created', 'authority_run_completed', 'authority_run_policy_rejected'].includes(eventType)) {
+        return existingAudit;
+    }
+
+    const auditDoc = {
+        eventType,
+        userId: userId || null,
+        userName: user?.fullName || 'System/AuthorityEngine',
+        userEmail: user?.email || 'system@crm.internal',
+        targetType,
+        targetId: targetId ? targetId.toString() : null,
+        description,
+        metadata: {
+            ...metadata,
+            ...(tenantId ? { tenantId: tenantId.toString() } : {})
+        },
+        ipAddress: '127.0.0.1',
+        userAgent: 'AuthorityBulkProcessor/v4.4',
+        status
+    };
+
+    const [created] = await AuditLog.create([auditDoc], session ? { session } : {});
+    return created;
+}
+
+// Diagnostic audit logging helper (Phase 4.4 - Finding F-03)
+// Best-effort progress events are non-fatal.
+async function logDiagnosticAuditEvent({
+    eventType,
+    userId,
+    targetType,
+    targetId,
+    description,
+    metadata = {},
+    status = 'success',
+    tenantId = null
+}) {
+    try {
+        let user = null;
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+            user = await User.findById(userId).select('fullName email').lean();
+        }
+
+        await AuditLog.create({
+            eventType,
+            userId: userId || null,
+            userName: user?.fullName || 'System/AuthorityEngine',
+            userEmail: user?.email || 'system@crm.internal',
+            targetType,
+            targetId: targetId ? targetId.toString() : null,
+            description,
+            metadata: {
+                ...metadata,
+                ...(tenantId ? { tenantId: tenantId.toString() } : {})
+            },
+            ipAddress: '127.0.0.1',
+            userAgent: 'AuthorityBulkProcessor/v4.4',
+            status
+        });
+    } catch (err) {
+        console.warn('[AuthorityBulkProcessor] Diagnostic audit log non-fatal error:', err.message);
+    }
+}
+
 // Safe audit logging helper
 async function logAuditEvent(eventType, userId, targetType, targetId, description, metadata = {}, status = 'success', options = {}) {
     try {
@@ -132,15 +225,98 @@ async function safeInsertMany(Model, docs, { ordered = false } = {}) {
             duplicateCount: 0
         };
     } catch (err) {
-        const isDuplicateCode = (code) => code === 11000 || code === 11001;
-        const writeErrors = err.writeErrors || err.errorResponse?.writeErrors || [];
-        const isAllDuplicates = isDuplicateCode(err.code) || 
-            (writeErrors.length > 0 && writeErrors.every(e => isDuplicateCode(e.code)));
+        // Mongoose client-side validation errors must propagate immediately
+        if (err.name === 'ValidationError' || (err.errors && !err.writeErrors && !err.errorResponse?.writeErrors)) {
+            throw err;
+        }
 
-        if (isAllDuplicates) {
-            const dupCount = writeErrors.length || 1;
-            const insCount = Math.max(0, docs.length - dupCount);
-            return { insertedCount: insCount, duplicateCount: dupCount };
+        // Write concern errors must propagate immediately
+        if (err.writeConcernError) {
+            throw err;
+        }
+
+        const isDuplicateCode = (code) => code === 11000 || code === 11001;
+
+        // Extract individual write errors from standard and driver-specific structures
+        let writeErrors = [];
+        if (Array.isArray(err.writeErrors)) {
+            writeErrors = err.writeErrors;
+        } else if (Array.isArray(err.errorResponse?.writeErrors)) {
+            writeErrors = err.errorResponse.writeErrors;
+        } else if (typeof err.getWriteErrors === 'function') {
+            writeErrors = err.getWriteErrors() || [];
+        } else if (Array.isArray(err.result?.writeErrors)) {
+            writeErrors = err.result.writeErrors;
+        }
+
+        if (writeErrors.length > 0) {
+            // Check if ANY individual write error is non-duplicate
+            const hasNonDuplicate = writeErrors.some(e => {
+                const code = e.code ?? e.err?.code ?? (typeof e.toJSON === 'function' ? e.toJSON().code : null);
+                return !isDuplicateCode(code);
+            });
+            if (hasNonDuplicate) {
+                // Mixed or non-duplicate errors detected; MUST NOT suppress!
+                throw err;
+            }
+
+            // Confirmed: Every single write error is a duplicate-key error
+            const duplicateCount = writeErrors.length;
+            let insertedCount = null;
+            if (typeof err.result?.insertedCount === 'number') {
+                insertedCount = err.result.insertedCount;
+            } else if (typeof err.result?.nInserted === 'number') {
+                insertedCount = err.result.nInserted;
+            } else if (Array.isArray(err.insertedDocs)) {
+                insertedCount = err.insertedDocs.length;
+            } else if (typeof err.insertedCount === 'number') {
+                insertedCount = err.insertedCount;
+            } else {
+                insertedCount = Math.max(0, docs.length - duplicateCount);
+            }
+            return { insertedCount, duplicateCount };
+        }
+
+        // Top-level duplicate error code where individual writeErrors is missing or empty
+        // Must NOT suppress if there are signs of validation or unexpected issues
+        if (isDuplicateCode(err.code) && !err.message?.toLowerCase().includes('validation')) {
+            // Extract insertedCount from reliable driver result metadata wherever available (Finding F-06)
+            let reliableInsertedCount = null;
+            if (typeof err.result?.insertedCount === 'number') {
+                reliableInsertedCount = err.result.insertedCount;
+            } else if (typeof err.result?.nInserted === 'number') {
+                reliableInsertedCount = err.result.nInserted;
+            } else if (Array.isArray(err.insertedDocs)) {
+                reliableInsertedCount = err.insertedDocs.length;
+            } else if (typeof err.insertedCount === 'number') {
+                reliableInsertedCount = err.insertedCount;
+            }
+
+            if (reliableInsertedCount !== null) {
+                const duplicateCount = Math.max(0, docs.length - reliableInsertedCount);
+                return {
+                    insertedCount: reliableInsertedCount,
+                    duplicateCount
+                };
+            }
+
+            // If exactly 1 document was provided in the batch and it failed with E11000/E11001,
+            // we know definitively: 0 inserted, 1 duplicate.
+            if (docs.length === 1) {
+                return {
+                    insertedCount: 0,
+                    duplicateCount: 1
+                };
+            }
+
+            // When multiple documents exist in docs and driver metadata is missing,
+            // never invent an arbitrary count. Propagate fail-closed (Finding F-06).
+            const indeterminateErr = new Error(
+                `INDETERMINATE_BULK_WRITE_RESULT: Duplicate error (${err.code}) occurred on batch of ${docs.length} docs, but driver metadata is insufficient to determine exact inserted/duplicate counts safely.`
+            );
+            indeterminateErr.code = err.code;
+            indeterminateErr.originalError = err;
+            throw indeterminateErr;
         }
 
         // Propagate unexpected validation, network, and database errors
@@ -191,6 +367,43 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
     return null;
 }
 
+/**
+ * Heartbeat helper to periodically renew in-flight worker leases during item processing (Phase 4.4 - Finding F-01)
+ */
+function createItemHeartbeat(itemId, tenantId, workerId, claimToken, intervalMs = 10000) {
+    let leaseLost = false;
+    let timer = null;
+
+    if (intervalMs > 0 && workerId) {
+        timer = setInterval(async () => {
+            try {
+                const renewed = await AuthorityBulkProcessor.renewItemLease(itemId, tenantId, workerId, claimToken);
+                if (!renewed) {
+                    leaseLost = true;
+                    if (timer) clearInterval(timer);
+                }
+            } catch (err) {
+                leaseLost = true;
+                if (timer) clearInterval(timer);
+            }
+        }, intervalMs);
+
+        if (timer.unref) {
+            timer.unref();
+        }
+    }
+
+    return {
+        isLeaseLost: () => leaseLost,
+        stop: () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        }
+    };
+}
+
 const WORKER_LEASE_MS = 30 * 1000; // 30-second worker lease for resilient concurrent batch execution
 
 export { safeInsertMany, WORKER_LEASE_MS };
@@ -198,6 +411,13 @@ export { safeInsertMany, WORKER_LEASE_MS };
 export class AuthorityBulkProcessor {
     static safeInsertMany = safeInsertMany;
     static WORKER_LEASE_MS = WORKER_LEASE_MS;
+
+    /**
+     * Reconciles duplicate authority links within a tenant (R-05).
+     */
+    static async reconcileDuplicateLinks(tenantId, options = {}) {
+        return PropertyAuthorityLink.reconcileDuplicateLinks(tenantId, options);
+    }
 
     /**
      * Create a new bulk verification run for a list of inventories using bounded operations.
@@ -245,14 +465,22 @@ export class AuthorityBulkProcessor {
                 errorSummary: 'Authority source is not activated. Live fetching is strictly prohibited.'
             });
 
-            await logAuditEvent(
-                'authority_run_policy_rejected',
-                requestedBy,
-                'authority_run',
-                rejectedRun._id,
-                `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { authorityCode, runMode, blockers }
-            );
+            try {
+                await logMandatoryAuditEvent({
+                    eventType: 'authority_run_policy_rejected',
+                    userId: requestedBy,
+                    targetType: 'authority_run',
+                    targetId: rejectedRun._id,
+                    description: `Bulk run POLICY_REJECTED for ${authorityCode}: source not activated`,
+                    metadata: { authorityCode, runMode, blockers },
+                    tenantId
+                });
+            } catch (auditErr) {
+                await PropertyVerificationRun.deleteOne({ _id: rejectedRun._id, tenantId });
+                const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to create audit log for rejected run: ${auditErr.message}`);
+                err.code = 'AUDIT_LOG_FAILED';
+                throw err;
+            }
 
             return rejectedRun;
         }
@@ -378,14 +606,23 @@ export class AuthorityBulkProcessor {
         run.totalItems = actualCount;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_created',
-            requestedBy,
-            'authority_run',
-            run._id,
-            `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
-            { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_created',
+                userId: requestedBy,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Bulk verification run created for ${authorityCode} (${actualCount} items, mode: ${runMode}, provenance: ${run.provenance})`,
+                metadata: { runId: run._id, authorityCode, totalItems: actualCount, runMode, isFixtureMode, tenantId },
+                tenantId
+            });
+        } catch (auditErr) {
+            await PropertyVerificationRunItem.deleteMany({ runId: run._id, tenantId });
+            await PropertyVerificationRun.deleteOne({ _id: run._id, tenantId });
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to create audit log for run: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }
@@ -634,6 +871,11 @@ export class AuthorityBulkProcessor {
                         batchFailed++;
                     }
                 } catch (itemErr) {
+                    if (itemErr.code === 'STALE_WORKER') {
+                        console.warn(`[AuthorityBulkProcessor] Stale worker ${workerId} suppressed for item ${item._id}: ${itemErr.message}`);
+                        continue;
+                    }
+
                     const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                         item._id,
                         tenantId,
@@ -642,7 +884,10 @@ export class AuthorityBulkProcessor {
                             status: 'FAILED',
                             errorMessage: itemErr.message || 'Item processing error',
                             processedAt: new Date()
-                        }
+                        },
+                        null,
+                        item.workerClaimToken,
+                        item.workerFenceToken
                     );
                     if (finalized) {
                         batchFailed++;
@@ -784,7 +1029,7 @@ export class AuthorityBulkProcessor {
      * @param {mongoose.ClientSession} [session=null]
      * @returns {Promise<PropertyVerificationRunItem|null>}
      */
-    static async _finalizeItemWithOwnershipCheck(itemId, tenantId, workerId, updateFields, session = null) {
+    static async _finalizeItemWithOwnershipCheck(itemId, tenantId, workerId, updateFields, session = null, claimToken = null, fenceToken = null) {
         const now = new Date();
         const query = {
             _id: itemId,
@@ -795,6 +1040,12 @@ export class AuthorityBulkProcessor {
         if (workerId) {
             query.claimedBy = workerId;
             query.leaseExpiresAt = { $gt: now };
+        }
+        if (claimToken) {
+            query.workerClaimToken = claimToken;
+        }
+        if (fenceToken !== null && fenceToken !== undefined) {
+            query.workerFenceToken = fenceToken;
         }
 
         const opts = { new: true };
@@ -812,6 +1063,59 @@ export class AuthorityBulkProcessor {
             },
             opts
         );
+    }
+
+    /**
+     * Atomically update an item to its terminal state with lease fencing and ownership validation.
+     * Throws STALE_WORKER if the worker's lease expired or was reclaimed.
+     */
+    static async updateItemTerminalState({
+        itemId,
+        tenantId,
+        runId = null,
+        workerId = null,
+        claimToken = null,
+        fenceToken = null,
+        status,
+        updateData = {}
+    }) {
+        const now = new Date();
+        const query = {
+            _id: itemId,
+            tenantId,
+            status: 'PROCESSING'
+        };
+
+        if (runId) {
+            query.runId = runId;
+        }
+        if (workerId) {
+            query.claimedBy = workerId;
+            query.leaseExpiresAt = { $gt: now };
+        }
+        if (claimToken) {
+            query.workerClaimToken = claimToken;
+        }
+        if (fenceToken !== null && fenceToken !== undefined) {
+            query.workerFenceToken = fenceToken;
+        }
+
+        const update = {
+            $set: {
+                status,
+                leaseExpiresAt: null,
+                processedAt: updateData.processedAt || now,
+                ...updateData
+            }
+        };
+
+        const updated = await PropertyVerificationRunItem.findOneAndUpdate(query, update, { new: true });
+        if (!updated) {
+            const err = new Error(`STALE_WORKER: Worker ${workerId || 'unknown'} lost lease, claimToken or fenceToken for item ${itemId}. Write rejected to prevent state corruption.`);
+            err.code = 'STALE_WORKER';
+            throw err;
+        }
+        return updated;
     }
 
     /**
@@ -890,20 +1194,37 @@ export class AuthorityBulkProcessor {
      * @param {number} [leaseDurationMs=WORKER_LEASE_MS]
      * @returns {Promise<PropertyVerificationRunItem|null>}
      */
-    static async renewItemLease(itemId, tenantId, workerId, leaseDurationMs = WORKER_LEASE_MS) {
+    static async renewItemLease(itemId, tenantId, workerId, claimTokenOrDuration = null, maybeDuration = null) {
         if (!itemId || !tenantId || !workerId) return null;
+        let claimToken = null;
+        let leaseDurationMs = WORKER_LEASE_MS;
+
+        if (typeof claimTokenOrDuration === 'number') {
+            leaseDurationMs = claimTokenOrDuration;
+        } else if (typeof claimTokenOrDuration === 'string') {
+            claimToken = claimTokenOrDuration;
+            if (typeof maybeDuration === 'number') {
+                leaseDurationMs = maybeDuration;
+            }
+        }
+
         const now = new Date();
         const newExpiry = new Date(now.getTime() + leaseDurationMs);
+        const query = {
+            _id: itemId,
+            tenantId,
+            claimedBy: workerId,
+            status: 'PROCESSING',
+            leaseExpiresAt: { $gt: now }
+        };
+        if (claimToken) {
+            query.workerClaimToken = claimToken;
+        }
         return PropertyVerificationRunItem.findOneAndUpdate(
+            query,
             {
-                _id: itemId,
-                tenantId,
-                claimedBy: workerId,
-                status: 'PROCESSING',
-                leaseExpiresAt: { $gt: now }
-            },
-            {
-                $set: { leaseExpiresAt: newExpiry }
+                $set: { leaseExpiresAt: newExpiry },
+                $inc: { workerFenceToken: 1 }
             },
             { new: true }
         );
@@ -919,6 +1240,9 @@ export class AuthorityBulkProcessor {
             isFixtureMode = true,
             authorityCode,
             workerId,
+            claimToken: optClaimToken,
+            fenceToken: optFenceToken,
+            runId: optRunId,
             beforeSnapshotPersistence,
             beforeOrphanCleanup,
             afterOrphanPurged,
@@ -926,6 +1250,16 @@ export class AuthorityBulkProcessor {
             disableOrphanRecovery = false
         } = options;
         const effectiveWorkerId = workerId || item.claimedBy || null;
+        const claimToken = optClaimToken || item.workerClaimToken || null;
+        const fenceToken = optFenceToken ?? item.workerFenceToken ?? null;
+
+
+
+        const heartbeat = (effectiveWorkerId && claimToken)
+            ? createItemHeartbeat(item._id, tenantId, effectiveWorkerId, claimToken, options.heartbeatIntervalMs || 10000)
+            : null;
+
+        try {
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
             return { success: true, alreadyProcessed: true };
@@ -1778,6 +2112,13 @@ export class AuthorityBulkProcessor {
             ? 'EXACT_MATCH'
             : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
 
+        // Check lease heartbeat before committing terminal update
+        if (heartbeat?.isLeaseLost()) {
+            const err = new Error(`STALE_WORKER: Heartbeat lost lease for item ${item._id} during execution.`);
+            err.code = 'STALE_WORKER';
+            throw err;
+        }
+
         let snapshot = null;
         let finalized = null;
 
@@ -2196,12 +2537,14 @@ export class AuthorityBulkProcessor {
             matchStatus,
             proposedChangesCount: proposedChanges.length
         };
+        } finally {
+            if (heartbeat) {
+                heartbeat.stop();
+            }
+        }
     }
 
-    /**
-     * Pause a verification run safely at batch boundary.
-     */
-    static async pauseRun(runId, tenantId, userId, reason = 'Paused by user') {
+    static async pauseRun(runId, tenantId, userId, reason = 'Paused by user', options = {}) {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
         if (!run) {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
@@ -2211,20 +2554,40 @@ export class AuthorityBulkProcessor {
             return run;
         }
 
+        const previousStatus = run.status;
+        const previousPausedAt = run.pausedAt;
+        const previousPauseReason = run.pauseReason;
+        const previousPausedBy = run.pausedBy;
+
         run.status = 'PAUSED';
         run.pausedBy = userId || null;
         run.pausedAt = new Date();
         run.pauseReason = reason;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_paused',
-            userId,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} paused: ${reason}`,
-            { runId: run._id, reason }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_paused',
+                userId,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} paused: ${reason}`,
+                metadata: { runId: run._id, reason },
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.pausedAt = previousPausedAt;
+            run.pauseReason = previousPauseReason;
+            run.pausedBy = previousPausedBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_paused audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }
@@ -2232,7 +2595,7 @@ export class AuthorityBulkProcessor {
     /**
      * Safely cancel a verification run.
      */
-    static async cancelRun(runId, tenantId, userId, reason = 'Cancelled by user') {
+    static async cancelRun(runId, tenantId, userId, reason = 'Cancelled by user', options = {}) {
         const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
         if (!run) {
             throw new Error(`RUN_NOT_FOUND: Run ${runId} not found.`);
@@ -2242,20 +2605,40 @@ export class AuthorityBulkProcessor {
             return run;
         }
 
+        const previousStatus = run.status;
+        const previousCancelledAt = run.cancelledAt;
+        const previousCancellationReason = run.cancellationReason;
+        const previousCancelledBy = run.cancelledBy;
+
         run.status = 'CANCELLED';
         run.cancelledBy = userId || null;
         run.cancelledAt = new Date();
         run.cancellationReason = reason;
         await run.save();
 
-        await logAuditEvent(
-            'authority_run_cancelled',
-            userId,
-            'authority_run',
-            run._id,
-            `Verification run ${run._id} cancelled: ${reason}`,
-            { runId: run._id, reason }
-        );
+        try {
+            await logMandatoryAuditEvent({
+                eventType: 'authority_run_cancelled',
+                userId,
+                targetType: 'authority_run',
+                targetId: run._id,
+                description: `Verification run ${run._id} cancelled: ${reason}`,
+                metadata: { runId: run._id, reason },
+                tenantId,
+                ipAddress: options.ipAddress || (options.isSystem ? 'system' : null),
+                userAgent: options.userAgent || null,
+                isSystem: options.isSystem || run.runMode === 'BULK_SCHEDULED'
+            });
+        } catch (auditErr) {
+            run.status = previousStatus;
+            run.cancelledAt = previousCancelledAt;
+            run.cancellationReason = previousCancellationReason;
+            run.cancelledBy = previousCancelledBy;
+            await run.save();
+            const err = new Error(`MANDATORY_AUDIT_LOG_FAILED: Failed to record authority_run_cancelled audit log: ${auditErr.message}`);
+            err.code = 'AUDIT_LOG_FAILED';
+            throw err;
+        }
 
         return run;
     }

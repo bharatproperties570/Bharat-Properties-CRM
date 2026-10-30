@@ -253,6 +253,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -294,6 +295,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -342,6 +344,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -381,6 +384,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -502,6 +506,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -551,6 +556,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'GMADA',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -607,6 +613,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'CHD',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -663,6 +670,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [
@@ -803,6 +811,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                reviewedBy: new mongoose.Types.ObjectId(),
                 isSynthetic: false,
                 provenance: 'LIVE',
                 proposedChanges: [

@@ -401,6 +401,7 @@ test('--- PHASE 2.6: EVIDENCE STATUS & SNAPSHOT HASH CONTRACT TEST SUITE ---', a
             matchStatus: 'EXACT_MATCH',
             snapshotId: snapshot._id,
             reviewerDecision: 'APPROVED',
+            reviewedBy: new mongoose.Types.ObjectId(),
             isSynthetic: false,
             provenance: 'LIVE',
             proposedChanges: [

@@ -149,27 +149,72 @@ export class AuthorityRefreshScheduler {
             });
 
             let processOutcome = null;
+            let executionError = null;
             if (run.status === 'CREATED') {
-                processOutcome = await AuthorityBulkProcessor.processRun(run._id, {
-                    tenantId: tId,
-                    batchSize: 50,
-                    isFixtureMode: isSimulation || !settings.isEffectivelyActive()
-                });
+                try {
+                    processOutcome = await AuthorityBulkProcessor.processRun(run._id, {
+                        tenantId: tId,
+                        batchSize: 50,
+                        isFixtureMode: isSimulation || !settings.isEffectivelyActive()
+                    });
+                } catch (procErr) {
+                    executionError = procErr;
+                }
             }
 
-            // Update settings last run metadata
+            // Inspect authoritative persisted run state (Phase 4.4 - Finding F-05)
+            const freshRun = await PropertyVerificationRun.findOne({ _id: run._id, tenantId: tId }).lean();
+            const finalRunStatus = freshRun?.status || processOutcome?.status || run.status;
+            const completedAt = freshRun?.completedAt || new Date();
+
+            let derivedStatus = 'FAILED';
+            if (executionError) {
+                derivedStatus = 'FAILED';
+            } else if (finalRunStatus === 'COMPLETED') {
+                derivedStatus = 'SUCCESS';
+            } else if (finalRunStatus === 'PARTIAL') {
+                derivedStatus = 'PARTIAL';
+            } else if (finalRunStatus === 'PAUSED') {
+                derivedStatus = 'PAUSED';
+            } else if (finalRunStatus === 'CANCELLED') {
+                derivedStatus = 'CANCELLED';
+            } else if (finalRunStatus === 'POLICY_REJECTED' || finalRunStatus === 'FAILED') {
+                derivedStatus = 'FAILED';
+            }
+
+            // Update settings last run metadata conditionally so older retries do not overwrite newer runs
+            await AuthoritySourceSettings.updateOne(
+                {
+                    _id: settings._id,
+                    tenantId: tId,
+                    $or: [
+                        { lastRunAt: null },
+                        { lastRunAt: { $lte: completedAt } },
+                        { lastRunId: run._id }
+                    ]
+                },
+                {
+                    $set: {
+                        lastRunId: run._id,
+                        lastRunAt: completedAt,
+                        lastRunStatus: derivedStatus
+                    }
+                }
+            ).catch(() => {});
+
             settings.lastRunId = run._id;
-            settings.lastRunAt = new Date();
-            settings.lastRunStatus = run.status === 'COMPLETED' ? 'SUCCESS' : (run.status === 'PARTIAL' ? 'PARTIAL' : 'FAILED');
-            await settings.save().catch(() => {}); // ignore Phase 3 lock if saving inactive
+            settings.lastRunAt = completedAt;
+            settings.lastRunStatus = derivedStatus;
 
             results.push({
                 tenantId: tId,
                 authorityCode: authCode,
                 runId: run._id,
-                status: processOutcome?.status || run.status,
-                totalItems: run.totalItems,
-                processOutcome
+                status: finalRunStatus,
+                lastRunStatus: derivedStatus,
+                totalItems: freshRun?.totalItems || run.totalItems,
+                processOutcome,
+                ...(executionError ? { error: executionError.message } : {})
             });
         }
 
