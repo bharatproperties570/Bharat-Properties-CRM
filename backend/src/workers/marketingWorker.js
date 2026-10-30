@@ -920,54 +920,67 @@ if (name === 'bna-broadcast') {
             return { success, results };
         };
 
-        // 🛡️ ENTERPRISE SAFE-DISPATCH PIPELINE
-        // WhatsApp Business rules: 5-forward chat limit, 3-10m cooldown between batches, 8-15s intra-group jitter.
-        // Single Account Dispatch: Strictly restricted to the single active WhatsApp account (no multi-account routing).
-        const directRecipients = recipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us'));
-        const groupRecipients = recipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us'));
+        // 🛡️ UNIFIED WHATSAPP BUSINESS SAFE-DISPATCH PIPELINE
+        // Enforces strict WhatsApp Business app 5-chat forwarding limit across BOTH Individual Contacts and Groups:
+        //  - 5 chats per batch
+        //  - 8-15s intra-chat human typing jitter
+        //  - 3-10 minutes randomized cooling period between batches
+        //  - Single-account dispatch (no multi-account routing)
+        const isWaWebTarget = (r) => {
+            if (!channels.includes('whatsapp')) return false;
+            if (r.isGroup || String(r.mobile || '').includes('@g.us')) return true; // Groups always use WhatsApp Web
+            return Boolean(isBaileys && r.mobile); // Individual contacts use WhatsApp Web if isBaileys is true
+        };
 
-        // 1. Dispatch to Direct 1-to-1 Recipients First (Leads, Brokers, Investors)
-        if (directRecipients.length > 0) {
-            await job.log(`[BNA] Dispatching to ${directRecipients.length} direct recipients...`);
-            for (let i = 0; i < directRecipients.length; i++) {
-                const recipient = directRecipients[i];
+        const waWebRecipients = recipients.filter(isWaWebTarget);
+        const otherRecipients = recipients.filter(r => !isWaWebTarget(r));
+
+        // 1. Dispatch Non-WhatsApp Web Recipients First (SMS-only, Email-only, or Meta Cloud API 1-to-1)
+        if (otherRecipients.length > 0) {
+            await job.log(`[BNA] Dispatching to ${otherRecipients.length} non-WhatsApp-Web / direct recipients...`);
+            for (let i = 0; i < otherRecipients.length; i++) {
+                const recipient = otherRecipients[i];
                 const { success } = await dispatchSingleRecipient(recipient);
                 if (success) sent++; else failed++;
                 await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
-                // Normal pacing for direct 1-to-1: 1.5s - 3s
-                await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 1500));
+                // Normal pacing for SMS/Email/CloudAPI: 1s - 2s
+                await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 1000));
             }
         }
 
-        // 2. Dispatch to WhatsApp Groups in Strict Batches of 5 with 3-10m Cooldowns
+        // 2. Dispatch WhatsApp Web Chats (Individual Contacts & Groups) in Strict 5-Chat Batches with 3-10m Cooldowns
         const BATCH_SIZE = 5;
-        const totalGroups = groupRecipients.length;
-        const totalBatches = Math.ceil(totalGroups / BATCH_SIZE);
+        const totalWaChats = waWebRecipients.length;
+        const totalBatches = Math.ceil(totalWaChats / BATCH_SIZE);
 
-        if (totalGroups > 0) {
-            await job.log(`🛡️ [WhatsApp Business Anti-Ban Rule] Initiating dispatch for ${totalGroups} WhatsApp Groups across ${totalBatches} batches (${BATCH_SIZE} groups/batch, 8-15s intra-group jitter, 3-10 min cooldown between batches). Single-account dispatch active.`);
+        if (totalWaChats > 0) {
+            const indCount = waWebRecipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us')).length;
+            const grpCount = waWebRecipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us')).length;
+            await job.log(`🛡️ [WhatsApp Business Anti-Ban Protocol] Initiating safe dispatch for ${totalWaChats} WhatsApp Web chats (${indCount} Individual Contacts, ${grpCount} Groups) across ${totalBatches} batches (${BATCH_SIZE} chats/batch, 8-15s intra-chat typing delay, 3-10 min cooldown between batches). Single-account dispatch active.`);
         }
 
         for (let b = 0; b < totalBatches; b++) {
             const batchStart = b * BATCH_SIZE;
-            const batchEnd = Math.min(batchStart + BATCH_SIZE, totalGroups);
-            const currentBatch = groupRecipients.slice(batchStart, batchEnd);
+            const batchEnd = Math.min(batchStart + BATCH_SIZE, totalWaChats);
+            const currentBatch = waWebRecipients.slice(batchStart, batchEnd);
 
-            await job.log(`🚀 [Batch ${b + 1}/${totalBatches}] Dispatching 5-group forward batch (${currentBatch.length} groups: ${batchStart + 1} to ${batchEnd} of ${totalGroups})...`);
+            await job.log(`🚀 [Batch ${b + 1}/${totalBatches}] Forwarding to 5-chat batch (${currentBatch.length} chats: ${batchStart + 1} to ${batchEnd} of ${totalWaChats})...`);
 
             for (let j = 0; j < currentBatch.length; j++) {
-                const group = currentBatch[j];
-                const overallIdx = directRecipients.length + batchStart + j;
+                const target = currentBatch[j];
+                const isGroup = target.isGroup || String(target.mobile || '').includes('@g.us');
+                const chatLabel = isGroup ? `Group '${target.name || target.mobile}'` : `Contact '${target.name || target.mobile}'`;
+                const overallIdx = otherRecipients.length + batchStart + j;
 
-                await job.log(`[Batch ${b + 1}/${totalBatches} - Group ${j + 1}/${currentBatch.length}] Sending to ${group.name || group.mobile}...`);
-                const { success } = await dispatchSingleRecipient(group);
+                await job.log(`[Batch ${b + 1}/${totalBatches} - Chat ${j + 1}/${currentBatch.length}] Sending to ${chatLabel}...`);
+                const { success } = await dispatchSingleRecipient(target);
                 if (success) sent++; else failed++;
                 await job.updateProgress(Math.round(((overallIdx + 1) / recipients.length) * 100));
 
-                // Intra-batch delay: 8 to 15 seconds jitter between groups within the batch
+                // Intra-chat delay: 8 to 15 seconds jitter between chats within the batch
                 if (j < currentBatch.length - 1) {
                     const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s
-                    await job.log(`⏳ Pacing ${Math.round(intraJitterMs / 1000)}s before next group in batch...`);
+                    await job.log(`⏳ Pacing ${Math.round(intraJitterMs / 1000)}s before next chat in batch...`);
                     await new Promise(r => setTimeout(r, intraJitterMs));
                 }
             }
@@ -976,7 +989,7 @@ if (name === 'bna-broadcast') {
             if (b < totalBatches - 1) {
                 const cooldownSeconds = Math.floor(Math.random() * (600 - 180 + 1)) + 180; // 180s to 600s
                 const cooldownMins = (cooldownSeconds / 60).toFixed(1);
-                await job.log(`🛑 🛡️ [Anti-Ban Cooldown] Batch ${b + 1}/${totalBatches} complete. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) to replicate WhatsApp Business app limits and protect your account from bans...`);
+                await job.log(`🛑 🛡️ [Anti-Ban Cooldown] Batch ${b + 1}/${totalBatches} complete. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) to replicate WhatsApp Business app forwarding limits and protect your number from spam detection...`);
 
                 let elapsed = 0;
                 while (elapsed < cooldownSeconds) {
@@ -989,7 +1002,7 @@ if (name === 'bna-broadcast') {
                         await job.log(`⏳ [Cooldown Status] ${elapsed}/${cooldownSeconds}s elapsed (~${remMins}m remaining). Resuming Batch ${b + 2}/${totalBatches} shortly...`);
                     }
                 }
-                await job.log(`⚡ [Cooldown Complete] Resuming WhatsApp Group Broadcast for Batch ${b + 2}/${totalBatches}...`);
+                await job.log(`⚡ [Cooldown Complete] Resuming WhatsApp Safe Dispatch for Batch ${b + 2}/${totalBatches}...`);
             }
         }
 

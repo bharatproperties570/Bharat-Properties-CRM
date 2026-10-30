@@ -1518,44 +1518,55 @@ export async function _dispatchBNADirectly(data) {
         return { success, results };
     };
 
-    // 🛡️ Safe-Dispatch Pipeline (Direct Fallback Mode)
-    // 5 groups/batch, 8-15s intra-group jitter, 3-10m cooldown between batches, Single-Account only.
-    const directRecipients = recipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us'));
-    const groupRecipients = recipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us'));
+    // 🛡️ UNIFIED WHATSAPP BUSINESS SAFE-DISPATCH PIPELINE (Direct Fallback Mode)
+    // 5 chats/batch across BOTH Individual Contacts and Groups, 8-15s typing jitter, 3-10m cooldown between batches, Single-Account only.
+    const isWaWebTarget = (r) => {
+        if (!channels.includes('whatsapp')) return false;
+        if (r.isGroup || String(r.mobile || '').includes('@g.us')) return true;
+        return Boolean(isBaileys && r.mobile);
+    };
 
-    // 1. Dispatch to direct 1-to-1 contacts first
-    if (directRecipients.length > 0) {
-        console.log(`[BNA_DIRECT] Dispatching to ${directRecipients.length} direct recipients...`);
-        for (const recipient of directRecipients) {
+    const waWebRecipients = recipients.filter(isWaWebTarget);
+    const otherRecipients = recipients.filter(r => !isWaWebTarget(r));
+
+    // 1. Dispatch non-WhatsApp Web contacts first (SMS-only, Email-only, Cloud API)
+    if (otherRecipients.length > 0) {
+        console.log(`[BNA_DIRECT] Dispatching to ${otherRecipients.length} non-WhatsApp-Web / direct recipients...`);
+        for (const recipient of otherRecipients) {
             await dispatchSingleRecipient(recipient);
-            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 1500));
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 1000));
         }
     }
 
-    // 2. Dispatch to WhatsApp groups in batches of 5 with 3-10m cooldowns
+    // 2. Dispatch WhatsApp Web chats (Individual Contacts & Groups) in batches of 5 with 3-10m cooldowns
     const BATCH_SIZE = 5;
-    const totalGroups = groupRecipients.length;
-    const totalBatches = Math.ceil(totalGroups / BATCH_SIZE);
+    const totalWaChats = waWebRecipients.length;
+    const totalBatches = Math.ceil(totalWaChats / BATCH_SIZE);
 
-    if (totalGroups > 0) {
-        console.log(`🛡️ [BNA_DIRECT_ANTI_BAN] Dispatching ${totalGroups} WhatsApp Groups in ${totalBatches} batches (${BATCH_SIZE} groups/batch, 8-15s intra-group jitter, 3-10m cooldown between batches).`);
+    if (totalWaChats > 0) {
+        const indCount = waWebRecipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us')).length;
+        const grpCount = waWebRecipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us')).length;
+        console.log(`🛡️ [BNA_DIRECT_ANTI_BAN] Dispatching ${totalWaChats} WhatsApp Web chats (${indCount} Individual Contacts, ${grpCount} Groups) across ${totalBatches} batches (${BATCH_SIZE} chats/batch, 8-15s intra-chat typing delay, 3-10m cooldown between batches).`);
     }
 
     for (let b = 0; b < totalBatches; b++) {
         const batchStart = b * BATCH_SIZE;
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalGroups);
-        const currentBatch = groupRecipients.slice(batchStart, batchEnd);
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalWaChats);
+        const currentBatch = waWebRecipients.slice(batchStart, batchEnd);
 
-        console.log(`🚀 [BNA_DIRECT] [Batch ${b + 1}/${totalBatches}] Dispatching ${currentBatch.length} groups (${batchStart + 1} to ${batchEnd} of ${totalGroups})...`);
+        console.log(`🚀 [BNA_DIRECT] [Batch ${b + 1}/${totalBatches}] Forwarding to 5-chat batch (${currentBatch.length} chats: ${batchStart + 1} to ${batchEnd} of ${totalWaChats})...`);
 
         for (let j = 0; j < currentBatch.length; j++) {
-            const group = currentBatch[j];
-            console.log(`[BNA_DIRECT] [Batch ${b + 1}/${totalBatches} - Group ${j + 1}/${currentBatch.length}] Sending to ${group.name || group.mobile}...`);
-            await dispatchSingleRecipient(group);
+            const target = currentBatch[j];
+            const isGroup = target.isGroup || String(target.mobile || '').includes('@g.us');
+            const chatLabel = isGroup ? `Group '${target.name || target.mobile}'` : `Contact '${target.name || target.mobile}'`;
+
+            console.log(`[BNA_DIRECT] [Batch ${b + 1}/${totalBatches} - Chat ${j + 1}/${currentBatch.length}] Sending to ${chatLabel}...`);
+            await dispatchSingleRecipient(target);
 
             if (j < currentBatch.length - 1) {
                 const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s
-                console.log(`⏳ [BNA_DIRECT] Intra-batch pacing ${Math.round(intraJitterMs / 1000)}s before next group...`);
+                console.log(`⏳ [BNA_DIRECT] Intra-batch pacing ${Math.round(intraJitterMs / 1000)}s before next chat...`);
                 await new Promise(r => setTimeout(r, intraJitterMs));
             }
         }
@@ -1575,7 +1586,7 @@ export async function _dispatchBNADirectly(data) {
                     console.log(`⏳ [BNA_DIRECT_COOLDOWN] ${elapsed}/${cooldownSeconds}s elapsed (~${Math.ceil((cooldownSeconds - elapsed) / 60)}m remaining)...`);
                 }
             }
-            console.log(`⚡ [BNA_DIRECT_COOLDOWN] Resuming WhatsApp Group Broadcast for Batch ${b + 2}/${totalBatches}...`);
+            console.log(`⚡ [BNA_DIRECT_COOLDOWN] Resuming WhatsApp Safe Dispatch for Batch ${b + 2}/${totalBatches}...`);
         }
     }
 }

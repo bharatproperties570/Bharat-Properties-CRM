@@ -2618,7 +2618,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                             <i className="fas fa-users" style={{ marginRight: '5px' }}></i>
                             Broadcast Audience: {audienceStats.totalAudienceReach} People ({audienceStats.totalDirectRecipients} Dispatches)
                         </span>
-                        {selectedWaGroups.length > 0 && (
+                        {channels.whatsapp && (
                             <span style={{
                                 padding: '3px 10px', borderRadius: '8px',
                                 background: isDark ? 'rgba(5, 150, 105, 0.15)' : '#ecfdf5',
@@ -2627,7 +2627,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
                                 fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '5px'
                             }}>
                                 <i className="fas fa-shield-alt"></i>
-                                <span>5 Groups / Batch (3-10m Cooldown • Anti-Ban)</span>
+                                <span>5 Chats / Batch (3-10m Cooldown • Contacts & Groups Anti-Ban)</span>
                             </span>
                         )}
                     </div>

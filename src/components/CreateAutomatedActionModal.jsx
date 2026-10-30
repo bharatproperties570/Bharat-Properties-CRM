@@ -1282,9 +1282,9 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                     <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Forward Batch Size</div>
                                         <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
-                                            5 Groups / Batch
+                                            5 Chats / Batch
                                         </div>
-                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Exact match to WhatsApp Business app forwarding limit.</div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Applies to both Individual Contacts & Groups (WhatsApp limit).</div>
                                     </div>
                                     <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Inter-Batch Cooling Period</div>
@@ -1294,11 +1294,11 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                         <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Randomized rest window between batches to prevent spam flags.</div>
                                     </div>
                                     <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Intra-Group Jitter</div>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Intra-Chat Typing Delay</div>
                                         <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#7c3aed', marginTop: '2px' }}>
                                             8 to 15s Delay
                                         </div>
-                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Human-like randomized typing and sender-key delay.</div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Human-like randomized typing and delivery delay.</div>
                                     </div>
                                 </div>
                                 <div style={{ marginTop: '10px', fontSize: '0.72rem', color: '#047857', background: '#ecfdf5', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
