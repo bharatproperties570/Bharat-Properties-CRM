@@ -913,5 +913,379 @@ describe('WhatsApp Engine Distributed Locking & Reconciliation Hardening Suite (
                 /DISPATCH_LEDGER_NOT_FOUND|DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE/
             );
         });
+
+        it('22. Redis lease expires during MongoDB claim fails closed with DISTRIBUTED_LOCK_LOST and zero callback execution', async () => {
+            const idKey = 'durable_timing_claim_expiry_022';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100122',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            let callbackExecuted = false;
+
+            const res = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.claim_expiry.022',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Claim expiry test'
+            }, {
+                hooks: {
+                    duringMongoClaim: async ({ lockKey: key, redisProxy: rProxy }) => {
+                        // Simulate lease expiry or deletion in Redis while MongoDB claim is processing
+                        await rProxy.del(key);
+                        callbackExecuted = true;
+                    }
+                }
+            });
+
+            assert.equal(res.success, false);
+            assert.ok(res.error.includes('DISTRIBUTED_LOCK_LOST'), `Expected DISTRIBUTED_LOCK_LOST, got: ${res.error}`);
+
+            // Verify document was not mutated into DISPATCHED
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+            assert.equal(doc.providerMessageId, undefined);
+        });
+
+        it('23. Worker A paused before CAS loses Redis lock; Worker B acquires lock and claims newer generation; Worker A resumes and is rejected', async () => {
+            const idKey = 'durable_cross_worker_race_023';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100123',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 0
+            });
+
+            let workerBExecuted = false;
+
+            // Worker A attempts reconciliation but pauses before MongoDB CAS
+            const workerARes = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.workerA.023',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Worker A update'
+            }, {
+                hooks: {
+                    beforeMongoCas: async ({ lockContext, dispatch }) => {
+                        // While Worker A is paused, simulate lease expiry and Worker B in another process taking the lock:
+                        // 1. Worker B takes the Redis lock with Worker B's token
+                        await redisProxy.set(lockKey, 'token_worker_b_023');
+
+                        // 2. Worker B claims generation in MongoDB:
+                        const claimedB = await WhatsAppDispatch.findOneAndUpdate(
+                            { idempotencyKey: idKey },
+                            {
+                                $inc: { reconcileGeneration: 1 },
+                                $set: { reconcileLockWorkerId: 'token_worker_b_023', reconcileClaimedAt: new Date() }
+                            },
+                            { new: true }
+                        );
+                        assert.equal(claimedB.reconcileGeneration, 2, 'Worker B must claim generation 2');
+
+                        // 3. Worker B executes business CAS write
+                        const workerBLockContext = {
+                            fencingToken: claimedB.reconcileGeneration,
+                            lockToken: 'token_worker_b_023',
+                            isLockLost: () => false,
+                            validateOwnership: async () => true
+                        };
+
+                        const bRes = await WhatsAppService._manualReconcileDispatchInternal({
+                            idempotencyKey: idKey,
+                            targetStatus: 'DISPATCHED',
+                            providerMessageId: 'wamid.workerB.023',
+                            actorContext: testUser,
+                            actorId: testUser._id.toString(),
+                            reason: 'Worker B authoritative update'
+                        }, workerBLockContext);
+
+                        assert.equal(bRes.success, true, 'Worker B must succeed');
+                        workerBExecuted = true;
+                    }
+                }
+            });
+
+            assert.equal(workerBExecuted, true);
+            // Worker A must be rejected due to either Redis ownership loss or stale fencing generation
+            assert.equal(workerARes.success, false);
+            assert.ok(
+                workerARes.error.includes('DISTRIBUTED_LOCK_LOST') || workerARes.error.includes('STALE_FENCING_GENERATION'),
+                `Worker A must fail with DISTRIBUTED_LOCK_LOST or STALE_FENCING_GENERATION, got: ${workerARes.error}`
+            );
+
+            // Document must reflect Worker B's data, never Worker A's data
+            const finalDoc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(finalDoc.status, 'DISPATCHED');
+            assert.equal(finalDoc.providerMessageId, 'wamid.workerB.023');
+            assert.equal(finalDoc.reconcileGeneration, 2);
+            assert.equal(finalDoc.reconciliationReason, 'Worker B authoritative update');
+        });
+
+        it('24. Heartbeat failure during reconciliation marks lock lost and prevents subsequent protected writes', async () => {
+            const idKey = 'durable_heartbeat_failure_024';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100124',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            const res = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.heartbeat.024',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Heartbeat test'
+            }, {
+                lockTtlSec: 15,
+                heartbeatIntervalMs: 30, // rapid heartbeat for testing
+                hooks: {
+                    beforeMongoCas: async ({ lockContext }) => {
+                        // Delete key so heartbeat renewal eval returns 0
+                        await redisProxy.del(lockKey);
+                        // Wait for heartbeat to run and detect failure
+                        await new Promise(r => setTimeout(r, 60));
+                    }
+                }
+            });
+
+            assert.equal(res.success, false);
+            assert.ok(res.error.includes('DISTRIBUTED_LOCK_LOST'), `Expected DISTRIBUTED_LOCK_LOST, got: ${res.error}`);
+
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+            assert.equal(doc.providerMessageId, undefined);
+        });
+
+        it('25. Delayed asynchronous hook cannot bypass post-hook ownership revalidation', async () => {
+            const idKey = 'durable_async_hook_bypass_025';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100125',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            const res = await WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.async_hook.025',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Async hook bypass test'
+            }, {
+                hooks: {
+                    beforeMongoCas: async ({ lockContext }) => {
+                        // Simulate an async operation during which lock is stolen or expired
+                        await new Promise(r => setTimeout(r, 40));
+                        await redisProxy.del(lockKey);
+                    }
+                }
+            });
+
+            assert.equal(res.success, false);
+            assert.ok(res.error.includes('DISTRIBUTED_LOCK_LOST'), `Expected DISTRIBUTED_LOCK_LOST, got: ${res.error}`);
+
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+            assert.equal(doc.providerMessageId, undefined);
+        });
+
+        it('26. Aborted task cannot perform protected write after lock wrapper has returned', async () => {
+            const idKey = 'durable_aborted_wrapper_026';
+            const lockKey = `lock:dispatch_reconcile:${idKey}`;
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient: '919811100126',
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            let savedLockContext = null;
+            let resumeHook = null;
+            const pausePromise = new Promise(resolve => { resumeHook = resolve; });
+
+            // Start an operation that pauses inside beforeMongoCas
+            const promiseA = WhatsAppService.manualReconcileDispatch({
+                idempotencyKey: idKey,
+                targetStatus: 'DISPATCHED',
+                providerMessageId: 'wamid.aborted_wrapper.026',
+                actorContext: testUser,
+                actorId: testUser._id.toString(),
+                reason: 'Aborted wrapper test'
+            }, {
+                heartbeatIntervalMs: 30,
+                hooks: {
+                    beforeMongoCas: async ({ lockContext }) => {
+                        savedLockContext = lockContext;
+                        // Delete key so heartbeat aborts the wrapper
+                        await redisProxy.del(lockKey);
+                        await pausePromise;
+                    }
+                }
+            });
+
+            // Wait for wrapper to abort and return
+            const resA = await promiseA;
+            assert.equal(resA.success, false);
+            assert.ok(resA.error.includes('DISTRIBUTED_LOCK_LOST'));
+
+            // Now resume the paused hook
+            resumeHook();
+
+            // Verify that after wrapper returned, lockContext reports wrapper not active
+            assert.equal(savedLockContext.isWrapperActive(), false);
+            assert.equal(savedLockContext.isLockLost(), true);
+            const isOwner = await savedLockContext.validateOwnership();
+            assert.equal(isOwner, false);
+
+            await assert.rejects(
+                async () => {
+                    await savedLockContext.assertOwnership();
+                },
+                /DISTRIBUTED_LOCK_LOST/
+            );
+
+            // Document must remain un-mutated
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'AMBIGUOUS_TIMEOUT');
+            assert.equal(doc.providerMessageId, undefined);
+        });
+
+        it('27. Uncorrelated webhook (updateMany Call 1) does not overwrite already reconciled dispatch', async () => {
+            const idKey = 'durable_ambiguous_updatemany1_027';
+            const recipient = '919876543027';
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            let operatorReconciled = false;
+
+            // An uncorrelated webhook arrives (no opaque token, unmapped providerMessageId)
+            const webhookRes = await WhatsAppService.reconcileWebhookStatus({
+                id: 'wamid.uncorrelated_updatemany1_027',
+                recipient_id: recipient,
+                status: 'delivered',
+                hooks: {
+                    beforeAmbiguousUpdateMany: async () => {
+                        // Concurrently, an operator reconciles the dispatch!
+                        const opRes = await WhatsAppService.manualReconcileDispatch({
+                            idempotencyKey: idKey,
+                            targetStatus: 'DISPATCHED',
+                            providerMessageId: 'wamid.operator_confirmed.027',
+                            actorContext: testUser,
+                            actorId: testUser._id.toString(),
+                            reason: 'Operator verified delivery via portal'
+                        });
+                        assert.equal(opRes.success, true);
+                        operatorReconciled = true;
+                    }
+                }
+            });
+
+            assert.equal(operatorReconciled, true);
+            assert.equal(webhookRes.reconciled, false);
+            assert.equal(webhookRes.reason, 'MANUAL_RECONCILIATION_REQUIRED');
+
+            // Assert dispatch record in database preserves operator RECONCILED state
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'DISPATCHED');
+            assert.equal(doc.reconciliationStatus, 'RECONCILED');
+            assert.equal(doc.reconciliationReason, 'Operator verified delivery via portal');
+            assert.equal(doc.providerMessageId, 'wamid.operator_confirmed.027');
+        });
+
+        it('28. Unmapped opaque webhook (updateMany Call 2) does not overwrite already reconciled dispatch', async () => {
+            const idKey = 'durable_ambiguous_updatemany2_028';
+            const recipient = '919876543028';
+
+            await WhatsAppDispatch.create({
+                idempotencyKey: idKey,
+                recipient,
+                messageType: 'text',
+                provider: 'META',
+                status: 'AMBIGUOUS_TIMEOUT',
+                isAmbiguous: true,
+                reconcileGeneration: 1
+            });
+
+            let operatorReconciled = false;
+
+            // Webhook arrives with unmapped opaque token and unmapped providerMessageId
+            const lockContext = {
+                fencingToken: 1,
+                lockToken: 'token_028',
+                isLockLost: () => false,
+                validateOwnership: async () => true
+            };
+            const webhookRes = await WhatsAppService._reconcileWebhookStatusInternal({
+                id: 'wamid.fallback_updatemany2_028',
+                recipient_id: recipient,
+                biz_opaque_callback_data: 'unmapped_opaque_token_028',
+                status: 'delivered',
+                hooks: {
+                    beforeAmbiguousFallbackUpdateMany: async () => {
+                        // Concurrently, an operator reconciles the dispatch as FAILED
+                        const opRes = await WhatsAppService.manualReconcileDispatch({
+                            idempotencyKey: idKey,
+                            targetStatus: 'FAILED',
+                            actorContext: testUser,
+                            actorId: testUser._id.toString(),
+                            reason: 'Operator confirmed permanent failure'
+                        });
+                        assert.equal(opRes.success, true);
+                        operatorReconciled = true;
+                    }
+                }
+            }, lockContext);
+
+            assert.equal(operatorReconciled, true);
+            assert.equal(webhookRes.reconciled, false);
+            assert.equal(webhookRes.reason, 'MANUAL_RECONCILIATION_REQUIRED');
+
+            // Assert dispatch record preserves operator RECONCILED state
+            const doc = await WhatsAppDispatch.findOne({ idempotencyKey: idKey }).lean();
+            assert.equal(doc.status, 'FAILED');
+            assert.equal(doc.reconciliationStatus, 'RECONCILED');
+            assert.equal(doc.reconciliationReason, 'Operator confirmed permanent failure');
+        });
     });
 });

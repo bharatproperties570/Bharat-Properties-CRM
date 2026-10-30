@@ -79,6 +79,7 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
     let renewalTimer = null;
     const abortController = new AbortController();
     const lockState = { acquired: false, lost: false, lossReason: null };
+    let isWrapperActive = true;
 
     try {
         try {
@@ -109,6 +110,30 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
 
             lockState.acquired = true;
 
+            // Start Redis lease heartbeat immediately after successful Redis lock acquisition.
+            // Active while MongoDB fencing claim is running and throughout task execution.
+            renewalTimer = setInterval(async () => {
+                try {
+                    const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, lockKey, distributedLockToken, LOCK_TTL_SEC);
+                    if (!renewed || renewed === 0) {
+                        lockState.lost = true;
+                        lockState.lossReason = 'TOKEN_EXPIRED_OR_REPLACED';
+                        abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Reconciliation lock for '${idKey}' expired or was acquired by another process.`));
+                        console.error(`[WhatsAppService] CRITICAL: Reconciliation lock lost for '${idKey}'. Aborting reconciliation.`);
+                    }
+                } catch (renewErr) {
+                    lockState.lost = true;
+                    lockState.lossReason = renewErr.message;
+                    abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Heartbeat renewal failed for '${idKey}': ${renewErr.message}`));
+                    console.error(`[WhatsAppService] CRITICAL: Reconciliation lock renewal error for '${idKey}': ${renewErr.message}. Aborting reconciliation.`);
+                }
+            }, HEARTBEAT_INTERVAL_MS);
+
+            // Optional test hook for simulating delays/expiry before MongoDB claim
+            if (options.hooks?.beforeMongoClaim) {
+                await options.hooks.beforeMongoClaim({ lockKey, distributedLockToken, idKey, redisProxy });
+            }
+
             // 4. Mandatory Fail-Closed MongoDB Authoritative Fencing Token Acquisition
             // Verify connection is still active at acquisition time
             if (!mongoose.connection || mongoose.connection.readyState !== 1) {
@@ -133,6 +158,11 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
                 throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: MongoDB fencing generation claim failed for '${idKey}': ${dbClaimErr.message}`);
             }
 
+            // Optional test hook for simulating expiry during/after MongoDB claim before execution starts
+            if (options.hooks?.duringMongoClaim) {
+                await options.hooks.duringMongoClaim({ lockKey, distributedLockToken, idKey, claimedDoc, redisProxy });
+            }
+
             // Abort if no dispatch document exists in durable ledger
             if (!claimedDoc) {
                 throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: DISPATCH_LEDGER_NOT_FOUND: Durable dispatch ledger record not found for '${idKey}'`);
@@ -144,27 +174,30 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
                 throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Invalid fencing generation ${fencingToken} obtained for '${idKey}'`);
             }
 
-            // P0-D: Active Heartbeat Lease Renewal every 5s for 15s TTL
-            renewalTimer = setInterval(async () => {
-                try {
-                    const renewed = await redisProxy.eval(LUA_RENEW_LOCK, 1, lockKey, distributedLockToken, LOCK_TTL_SEC);
-                    if (!renewed || renewed === 0) {
-                        lockState.lost = true;
-                        lockState.lossReason = 'TOKEN_EXPIRED_OR_REPLACED';
-                        abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Reconciliation lock for '${idKey}' expired or was acquired by another process.`));
-                        console.error(`[WhatsAppService] CRITICAL: Reconciliation lock lost for '${idKey}'. Aborting reconciliation.`);
-                    }
-                } catch (renewErr) {
+            // Validate Redis ownership after MongoDB claim and ensure lease was not lost/expired while awaiting MongoDB
+            if (lockState.lost || abortController.signal.aborted) {
+                throw new Error(`DISTRIBUTED_LOCK_LOST: Redis lock lost or heartbeat failed during MongoDB claim for '${idKey}'`);
+            }
+
+            try {
+                const currentOwner = await redisProxy.get(lockKey);
+                if (currentOwner !== distributedLockToken) {
                     lockState.lost = true;
-                    lockState.lossReason = renewErr.message;
-                    abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Heartbeat renewal failed for '${idKey}': ${renewErr.message}`));
-                    console.error(`[WhatsAppService] CRITICAL: Reconciliation lock renewal error for '${idKey}': ${renewErr.message}. Aborting reconciliation.`);
+                    abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Redis lock ownership transferred during MongoDB claim for '${idKey}'`));
+                    throw new Error(`DISTRIBUTED_LOCK_LOST: Redis lock ownership lost during MongoDB claim for '${idKey}'`);
                 }
-            }, HEARTBEAT_INTERVAL_MS);
+            } catch (claimValErr) {
+                if (claimValErr.message?.includes('DISTRIBUTED_LOCK_LOST')) throw claimValErr;
+                lockState.lost = true;
+                abortController.abort(claimValErr);
+                throw new Error(`DISTRIBUTED_LOCK_LOST: Failed to validate Redis ownership after MongoDB claim for '${idKey}': ${claimValErr.message}`);
+            }
 
         } catch (lockErr) {
-            // P0-A: Fail-Closed: Never execute fn() if Redis lock could not be acquired!
-            if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT') || lockErr.message?.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE')) {
+            // P0-A: Fail-Closed: Never execute fn() if Redis lock could not be acquired or was lost!
+            if (lockErr.message?.includes('DISTRIBUTED_LOCK_TIMEOUT') ||
+                lockErr.message?.includes('DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE') ||
+                lockErr.message?.includes('DISTRIBUTED_LOCK_LOST')) {
                 throw lockErr;
             }
             throw new Error(`DISTRIBUTED_RECONCILE_LOCK_UNAVAILABLE: Failed to acquire distributed lock for '${idKey}': ${lockErr.message}`);
@@ -178,19 +211,48 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
             fencingToken,
             lockToken: distributedLockToken,
             signal: abortController.signal,
-            isLockLost: () => lockState.lost,
+            isLockLost: () => lockState.lost || abortController.signal.aborted || !isWrapperActive,
             getLockToken: () => distributedLockToken,
+            isWrapperActive: () => isWrapperActive,
             validateOwnership: async () => {
-                if (lockState.lost || abortController.signal.aborted) return false;
+                if (lockState.lost || abortController.signal.aborted || !isWrapperActive) {
+                    lockState.lost = true;
+                    return false;
+                }
                 try {
                     const current = await redisProxy.get(lockKey);
                     if (current !== distributedLockToken) {
                         lockState.lost = true;
+                        abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Redis lock ownership lost for '${idKey}'`));
                         return false;
                     }
                     return true;
                 } catch (_) {
+                    lockState.lost = true;
                     return false;
+                }
+            },
+            assertOwnership: async () => {
+                if (lockState.lost || abortController.signal.aborted || !isWrapperActive) {
+                    const err = new Error(`DISTRIBUTED_LOCK_LOST: Reconciliation lock lost or wrapper returned for '${idKey}'`);
+                    err.code = 'DISTRIBUTED_LOCK_LOST';
+                    throw err;
+                }
+                let current;
+                try {
+                    current = await redisProxy.get(lockKey);
+                } catch (reErr) {
+                    lockState.lost = true;
+                    const err = new Error(`DISTRIBUTED_LOCK_LOST: Redis error during ownership assertion for '${idKey}': ${reErr.message}`);
+                    err.code = 'DISTRIBUTED_LOCK_LOST';
+                    throw err;
+                }
+                if (current !== distributedLockToken) {
+                    lockState.lost = true;
+                    abortController.abort(new Error(`DISTRIBUTED_LOCK_LOST: Redis lock ownership lost for '${idKey}'`));
+                    const err = new Error(`DISTRIBUTED_LOCK_LOST: Redis lock ownership transferred or expired for '${idKey}'`);
+                    err.code = 'DISTRIBUTED_LOCK_LOST';
+                    throw err;
                 }
             }
         };
@@ -211,6 +273,7 @@ async function _withReconcileKeyLock(key, fn, options = {}) {
 
         return await Promise.race([taskPromise, abortPromise]);
     } finally {
+        isWrapperActive = false;
         if (renewalTimer) {
             clearInterval(renewalTimer);
             renewalTimer = null;
@@ -711,6 +774,20 @@ class WhatsAppService {
                 update.$set.providerMessageId = providerMessageId;
             }
 
+            // Hook for deterministic cross-store race testing
+            if (options.hooks?.beforeMongoCas) {
+                await options.hooks.beforeMongoCas({ update, lockContext, idempotencyKey });
+            }
+
+            // Revalidate Redis ownership immediately before MongoDB CAS
+            if (lockContext.isLockLost && lockContext.isLockLost()) {
+                throw new Error('DISTRIBUTED_LOCK_LOST: Reconciliation lock lost after async operations before database update');
+            }
+            if (lockContext.validateOwnership) {
+                const isOwner = await lockContext.validateOwnership();
+                if (!isOwner) throw new Error('DISTRIBUTED_LOCK_LOST: Lock ownership validation failed before database update');
+            }
+
             const reconciled = await WhatsAppDispatch.findOneAndUpdate(
                 {
                     idempotencyKey: idempotencyKey.trim(),
@@ -723,8 +800,8 @@ class WhatsAppService {
 
             if (!reconciled) {
                 const currentDoc = await WhatsAppDispatch.findOne({ idempotencyKey: idempotencyKey.trim() }).lean();
-                if (currentDoc && currentDoc.reconcileGeneration && currentDoc.reconcileGeneration > lockContext.fencingToken) {
-                    throw new Error(`STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) > current lock fencingToken (${lockContext.fencingToken})`);
+                if (currentDoc && currentDoc.reconcileGeneration && currentDoc.reconcileGeneration !== lockContext.fencingToken) {
+                    throw new Error(`STALE_FENCING_GENERATION: Stale reconciliation mutation rejected. Document reconcileGeneration (${currentDoc.reconcileGeneration}) does not match current lock fencingToken (${lockContext.fencingToken})`);
                 }
             }
 
@@ -790,8 +867,16 @@ class WhatsAppService {
                     }).lean();
 
                     if (ambiguousForRecipient.length > 0) {
-                        await WhatsAppDispatch.updateMany(
-                            { _id: { $in: ambiguousForRecipient.map(d => d._id) } },
+                        if (statusObj?.hooks?.beforeAmbiguousUpdateMany) {
+                            await statusObj.hooks.beforeAmbiguousUpdateMany({ ambiguousForRecipient, statusObj });
+                        }
+                        // Conditional state filter: only update records that remain in ambiguous state and have NOT been reconciled
+                        const updateRes = await WhatsAppDispatch.updateMany(
+                            {
+                                _id: { $in: ambiguousForRecipient.map(d => d._id) },
+                                $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }],
+                                reconciliationStatus: { $ne: 'RECONCILED' }
+                            },
                             {
                                 $set: {
                                     reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED',
@@ -799,11 +884,12 @@ class WhatsAppService {
                                 }
                             }
                         );
-                        console.warn(`[WhatsAppService] Webhook ${statusObj.id} cannot be safely correlated: Missing deterministic correlation token. Flagged ${ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
+                        console.warn(`[WhatsAppService] Webhook ${statusObj.id} cannot be safely correlated: Missing deterministic correlation token. Flagged ${updateRes.modifiedCount || ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
                         return {
                             reconciled: false,
                             reason: 'MANUAL_RECONCILIATION_REQUIRED',
                             ambiguousCount: ambiguousForRecipient.length,
+                            modifiedCount: updateRes.modifiedCount,
                             providerMessageId: statusObj.id,
                             recipient: normalizedRecipient
                         };
@@ -862,6 +948,14 @@ class WhatsAppService {
                     reconciled: false,
                     reason: 'NO_MATCHING_DISPATCH',
                     providerMessageId: statusObj.id,
+                    idempotencyKey: canonicalIdempotencyKey
+                };
+            }
+            if (lockErr.message?.includes('DISTRIBUTED_LOCK_LOST')) {
+                return {
+                    reconciled: false,
+                    reason: 'DISTRIBUTED_LOCK_LOST',
+                    error: lockErr.message,
                     idempotencyKey: canonicalIdempotencyKey
                 };
             }
@@ -968,6 +1062,19 @@ class WhatsAppService {
             // P0-D: Hook for deterministic cross-store race testing
             if (statusObj?.hooks?.beforeMongoCas) {
                 await statusObj.hooks.beforeMongoCas({ updateQuery, updateFields, lockContext, dispatch });
+            }
+
+            // Revalidate Redis ownership immediately before MongoDB CAS (after async hooks and awaited ops)
+            if (lockContext?.isLockLost?.()) {
+                console.error(`[WhatsAppService] Reconciliation lock lost after async execution for dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+                return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+            }
+            if (lockContext?.validateOwnership) {
+                const isOwner = await lockContext.validateOwnership();
+                if (!isOwner) {
+                    console.error(`[WhatsAppService] Webhook reconciliation lock ownership validation failed after async execution for dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+                    return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+                }
             }
 
             // Strict exact-generation fencing enforcement (Fail-Closed)
@@ -1124,6 +1231,19 @@ class WhatsAppService {
                     await statusObj.hooks.beforeMongoCas({ updateQuery, updateFields, lockContext, dispatch: candidateByOpaque });
                 }
 
+                // Revalidate Redis ownership immediately before MongoDB CAS (after async hooks and awaited ops)
+                if (lockContext?.isLockLost?.()) {
+                    console.error(`[WhatsAppService] Reconciliation lock lost after async execution for dispatch '${candidateByOpaque.idempotencyKey}'. Aborting mutation.`);
+                    return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+                }
+                if (lockContext?.validateOwnership) {
+                    const isOwner = await lockContext.validateOwnership();
+                    if (!isOwner) {
+                        console.error(`[WhatsAppService] Webhook reconciliation lock ownership validation failed after async execution for dispatch '${candidateByOpaque.idempotencyKey}'. Aborting mutation.`);
+                        return { reconciled: false, reason: 'DISTRIBUTED_LOCK_LOST' };
+                    }
+                }
+
                 // Strict exact-generation fencing enforcement (Fail-Closed)
                 if (!lockContext || !lockContext.fencingToken || lockContext.fencingToken <= 0) {
                     console.error(`[WhatsAppService] Protected webhook reconciliation aborted: missing or invalid fencingToken for '${candidateByOpaque.idempotencyKey}'`);
@@ -1211,10 +1331,18 @@ class WhatsAppService {
         }).lean();
 
         if (ambiguousForRecipient.length > 0) {
+            if (statusObj?.hooks?.beforeAmbiguousFallbackUpdateMany) {
+                await statusObj.hooks.beforeAmbiguousFallbackUpdateMany({ ambiguousForRecipient, statusObj });
+            }
             // DO NOT GUESS! DO NOT ARBITRARILY BIND TO ANY DISPATCH!
             // Retain ambiguous state and flag records as requiring manual reconciliation.
-            await WhatsAppDispatch.updateMany(
-                { _id: { $in: ambiguousForRecipient.map(d => d._id) } },
+            // Conditional state filter: only update records that remain in ambiguous state and have NOT been reconciled.
+            const updateRes = await WhatsAppDispatch.updateMany(
+                {
+                    _id: { $in: ambiguousForRecipient.map(d => d._id) },
+                    $or: [{ status: 'AMBIGUOUS_TIMEOUT' }, { isAmbiguous: true }],
+                    reconciliationStatus: { $ne: 'RECONCILED' }
+                },
                 {
                     $set: {
                         reconciliationStatus: 'MANUAL_RECONCILIATION_REQUIRED',
@@ -1223,12 +1351,13 @@ class WhatsAppService {
                 }
             );
 
-            console.warn(`[WhatsAppService] Webhook ${providerMessageId} cannot be safely correlated: Missing deterministic correlation token. Flagged ${ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
+            console.warn(`[WhatsAppService] Webhook ${providerMessageId} cannot be safely correlated: Missing deterministic correlation token. Flagged ${updateRes.modifiedCount || ambiguousForRecipient.length} ambiguous dispatch(es) for recipient ${normalizedRecipient} as MANUAL_RECONCILIATION_REQUIRED.`);
 
             return {
                 reconciled: false,
                 reason: 'MANUAL_RECONCILIATION_REQUIRED',
                 ambiguousCount: ambiguousForRecipient.length,
+                modifiedCount: updateRes.modifiedCount,
                 providerMessageId,
                 recipient: normalizedRecipient
             };
@@ -1266,7 +1395,11 @@ class WhatsAppService {
         const lockOptions = { ...(options || {}), ...(params?.lockOptions || {}) };
         try {
             return await _withReconcileKeyLock(idempotencyKey, async (lockContext) => {
-                return await this._manualReconcileDispatchInternal(params, lockContext);
+                const effectiveParams = {
+                    ...params,
+                    hooks: params?.hooks || options?.hooks
+                };
+                return await this._manualReconcileDispatchInternal(effectiveParams, lockContext);
             }, lockOptions);
         } catch (lockErr) {
             console.error(`[WhatsAppService] Manual reconciliation aborted due to lock failure for '${idempotencyKey}':`, lockErr.message);
@@ -1274,6 +1407,14 @@ class WhatsAppService {
                 return {
                     success: false,
                     error: 'DISPATCH_LEDGER_NOT_FOUND: Durable dispatch ledger record not found for idempotencyKey',
+                    idempotencyKey
+                };
+            }
+            if (lockErr.message?.includes('DISTRIBUTED_LOCK_LOST')) {
+                return {
+                    success: false,
+                    error: 'DISTRIBUTED_LOCK_LOST: Reconciliation lock was lost or expired',
+                    detail: lockErr.message,
                     idempotencyKey
                 };
             }
@@ -1549,6 +1690,25 @@ class WhatsAppService {
         // P0-D: Test hook for deterministic cross-store CAS race testing
         if (hooks?.beforeMongoCas) {
             await hooks.beforeMongoCas({ casFilter, updateFields, lockContext, dispatch });
+        }
+
+        // Revalidate Redis ownership immediately before MongoDB CAS (after all async hooks and awaited ops)
+        if (lockContext?.isLockLost?.()) {
+            console.error(`[WhatsAppService] Reconciliation lock lost after async execution for dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+            return {
+                success: false,
+                error: 'DISTRIBUTED_LOCK_LOST: Reconciliation lock was lost or expired during async execution before database update'
+            };
+        }
+        if (lockContext?.validateOwnership) {
+            const isOwner = await lockContext.validateOwnership();
+            if (!isOwner) {
+                console.error(`[WhatsAppService] Reconciliation lock ownership validation failed after async execution for dispatch '${dispatch.idempotencyKey}'. Aborting mutation.`);
+                return {
+                    success: false,
+                    error: 'DISTRIBUTED_LOCK_LOST: Reconciliation lock ownership validation failed after async operations before database update'
+                };
+            }
         }
 
         // Mandatory exact-generation fencing enforcement (Fail-Closed)
