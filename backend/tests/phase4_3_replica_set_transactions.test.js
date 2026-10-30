@@ -91,6 +91,8 @@ describe('Phase 4.3 — Replica-Set Multi-Document ACID Transactions Suite', () 
         await AuthoritySourceSettings.ensureDefaults(tenantA);
         await AuthoritySourceSettings.ensureDefaults(tenantB);
 
+        await Inventory.init();
+        await AuditLog.init();
         await PropertyVerificationRunItem.init();
         await PropertyAuthorityLink.init();
         await PropertyVerificationRun.init();
