@@ -186,6 +186,7 @@ export const socialAPI = {
     startBaileysConnection: (data) => api.post('/social/whatsapp/baileys/start', data).then(res => res.data),
     getBaileysStatus: (id) => api.get(`/social/whatsapp/baileys/status/${id}`).then(res => res.data),
     getBaileysGroups: (id, params) => api.get(`/social/whatsapp/baileys/groups/${id}`, { params }).then(res => res.data),
+    disconnectBaileys: (id) => api.post(`/social/whatsapp/baileys/disconnect/${id}`).then(res => res.data),
 };
 
 export const automationAPI = {

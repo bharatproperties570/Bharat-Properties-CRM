@@ -41,6 +41,623 @@ const loadServices = async () => {
     }
 };
 
+/**
+ * 🧠 Enterprise Template Resolver (Worker Context)
+ * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
+ */
+async function resolveMetaComponents(templateId, recipient, meta, registryMapping, universalData = null) {
+    const waService = (await import('../../services/WhatsAppService.js')).default;
+    const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
+    
+    const allTemplates = await waService.getTemplates();
+    const templateDef = allTemplates.find(t => t.name === templateId);
+    if (!templateDef) return [];
+
+    // 1. Resolve all possible variables for this recipient
+    const enrichedContext = {
+        ...recipient,
+        fullName: recipient.firstName ? `${recipient.firstName} ${recipient.lastName || ''}`.trim() : (recipient.name || 'Customer'),
+        firstName: recipient.firstName || (recipient.name ? recipient.name.split(' ')[0] : 'Customer'),
+        matchedProperties: [{
+            inventoryId: meta.inventoryId,
+            projectName: meta.title,
+            sector: meta.location,
+            price: meta.price,
+            size: meta.features?.[0] || ''
+        }]
+    };
+    const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, registryMapping);
+
+    // 2. Build Components Sequentially
+    const components = [];
+    let globalVarIndex = 1;
+
+    templateDef.components.forEach(compDef => {
+        if (compDef.type === 'BODY') {
+            const matches = (compDef.text || '').match(/\{\{([^}]+)\}\}/g) || [];
+            if (matches.length > 0) {
+                const parameters = [];
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                
+                matches.forEach((match) => {
+                    const varName = match.replace(/[{}]/g, '').trim();
+                    let val;
+                    
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                    } else if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || '—';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || '—';
+                    }
+                    
+                    let valStr = String(val);
+                    valStr = valStr.replace(/\n/g, '  |  ').replace(/\t/g, ' ').replace(/\s{5,}/g, '    ');
+                    if (valStr.length > 1000) {
+                        valStr = valStr.substring(0, 995) + '...';
+                    }
+                    
+                    const paramObj = { type: 'text', text: valStr };
+                    if (!/^\d+$/.test(varName)) {
+                        paramObj.parameter_name = varName;
+                    }
+                    parameters.push(paramObj);
+                });
+                components.push({ type: 'body', parameters });
+            }
+        } else if (compDef.type === 'BUTTONS') {
+            compDef.buttons?.forEach((btn, btnIdx) => {
+                const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
+                if (hasDynVar) {
+                    const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                    let siteVisitToken = namedMap['siteVisitToken'] || namedMap['site_visit_token'] || 'visit';
+
+                    if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
+                        siteVisitToken = siteVisitToken.replace(/\./g, '~');
+                    }
+
+                    components.push({
+                        type: 'button',
+                        sub_type: 'url',
+                        index: String(btnIdx),
+                        parameters: [{ type: 'text', text: String(siteVisitToken) }]
+                    });
+                }
+            });
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{([^}]+)\}\}/.test(compDef.text)) {
+            const headerVars = (compDef.text.match(/\{\{([^}]+)\}\}/g) || []);
+            if (headerVars.length > 0) {
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                const parameters = headerVars.map((match) => {
+                    const varName = match.replace(/[{}]/g, '').trim();
+                    let val;
+                    let isNamed = false;
+                    
+                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
+                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
+                        isNamed = !/^\d+$/.test(varName);
+                    } else if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || 'Update';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || 'Update';
+                        isNamed = true;
+                    }
+                    
+                    const paramObj = { type: 'text', text: String(val).substring(0, 200) };
+                    if (isNamed) {
+                        paramObj.parameter_name = varName;
+                    }
+                    return paramObj;
+                });
+                components.push({ type: 'header', parameters });
+            }
+        } else if (compDef.type === 'HEADER' && compDef.format !== 'TEXT') {
+            const hType = compDef.format.toLowerCase();
+            const finalMediaUrl = (
+                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
+                hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
+                'https://www.w3schools.com/html/mov_bbb.mp4'
+            );
+            
+            components.push({
+                type: 'header',
+                parameters: [{
+                    type: hType,
+                    [hType]: {
+                        link: finalMediaUrl,
+                        ...(hType === 'document' ? { filename: 'Huda_Map_Book_KKR.pdf' } : {})
+                    }
+                }]
+            });
+        }
+    });
+
+    return components;
+}
+
+/**
+ * 🚀 Dispatches a single recipient across configured marketing channels (WhatsApp, SMS, RCS, Email).
+ * Enforces Phase 1 & 2 reliability: Baileys serialization, delivery state tracking, Activity logging,
+ * and durable idempotency updates in MarketingDelivery.
+ */
+async function dispatchSingleRecipientCore({
+    recipient,
+    primaryDeal,
+    dealsList,
+    meta,
+    channels,
+    baseTemplateText,
+    templateId,
+    language,
+    integrationId,
+    isBaileys,
+    shareableId,
+    smsTemplate,
+    rcsTemplate,
+    emailTemplate,
+    registryMapping,
+    campaignId,
+    performedBy,
+    dealId,
+    job,
+    haltTimeoutMs = 3000,
+    whatsAppService: waServiceParam
+}) {
+    const results = [];
+    const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
+    
+    // Universal context resolution across all real-estate variables and recipient attributes
+    const { contextMap, data: universalData } = await buildUniversalContext({
+        deal: primaryDeal,
+        deals: dealsList || (primaryDeal ? [primaryDeal] : []),
+        recipient,
+        currentUser: { fullName: performedBy, name: performedBy },
+        meta
+    });
+
+    let text = '';
+    let primaryWaResult = null;
+    const waService = waServiceParam || whatsAppService || (await import('../../services/WhatsAppService.js')).default;
+    const eSvc = emailService || (await import('../../services/email.service.js')).default;
+
+    if (channels.includes('whatsapp') && recipient.mobile) {
+        try {
+            // 🛡️ Enterprise Opt-out Check
+            const isOptedOut = await waService.isRecipientOptedOut(recipient.mobile);
+            if (isOptedOut) {
+                if (job?.log) await job.log(`⚠️ 🛡️ [Opt-Out Policy] Recipient ${recipient.name || recipient.mobile} has opted out of WhatsApp communications. Suppressing send.`);
+                try {
+                    const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+                    await MarketingDelivery.findOneAndUpdate(
+                        { jobId: campaignId || String(job?.id), recipientId: String(recipient.mobile || recipient.id).trim(), channel: 'whatsapp' },
+                        {
+                            $set: {
+                                status: 'SUPPRESSED_OPTOUT',
+                                provider: isBaileys ? 'BAILEYS' : 'META',
+                                campaignName: meta.title,
+                                error: 'Recipient opted out of WhatsApp communications',
+                                lastAttemptAt: new Date()
+                            }
+                        },
+                        { upsert: true, new: true }
+                    );
+                } catch (e) {}
+                primaryWaResult = {
+                    channel: 'whatsapp',
+                    status: 'suppressed',
+                    deliveryStatus: 'SUPPRESSED_OPTOUT',
+                    error: 'Recipient opted out of WhatsApp communications'
+                };
+                results.push(primaryWaResult);
+                return { success: false, suppressed: true, results, primaryWaResult };
+            }
+
+            // 🛡️ Pre-Dispatch Halt Guard: Re-verify campaign state immediately before external network I/O (Fail-Closed)
+            if (campaignId) {
+                let haltTimer;
+                try {
+                    const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+                    const haltPromise = BroadcastLiveTracker.isCampaignHalted(campaignId);
+                    const timeoutPromise = new Promise((_, reject) => {
+                        haltTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+                    });
+                    const preDispatchHalt = await Promise.race([haltPromise, timeoutPromise]);
+                    if (preDispatchHalt?.halted) {
+                        if (job?.log) await job.log(`🛑 [Pre-Dispatch Guard] Campaign ${campaignId} is ${preDispatchHalt.status} immediately before network write. Aborting send to ${recipient.name || recipient.mobile}.`);
+                        primaryWaResult = {
+                            channel: 'whatsapp',
+                            status: 'halted',
+                            deliveryStatus: preDispatchHalt.status,
+                            error: `Campaign was ${preDispatchHalt.status.toLowerCase()} by operator immediately before provider network write.`
+                        };
+                        results.push(primaryWaResult);
+                        return { success: false, halted: true, status: preDispatchHalt.status, results, primaryWaResult };
+                    }
+                } catch (haltErr) {
+                    // Fail closed: Never treat verification failure as permission to send
+                    if (job?.log) await job.log(`🛑 [Pre-Dispatch Guard] Halt verification failed for campaign ${campaignId}: ${haltErr.message}. Failing closed (aborting provider write).`);
+                    primaryWaResult = {
+                        channel: 'whatsapp',
+                        status: 'halt_check_failed',
+                        deliveryStatus: 'HALT_CHECK_FAILED',
+                        error: `Halt verification failed: ${haltErr.message}. Provider write aborted for safety.`
+                    };
+                    results.push(primaryWaResult);
+                    return {
+                        success: false,
+                        halted: true,
+                        haltCheckFailed: true,
+                        status: 'HALT_CHECK_FAILED',
+                        error: `HALT_CHECK_FAILED: ${haltErr.message}`,
+                        results,
+                        primaryWaResult
+                    };
+                } finally {
+                    if (haltTimer) clearTimeout(haltTimer);
+                }
+            }
+
+            /**
+             * ⚠️ IN-FLIGHT NETWORK DISPATCH BOUNDARY:
+             * Once waService.sendTemplate or waService.sendMessage transmits bytes across the wire
+             * (HTTP POST to Meta Cloud API or socket write to Baileys WebSocket), that request cannot be recalled.
+             * If an operator issues a PAUSE or CANCEL command while this network I/O is in-flight:
+             * 1. The provider response is awaited and its monotonic delivery outcome (ACCEPTED, SENT, FAILED,
+             *    or DELIVERY_UNKNOWN) is faithfully recorded into the MarketingDelivery ledger.
+             * 2. However, downstream chaining to subsequent recipients via chainNextRecipient is strictly blocked.
+             */
+            let waRes;
+            if (!isGroup && !isBaileys && templateId) {
+                const personalizedComponents = await resolveMetaComponents(
+                    templateId, 
+                    recipient, 
+                    meta, 
+                    registryMapping,
+                    universalData
+                );
+                
+                waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { integrationId });
+                text = `Template: ${templateId}`;
+            } else {
+                if (baseTemplateText) {
+                    text = interpolateUniversalTemplate(baseTemplateText, contextMap);
+                } else if (meta.isMultiDeal) {
+                    text = interpolateUniversalTemplate(
+                        `*🏢 PORTFOLIO BNA ALERT: {{title}}*\n\n` +
+                        `Here is our exclusive curated portfolio of *{{dealsCount}} verified deals*:\n\n` +
+                        `{{description}}\n\n` +
+                        `🔗 *Deal References:* {{dealCode}}\n` +
+                        `Contact us for full dossiers, commission splits, and site inspections.`,
+                        contextMap
+                    );
+                } else if (recipient.context?.originalType === 'Lead') {
+                    text = interpolateUniversalTemplate(
+                        `*🌟 PROPERTY RECOMMENDATION: {{projectName}}*\n\n` +
+                        `Hello *{{customer_name}}*,\n` +
+                        `Here is an exclusive property opportunity matching your requirement:\n\n` +
+                        `💰 *Price:* {{price}}\n` +
+                        `📍 *Location:* {{location}}\n` +
+                        `📐 *Specs:* {{size}}\n\n` +
+                        `📝 *Overview:* {{description}}\n\n` +
+                        `🔗 *Ref:* {{dealCode}}\n` +
+                        `Reply directly to this message to schedule a site inspection!`,
+                        contextMap
+                    );
+                } else {
+                    text = interpolateUniversalTemplate(
+                        `*🏢 BROKER UPDATE: {{projectName}}*\n\n` +
+                        `💰 *Price:* {{price}}\n` +
+                        `📍 *Location:* {{location}}\n` +
+                        `📐 *Specs:* {{size}}\n\n` +
+                        `📝 *Details:* {{description}}\n\n` +
+                        `🔗 *Ref:* {{dealCode}}\n` +
+                        `Contact us for commission split and site visits.`,
+                        contextMap
+                    );
+                }
+                waRes = await waService.sendMessage(recipient.mobile, text, { 
+                    integrationId,
+                    useBaileys: Boolean(isBaileys),
+                    provider: isBaileys ? 'BAILEYS' : 'META',
+                    channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
+                });
+            }
+            primaryWaResult = {
+                channel: 'whatsapp', 
+                status: waRes.success ? 'success' : 'failed', 
+                deliveryStatus: waRes.deliveryStatus || (waRes.success ? 'ACCEPTED' : (waRes.isRetryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL')),
+                latencyMs: waRes.latencyMs || null,
+                messageId: waRes.messageId || waRes.messages?.[0]?.id || null,
+                isDeliveryUnknown: Boolean(waRes.isDeliveryUnknown),
+                error: waRes.error,
+                messageContent: text 
+            };
+            results.push(primaryWaResult);
+        } catch (e) {
+            primaryWaResult = { channel: 'whatsapp', status: 'failed', deliveryStatus: 'FAILED', error: e.message };
+            results.push(primaryWaResult);
+        }
+    }
+
+    if (channels.includes('sms') && recipient.mobile && !isGroup) {
+        try {
+            const smsSvc = (await import('../../services/SmsService.js')).default;
+            const rawSms = smsTemplate?.text || (meta.isMultiDeal
+                ? `[BHARAT PROPERTIES] {{title}} - {{dealsCount}} verified deals available. Ref: {{dealCode}}. Call {{ownerMobile}} for brochure.`
+                : `[BHARAT PROPERTIES] {{title}} at {{location}}. Price: {{price}}. Specs: {{size}}. Ref: {{dealCode}}. Call {{ownerMobile}} for details.`);
+            const smsText = interpolateUniversalTemplate(rawSms, contextMap);
+            const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
+                dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
+                dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
+            });
+            results.push({ 
+                channel: 'sms', 
+                status: (smsRes?.success || smsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                messageContent: smsText 
+            });
+        } catch (e) { results.push({ channel: 'sms', status: 'failed', error: e.message }); }
+    }
+
+    if (channels.includes('rcs') && recipient.mobile && !isGroup) {
+        try {
+            const smsSvc = (await import('../../services/SmsService.js')).default;
+            const rawRcsBody = rcsTemplate?.text || meta.description;
+            const rcsBody = interpolateUniversalTemplate(rawRcsBody, contextMap);
+            const rawRcsText = `✨ *[RCS RICH CARD] {{title}}*\n📍 Location: {{location}}\n💰 Price: {{price}}\n📐 Specs: {{size}}\n\n${rcsBody}\n\nRef: {{dealCode}}`;
+            const rcsText = interpolateUniversalTemplate(rawRcsText, contextMap);
+            const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
+                isRcs: true,
+                richCard: {
+                    title: interpolateUniversalTemplate(meta.title, contextMap),
+                    price: interpolateUniversalTemplate(meta.price, contextMap),
+                    buttons: rcsTemplate?.buttons || []
+                }
+            });
+            results.push({ 
+                channel: 'rcs', 
+                status: (rcsRes?.success || rcsRes?.sent > 0) ? 'success' : 'simulated_success', 
+                messageContent: rcsText 
+            });
+        } catch (e) { results.push({ channel: 'rcs', status: 'failed', error: e.message }); }
+    }
+
+    if (channels.includes('email') && recipient.email && !isGroup) {
+        try {
+            const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+            const rawSubject = emailTemplate?.subject || defaultEmailSubject;
+            const rawHtml = emailTemplate?.html || '';
+            const finalSubject = interpolateUniversalTemplate(rawSubject, contextMap);
+            const finalHtml = rawHtml ? interpolateUniversalTemplate(rawHtml, contextMap) : (text || meta.description);
+            await eSvc.sendEmail(recipient.email, finalSubject, '', finalHtml);
+            results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
+        } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
+    }
+
+    const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
+    const isDeliveryUnknown = Boolean(primaryWaResult?.isDeliveryUnknown);
+
+    // Determine lifecycle status
+    const activityStatus = success ? 'Sent' : 'Failed';
+    const activityDesc = success 
+        ? (text || 'Dispatched') 
+        : (isDeliveryUnknown
+            ? `Delivery Unknown: Timeout waiting for WhatsApp ACK. Flagged for review; duplicate auto-retry suppressed.`
+            : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`);
+
+    // Log Activity
+    try {
+        const { default: Activity } = await import('../../models/Activity.js');
+        await Activity.create({
+            type: 'Marketing',
+            subject: `BNA Broadcast: ${meta.title}`,
+            entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
+            entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+            status: activityStatus,
+            visibleTo: 'Everyone',
+            description: activityDesc,
+            details: { 
+                results, 
+                dealId, 
+                shareableId, 
+                jobId: campaignId || job?.id,
+                message: text,
+                renderedBody: text,
+                isGroup: isGroup,
+                groupJid: isGroup ? recipient.mobile : null,
+                groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
+                phoneNumber: recipient.mobile,
+                whatsappIntegrationId: integrationId || null,
+                platform: isGroup ? 'WhatsApp Web' : 'WhatsApp',
+                deliveryStatus: primaryWaResult?.deliveryStatus || (success ? 'ACCEPTED' : 'FAILED'),
+                latencyMs: primaryWaResult?.latencyMs || null,
+                providerMessageId: primaryWaResult?.messageId || null,
+                isDeliveryUnknown
+            },
+            participants: [
+                { name: recipient.name || (isGroup ? 'WhatsApp Group' : 'Partner'), mobile: recipient.mobile }
+            ],
+            performedBy: performedBy,
+            dueDate: new Date()
+        });
+    } catch (actErr) {
+        if (job?.log) await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
+    }
+
+    // Record in MarketingDelivery (Durable Idempotency Boundary)
+    try {
+        const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+        const recipientKey = String(recipient.mobile || recipient.id || '').trim();
+        const deliveryStatus = primaryWaResult?.deliveryStatus || (success ? 'ACCEPTED' : 'FAILED_FINAL');
+
+        await MarketingDelivery.findOneAndUpdate(
+            { jobId: campaignId || String(job?.id), recipientId: recipientKey, channel: 'whatsapp' },
+            {
+                $set: {
+                    campaignName: meta.title,
+                    status: deliveryStatus,
+                    provider: isBaileys ? 'BAILEYS' : 'META',
+                    providerMessageId: primaryWaResult?.messageId || null,
+                    error: primaryWaResult?.error || null,
+                    lastAttemptAt: new Date()
+                },
+                $inc: { attempts: 1 }
+            },
+            { upsert: true, new: true }
+        );
+    } catch (delivErr) {
+        if (job?.log) await job.log(`MarketingDelivery update notice: ${delivErr.message}`);
+    }
+
+    return { success, results, primaryWaResult };
+}
+
+/**
+ * 🔗 Chained Scheduling Dispatcher
+ * Schedules only the NEXT recipient micro-job into BullMQ with randomized anti-spam jitter or inter-batch cooldown.
+ * Eliminates burst on resume, guarantees Concurrency: 1 pacing, and keeps worker memory/threads 100% free.
+ */
+async function chainNextRecipient(job, data, currentIndex, currentStats, totalCount, options = {}) {
+    const haltTimeoutMs = options.haltTimeoutMs || data.haltTimeoutMs || 3000;
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= totalCount) {
+        await job.log(`🎉 [BNA Campaign ${data.campaignId}] Broadcast Complete! Sent: ${currentStats.sent}, Accepted: ${currentStats.accepted || 0}, Suppressed: ${currentStats.suppressed || 0}, Failed: ${currentStats.failed}, Unknown: ${currentStats.unknown}, Skipped: ${currentStats.skipped}`);
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.recordRecipientProgress({
+                campaignId: data.campaignId,
+                recipientIndex: currentIndex,
+                totalRecipients: totalCount,
+                stats: currentStats
+            });
+        } catch (trackerErr) {}
+        return { 
+            status: 'COMPLETED', 
+            campaignId: data.campaignId, 
+            stats: currentStats, 
+            completedAt: new Date().toISOString() 
+        };
+    }
+
+    // 🛑 Operator Control: Halt chaining if campaign is paused or cancelled (Fail-Closed)
+    let chainHaltTimer;
+    try {
+        const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+        const haltPromise = BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const timeoutPromise = new Promise((_, reject) => {
+            chainHaltTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+        });
+        const haltCheck = await Promise.race([haltPromise, timeoutPromise]);
+        if (haltCheck?.halted) {
+            await job.log(`🛑 [Operator Control] Campaign ${data.campaignId} is ${haltCheck.status}. Halting chained execution at recipient ${currentIndex + 1}/${totalCount}.`);
+            return {
+                status: haltCheck.status,
+                campaignId: data.campaignId,
+                haltedAtIndex: currentIndex,
+                progress: `${currentIndex + 1}/${totalCount}`
+            };
+        }
+    } catch (haltErr) {
+        // Fail closed: Never swallow verification failure or continue chaining
+        await job.log(`🛑 [Operator Control] Pre-chaining halt verification failed for campaign ${data.campaignId}: ${haltErr.message}. Halting chained enqueue.`);
+        return {
+            status: 'HALT_CHECK_FAILED',
+            campaignId: data.campaignId,
+            haltedAtIndex: currentIndex,
+            error: haltErr.message,
+            progress: `${currentIndex + 1}/${totalCount}`
+        };
+    } finally {
+        if (chainHaltTimer) clearTimeout(chainHaltTimer);
+    }
+
+    // Determine Delay:
+    // Every 5th chat boundary (e.g. index 5, 10, 15...) = Inter-batch randomized cooldown (3 to 6 minutes)
+    // Between chats within a batch = Intra-chat randomized jitter (8 to 20 seconds)
+    let delayMs = 0;
+    const isBatchBoundary = (nextIndex % 5 === 0);
+
+    if (isBatchBoundary) {
+        const cooldownSeconds = Math.floor(Math.random() * (360 - 180 + 1)) + 180; // 180s to 360s (3 - 6 min)
+        const cooldownMins = (cooldownSeconds / 60).toFixed(1);
+        delayMs = cooldownSeconds * 1000;
+        await job.log(`🛑 🛡️ [Anti-Ban Cooldown] Batch boundary reached at recipient ${currentIndex + 1}. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) before dispatching recipient ${nextIndex + 1}/${totalCount}...`);
+    } else {
+        const jitterSeconds = Math.floor(Math.random() * (20 - 8 + 1)) + 8; // 8s to 20s
+        delayMs = jitterSeconds * 1000;
+        await job.log(`⏳ [Safe Pacing] Scheduling recipient ${nextIndex + 1}/${totalCount} in ${jitterSeconds}s (randomized anti-spam jitter)...`);
+    }
+
+    // Record upcoming cooldown / jitter pacing in BroadcastLiveTracker
+    try {
+        const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+        await BroadcastLiveTracker.recordCooldownOrPacing({
+            campaignId: data.campaignId,
+            nextIndex,
+            delayMs,
+            isBatchBoundary
+        });
+    } catch (trackDelayErr) {}
+
+    // 🛑 Pre-Enqueue Halt Guard: Re-verify campaign state immediately before queue add to prevent stale chained micro-jobs (Fail-Closed)
+    let preEnqueueTimer;
+    try {
+        const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+        const haltPromise = BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const timeoutPromise = new Promise((_, reject) => {
+            preEnqueueTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+        });
+        const preEnqueueHalt = await Promise.race([haltPromise, timeoutPromise]);
+        if (preEnqueueHalt?.halted) {
+            await job.log(`🛑 [Pre-Enqueue Guard] Campaign ${data.campaignId} is ${preEnqueueHalt.status} immediately before queue insertion. Aborting micro-job ${nextIndex} enqueue.`);
+            return {
+                status: preEnqueueHalt.status,
+                campaignId: data.campaignId,
+                haltedAtIndex: currentIndex,
+                nextIndexAborted: nextIndex,
+                progress: `${currentIndex + 1}/${totalCount}`
+            };
+        }
+    } catch (haltCheckErr) {
+        // Fail closed: Never swallow verification failure or enqueue micro-job
+        await job.log(`🛑 [Pre-Enqueue Guard] Pre-enqueue halt verification failed for campaign ${data.campaignId}: ${haltCheckErr.message}. Aborting micro-job ${nextIndex} enqueue.`);
+        return {
+            status: 'HALT_CHECK_FAILED',
+            campaignId: data.campaignId,
+            haltedAtIndex: currentIndex,
+            nextIndexAborted: nextIndex,
+            error: haltCheckErr.message,
+            progress: `${currentIndex + 1}/${totalCount}`
+        };
+    } finally {
+        if (preEnqueueTimer) clearTimeout(preEnqueueTimer);
+    }
+
+    const marketingQueue = options.marketingQueue || (await import('../queues/marketingQueue.js')).marketingQueue;
+    await marketingQueue.add('bna-recipient-dispatch', {
+        ...data,
+        circuitAttempt: 0, // Reset circuit attempt on advance
+        recipientIndex: nextIndex,
+        stats: currentStats
+    }, {
+        jobId: `bna_${data.campaignId}_recip_${nextIndex}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        delay: delayMs,
+        removeOnComplete: true
+    });
+
+    return { 
+        status: 'CHAINED_NEXT', 
+        dispatchedIndex: currentIndex, 
+        nextIndex, 
+        delayMs, 
+        progress: `${nextIndex}/${totalCount}`, 
+        stats: currentStats 
+    };
+}
+
 // ── Job Processor ─────────────────────────────────────────────────────────────
 
 const processMarketingJob = async (job) => {
@@ -433,7 +1050,7 @@ const processMarketingJob = async (job) => {
         await job.log(`AI generation task: provider=${provider}, model=${model}`);
 
         const { default: unifiedAIService } = await import('../../services/UnifiedAIService.js');
-        const content = await unifiedAIService.generate(prompt, { provider });
+        const content = await unifiedAIService.generate(prompt, { provider, capability: 'AI_MARKETING_GENERATION' });
 
         await job.updateProgress(100);
         console.log(`[MarketingWorker] ✅ AI generation complete (${provider})`);
@@ -505,155 +1122,41 @@ const processMarketingJob = async (job) => {
         }
     }
 
-/**
- * 🧠 Enterprise Template Resolver (Worker Context)
- * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
- */
-async function resolveMetaComponents(templateId, recipient, meta, registryMapping, universalData = null) {
-    const waService = (await import('../../services/WhatsAppService.js')).default;
-    const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
-    
-    const allTemplates = await waService.getTemplates();
-    const templateDef = allTemplates.find(t => t.name === templateId);
-    if (!templateDef) return [];
-
-    // 1. Resolve all possible variables for this recipient
-    const enrichedContext = {
-        ...recipient,
-        fullName: recipient.firstName ? `${recipient.firstName} ${recipient.lastName || ''}`.trim() : (recipient.name || 'Customer'),
-        firstName: recipient.firstName || (recipient.name ? recipient.name.split(' ')[0] : 'Customer'),
-        matchedProperties: [{
-            inventoryId: meta.inventoryId,
-            projectName: meta.title,
-            sector: meta.location,
-            price: meta.price,
-            size: meta.features?.[0] || ''
-        }]
-    };
-    const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, registryMapping);
-
-    // 2. Build Components Sequentially
-    const components = [];
-    let globalVarIndex = 1;
-
-    templateDef.components.forEach(compDef => {
-        if (compDef.type === 'BODY') {
-            const matches = (compDef.text || '').match(/\{\{([^}]+)\}\}/g) || [];
-            if (matches.length > 0) {
-                const parameters = [];
-                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
-                
-                matches.forEach((match) => {
-                    const varName = match.replace(/[{}]/g, '').trim();
-                    let val;
-                    
-                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
-                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
-                    } else if (/^\d+$/.test(varName)) {
-                        val = resolvedMap[String(globalVarIndex)] || '—';
-                        globalVarIndex++;
-                    } else {
-                        val = namedMap[varName] || '—';
-                    }
-                    
-                    let valStr = String(val);
-                    valStr = valStr.replace(/\n/g, '  |  ').replace(/\t/g, ' ').replace(/\s{5,}/g, '    ');
-                    if (valStr.length > 1000) {
-                        valStr = valStr.substring(0, 995) + '...';
-                    }
-                    
-                    const paramObj = { type: 'text', text: valStr };
-                    if (!/^\d+$/.test(varName)) {
-                        paramObj.parameter_name = varName;
-                    }
-                    parameters.push(paramObj);
-                });
-                components.push({ type: 'body', parameters });
-            }
-        } else if (compDef.type === 'BUTTONS') {
-            compDef.buttons?.forEach((btn, btnIdx) => {
-                const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
-                if (hasDynVar) {
-                    const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
-                    let siteVisitToken = namedMap['siteVisitToken'] || namedMap['site_visit_token'] || 'visit';
-
-                    if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
-                        siteVisitToken = siteVisitToken.replace(/\./g, '~');
-                    }
-
-                    components.push({
-                        type: 'button',
-                        sub_type: 'url',
-                        index: String(btnIdx),
-                        parameters: [{ type: 'text', text: String(siteVisitToken) }]
-                    });
-                }
-            });
-        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{([^}]+)\}\}/.test(compDef.text)) {
-            const headerVars = (compDef.text.match(/\{\{([^}]+)\}\}/g) || []);
-            if (headerVars.length > 0) {
-                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
-                const parameters = headerVars.map((match) => {
-                    const varName = match.replace(/[{}]/g, '').trim();
-                    let val;
-                    let isNamed = false;
-                    
-                    if (universalData && (universalData[varName] !== undefined || universalData[varName.toLowerCase()] !== undefined)) {
-                        val = universalData[varName] !== undefined ? universalData[varName] : universalData[varName.toLowerCase()];
-                        isNamed = !/^\d+$/.test(varName);
-                    } else if (/^\d+$/.test(varName)) {
-                        val = resolvedMap[String(globalVarIndex)] || 'Update';
-                        globalVarIndex++;
-                    } else {
-                        val = namedMap[varName] || 'Update';
-                        isNamed = true;
-                    }
-                    
-                    const paramObj = { type: 'text', text: String(val).substring(0, 200) };
-                    if (isNamed) {
-                        paramObj.parameter_name = varName;
-                    }
-                    return paramObj;
-                });
-                components.push({ type: 'header', parameters });
-            }
-        } else if (compDef.type === 'HEADER' && compDef.format !== 'TEXT') {
-            const hType = compDef.format.toLowerCase();
-            const finalMediaUrl = (
-                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
-                hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
-                'https://www.w3schools.com/html/mov_bbb.mp4'
-            );
-            
-            components.push({
-                type: 'header',
-                parameters: [{
-                    type: hType,
-                    [hType]: {
-                        link: finalMediaUrl,
-                        ...(hType === 'document' ? { filename: 'Huda_Map_Book_KKR.pdf' } : {})
-                    }
-                }]
-            });
-        }
-    });
-
-    return components;
-}
-
-// ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
+// ─── BNA-BROADCAST: Parent Campaign Orchestrator (Chained Scheduling Architecture) ──────
 if (name === 'bna-broadcast') {
-        const { dealId, recipients, channels: rawChannels, meta, templateId, language, integrationId, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+        const { 
+            dealId, recipients = [], channels: rawChannels, meta = {}, templateId, language, 
+            integrationId, shareableId, performedBy, templateText, isBaileys, 
+            smsTemplate, rcsTemplate, emailTemplate,
+            forceBroadcast = false, deduplicationWindowHours = 4 
+        } = data;
+
         const normalizedChannels = Array.isArray(rawChannels)
             ? rawChannels
             : (rawChannels && typeof rawChannels === 'object' ? Object.keys(rawChannels).filter(k => rawChannels[k]) : ['whatsapp']);
         const channels = normalizedChannels.length > 0 ? normalizedChannels : ['whatsapp'];
-        let sent = 0, failed = 0;
-        await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
 
-        const { default: Activity } = await import('../../models/Activity.js');
-        const waService = (await import('../../services/WhatsAppService.js')).default;
-        const eSvc = (await import('../../services/email.service.js')).default;
+        const campaignId = data.campaignId || `bna_camp_${dealId || 'deal'}_${Date.now()}`;
+        await job.log(`🚀 [BNA Campaign ${campaignId}] Initializing Chained Broadcast for Deal ${dealId} to ${recipients.length} recipients`);
+
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.initCampaign({
+                campaignId,
+                name: data.name || `BNA Broadcast: ${meta?.title || 'Deal Broadcast'}`,
+                dealId,
+                dealIds: data.dealIds,
+                dealTitle: meta?.title || 'Broadcast Deal',
+                totalRecipients: recipients.length,
+                channels,
+                isBaileys: Boolean(isBaileys),
+                provider: isBaileys ? 'BAILEYS' : 'META',
+                campaignParams: { ...data, campaignId },
+                performedBy: performedBy || 'System'
+            });
+        } catch (trackerInitErr) {
+            await job.log(`Live Tracker Init Warning: ${trackerInitErr.message}`);
+        }
 
         // 1. Resolve Deal Document with full population
         let primaryDeal = data.deal;
@@ -711,42 +1214,7 @@ if (name === 'bna-broadcast') {
             await job.log(`Template fetch warning: ${e.message}`);
         }
 
-        const defaultEmailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
-        
-        let detailedHtml = '';
-        if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
-            detailedHtml = meta.detailedSections.map(sec => `
-                <div style="margin-top: 20px;">
-                    <p style="font-size: 12px; font-weight: 800; color: #64748b; margin-bottom: 8px; text-transform: uppercase;">${sec.title}</p>
-                    <ul style="margin: 0; padding-left: 18px; color: #475569; font-size: 14px;">
-                        ${sec.lines.map(l => `<li style="margin-bottom: 4px;">${l}</li>`).join('')}
-                    </ul>
-                </div>
-            `).join('');
-        }
-
-        const defaultEmailHtml = `
-            <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
-                <div style="background: #6366f1; padding: 20px; color: #fff;">
-                    <h2 style="margin: 0;">${meta.title}</h2>
-                </div>
-                <div style="padding: 20px;">
-                    <p style="font-size: 18px; font-weight: 800; color: #6366f1;">${meta.price}</p>
-                    <p><strong>Location:</strong> ${meta.location}</p>
-                    <p><strong>Specs:</strong> ${meta.features?.join(' | ') || 'N/A'}</p>
-                    ${detailedHtml}
-                    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
-                    <p>${meta.description}</p>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-top: 20px;">
-                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 800;">REFERENCE CODE</p>
-                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 800; color: #1e293b;">${shareableId}</p>
-                    </div>
-                    <p style="margin-top: 24px; font-size: 12px; color: #64748b; font-style: italic;">Reply for commission structure and site visit bookings.</p>
-                </div>
-            </div>
-        `;
-
-        // 🧠 PROFESSIONAL: Fetch registry once
+        // 3. Fetch variable registry
         let registryMapping = { "1": "customer_name", "2": "property_list_default", "3": "assignedTo" };
         try {
             const SystemSetting = mongoose.model('SystemSetting');
@@ -757,173 +1225,282 @@ if (name === 'bna-broadcast') {
             if (setting?.value) registryMapping = setting.value;
         } catch (e) { await job.log(`Registry Fetch Warning: ${e.message}`); }
 
-        for (let i = 0; i < recipients.length; i++) {
-            const recipient = recipients[i];
-            const results = [];
-            const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
-            
-            // Universal context resolution across all real-estate variables and recipient attributes
-            const { contextMap, data: universalData } = await buildUniversalContext({
-                deal: primaryDeal,
-                deals: dealsList || (primaryDeal ? [primaryDeal] : []),
-                recipient,
-                currentUser: { fullName: performedBy, name: performedBy },
-                meta
-            });
+        // 4. Pre-Flight Cross-Job Deduplication Guard
+        const deduplicationWindowMs = (Number(deduplicationWindowHours) || 4) * 60 * 60 * 1000;
+        const cutoffDate = new Date(Date.now() - deduplicationWindowMs);
+        const recentlyMessagedJids = new Set();
 
-            let text = '';
-            if (channels.includes('whatsapp') && recipient.mobile) {
-                try {
-                    let waRes;
-                    if (!isGroup && !isBaileys && templateId) {
-                        const personalizedComponents = await resolveMetaComponents(
-                            templateId, 
-                            recipient, 
-                            meta, 
-                            registryMapping,
-                            universalData
-                        );
-                        
-                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents, { integrationId });
-                        text = `Template: ${templateId}`;
-                    } else {
-                        if (baseTemplateText) {
-                            text = interpolateUniversalTemplate(baseTemplateText, contextMap);
-                        } else if (meta.isMultiDeal) {
-                            text = interpolateUniversalTemplate(
-                                `*🏢 PORTFOLIO BNA ALERT: {{title}}*\n\n` +
-                                `Here is our exclusive curated portfolio of *{{dealsCount}} verified deals*:\n\n` +
-                                `{{description}}\n\n` +
-                                `🔗 *Deal References:* {{dealCode}}\n` +
-                                `Contact us for full dossiers, commission splits, and site inspections.`,
-                                contextMap
-                            );
-                        } else {
-                            text = interpolateUniversalTemplate(
-                                `*🏢 BROKER UPDATE: {{projectName}}*\n\n` +
-                                `💰 *Price:* {{price}}\n` +
-                                `📍 *Location:* {{location}}\n` +
-                                `📐 *Specs:* {{size}}\n\n` +
-                                `📝 *Details:* {{description}}\n\n` +
-                                `🔗 *Ref:* {{dealCode}}\n` +
-                                `Contact us for commission split and site visits.`,
-                                contextMap
-                            );
-                        }
-                        waRes = await waService.sendMessage(recipient.mobile, text, { 
-                            integrationId,
-                            useBaileys: Boolean(isBaileys),
-                            provider: isBaileys ? 'BAILEYS' : 'META',
-                            channel: isBaileys ? 'whatsapp_web' : 'whatsapp_api'
-                        });
-                    }
-                    results.push({ 
-                        channel: 'whatsapp', 
-                        status: waRes.success ? 'success' : 'failed', 
-                        error: waRes.error,
-                        messageContent: text 
-                    });
-                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
-            }
-
-            if (channels.includes('sms') && recipient.mobile && !isGroup) {
-                try {
-                    const smsSvc = (await import('../../services/SmsService.js')).default;
-                    const rawSms = smsTemplate?.text || (meta.isMultiDeal
-                        ? `[BHARAT PROPERTIES] {{title}} - {{dealsCount}} verified deals available. Ref: {{dealCode}}. Call {{ownerMobile}} for brochure.`
-                        : `[BHARAT PROPERTIES] {{title}} at {{location}}. Price: {{price}}. Specs: {{size}}. Ref: {{dealCode}}. Call {{ownerMobile}} for details.`);
-                    const smsText = interpolateUniversalTemplate(rawSms, contextMap);
-                    const smsRes = await smsSvc.sendSms(recipient.mobile, smsText, {
-                        dltHeaderId: smsTemplate?.dltHeaderId || 'BHRPRP',
-                        dltTemplateId: smsTemplate?.dltTemplateId || '170716890000101'
-                    });
-                    results.push({ 
-                        channel: 'sms', 
-                        status: (smsRes?.success || smsRes?.sent > 0) ? 'success' : 'simulated_success', 
-                        messageContent: smsText 
-                    });
-                } catch (e) { results.push({ channel: 'sms', status: 'failed', error: e.message }); }
-            }
-
-            if (channels.includes('rcs') && recipient.mobile && !isGroup) {
-                try {
-                    const smsSvc = (await import('../../services/SmsService.js')).default;
-                    const rawRcsBody = rcsTemplate?.text || meta.description;
-                    const rcsBody = interpolateUniversalTemplate(rawRcsBody, contextMap);
-                    const rawRcsText = `✨ *[RCS RICH CARD] {{title}}*\n📍 Location: {{location}}\n💰 Price: {{price}}\n📐 Specs: {{size}}\n\n${rcsBody}\n\nRef: {{dealCode}}`;
-                    const rcsText = interpolateUniversalTemplate(rawRcsText, contextMap);
-                    const rcsRes = await smsSvc.sendSms(recipient.mobile, rcsText, {
-                        isRcs: true,
-                        richCard: {
-                            title: interpolateUniversalTemplate(meta.title, contextMap),
-                            price: interpolateUniversalTemplate(meta.price, contextMap),
-                            buttons: rcsTemplate?.buttons || []
-                        }
-                    });
-                    results.push({ 
-                        channel: 'rcs', 
-                        status: (rcsRes?.success || rcsRes?.sent > 0) ? 'success' : 'simulated_success', 
-                        messageContent: rcsText 
-                    });
-                } catch (e) { results.push({ channel: 'rcs', status: 'failed', error: e.message }); }
-            }
-
-            if (channels.includes('email') && recipient.email && !isGroup) {
-                try {
-                    const rawSubject = emailTemplate?.subject || defaultEmailSubject;
-                    const rawHtml = emailTemplate?.html || defaultEmailHtml;
-                    const finalSubject = interpolateUniversalTemplate(rawSubject, contextMap);
-                    const finalHtml = interpolateUniversalTemplate(rawHtml, contextMap);
-                    await eSvc.sendEmail(recipient.email, finalSubject, '', finalHtml);
-                    results.push({ channel: 'email', status: 'success', messageContent: finalSubject });
-                } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
-            }
-
-            const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
-            if (success) sent++; else failed++;
-
-            // Log Activity
+        if (!forceBroadcast && dealId) {
             try {
-                await Activity.create({
-                    type: 'Marketing',
-                    subject: `BNA Broadcast: ${meta.title}`,
-                    entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
-                    entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
-                    status: success ? 'Sent' : 'Failed',
-                    visibleTo: 'Everyone',
-                    description: success 
-                        ? (text || waMessage) 
-                        : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ') || 'Connection dropped or provider timed out'}`,
-                    details: { 
-                        results, 
-                        dealId, 
-                        shareableId, 
-                        jobId: job.id,
-                        message: text || waMessage,
-                        renderedBody: text || waMessage,
-                        isGroup: isGroup,
-                        groupJid: isGroup ? recipient.mobile : null,
-                        groupName: isGroup ? (recipient.name || 'WhatsApp Group') : null,
-                        phoneNumber: recipient.mobile,
-                        whatsappIntegrationId: integrationId || null,
-                        platform: isGroup ? 'WhatsApp Web' : 'WhatsApp'
-                    },
-                    participants: [
-                        { name: recipient.name || (isGroup ? 'WhatsApp Group' : 'Partner'), mobile: recipient.mobile }
-                    ],
-                    performedBy: performedBy,
-                    dueDate: new Date()
-                });
-            } catch (actErr) {
-                await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
-            }
+                const { default: Activity } = await import('../../models/Activity.js');
+                const dealObjId = mongoose.Types.ObjectId.isValid(dealId) ? new mongoose.Types.ObjectId(dealId) : null;
+                const dealQuery = dealObjId ? { $in: [String(dealId), dealObjId] } : String(dealId);
 
-            await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
-            await new Promise(r => setTimeout(r, channels.includes('whatsapp') ? 300 : 100));
+                const recentActivities = await Activity.find({
+                    type: 'Marketing',
+                    'details.dealId': dealQuery,
+                    status: { $in: ['Sent', 'Completed', 'sent', 'completed'] },
+                    'details.deliveryStatus': { $ne: 'DELIVERY_UNKNOWN' },
+                    createdAt: { $gte: cutoffDate }
+                }).select('details.groupJid details.phoneNumber details.deliveryStatus participants.mobile createdAt').lean();
+
+                recentActivities.forEach(act => {
+                    const jid = act.details?.groupJid || act.details?.phoneNumber || act.participants?.[0]?.mobile;
+                    if (jid) recentlyMessagedJids.add(String(jid).trim());
+                });
+
+                if (recentlyMessagedJids.size > 0) {
+                    await job.log(`🛡️ [DeduplicationGuard] Found ${recentlyMessagedJids.size} recipients that already received Deal ${dealId} in the last ${deduplicationWindowHours}h.`);
+                }
+            } catch (dupCheckErr) {
+                await job.log(`[DeduplicationGuard] Warning checking recent activities: ${dupCheckErr.message}`);
+            }
         }
 
-        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);
-        return { sent, failed, completedAt: new Date().toISOString() };
+        const eligibleRecipients = [];
+        let skippedDuplicates = 0;
+        for (const r of recipients) {
+            const mobile = String(r.mobile || '').trim();
+            if (!forceBroadcast && mobile && recentlyMessagedJids.has(mobile)) {
+                skippedDuplicates++;
+            } else {
+                eligibleRecipients.push(r);
+            }
+        }
+
+        if (eligibleRecipients.length === 0) {
+            await job.log(`🛡️ All ${recipients.length} recipients already received Deal ${dealId} recently. Broadcast completed with 0 new sends.`);
+            try {
+                const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+                await BroadcastLiveTracker.recordRecipientProgress({
+                    campaignId,
+                    recipientIndex: recipients.length - 1,
+                    totalRecipients: recipients.length,
+                    stats: { sent: 0, failed: 0, skipped: skippedDuplicates }
+                });
+            } catch (tErr) {}
+            return { sent: 0, failed: 0, skipped: skippedDuplicates, completedAt: new Date().toISOString() };
+        }
+
+        // 5. Enqueue Child Micro-Job 0 (Chained Scheduling Initialization)
+        const { marketingQueue } = await import('../queues/marketingQueue.js');
+        await marketingQueue.add('bna-recipient-dispatch', {
+            ...data,
+            campaignId,
+            dealId,
+            deal: primaryDeal,
+            deals: dealsList,
+            channels,
+            recipients: eligibleRecipients,
+            recipientIndex: 0,
+            meta,
+            baseTemplateText,
+            templateId,
+            language: activeTemplateLang,
+            registryMapping,
+            shareableId,
+            integrationId: integrationId || null,
+            isBaileys: Boolean(isBaileys),
+            performedBy: performedBy || 'Bharat Properties',
+            stats: {
+                sent: 0,
+                accepted: 0,
+                suppressed: 0,
+                failed: 0,
+                unknown: 0,
+                skipped: skippedDuplicates
+            }
+        }, {
+            jobId: `bna_${campaignId}_recip_0`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            delay: 0, // Micro-job 0 executes immediately
+            removeOnComplete: true
+        });
+
+        await job.log(`🚀 [BNA Campaign ${campaignId}] Chained scheduling initialized for ${eligibleRecipients.length} eligible recipients (${skippedDuplicates} skipped duplicates). Child micro-job 0 queued.`);
+        return { status: 'CHAINED_DISPATCH_STARTED', campaignId, eligibleCount: eligibleRecipients.length, skippedCount: skippedDuplicates };
+    }
+
+    // ─── BNA RECIPIENT DISPATCH: Chained Micro-Job (Concurrency: 1, Zero Sleep) ───────────
+    if (name === 'bna-recipient-dispatch') {
+        const { 
+            campaignId, dealId, recipients = [], recipientIndex = 0, channels: rawChannels, 
+            meta = {}, templateId, language, integrationId, shareableId, performedBy, 
+            baseTemplateText = '', isBaileys, smsTemplate, rcsTemplate, emailTemplate, 
+            stats = { sent: 0, failed: 0, unknown: 0, skipped: 0 } 
+        } = data;
+
+        const normalizedChannels = Array.isArray(rawChannels)
+            ? rawChannels
+            : (rawChannels && typeof rawChannels === 'object' ? Object.keys(rawChannels).filter(k => rawChannels[k]) : ['whatsapp']);
+        const channels = normalizedChannels.length > 0 ? normalizedChannels : ['whatsapp'];
+
+        if (!recipients || recipients.length === 0 || recipientIndex >= recipients.length) {
+            await job.log(`🎉 [BNA Campaign ${campaignId}] All recipients processed! Sent: ${stats.sent}, Failed: ${stats.failed}, Unknown: ${stats.unknown}, Skipped: ${stats.skipped}`);
+            return { status: 'COMPLETED', campaignId, stats, completedAt: new Date().toISOString() };
+        }
+
+        const recipient = recipients[recipientIndex];
+        const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
+        const chatLabel = isGroup ? `Group '${recipient.name || recipient.mobile}'` : `Contact '${recipient.name || recipient.mobile}'`;
+        const overallProgress = Math.round(((recipientIndex + 1) / recipients.length) * 100);
+        await job.updateProgress(overallProgress);
+
+        // 0. Operator Control: Check if campaign was paused or cancelled by operator (Fail-Closed)
+        let step0Timer;
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            const haltPromise = BroadcastLiveTracker.isCampaignHalted(campaignId);
+            const timeoutPromise = new Promise((_, reject) => {
+                step0Timer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), data.haltTimeoutMs || 3000);
+            });
+            const haltCheck = await Promise.race([haltPromise, timeoutPromise]);
+            if (haltCheck?.halted) {
+                await job.log(`⏸️ [Operator Control] Campaign ${campaignId} is ${haltCheck.status}. Halting micro-job for recipient ${recipientIndex + 1}/${recipients.length}.`);
+                return { status: haltCheck.status, campaignId, recipientIndex };
+            }
+        } catch (haltErr) {
+            await job.log(`🛑 [Operator Control] Halt verification failed for campaign ${campaignId}: ${haltErr.message}. Halting micro-job for safety.`);
+            return { status: 'HALT_CHECK_FAILED', campaignId, recipientIndex, error: haltErr.message };
+        } finally {
+            if (step0Timer) clearTimeout(step0Timer);
+        }
+
+        // 1. Idempotency Check: Was this recipient already processed in this campaign?
+        const recipientKey = String(recipient.mobile || recipient.id || '').trim();
+        try {
+            const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+            const existing = await MarketingDelivery.findOne({
+                jobId: campaignId,
+                recipientId: recipientKey,
+                channel: 'whatsapp'
+            }).lean();
+
+            if (existing && ['SENT', 'ACCEPTED', 'DELIVERED', 'READ'].includes(existing.status)) {
+                await job.log(`⏭️ [Idempotency] Recipient ${chatLabel} already confirmed (${existing.status}) in campaign ${campaignId}. Skipping.`);
+                stats.skipped++;
+                return await chainNextRecipient(job, data, recipientIndex, stats, recipients.length);
+            }
+        } catch (idempErr) {
+            await job.log(`❌ [Idempotency] Database lookup failed for ${chatLabel} in campaign ${campaignId}: ${idempErr.message}. Aborting dispatch to trigger safe retry.`);
+            throw new Error(`IDEMPOTENCY_LOOKUP_FAILED: Cannot verify recipient delivery state for ${chatLabel} (${idempErr.message}). Safe retry required.`);
+        }
+
+        // 2. Dispatch
+        await job.log(`[Batch Progress: ${recipientIndex + 1}/${recipients.length}] Sending to ${chatLabel}...`);
+        
+        let primaryDeal = data.deal;
+        let dealsList = data.deals;
+        let registryMapping = data.registryMapping || { "1": "customer_name", "2": "property_list_default", "3": "assignedTo" };
+
+        const dispatchRes = await dispatchSingleRecipientCore({
+            recipient,
+            primaryDeal,
+            dealsList,
+            meta,
+            channels,
+            baseTemplateText,
+            templateId,
+            language,
+            integrationId,
+            isBaileys,
+            shareableId,
+            smsTemplate,
+            rcsTemplate,
+            emailTemplate,
+            registryMapping,
+            campaignId,
+            performedBy,
+            dealId,
+            job,
+            haltTimeoutMs: data.haltTimeoutMs || 3000
+        });
+        const { success, results, primaryWaResult, suppressed, halted } = dispatchRes;
+
+        if (halted) {
+            await job.log(`🛑 [Pre-Dispatch Guard] Recipient ${recipientIndex + 1}/${recipients.length} halted before provider dispatch (${dispatchRes.status}).`);
+            return { status: dispatchRes.status, campaignId, recipientIndex };
+        }
+
+        // 3. Circuit Breaker Check: Socket offline (Baileys) or Rate Limit (Meta)
+        const circuitAttempt = data.circuitAttempt || 0;
+        const errMsg = String(primaryWaResult?.error || '').toLowerCase();
+        const isSocketOffline = isBaileys && (errMsg.includes('reconnecting or offline') || errMsg.includes('socket not connected'));
+        const isMetaRateLimit = !isBaileys && (errMsg.includes('130429') || errMsg.includes('rate limit') || errMsg.includes('429'));
+
+        if (isSocketOffline && circuitAttempt < 5) {
+            const pauseSeconds = 30;
+            await job.log(`⚠️ 🛡️ [Circuit Breaker] WhatsApp socket offline/reconnecting during dispatch to ${chatLabel}. Pausing campaign for ${pauseSeconds}s (attempt ${circuitAttempt + 1}/5)...`);
+            const { marketingQueue } = await import('../queues/marketingQueue.js');
+            await marketingQueue.add('bna-recipient-dispatch', {
+                ...data,
+                circuitAttempt: circuitAttempt + 1,
+                recipientIndex, // Retry the SAME recipient
+                stats
+            }, {
+                jobId: `bna_${campaignId}_recip_${recipientIndex}_cb_${circuitAttempt + 1}`,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+                delay: pauseSeconds * 1000,
+                removeOnComplete: true
+            });
+            return { status: 'CIRCUIT_BREAKER_PAUSED', recipientIndex, circuitAttempt: circuitAttempt + 1 };
+        }
+
+        if (isMetaRateLimit && circuitAttempt < 3) {
+            const pauseSeconds = 60;
+            await job.log(`⚠️ 🛡️ [Meta Cloud API Rate Limit] Throughput limit reached during dispatch to ${chatLabel}. Pausing campaign for ${pauseSeconds}s (attempt ${circuitAttempt + 1}/3)...`);
+            const { marketingQueue } = await import('../queues/marketingQueue.js');
+            await marketingQueue.add('bna-recipient-dispatch', {
+                ...data,
+                circuitAttempt: circuitAttempt + 1,
+                recipientIndex, // Retry the SAME recipient
+                stats
+            }, {
+                jobId: `bna_${campaignId}_recip_${recipientIndex}_rate_${circuitAttempt + 1}`,
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+                delay: pauseSeconds * 1000,
+                removeOnComplete: true
+            });
+            return { status: 'META_RATE_LIMIT_PAUSED', recipientIndex, circuitAttempt: circuitAttempt + 1 };
+        }
+
+        // 4. Update Stats
+        const isOptedOut = suppressed || primaryWaResult?.deliveryStatus === 'SUPPRESSED_OPTOUT';
+        if (isOptedOut) {
+            stats.suppressed = (stats.suppressed || 0) + 1;
+            await job.log(`⚠️ Recipient ${chatLabel} suppressed due to opt-out policy.`);
+        } else if (primaryWaResult?.deliveryStatus === 'DELIVERY_UNKNOWN') {
+            stats.unknown++;
+            await job.log(`⚠️ Delivery confirmation timed out for ${chatLabel}. Marked DELIVERY_UNKNOWN; auto-retry suppressed.`);
+        } else if (success) {
+            stats.sent++;
+            if (primaryWaResult?.deliveryStatus === 'ACCEPTED') {
+                stats.accepted = (stats.accepted || 0) + 1;
+            }
+            await job.log(`✅ Successfully dispatched to ${chatLabel} via ${isBaileys ? 'WhatsApp Web (Baileys)' : 'Meta Cloud API'}.`);
+        } else {
+            stats.failed++;
+            await job.log(`❌ Failed dispatch to ${chatLabel} [${isBaileys ? 'WhatsApp Web' : 'Meta Cloud API'}]: ${primaryWaResult?.error || 'Unknown error'}`);
+        }
+
+        // 4.5 Record live progress in BroadcastLiveTracker
+        try {
+            const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.recordRecipientProgress({
+                campaignId,
+                recipientIndex,
+                totalRecipients: recipients.length,
+                stats
+            });
+        } catch (trackProgressErr) {
+            await job.log(`Live progress tracking notice: ${trackProgressErr.message}`);
+        }
+
+        // 5. Chain to Next Recipient
+        return await chainNextRecipient(job, data, recipientIndex, stats, recipients.length);
     }
 
     throw new Error(`Unknown marketing job type: ${name}`);
@@ -934,11 +1511,15 @@ if (name === 'bna-broadcast') {
 
 export const marketingWorker = new Worker('marketingQueue', processMarketingJob, {
     connection: redisConnection,
-    concurrency: 5,  // Process up to 5 marketing jobs in parallel
+    concurrency: 2,  // Reduced from 5 to 2 to eliminate socket saturation while keeping throughput
     limiter: {
         max: 20,           // Rate limit: max 20 jobs
         duration: 60000,   // Per 60 seconds (to respect API rate limits)
     },
+    lockDuration: 600000,  // 10 minutes lock duration to accommodate batch cooldowns
+    lockRenewTime: 15000,  // Renew lock every 15 seconds
+    maxStalledCount: 3,    // Allow up to 3 stalls before marking unrecoverable
+    stalledInterval: 60000 // Check stalled jobs every 60 seconds
 });
 
 marketingWorker.on('completed', (job, result) => {
@@ -958,4 +1539,6 @@ marketingWorker.on('error', (err) => {
     }
 });
 
-console.log('✅ Marketing Worker Initialized (concurrency=5)');
+console.log('✅ Marketing Worker Initialized (concurrency=2)');
+
+export { dispatchSingleRecipientCore, chainNextRecipient, processMarketingJob };

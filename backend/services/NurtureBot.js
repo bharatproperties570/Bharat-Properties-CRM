@@ -23,7 +23,6 @@ import whatsAppService from './WhatsAppService.js';
 import emailService from './email.service.js';
 import smsService from './SmsService.js';
 import exotelService from './ExotelService.js';
-import unifiedAIService from './UnifiedAIService.js';
 import { createNotification } from '../controllers/notification.controller.js';
 
 // ── Nurture State Definitions ─────────────────────────────────────────────────

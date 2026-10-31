@@ -24,7 +24,8 @@ import {
     testSocialConnection,
     startBaileysConnection,
     getBaileysStatus,
-    getBaileysGroups
+    getBaileysGroups,
+    disconnectBaileysConnection
 } from '../controllers/social.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -43,6 +44,7 @@ router.use(authenticate);
 
 // ── Baileys QR Integration ────────────────────────────────────────────────────
 router.post('/whatsapp/baileys/start', startBaileysConnection);
+router.post('/whatsapp/baileys/disconnect/:id', disconnectBaileysConnection);
 router.get('/whatsapp/baileys/status/:id', getBaileysStatus);
 router.get('/whatsapp/baileys/groups/:id', getBaileysGroups);
 

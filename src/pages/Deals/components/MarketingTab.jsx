@@ -1,5 +1,6 @@
 import { useTheme } from '../../../context/ThemeContext';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import LiveBroadcastBoard from '../../../components/Marketing/LiveBroadcastBoard';
 import { api, socialAPI, systemSettingsAPI } from '../../../utils/api';
 import {
     whatsappTemplates as defaultWhatsappTemplates,
@@ -232,7 +233,12 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 // WhatsApp Accounts
                 const rawAccounts = accountsRes.data || [];
                 setAccounts(rawAccounts);
-                const defaultOrFirst = rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') || rawAccounts.find(a => a.status === 'ACTIVE') || rawAccounts[0];
+                const defaultOrFirst = 
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE' && a.provider === 'BAILEYS') ||
+                    rawAccounts.find(a => a.isDefault && a.status === 'ACTIVE') ||
+                    rawAccounts.find(a => a.status === 'ACTIVE') ||
+                    rawAccounts[0];
                 if (defaultOrFirst) {
                     const accId = defaultOrFirst.id || defaultOrFirst._id;
                     setSelectedAccountId(accId);
@@ -812,7 +818,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                         ? (selectedWebTemplate?.name || selectedWebTemplate?.id || undefined)
                         : selectedTemplate?.name)
                     : undefined,
-                templateText: channels.whatsapp && isBaileys && selectedWebTemplate ? webTemplatePreviewText : undefined,
+                templateText: channels.whatsapp && isBaileys ? (webTemplatePreviewText || richPreviewText || undefined) : undefined,
                 isBaileys: Boolean(isBaileys),
                 language: isBaileys ? undefined : (selectedTemplate?.language || 'en'),
                 smsTemplate: channels.sms ? {
@@ -1043,11 +1049,14 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                 {accounts.map(acc => {
                                                     const accId = acc.id || acc._id;
                                                     const isWhatsAppWeb = acc.provider === 'BAILEYS';
+                                                    const label = acc.accountLabel || acc.name || (acc.displayPhoneNumber ? `+${String(acc.displayPhoneNumber).replace(/^\+/, '')}` : 'WhatsApp Line');
+                                                    const phone = acc.displayPhoneNumber || acc.phoneNumber || acc.phoneNumberId || '';
                                                     return (
                                                         <option key={accId} value={accId}>
                                                             {isWhatsAppWeb ? '🟢 [WhatsApp Web] ' : '🔵 [Meta Cloud API] '}
-                                                            {acc.name || acc.phoneNumber || 'WhatsApp Account'}
-                                                            {acc.phoneNumber ? ` (+${acc.phoneNumber.replace(/^\+/, '')})` : ''}
+                                                            {label}
+                                                            {phone && !label.includes(phone) ? ` (${phone})` : ''}
+                                                            {acc.isDefault ? ' ⭐ Default' : ''}
                                                         </option>
                                                     );
                                                 })}
@@ -1676,13 +1685,21 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '140px', overflowY: 'auto', paddingRight: '4px' }}>
-                                        {waGroups.map(g => {
+                                        {[...waGroups].sort((a, b) => {
+                                            const aCan = a.canSend !== false;
+                                            const bCan = b.canSend !== false;
+                                            if (aCan !== bCan) return aCan ? -1 : 1;
+                                            return (b.participantsCount || 0) - (a.participantsCount || 0);
+                                        }).map(g => {
                                             const isSelected = selectedWaGroups.includes(g.id);
                                             return (
                                                 <button
                                                     key={g.id}
                                                     type="button"
                                                     onClick={() => {
+                                                        if (g.canSend === false) {
+                                                            toast.warning(`"${g.subject}" is an Admin-only Announcement channel. Only community admins can post here.`);
+                                                        }
                                                         if (isSelected) setSelectedWaGroups(selectedWaGroups.filter(id => id !== g.id));
                                                         else setSelectedWaGroups([...selectedWaGroups, g.id]);
                                                     }}
@@ -1692,13 +1709,18 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                         background: isSelected ? '#128C7E' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                                                         color: isSelected ? '#fff' : isDark ? 'var(--text-main)' : '#475569',
                                                         cursor: 'pointer', transition: 'all 0.15s',
-                                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        opacity: g.canSend === false ? 0.75 : 1
                                                     }}
+                                                    title={g.canSend === false ? `${g.subject} (Admin-only Channel)` : g.subject}
                                                 >
                                                     <i className="fab fa-whatsapp" style={{ fontSize: '11px', color: isSelected ? '#fff' : '#128C7E' }}></i>
                                                     <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                         {g.subject || g.name || 'Group'}
                                                     </span>
+                                                    {g.canSend === false && (
+                                                        <span style={{ fontSize: '10px' }} title="Admin-only channel">🔒</span>
+                                                    )}
                                                     {g.participantsCount ? (
                                                         <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: '10px', background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9', color: isSelected ? '#fff' : '#64748b' }}>
                                                             {g.participantsCount}
@@ -2107,6 +2129,9 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                     </div>
                 </div>
             )}
+
+            {/* ── Phase 4: Live Broadcast Progress Board & Recovery Controls ──── */}
+            <LiveBroadcastBoard dealId={dealId} />
 
             {/* ── Analytics Section ─────────────────────────────────────── */}
             {analytics && analytics.total > 0 && (

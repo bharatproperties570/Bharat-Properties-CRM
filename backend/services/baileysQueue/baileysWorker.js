@@ -71,7 +71,12 @@ export const baileysWorker = new Worker('whatsapp_baileys_outbound', async (job)
         await new Promise(resolve => setTimeout(resolve, 1500));
         await sock.sendPresenceUpdate('paused', jid);
 
-        await sock.sendMessage(jid, { text });
+        await BaileysConnectionManager.serializeSend(integrationId, async (lockContext) => {
+            if (lockContext?.isLockLost?.()) {
+                throw new Error('DISTRIBUTED_LOCK_LOST: Outbound lock lost before socket write');
+            }
+            await sock.sendMessage(jid, { text });
+        });
 
         return { success: true, jid };
     } catch (error) {

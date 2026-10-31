@@ -1270,29 +1270,40 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                                 </div>
                             </div>
 
-                            {/* Section 4: Anti-ban & Throttling */}
-                            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
-                                        <i className="fas fa-shield-alt" style={{ marginRight: '6px', color: '#10b981' }}></i>
-                                        Anti-Ban Jitter & Rate Limiting
+                            {/* Section 4: Enterprise Anti-Ban & Dispatch Rules */}
+                            <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <i className="fas fa-shield-alt" style={{ color: '#059669', fontSize: '1rem' }}></i>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                                        Enterprise WhatsApp Anti-Ban Safe Dispatch Protocol
                                     </span>
-                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: '#64748b' }}>
-                                        Dispatches messages with staggered interval to prevent carrier & WhatsApp bans.
-                                    </p>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input 
-                                        type="number"
-                                        min="1" max="60"
-                                        value={formData.audienceConfig?.throttleSeconds || 4}
-                                        onChange={(e) => setFormData({
-                                            ...formData,
-                                            audienceConfig: { ...formData.audienceConfig, throttleSeconds: Math.max(1, Number(e.target.value)) }
-                                        })}
-                                        style={{ width: '60px', padding: '6px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center' }}
-                                    />
-                                    <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>seconds</span>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                                    <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Forward Batch Size</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
+                                            5 Chats / Batch
+                                        </div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Applies to both Individual Contacts & Groups (WhatsApp limit).</div>
+                                    </div>
+                                    <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Inter-Batch Cooling Period</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#2563eb', marginTop: '2px' }}>
+                                            3 to 10 Minutes Gap
+                                        </div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Randomized rest window between batches to prevent spam flags.</div>
+                                    </div>
+                                    <div style={{ background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Intra-Chat Typing Delay</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#7c3aed', marginTop: '2px' }}>
+                                            8 to 15s Delay
+                                        </div>
+                                        <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '2px' }}>Human-like randomized typing and delivery delay.</div>
+                                    </div>
+                                </div>
+                                <div style={{ marginTop: '10px', fontSize: '0.72rem', color: '#047857', background: '#ecfdf5', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fas fa-check-circle"></i>
+                                    <span>Single-Account Dispatch: Broadcasts run exclusively from your connected WhatsApp account without risky rotation.</span>
                                 </div>
                             </div>
                         </div>

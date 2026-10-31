@@ -552,6 +552,17 @@ export class SequenceEngine {
                         tenantId: entityData.tenantId || null
                     });
                 }
+
+            // 6. Broadcast Deal (Omnichannel BNA)
+            } else if (step.action?.type === 'broadcast_deal' || step.action?.type === 'deal_broadcast') {
+                const autoActionFormat = {
+                    type: 'broadcast_deal',
+                    actionType: 'broadcast_deal',
+                    audienceConfig: step.action.audienceConfig || {},
+                    notificationConfig: step.action.notificationConfig || {},
+                    configuration: step.action.configuration || {}
+                };
+                await WorkflowEngine.executeAction(autoActionFormat, entityData, triggerContext, enrollment.companyId, true, execOptions);
             }
 
         } catch (err) {

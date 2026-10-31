@@ -270,7 +270,11 @@ export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, 
                         onUpdateLocation={() => openEditModal('Location')}
                     />
 
-                    <BuiltupDetailsCard inventory={inventory} getLookupValue={getLookupValue} />
+                    <BuiltupDetailsCard 
+                        inventory={inventory} 
+                        getLookupValue={getLookupValue} 
+                        onEdit={() => setIsBuiltupModalOpen(true)}
+                    />
 
                     {/* ── Government Authority Verification ── */}
                     <AuthorityVerificationPanel inventory={inventory} onRefresh={refresh} />
@@ -490,7 +494,9 @@ export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, 
                     entityType="Inventory"
                     entityId={inventoryId}
                     entityData={inventory}
-                    onSave={() => {}}
+                    onSave={() => {
+                        refresh();
+                    }}
                 />
             )}
 
