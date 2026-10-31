@@ -389,6 +389,20 @@ export class AuthorityBulkProcessor {
             };
         }
 
+        // Check transaction requirement vs capability
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+        if (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true' && !supportsTransactions) {
+            return {
+                runId: run._id,
+                status: 'FAILED',
+                code: 'TRANSACTIONS_UNAVAILABLE',
+                reason: 'TRANSACTIONS_UNAVAILABLE',
+                errorMessage: 'MongoDB replica set transactions required by configuration but not available'
+            };
+        }
+
         // Update run state to PROCESSING
         run.status = 'PROCESSING';
         if (!run.startedAt) run.startedAt = new Date();
@@ -546,11 +560,14 @@ export class AuthorityBulkProcessor {
                         tenantId,
                         isFixtureMode,
                         authorityCode: run.authorityCode,
-                        workerId
+                        workerId,
+                        beforeSnapshotPersistence: options.beforeSnapshotPersistence
                     });
 
-                    if (result.success) {
+                    if (result.success && !result.alreadyProcessed) {
                         batchSucceeded++;
+                    } else if (result.success && result.alreadyProcessed) {
+                        // Already processed by another worker — avoid double-counting
                     } else if (!result.ownershipLost) {
                         batchFailed++;
                     }
@@ -702,9 +719,10 @@ export class AuthorityBulkProcessor {
      * @param {string|mongoose.Types.ObjectId} tenantId
      * @param {string|null} workerId
      * @param {Object} updateFields
+     * @param {mongoose.ClientSession} [session=null]
      * @returns {Promise<PropertyVerificationRunItem|null>}
      */
-    static async _finalizeItemWithOwnershipCheck(itemId, tenantId, workerId, updateFields) {
+    static async _finalizeItemWithOwnershipCheck(itemId, tenantId, workerId, updateFields, session = null) {
         const now = new Date();
         const query = {
             _id: itemId,
@@ -717,6 +735,11 @@ export class AuthorityBulkProcessor {
             query.leaseExpiresAt = { $gt: now };
         }
 
+        const opts = { new: true };
+        if (session) {
+            opts.session = session;
+        }
+
         return PropertyVerificationRunItem.findOneAndUpdate(
             query,
             {
@@ -725,8 +748,38 @@ export class AuthorityBulkProcessor {
                     leaseExpiresAt: null
                 }
             },
-            { new: true }
+            opts
         );
+    }
+
+    /**
+     * Verify that a worker holds an active, non-expired lease for an in-flight run item.
+     * 
+     * @param {string|mongoose.Types.ObjectId} itemId
+     * @param {string|mongoose.Types.ObjectId} tenantId
+     * @param {string|null} workerId
+     * @param {mongoose.ClientSession} [session=null]
+     * @returns {Promise<PropertyVerificationRunItem|null>}
+     */
+    static async _verifyWorkerLeaseOwnership(itemId, tenantId, workerId, session = null) {
+        if (!itemId || !tenantId) return null;
+        const now = new Date();
+        const query = {
+            _id: itemId,
+            tenantId,
+            status: 'PROCESSING'
+        };
+
+        if (workerId) {
+            query.claimedBy = workerId;
+            query.leaseExpiresAt = { $gt: now };
+        }
+
+        const queryObj = PropertyVerificationRunItem.findOne(query);
+        if (session) {
+            queryObj.session(session);
+        }
+        return queryObj;
     }
 
     /**
@@ -762,11 +815,29 @@ export class AuthorityBulkProcessor {
      * Safe, idempotent, and error-isolated.
      */
     static async processItem(item, options = {}) {
-        const { tenantId, isFixtureMode = true, authorityCode, workerId } = options;
+        const {
+            tenantId,
+            isFixtureMode = true,
+            authorityCode,
+            workerId,
+            beforeSnapshotPersistence
+        } = options;
         const effectiveWorkerId = workerId || item.claimedBy || null;
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
             return { success: true, alreadyProcessed: true };
+        }
+
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+        if (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true' && !supportsTransactions) {
+            return {
+                success: false,
+                code: 'TRANSACTIONS_UNAVAILABLE',
+                reason: 'TRANSACTIONS_UNAVAILABLE',
+                errorMessage: 'MongoDB replica set transactions required by configuration but not available'
+            };
         }
 
         // 1. Fetch link & inventory with tenant isolation (or use pre-populated docs)
@@ -865,6 +936,19 @@ export class AuthorityBulkProcessor {
             tenantId
         });
         if (existingSnapshot) {
+            // Reject adoption if the snapshot was not created by the active worker and item is not already bound to it
+            const isOwnedByCurrentWorker = effectiveWorkerId && existingSnapshot.createdByWorkerId === effectiveWorkerId;
+            const isAlreadyBound = item.snapshotId && String(item.snapshotId) === String(existingSnapshot._id);
+
+            if (!isOwnedByCurrentWorker && !isAlreadyBound) {
+                return {
+                    success: false,
+                    reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                    code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                    ownershipLost: true
+                };
+            }
+
             const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                 item._id,
                 tenantId,
@@ -927,48 +1011,50 @@ export class AuthorityBulkProcessor {
             return { success: false, reason: 'QUALITY_REJECTED' };
         }
 
-        // 6. Create immutable verification snapshot with explicit synthetic provenance
-        let snapshot;
-        try {
-            snapshot = await PropertyVerificationSnapshot.create({
-                tenantId,
-                authorityCode: item.authorityCode,
-                linkId: link._id,
-                runItemId: item._id,
-                sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
-                observedAt: new Date(),
-                isSynthetic: Boolean(isFixtureMode),
-                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                identityEvidence: {
-                    compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
-                    sectorNumber: link.sectorNumber || null,
-                    phaseCode: link.phaseCode || null,
-                    blockCode: link.blockCode || null,
-                    propertyId: link.propertyId || null,
-                    urbanEstate: link.urbanEstate || null,
-                    schemeName: link.schemeName || null
-                },
-                normalizedData: candidate.normalizedRecord || {},
-                contentHash: candidate.contentHash || null,
-                isSealed: true,
-                dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
-            });
-        } catch (snapErr) {
-            if (snapErr.code === 11000) {
-                // Handled gracefully via unique database index constraint
-                const existingSnap = await PropertyVerificationSnapshot.findOne({
-                    tenantId,
-                    runItemId: item._id
-                });
-                if (existingSnap) {
-                    snapshot = existingSnap;
-                } else {
-                    throw snapErr;
-                }
-            } else {
-                throw snapErr;
-            }
+        // In-flight hook prior to snapshot persistence for testing deterministic races
+        if (typeof beforeSnapshotPersistence === 'function') {
+            await beforeSnapshotPersistence(item, effectiveWorkerId, candidate);
         }
+
+        // Fail-closed lease ownership check immediately before snapshot persistence
+        const preCheck = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+            item._id,
+            tenantId,
+            effectiveWorkerId
+        );
+        if (!preCheck) {
+            return {
+                success: false,
+                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                ownershipLost: true
+            };
+        }
+
+        // 6. Create immutable verification snapshot with explicit synthetic provenance & worker identity
+        const snapshotPayload = {
+            tenantId,
+            authorityCode: item.authorityCode,
+            linkId: link._id,
+            runItemId: item._id,
+            createdByWorkerId: effectiveWorkerId || null,
+            sourceReferenceUrl: `https://authority.fixture.internal/${item.authorityCode.toLowerCase()}`,
+            observedAt: new Date(),
+            isSynthetic: Boolean(isFixtureMode),
+            provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+            identityEvidence: {
+                compositeKey: link.compositeKey || candidate.compositeKey?.key || null,
+                sectorNumber: link.sectorNumber || null,
+                phaseCode: link.phaseCode || null,
+                blockCode: link.blockCode || null,
+                propertyId: link.propertyId || null,
+                urbanEstate: link.urbanEstate || null,
+                schemeName: link.schemeName || null
+            },
+            normalizedData: candidate.normalizedRecord || {},
+            contentHash: candidate.contentHash || null,
+            isSealed: true,
+            dataQualityStatus: ['READY_FOR_REVIEW', 'VERIFIED_OFFICIAL'].includes(candidate.status) ? 'COMPLETE' : 'PARTIAL'
+        };
 
         // 7. Build proposed changes (filtering strictly against allowlist/blocklist)
         const proposedChanges = [];
@@ -987,34 +1073,163 @@ export class AuthorityBulkProcessor {
             }
         }
 
-        // 8. Update item status to SUCCEEDED with explicit synthetic provenance
         const matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
             ? 'EXACT_MATCH'
             : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
 
-        const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
-            item._id,
-            tenantId,
-            effectiveWorkerId,
-            {
-                status: 'SUCCEEDED',
-                matchStatus,
-                snapshotId: snapshot._id,
-                proposedChanges,
-                reviewerDecision: 'PENDING',
-                isSynthetic: Boolean(isFixtureMode),
-                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                processedAt: new Date(),
-                errorMessage: null
-            }
-        );
+        let snapshot = null;
+        let finalized = null;
 
-        if (!finalized) {
-            return {
-                success: false,
-                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                ownershipLost: true
-            };
+        if (supportsTransactions) {
+            let session = null;
+            try {
+                session = await mongoose.startSession();
+                session.startTransaction();
+
+                // Fenced verification within transaction
+                const inTxLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    session
+                );
+                if (!inTxLease) {
+                    await session.abortTransaction();
+                    await session.endSession();
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+
+                // Create snapshot inside transaction
+                const createdDocs = await PropertyVerificationSnapshot.create([snapshotPayload], { session });
+                snapshot = createdDocs[0];
+
+                // Finalize item inside transaction
+                finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        status: 'SUCCEEDED',
+                        matchStatus,
+                        snapshotId: snapshot._id,
+                        proposedChanges,
+                        reviewerDecision: 'PENDING',
+                        isSynthetic: Boolean(isFixtureMode),
+                        provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                        processedAt: new Date(),
+                        errorMessage: null
+                    },
+                    session
+                );
+
+                if (!finalized) {
+                    await session.abortTransaction();
+                    await session.endSession();
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+
+                await session.commitTransaction();
+                await session.endSession();
+            } catch (txErr) {
+                if (session) {
+                    try {
+                        if (session.inTransaction()) {
+                            await session.abortTransaction();
+                        }
+                    } catch {}
+                    try {
+                        await session.endSession();
+                    } catch {}
+                }
+
+                if (txErr.code === 11000) {
+                    const existingSnap = await PropertyVerificationSnapshot.findOne({
+                        tenantId,
+                        runItemId: item._id
+                    });
+                    if (existingSnap && effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
+                        return {
+                            success: false,
+                            reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                            code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                            ownershipLost: true
+                        };
+                    }
+                }
+                throw txErr;
+            }
+        } else {
+            // Standalone MongoDB path
+            try {
+                snapshot = await PropertyVerificationSnapshot.create(snapshotPayload);
+            } catch (snapErr) {
+                if (snapErr.code === 11000) {
+                    const existingSnap = await PropertyVerificationSnapshot.findOne({
+                        tenantId,
+                        runItemId: item._id
+                    });
+                    if (existingSnap) {
+                        if (effectiveWorkerId && existingSnap.createdByWorkerId && existingSnap.createdByWorkerId !== effectiveWorkerId) {
+                            return {
+                                success: false,
+                                reason: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                                code: 'STALE_SNAPSHOT_ADOPTION_REJECTED',
+                                ownershipLost: true
+                            };
+                        }
+                        snapshot = existingSnap;
+                    } else {
+                        throw snapErr;
+                    }
+                } else {
+                    throw snapErr;
+                }
+            }
+
+            finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'SUCCEEDED',
+                    matchStatus,
+                    snapshotId: snapshot._id,
+                    proposedChanges,
+                    reviewerDecision: 'PENDING',
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                    processedAt: new Date(),
+                    errorMessage: null
+                }
+            );
+
+            if (!finalized) {
+                // Standalone rollback: clean up orphaned snapshot so unique index is not blocked
+                if (snapshot && snapshot._id) {
+                    try {
+                        await PropertyVerificationSnapshot.collection.deleteOne({
+                            _id: snapshot._id,
+                            tenantId,
+                            runItemId: item._id
+                        });
+                    } catch (cleanupErr) {
+                        // Best-effort cleanup
+                    }
+                }
+                return {
+                    success: false,
+                    reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                    ownershipLost: true
+                };
+            }
         }
 
         item.status = 'SUCCEEDED';

@@ -1217,6 +1217,359 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 assert.equal(itemSnapshots.length, 1, `Item ${item._id} must have exactly one snapshot`);
             }
         });
+
+        it('4.8 in-flight race: Worker A pauses after candidate generation before snapshot persistence, Worker A lease expires, Worker B reclaims and succeeds, Worker A cannot persist or cause adoption', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'RACE-SNAP-FENCE-1',
+                projectName: 'Snapshot Race Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            let workerBExecuted = false;
+
+            // Worker A claims item with short 40ms lease
+            await AuthorityBulkProcessor.processRun(run._id, {
+                tenantId: tenantA,
+                batchSize: 1,
+                workerId: 'worker_inflight_A',
+                workerLeaseMs: 40,
+                isFixtureMode: true,
+                beforeSnapshotPersistence: async (runItem, workerId, candidate) => {
+                    assert.equal(workerId, 'worker_inflight_A');
+                    assert.ok(candidate, 'Candidate must be generated in memory before persistence hook');
+
+                    // Simulate processing delay exceeding 40ms worker lease
+                    await new Promise(r => setTimeout(r, 60));
+
+                    // Worker B atomically reclaims and completes the expired item
+                    const workerBOutcome = await AuthorityBulkProcessor.processRun(run._id, {
+                        tenantId: tenantA,
+                        batchSize: 1,
+                        workerId: 'worker_reclaim_B',
+                        workerLeaseMs: 30000,
+                        isFixtureMode: true
+                    });
+
+                    assert.equal(workerBOutcome.status, 'COMPLETED');
+                    assert.equal(workerBOutcome.succeededItems, 1);
+                    workerBExecuted = true;
+                }
+            });
+
+            assert.ok(workerBExecuted, 'Worker B must have executed while Worker A was paused before persistence');
+
+            // Verify item state in DB: owned and finalized by Worker B, SUCCEEDED
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'SUCCEEDED');
+            assert.equal(itemInDb.claimedBy, 'worker_reclaim_B', 'Item ownership must remain with Worker B');
+            assert.ok(itemInDb.snapshotId, 'Item must have valid snapshotId from Worker B');
+
+            // Verify snapshots in database: EXACTLY ONE snapshot exists
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshots.length, 1, 'Exactly one snapshot must exist across both workers');
+            assert.equal(snapshots[0].createdByWorkerId, 'worker_reclaim_B', 'Snapshot must be attributed to Worker B, not stale Worker A');
+            assert.equal(String(snapshots[0]._id), String(itemInDb.snapshotId), 'Snapshot ID must match item snapshotId');
+
+            // Verify run counters: exactly 1 processed, 1 succeeded, 0 failed
+            const finalRun = await PropertyVerificationRun.findById(run._id);
+            assert.equal(finalRun.status, 'COMPLETED');
+            assert.equal(finalRun.processedItems, 1, 'processedItems counter must be exactly 1');
+            assert.equal(finalRun.succeededItems, 1, 'succeededItems counter must be exactly 1');
+            assert.equal(finalRun.failedItems, 0, 'failedItems must be 0');
+        });
+
+        it('4.9 failure mode: Worker B reclaims after Worker A expires, but fails; late Worker A still cannot persist or finalize', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'RACE-SNAP-FAIL-1',
+                projectName: 'Snapshot Race Failure Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            let workerBReclaimed = false;
+
+            await AuthorityBulkProcessor.processRun(run._id, {
+                tenantId: tenantA,
+                batchSize: 1,
+                workerId: 'worker_stale_fail_A',
+                workerLeaseMs: 40,
+                isFixtureMode: true,
+                beforeSnapshotPersistence: async (runItem, workerId) => {
+                    await new Promise(r => setTimeout(r, 60));
+
+                    // Worker B atomically reclaims the item, but marks it FAILED due to an error
+                    const reclaimed = await PropertyVerificationRunItem.findOneAndUpdate(
+                        {
+                            _id: item._id,
+                            tenantId: tenantA,
+                            status: 'PROCESSING',
+                            leaseExpiresAt: { $lt: new Date() }
+                        },
+                        {
+                            $set: {
+                                status: 'FAILED',
+                                claimedBy: 'worker_reclaim_failed_B',
+                                errorMessage: 'Simulated downstream connector timeout',
+                                leaseExpiresAt: null
+                            }
+                        },
+                        { new: true }
+                    );
+
+                    assert.ok(reclaimed, 'Worker B must have reclaimed the expired item');
+                    workerBReclaimed = true;
+                }
+            });
+
+            assert.ok(workerBReclaimed);
+
+            // Verify item remains FAILED by Worker B, not overwritten by late Worker A
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.claimedBy, 'worker_reclaim_failed_B');
+            assert.equal(itemInDb.snapshotId, null);
+
+            // Zero snapshots must exist
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshots.length, 0, 'No snapshot must exist when item failed');
+        });
+
+        it('4.10 fail-closed behavior when AUTHORITY_REQUIRE_TRANSACTIONS=true and replica set transactions are unavailable', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'TX-FAILCLOSED-1',
+                projectName: 'Transactions Require Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_tx_check',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            process.env.AUTHORITY_REQUIRE_TRANSACTIONS = 'true';
+            try {
+                // 1. Direct processItem fail-closed verification
+                const itemResult = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_tx_check'
+                });
+
+                assert.equal(itemResult.success, false);
+                assert.equal(itemResult.code, 'TRANSACTIONS_UNAVAILABLE');
+                assert.equal(itemResult.reason, 'TRANSACTIONS_UNAVAILABLE');
+
+                // 2. processRun fail-closed verification
+                const runResult = await AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    workerId: 'worker_tx_check'
+                });
+
+                assert.equal(runResult.status, 'FAILED');
+                assert.equal(runResult.code, 'TRANSACTIONS_UNAVAILABLE');
+                assert.equal(runResult.reason, 'TRANSACTIONS_UNAVAILABLE');
+            } finally {
+                delete process.env.AUTHORITY_REQUIRE_TRANSACTIONS;
+            }
+        });
+
+        it('4.11 stale worker snapshot adoption prevention: Worker B rejects adopting unfinalized snapshot created by Worker A', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ANTI-ADOPT-1',
+                projectName: 'Anti-Adoption Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_stale_creator_A',
+                leaseExpiresAt: new Date(Date.now() - 5000), // Stale lease
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Simulate stale Worker A having created an unfinalized snapshot before losing lease
+            const staleSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_stale_creator_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: {
+                    compositeKey: link.propertyId,
+                    sectorNumber: link.sectorNumber,
+                    propertyId: link.propertyId
+                },
+                normalizedData: {
+                    propertyId: link.propertyId,
+                    sectorNumber: link.sectorNumber
+                },
+                contentHash: 'a'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Now Worker B claims the item with active lease
+            item.claimedBy = 'worker_active_claim_B';
+            item.leaseExpiresAt = new Date(Date.now() + 30000);
+            await item.save();
+
+            // Worker B attempts to process the item
+            const adoptResult = await AuthorityBulkProcessor.processItem(item, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_active_claim_B'
+            });
+
+            // Assert Worker B strictly rejects adopting Worker A's stale snapshot
+            assert.equal(adoptResult.success, false);
+            assert.equal(adoptResult.code, 'STALE_SNAPSHOT_ADOPTION_REJECTED');
+            assert.equal(adoptResult.reason, 'STALE_SNAPSHOT_ADOPTION_REJECTED');
+
+            // Verify item was NOT marked SUCCEEDED or bound to staleSnapshot
+            const refreshedItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.notEqual(refreshedItem.status, 'SUCCEEDED');
+            assert.notEqual(String(refreshedItem.snapshotId), String(staleSnapshot._id));
+        });
     });
 
     describe('5. Snapshot Cryptographic Integrity Verification', () => {

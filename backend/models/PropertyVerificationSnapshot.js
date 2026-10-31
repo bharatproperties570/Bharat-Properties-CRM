@@ -47,6 +47,11 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         ref: 'PropertyVerificationRunItem',
         default: null
     },
+    createdByWorkerId: {
+        type: String,
+        default: null,
+        index: true
+    },
 
     // ========== Source Reference ==========
     // Approved source URL (NOT containing session tokens or credentials)
