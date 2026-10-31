@@ -170,7 +170,9 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_run_cancelled',
             'authority_review_submitted',
             'authority_changes_applied',
-            'authority_changes_apply_compensated'
+            'authority_changes_apply_compensated',
+            'authority_orphan_snapshot_purged',
+            'authority_orphan_cleanup_failed'
         ],
         index: true
     },
@@ -196,7 +198,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId

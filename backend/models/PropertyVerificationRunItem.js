@@ -199,6 +199,42 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
         default: 'UNAPPLIED',
         index: true
     },
+    // ========== Crash Recovery & Orphan Management ==========
+    recoveryState: {
+        stage: {
+            type: String,
+            enum: ['NONE', 'ORPHAN_DETECTED', 'ORPHAN_RECOVERED', 'CLEANUP_FAILED'],
+            default: 'NONE'
+        },
+        orphanedSnapshotId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        orphanedByWorkerId: {
+            type: String,
+            default: null
+        },
+        recoveredByWorkerId: {
+            type: String,
+            default: null
+        },
+        recoveredAt: {
+            type: Date,
+            default: null
+        },
+        failedAt: {
+            type: Date,
+            default: null
+        },
+        error: {
+            type: String,
+            default: null
+        },
+        retryCount: {
+            type: Number,
+            default: 0
+        }
+    },
     applyClaim: {
         claimedBy: {
             type: mongoose.Schema.Types.ObjectId,
