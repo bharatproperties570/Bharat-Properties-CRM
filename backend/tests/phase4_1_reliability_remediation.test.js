@@ -39,6 +39,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
     before(async () => {
         mongoServer = await MongoMemoryServer.create();
         await mongoose.connect(mongoServer.getUri());
+        await AuditLog.ensureIdempotencyIndex();
 
         tenantA = new mongoose.Types.ObjectId();
         tenantB = new mongoose.Types.ObjectId();
@@ -3638,6 +3639,235 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // Verify old orphan snapshot was purged
             const oldSnap = await PropertyVerificationSnapshot.findById(orphanedSnapshot1._id);
             assert.equal(oldSnap, null);
+        });
+
+        it('4.30 Worker B genuinely loses its lease after snapshot persistence; rollback fails closed; Worker C reclaims via atomic claim path; Worker C safely recovers unfinalized snapshot and completes item', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'GENUINE-LEASE-430-1',
+                projectName: 'Genuine Lease Loss Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_losing_lease_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Simulate real lease expiry immediately before finalization:
+            // Worker B successfully persisted SNAPSHOT_PERSISTENCE_PENDING intent and created snapshot in DB.
+            // But before finalization, Worker B's lease genuinely expires in DB!
+            let capturedSnapshotId = null;
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function (itemId, tenantId, workerId, updateFields, session) {
+                // To simulate genuine lease expiry in database:
+                await PropertyVerificationRunItem.updateOne(
+                    { _id: itemId },
+                    { $set: { leaseExpiresAt: new Date(Date.now() - 5000) } }
+                );
+                // Now call the real _finalizeItemWithOwnershipCheck — it MUST query DB and return null because lease is expired!
+                return originalFinalize.call(this, itemId, tenantId, workerId, updateFields, session);
+            };
+
+            let bResult;
+            try {
+                bResult = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_losing_lease_B'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+            }
+
+            // Worker B returns lease expired / ownershipLost
+            assert.equal(bResult.success, false);
+            assert.equal(bResult.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(bResult.ownershipLost, true);
+
+            // Verify that RunItem still holds the durable SNAPSHOT_PERSISTENCE_PENDING intent (Worker B could not overwrite it because its lease had expired)
+            const itemAfterB = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemAfterB.recoveryState.stage, 'SNAPSHOT_PERSISTENCE_PENDING');
+            assert.equal(itemAfterB.recoveryState.orphanedByWorkerId, 'worker_losing_lease_B');
+            assert.ok(itemAfterB.recoveryState.orphanedSnapshotId);
+            capturedSnapshotId = itemAfterB.recoveryState.orphanedSnapshotId;
+
+            // Verify Worker B's snapshot was created in DB and remains present
+            const snapInDb = await PropertyVerificationSnapshot.findById(capturedSnapshotId);
+            assert.ok(snapInDb, 'Worker B snapshot must exist in DB (unfinalized orphan)');
+            assert.equal(snapInDb.createdByWorkerId, 'worker_losing_lease_B');
+
+            // Worker C reclaims the item via production atomic claim query
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    $or: [
+                        { status: 'PENDING' },
+                        { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'PROCESSING',
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C must successfully reclaim the item through atomic claim path');
+
+            // Worker C processes the item — reconciles Worker B's unfinalized snapshot, cleans it up with audit trail, and generates its own snapshot
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+            assert.notEqual(String(cResult.snapshotId), String(capturedSnapshotId));
+
+            // Verify Worker B's orphaned snapshot was purged
+            const checkOldSnap = await PropertyVerificationSnapshot.findById(capturedSnapshotId);
+            assert.equal(checkOldSnap, null, 'Worker B orphaned snapshot must be purged');
+
+            // Verify purge audit was recorded with Worker C as reconciler
+            const purgeAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: capturedSnapshotId
+            });
+            assert.ok(purgeAudit, 'Audit trail must record purge of Worker B unfinalized snapshot');
+            assert.equal(purgeAudit.metadata.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Verify RunItem completed with SUCCEEDED and ORPHAN_RECOVERED
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Exactly 1 valid snapshot in DB, owned by Worker C
+            const finalSnaps = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(finalSnaps.length, 1);
+            assert.equal(finalSnaps[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.31 Database-level audit idempotency: partial unique index rejects duplicate (eventType, correlationId) with code 11000, and concurrent insertion race results in exactly one AuditLog record', async () => {
+            await AuditLog.ensureIdempotencyIndex();
+
+            const correlationId = `concurrent_audit_test_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            // 1. Verify that raw MongoDB unique index rejects duplicate insertion at database level
+            const doc1 = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System/AuthorityEngine',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                description: 'Initial audit insert',
+                correlationId,
+                metadata: { test: true },
+                ipAddress: '127.0.0.1',
+                userAgent: 'AuthorityBulkProcessor/v4.1',
+                status: 'success'
+            };
+            const created1 = await AuditLog.create(doc1);
+            assert.ok(created1);
+
+            let duplicateError = null;
+            try {
+                // Attempt raw duplicate insert directly into Mongoose/MongoDB
+                await AuditLog.create({
+                    ...doc1,
+                    description: 'Duplicate audit insert'
+                });
+            } catch (err) {
+                duplicateError = err;
+            }
+            assert.ok(duplicateError, 'Database partial unique index must reject duplicate (eventType, correlationId)');
+            assert.equal(duplicateError.code, 11000, 'Error code must be MongoDB duplicate key 11000');
+
+            // Clean up the initial record for the concurrent race test
+            await AuditLog.deleteOne({ _id: created1._id });
+
+            // 2. Perform actual concurrent race using AuthorityBulkProcessor.logAuditEvent
+            const raceCorrelationId = `race_audit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+            const raceTargetId = new mongoose.Types.ObjectId();
+
+            const [raceRes1, raceRes2] = await Promise.all([
+                AuthorityBulkProcessor.logAuditEvent(
+                    'authority_orphan_snapshot_purged',
+                    userA._id,
+                    'authority_snapshot',
+                    raceTargetId,
+                    'Concurrent audit race entry 1',
+                    { attempt: 1 },
+                    'success',
+                    { throwOnError: true, correlationId: raceCorrelationId }
+                ),
+                AuthorityBulkProcessor.logAuditEvent(
+                    'authority_orphan_snapshot_purged',
+                    userA._id,
+                    'authority_snapshot',
+                    raceTargetId,
+                    'Concurrent audit race entry 2',
+                    { attempt: 2 },
+                    'success',
+                    { throwOnError: true, correlationId: raceCorrelationId }
+                )
+            ]);
+
+            // Both concurrent requests must resolve successfully and return valid documents
+            assert.ok(raceRes1, 'Concurrent attempt 1 must resolve to a valid audit log document');
+            assert.ok(raceRes2, 'Concurrent attempt 2 must resolve to a valid audit log document');
+            assert.equal(String(raceRes1._id), String(raceRes2._id), 'Both concurrent attempts must resolve to the identical persisted record');
+
+            // Exactly ONE document exists in the database
+            const matchingRecords = await AuditLog.find({
+                eventType: 'authority_orphan_snapshot_purged',
+                correlationId: raceCorrelationId
+            });
+            assert.equal(matchingRecords.length, 1, 'Database partial unique index must ensure exactly one AuditLog record remains in DB under concurrent race');
         });
     });
 

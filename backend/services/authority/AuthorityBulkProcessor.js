@@ -60,7 +60,7 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
             doc.correlationId = options.correlationId;
         }
 
-        // P2 Idempotency check: prevent duplicate audit events when correlationId or (eventType + targetId) is specified
+        // Fast-path idempotency check (avoid unnecessary insert attempt if already exists)
         if (options?.correlationId || (eventType === 'authority_orphan_snapshot_purged' && targetId)) {
             const idempotencyQuery = {
                 eventType,
@@ -78,11 +78,37 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
             }
         }
 
-        if (options?.session) {
-            const created = await AuditLog.create([doc], { session: options.session });
-            return created[0];
+        try {
+            if (options?.session) {
+                const created = await AuditLog.create([doc], { session: options.session });
+                return created[0];
+            }
+            return await AuditLog.create(doc);
+        } catch (insertErr) {
+            // Database-level duplicate key handling (MongoError 11000 / 11001)
+            const isDupKey = insertErr.code === 11000 || insertErr.code === 11001 ||
+                (insertErr.writeErrors && insertErr.writeErrors.some(e => e.code === 11000 || e.code === 11001)) ||
+                (insertErr.errorResponse?.code === 11000);
+
+            if (isDupKey && (options?.correlationId || targetId)) {
+                const idempotencyQuery = {
+                    eventType,
+                    ...(options?.correlationId
+                        ? { correlationId: options.correlationId }
+                        : { targetId: targetId.toString() })
+                };
+                const existingQuery = AuditLog.findOne(idempotencyQuery);
+                if (options?.session) {
+                    existingQuery.session(options.session);
+                }
+                const existingAudit = await existingQuery.lean();
+                if (existingAudit) {
+                    return existingAudit;
+                }
+            }
+
+            throw insertErr;
         }
-        return await AuditLog.create(doc);
     } catch (err) {
         console.error('[AuthorityBulkProcessor] AuditLog error:', err.message);
         if (options?.throwOnError) {
@@ -1008,12 +1034,14 @@ export class AuthorityBulkProcessor {
         }
 
         // 4. Concurrency Protection & Orphan Recovery:
-        // Case 4A: Check if prior worker crashed after purging snapshot or left audit pending
+        let isOrphanRecovered = item.recoveryState?.stage === 'ORPHAN_RECOVERED';
+        // Case 4A: Check if prior worker crashed after purging snapshot, left audit pending, or crashed after persisting intent
         const recoveryStage = item.recoveryState?.stage;
         const orphanedSnapId = item.recoveryState?.orphanedSnapshotId;
         const isPendingStage = recoveryStage === 'ORPHAN_DETECTED' || 
             recoveryStage === 'ORPHAN_PURGED_AUDIT_PENDING' || 
-            recoveryStage === 'ROLLBACK_PURGE_PENDING';
+            recoveryStage === 'ROLLBACK_PURGE_PENDING' ||
+            recoveryStage === 'SNAPSHOT_PERSISTENCE_PENDING';
 
         if (!item.snapshotId && isPendingStage && orphanedSnapId) {
             const existingSnapshotForCheck = await PropertyVerificationSnapshot.findOne({
@@ -1022,90 +1050,123 @@ export class AuthorityBulkProcessor {
             });
 
             if (!existingSnapshotForCheck) {
-                // Prior worker purged snapshot! Reconcile missing audit and mark recovery state.
-                const activeLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId
-                );
-                if (!activeLease) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-
-                // P2 Idempotency + Fail-closed audit reconciliation
-                const correlationId = `orphan_purge:${tenantId}:${item._id}:${orphanedSnapId}`;
-                try {
-                    await logAuditEvent(
-                        'authority_orphan_snapshot_purged',
-                        item.requestedBy || null,
-                        'authority_snapshot',
-                        orphanedSnapId,
-                        `Unfinalized orphan snapshot ${orphanedSnapId} purged by prior worker, reconciled after crash by worker ${effectiveWorkerId}`,
-                        {
-                            snapshotId: orphanedSnapId,
-                            runItemId: item._id,
-                            tenantId,
-                            orphanedByWorkerId: item.recoveryState.orphanedByWorkerId,
-                            recoveredByWorkerId: effectiveWorkerId,
-                            reconciledAfterCrash: true
-                        },
-                        'success',
-                        { throwOnError: true, correlationId }
+                if (recoveryStage === 'SNAPSHOT_PERSISTENCE_PENDING') {
+                    // Prior worker crashed before snapshot could actually be persisted in DB!
+                    // There is no orphan snapshot to purge. Clear the intent.
+                    const activeLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId
                     );
-                } catch (auditErr) {
-                    // Audit persistence still failing: fail closed without marking ORPHAN_RECOVERED
+                    if (!activeLease) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
                     await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
                         item._id,
                         tenantId,
                         effectiveWorkerId,
                         {
                             $set: {
-                                'recoveryState.stage': 'ORPHAN_PURGED_AUDIT_PENDING',
-                                'recoveryState.orphanedSnapshotId': orphanedSnapId,
-                                'recoveryState.orphanedByWorkerId': item.recoveryState.orphanedByWorkerId,
+                                'recoveryState.stage': 'NONE',
+                                'recoveryState.orphanedSnapshotId': null,
+                                'recoveryState.orphanedByWorkerId': null,
+                                'recoveryState.error': null
+                            }
+                        }
+                    );
+                } else {
+                    // Prior worker purged snapshot! Reconcile missing audit and mark recovery state.
+                    const activeLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId
+                    );
+                    if (!activeLease) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    // P2 Idempotency + Fail-closed audit reconciliation
+                    const correlationId = `orphan_purge:${tenantId}:${item._id}:${orphanedSnapId}`;
+                    try {
+                        await logAuditEvent(
+                            'authority_orphan_snapshot_purged',
+                            item.requestedBy || null,
+                            'authority_snapshot',
+                            orphanedSnapId,
+                            `Unfinalized orphan snapshot ${orphanedSnapId} purged by prior worker, reconciled after crash by worker ${effectiveWorkerId}`,
+                            {
+                                snapshotId: orphanedSnapId,
+                                runItemId: item._id,
+                                tenantId,
+                                orphanedByWorkerId: item.recoveryState.orphanedByWorkerId,
+                                recoveredByWorkerId: effectiveWorkerId,
+                                reconciledAfterCrash: true
+                            },
+                            'success',
+                            { throwOnError: true, correlationId }
+                        );
+                    } catch (auditErr) {
+                        // Audit persistence still failing: fail closed without marking ORPHAN_RECOVERED
+                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                $set: {
+                                    'recoveryState.stage': 'ORPHAN_PURGED_AUDIT_PENDING',
+                                    'recoveryState.orphanedSnapshotId': orphanedSnapId,
+                                    'recoveryState.orphanedByWorkerId': item.recoveryState.orphanedByWorkerId,
+                                    'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                    'recoveryState.error': `RECONCILIATION_AUDIT_LOG_FAILED: ${auditErr.message}`,
+                                    leaseExpiresAt: new Date(Date.now() - 1000)
+                                },
+                                $inc: { 'recoveryState.retryCount': 1 }
+                            }
+                        );
+                        return {
+                            success: false,
+                            reason: 'ORPHAN_PURGED_AUDIT_PENDING',
+                            code: 'ORPHAN_PURGED_AUDIT_PENDING',
+                            error: auditErr.message,
+                            auditPending: true,
+                            ownershipLost: false
+                        };
+                    }
+
+                    const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ORPHAN_RECOVERED',
                                 'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                                'recoveryState.error': `RECONCILIATION_AUDIT_LOG_FAILED: ${auditErr.message}`,
-                                leaseExpiresAt: new Date(Date.now() - 1000)
+                                'recoveryState.recoveredAt': new Date(),
+                                'recoveryState.error': null,
+                                'recoveryState.crashReconciled': true
                             },
                             $inc: { 'recoveryState.retryCount': 1 }
                         }
                     );
-                    return {
-                        success: false,
-                        reason: 'ORPHAN_PURGED_AUDIT_PENDING',
-                        code: 'ORPHAN_PURGED_AUDIT_PENDING',
-                        error: auditErr.message,
-                        auditPending: true,
-                        ownershipLost: false
-                    };
-                }
 
-                const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        $set: {
-                            'recoveryState.stage': 'ORPHAN_RECOVERED',
-                            'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                            'recoveryState.recoveredAt': new Date(),
-                            'recoveryState.error': null,
-                            'recoveryState.crashReconciled': true
-                        },
-                        $inc: { 'recoveryState.retryCount': 1 }
+                    if (!recoveredItem) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
                     }
-                );
-
-                if (!recoveredItem) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
+                    isOrphanRecovered = true;
+                    item.recoveryState = recoveredItem.recoveryState;
                 }
             }
         }
@@ -1268,6 +1329,8 @@ export class AuthorityBulkProcessor {
                             ownershipLost: true
                         };
                     }
+                    isOrphanRecovered = true;
+                    item.recoveryState = recoveredItem.recoveryState;
 
                     await session.commitTransaction();
                     await session.endSession();
@@ -1521,6 +1584,8 @@ export class AuthorityBulkProcessor {
                             ownershipLost: true
                         };
                     }
+                    isOrphanRecovered = true;
+                    item.recoveryState = recoveredItem.recoveryState;
                 } catch (cleanupErr) {
                     const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
                         item._id,
@@ -1803,7 +1868,54 @@ export class AuthorityBulkProcessor {
                 throw txErr;
             }
         } else {
-            // Standalone MongoDB path
+            // Standalone MongoDB path: genuinely crash-safe lifecycle
+            // 1. Allocate intended snapshot ID in advance
+            const intendedSnapshotId = new mongoose.Types.ObjectId();
+            snapshotPayload._id = intendedSnapshotId;
+            snapshotPayload.createdByWorkerId = effectiveWorkerId;
+
+            if (!isOrphanRecovered) {
+                // 2. Persist durable, fenced cleanup intent BEFORE snapshot creation
+                const stagedIntent = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        $set: {
+                            'recoveryState.stage': 'SNAPSHOT_PERSISTENCE_PENDING',
+                            'recoveryState.orphanedSnapshotId': intendedSnapshotId,
+                            'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                            'recoveryState.detectedAt': new Date(),
+                            'recoveryState.error': null
+                        }
+                    }
+                );
+
+                if (!stagedIntent) {
+                    // Worker lost active ownership before snapshot creation! Fail closed immediately.
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            } else {
+                // Item has already successfully recovered an orphan snapshot.
+                // Verify worker lease ownership remains valid before snapshot creation without destroying ORPHAN_RECOVERED audit trail.
+                const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId
+                );
+                if (!leaseStillValid) {
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            }
+
             try {
                 snapshot = await PropertyVerificationSnapshot.create(snapshotPayload);
             } catch (snapErr) {
@@ -1826,7 +1938,21 @@ export class AuthorityBulkProcessor {
                         throw snapErr;
                     }
                 } else {
-                    // Database / persistence failure during snapshot insert
+                    // Database / persistence failure during snapshot insert: clean up intent if worker still owns lease
+                    if (!isOrphanRecovered) {
+                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId,
+                            {
+                                $set: {
+                                    'recoveryState.stage': 'NONE',
+                                    'recoveryState.orphanedSnapshotId': null,
+                                    'recoveryState.orphanedByWorkerId': null
+                                }
+                            }
+                        );
+                    }
                     const failFinalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                         item._id,
                         tenantId,
@@ -1847,44 +1973,66 @@ export class AuthorityBulkProcessor {
                 }
             }
 
+            const finalizeUpdates = {
+                status: 'SUCCEEDED',
+                matchStatus,
+                snapshotId: snapshot._id,
+                proposedChanges,
+                reviewerDecision: 'PENDING',
+                isSynthetic: Boolean(isFixtureMode),
+                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                processedAt: new Date(),
+                errorMessage: null
+            };
+
+            if (!isOrphanRecovered) {
+                finalizeUpdates['recoveryState.stage'] = 'NONE';
+                finalizeUpdates['recoveryState.orphanedSnapshotId'] = null;
+                finalizeUpdates['recoveryState.orphanedByWorkerId'] = null;
+            }
+
             finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
                 item._id,
                 tenantId,
                 effectiveWorkerId,
-                {
-                    status: 'SUCCEEDED',
-                    matchStatus,
-                    snapshotId: snapshot._id,
-                    proposedChanges,
-                    reviewerDecision: 'PENDING',
-                    isSynthetic: Boolean(isFixtureMode),
-                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
-                    processedAt: new Date(),
-                    errorMessage: null
-                }
+                finalizeUpdates
             );
 
             if (!finalized) {
-                // Standalone rollback: clean up orphaned snapshot using audited purge method so unique index is not blocked
+                // Standalone rollback:
+                // Finalization check failed (lease expired, preempted, or worker lost ownership).
                 if (snapshot && snapshot._id) {
-                    try {
-                        // 1. Persist a fenced durable cleanup marker
-                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                            item._id,
-                            tenantId,
-                            effectiveWorkerId,
-                            {
-                                $set: {
-                                    'recoveryState.stage': 'ROLLBACK_PURGE_PENDING',
-                                    'recoveryState.orphanedSnapshotId': snapshot._id,
-                                    'recoveryState.orphanedByWorkerId': effectiveWorkerId,
-                                    'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                                    'recoveryState.detectedAt': new Date()
-                                }
+                    // 1. Check whether worker still holds valid ownership before attempting rollback
+                    const rollbackMarker = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ROLLBACK_PURGE_PENDING',
+                                'recoveryState.orphanedSnapshotId': snapshot._id,
+                                'recoveryState.orphanedByWorkerId': effectiveWorkerId,
+                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                'recoveryState.detectedAt': new Date()
                             }
-                        );
+                        }
+                    );
 
-                        // 2. Perform the ownership-safe purge
+                    if (!rollbackMarker) {
+                        // Real lease expiry / worker takeover!
+                        // Worker has genuinely lost ownership. Do NOT continue as though marker was persisted.
+                        // Do NOT perform untracked cleanup or delete state belonging to replacement workers.
+                        // Recovery is safely delegated to replacement workers who will inspect SNAPSHOT_PERSISTENCE_PENDING intent.
+                        console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback; aborting rollback to preserve state for replacement worker.`);
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    // Worker still holds lease: proceed with tracked cleanup
+                    try {
                         const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
                             tenantId,
                             runItemId: item._id,
@@ -1892,7 +2040,6 @@ export class AuthorityBulkProcessor {
                             createdByWorkerId: effectiveWorkerId
                         });
 
-                        // 3. Confirm deletedCount > 0
                         const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
                             (typeof purgeRes === 'number' && purgeRes > 0) ||
                             (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
@@ -2217,5 +2364,7 @@ export class AuthorityBulkProcessor {
         };
     }
 }
+
+AuthorityBulkProcessor.logAuditEvent = logAuditEvent;
 
 export default AuthorityBulkProcessor;

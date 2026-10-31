@@ -283,7 +283,81 @@ AuditLogSchema.index({ eventType: 1, timestamp: -1 });
 AuditLogSchema.index({ actorId: 1, timestamp: -1 });
 AuditLogSchema.index({ timestamp: -1 }); // For recent logs
 
+// Unique partial index for deterministic correlation idempotency (safe for null/undefined correlationId)
+AuditLogSchema.index(
+    { eventType: 1, correlationId: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { correlationId: { $type: 'string' } },
+        name: 'unique_audit_event_correlation'
+    }
+);
+
 // ========== Static Methods ==========
+
+/**
+ * Safe preflight and migration for AuditLog idempotency index:
+ * 1. Scans existing records for any duplicate (eventType, correlationId) pairs where correlationId is a string.
+ * 2. If duplicates are found, resolves them (retains earliest record, removes subsequent duplicates).
+ * 3. Builds the partial unique index on { eventType: 1, correlationId: 1 } if not already present.
+ */
+AuditLogSchema.statics.ensureIdempotencyIndex = async function () {
+    try {
+        const collection = this.collection;
+        if (!collection) return;
+
+        // Ensure collection exists in native db to avoid ns does not exist error on fresh DBs
+        if (this.db && this.db.db) {
+            const collections = await this.db.db.listCollections({ name: collection.name }).toArray();
+            if (collections.length === 0) {
+                await this.db.db.createCollection(collection.name);
+            }
+        }
+
+        // 1. Detect duplicates among existing records
+        const duplicates = await this.aggregate([
+            { $match: { correlationId: { $type: 'string' } } },
+            {
+                $group: {
+                    _id: { eventType: '$eventType', correlationId: '$correlationId' },
+                    count: { $sum: 1 },
+                    ids: { $push: '$_id' }
+                }
+            },
+            { $match: { count: { $gt: 1 } } }
+        ]);
+
+        if (duplicates && duplicates.length > 0) {
+            console.warn(`[AuditLog] Preflight detected ${duplicates.length} duplicate correlationId group(s). Reconciling...`);
+            for (const dup of duplicates) {
+                const [keepId, ...removeIds] = dup.ids;
+                console.warn(`[AuditLog] Reconciling duplicate correlationId ${dup._id.correlationId}: keeping ${keepId}, removing ${removeIds.length} duplicate(s)`);
+                await this.deleteMany({ _id: { $in: removeIds } });
+            }
+        }
+
+        // 2. Ensure index exists
+        const existingIndexes = await collection.indexes();
+        const hasIndex = existingIndexes.some(
+            idx => idx.name === 'unique_audit_event_correlation' ||
+                (idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1 && idx.unique)
+        );
+
+        if (!hasIndex) {
+            await collection.createIndex(
+                { eventType: 1, correlationId: 1 },
+                {
+                    unique: true,
+                    partialFilterExpression: { correlationId: { $type: 'string' } },
+                    name: 'unique_audit_event_correlation'
+                }
+            );
+            console.log('[AuditLog] Created unique partial index on { eventType: 1, correlationId: 1 }');
+        }
+    } catch (err) {
+        console.error('[AuditLog] ensureIdempotencyIndex preflight error:', err.message);
+    }
+};
 
 // Get user's audit trail
 AuditLogSchema.statics.getUserAuditTrail = function (userId, limit = 50) {
