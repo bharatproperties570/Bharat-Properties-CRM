@@ -2108,6 +2108,615 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             });
             assert.equal(finalSnapshots.length, 1, 'Exactly one snapshot exists after retry');
         });
+
+        it('4.17 Worker B pauses during orphan cleanup; lease expires; Worker C reclaims; B fails. Verify B cannot delete C snapshot or mark C RunItem FAILED, clear C lease, or change recovery metadata', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'FENCE-REC-417-1',
+                projectName: 'Lease Expiry Fencing Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker A crashed leaving orphan snapshot
+            const orphanedSnapshotA = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'a'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Worker B claims item
+            item.claimedBy = 'worker_fence_B';
+            item.leaseExpiresAt = new Date(Date.now() + 30000);
+            await item.save();
+
+            let snapC = null;
+
+            // Worker B attempts processing, but pauses in beforeOrphanCleanup while Worker C takes over
+            const bResult = await AuthorityBulkProcessor.processItem(item, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_fence_B',
+                beforeOrphanCleanup: async () => {
+                    // Simulate Worker B lease expiring
+                    await PropertyVerificationRunItem.updateOne(
+                        { _id: item._id },
+                        { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                    );
+
+                    // Worker C reclaims the item, purges crashed Worker A's orphan snapshot, and creates snapshot C
+                    await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                        tenantId: tenantA,
+                        runItemId: item._id,
+                        snapshotId: orphanedSnapshotA._id,
+                        createdByWorkerId: 'worker_crashed_A'
+                    });
+
+                    snapC = await PropertyVerificationSnapshot.create({
+                        tenantId: tenantA,
+                        authorityCode: 'CHD',
+                        linkId: link._id,
+                        runItemId: item._id,
+                        createdByWorkerId: 'worker_reclaim_C',
+                        sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                        observedAt: new Date(),
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE',
+                        identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                        normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                        contentHash: 'c'.repeat(64),
+                        isSealed: true,
+                        dataQualityStatus: 'COMPLETE'
+                    });
+
+                    await PropertyVerificationRunItem.updateOne(
+                        { _id: item._id },
+                        {
+                            $set: {
+                                status: 'PROCESSING',
+                                claimedBy: 'worker_reclaim_C',
+                                leaseExpiresAt: new Date(Date.now() + 60000),
+                                snapshotId: snapC._id,
+                                'recoveryState.stage': 'ORPHAN_RECOVERED',
+                                'recoveryState.recoveredByWorkerId': 'worker_reclaim_C',
+                                'recoveryState.recoveredAt': new Date()
+                            }
+                        }
+                    );
+                }
+            });
+
+            // 1. Worker B must fail with ownershipLost
+            assert.equal(bResult.success, false);
+            assert.equal(bResult.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(bResult.ownershipLost, true);
+
+            // 2. Verify Worker B did NOT delete Worker C snapshot
+            const checkSnapC = await PropertyVerificationSnapshot.findById(snapC._id);
+            assert.ok(checkSnapC, 'Worker C snapshot must NOT be deleted by stale Worker B');
+            assert.equal(checkSnapC.createdByWorkerId, 'worker_reclaim_C');
+
+            // 3. Verify Worker B did NOT mark Worker C RunItem FAILED, clear lease, or overwrite recoveryState
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'PROCESSING', 'RunItem must remain in PROCESSING under Worker C ownership');
+            assert.equal(itemInDb.claimedBy, 'worker_reclaim_C');
+            assert.ok(itemInDb.leaseExpiresAt > new Date(), 'Worker C lease must not be cleared by Worker B');
+            assert.equal(itemInDb.recoveryState.recoveredByWorkerId, 'worker_reclaim_C', 'Recovery metadata must not be overwritten by Worker B');
+        });
+
+        it('4.18 AuditLog insertion fails after a successful cleanup attempt', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'AUDIT-FAIL-PURGE-1',
+                projectName: 'Audit Purge Fail Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_fail_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'd'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Intercept AuditLog.create to simulate failure when logging orphan purge
+            const originalCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                if (doc.eventType === 'authority_orphan_snapshot_purged') {
+                    throw new Error('Simulated database error during orphan purge audit insertion');
+                }
+                return originalCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_fail_B'
+                });
+            } finally {
+                AuditLog.create = originalCreate;
+            }
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_CLEANUP_FAILED');
+            assert.ok(result.error.includes('Simulated database error during orphan purge audit insertion'));
+
+            // Verify RunItem state records failure and does not claim ORPHAN_RECOVERED
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated database error during orphan purge audit insertion'));
+        });
+
+        it('4.19 AuditLog insertion fails during cleanup failure handling', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'AUDIT-FAIL-CLEAN-1',
+                projectName: 'Audit Cleanup Error Fail Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_cleanup_fail',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: 'e'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Simulate AuditLog.create throwing on cleanup failure recording
+            const originalCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                if (doc.eventType === 'authority_orphan_cleanup_failed') {
+                    throw new Error('Simulated secondary audit persistence failure');
+                }
+                return originalCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_cleanup_fail',
+                    beforeOrphanCleanup: async () => {
+                        throw new Error('Primary orphan purge exception');
+                    }
+                });
+            } finally {
+                AuditLog.create = originalCreate;
+            }
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_CLEANUP_FAILED');
+            assert.ok(result.error.includes('Primary orphan purge exception'));
+            assert.ok(result.error.includes('Simulated secondary audit persistence failure') || result.auditError?.includes('Simulated secondary audit persistence failure'));
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('Primary orphan purge exception'));
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated secondary audit persistence failure'));
+        });
+
+        it('4.20 Orphan deletion returns deletedCount: 0', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ZERO-DEL-420-1',
+                projectName: 'Zero Deleted Count Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_zero_del_B',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '1'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Stub purgeOrphanedSnapshot to return deletedCount: 0
+            const originalPurge = PropertyVerificationSnapshot.purgeOrphanedSnapshot;
+            PropertyVerificationSnapshot.purgeOrphanedSnapshot = async function () {
+                return { acknowledged: true, deletedCount: 0, success: false };
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_zero_del_B'
+                });
+            } finally {
+                PropertyVerificationSnapshot.purgeOrphanedSnapshot = originalPurge;
+            }
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'ORPHAN_CLEANUP_FAILED');
+            assert.ok(result.error.includes('ORPHAN_DELETION_UNCONFIRMED'));
+
+            // Verify no purge audit log was created
+            const purgeAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                targetId: orphanedSnapshot._id
+            });
+            assert.equal(purgeAudit, null, 'Must NOT write successful purge audit when deletedCount is 0');
+
+            // Verify RunItem state is FAILED and stage is CLEANUP_FAILED
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'FAILED');
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('ORPHAN_DELETION_UNCONFIRMED'));
+        });
+
+        it('4.21 Cleanup exceeds the worker lease duration', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'LEASE-DUR-421-1',
+                projectName: 'Lease Duration Exceeded Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_timeout_B',
+                leaseExpiresAt: new Date(Date.now() + 40), // Short lease: 40ms
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '2'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            const result = await AuthorityBulkProcessor.processItem(item, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_timeout_B',
+                beforeOrphanCleanup: async () => {
+                    // Sleep 80ms to exceed worker lease duration
+                    await new Promise(resolve => setTimeout(resolve, 80));
+                }
+            });
+
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.notEqual(itemInDb.recoveryState?.stage, 'ORPHAN_RECOVERED', 'Stale worker must not record ORPHAN_RECOVERED');
+        });
+
+        it('4.22 Concurrent workers encounter the same orphan snapshot', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CONC-SNAP-422-1',
+                projectName: 'Concurrent Orphan Snapshot Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1,
+                processedItems: 0,
+                succeededItems: 0,
+                failedItems: 0
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000), // Expired lease
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            const orphanedSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '3'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Concurrent execution of Worker B and Worker C attempting recovery on the same run
+            const [resB, resC] = await Promise.all([
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    batchSize: 1,
+                    workerId: 'worker_conc_B_422',
+                    isFixtureMode: true,
+                    maxWaitAttempts: 5,
+                    waitIntervalMs: 30
+                }),
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    batchSize: 1,
+                    workerId: 'worker_conc_C_422',
+                    isFixtureMode: true,
+                    maxWaitAttempts: 5,
+                    waitIntervalMs: 30
+                })
+            ]);
+
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(resB.status));
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(resC.status));
+
+            const finalRun = await PropertyVerificationRun.findById(run._id);
+            assert.equal(finalRun.status, 'COMPLETED');
+            assert.equal(finalRun.processedItems, 1);
+            assert.equal(finalRun.succeededItems, 1);
+            assert.equal(finalRun.failedItems, 0);
+
+            // Exactly 1 accepted snapshot exists in DB
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshots.length, 1, 'Exactly one accepted snapshot must exist in database');
+
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.status, 'SUCCEEDED');
+            assert.equal(String(itemInDb.snapshotId), String(snapshots[0]._id));
+            assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_RECOVERED');
+        });
     });
 
     describe('5. Snapshot Cryptographic Integrity Verification', () => {
