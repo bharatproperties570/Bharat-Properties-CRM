@@ -6,8 +6,110 @@ import redisConnection from '../src/config/redis.js';
 
 const REDIS_KEY_PREFIX = 'bna:campaign:';
 const REDIS_STATE_TTL_SECONDS = 86400; // 24 hours
+const RETRY_LOCK_LEASE_MS = 60000; // 60 seconds lease
+const RETRY_LOCK_HEARTBEAT_MS = 15000; // 15 seconds renewal
 
 class BroadcastLiveTracker {
+    /**
+     * Heartbeat lease renewal for retryLock.
+     * Condition: exact active lock token AND a still-valid unexpired lease.
+     * Throws database errors; returns updated doc if matched, null otherwise.
+     */
+    static async _renewRetryLock(campaignId, lockToken, leaseDurationMs = RETRY_LOCK_LEASE_MS) {
+        const now = new Date();
+        const newExpiresAt = new Date(now.getTime() + leaseDurationMs);
+
+        return await BroadcastCampaign.findOneAndUpdate(
+            {
+                campaignId,
+                'retryLock.active': true,
+                'retryLock.token': lockToken,
+                $or: [
+                    { 'retryLock.expiresAt': { $gt: now } },
+                    {
+                        'retryLock.expiresAt': { $exists: false },
+                        'retryLock.lockedAt': { $gt: new Date(now.getTime() - leaseDurationMs) }
+                    }
+                ]
+            },
+            {
+                $set: {
+                    'retryLock.lockedAt': now,
+                    'retryLock.expiresAt': newExpiresAt
+                }
+            },
+            { new: true }
+        );
+    }
+
+    /**
+     * Verifies retryLock ownership.
+     * Condition: active state is true, exact active lock token, AND an unexpired lease.
+     * Returns true if valid ownership confirmed; false if expired, stolen, or database error.
+     */
+    static async _verifyRetryLockOwnership(campaignId, lockToken, leaseDurationMs = RETRY_LOCK_LEASE_MS) {
+        try {
+            const now = new Date();
+            const current = await BroadcastCampaign.findOne({
+                campaignId,
+                'retryLock.active': true,
+                'retryLock.token': lockToken,
+                $or: [
+                    { 'retryLock.expiresAt': { $gt: now } },
+                    {
+                        'retryLock.expiresAt': { $exists: false },
+                        'retryLock.lockedAt': { $gt: new Date(now.getTime() - leaseDurationMs) }
+                    }
+                ]
+            }).select('_id retryLock').lean();
+
+            if (!current || !current.retryLock) {
+                return false;
+            }
+
+            const { active, token, expiresAt, lockedAt } = current.retryLock;
+            if (!active || token !== lockToken) {
+                return false;
+            }
+
+            const effectiveExpiry = expiresAt
+                ? new Date(expiresAt).getTime()
+                : (lockedAt ? new Date(lockedAt).getTime() + leaseDurationMs : 0);
+
+            if (effectiveExpiry <= now.getTime()) {
+                return false;
+            }
+
+            return true;
+        } catch (err) {
+            console.warn(`[BroadcastLiveTracker] _verifyRetryLockOwnership error: ${err.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * Executes a single heartbeat renewal tick for retryLock.
+     * Condition: exact active lock token AND a still-valid unexpired lease.
+     * If renewal fails, returns null, or throws, marks state.renewalLost = true and stops renewing.
+     */
+    static async _handleHeartbeatTick(campaignId, lockToken, leaseDurationMs = RETRY_LOCK_LEASE_MS, state = { isRenewing: true, renewalLost: false }) {
+        if (!state.isRenewing || state.renewalLost) return false;
+        try {
+            const renewed = await this._renewRetryLock(campaignId, lockToken, leaseDurationMs);
+            if (!renewed) {
+                state.renewalLost = true;
+                state.isRenewing = false;
+                console.warn(`[BroadcastLiveTracker] Heartbeat tick found no valid lease for token ${lockToken} on campaign ${campaignId}. Ownership marked lost.`);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            state.renewalLost = true;
+            state.isRenewing = false;
+            console.warn(`[BroadcastLiveTracker] Heartbeat tick threw database error for token ${lockToken} on campaign ${campaignId}: ${err.message}. Ownership marked lost.`);
+            return false;
+        }
+    }
     /**
      * Helper to safely interact with Redis cache without crashing if Redis is offline
      */
@@ -557,19 +659,26 @@ class BroadcastLiveTracker {
 
         // 1. Acquire ownership-safe retry lock on parent campaign
         const lockToken = crypto.randomUUID();
-        const lockExpirationThreshold = new Date(Date.now() - 60000); // 60s lease
+        const now = new Date();
+        const initialExpiresAt = new Date(now.getTime() + RETRY_LOCK_LEASE_MS);
+
         const lockAcquired = await BroadcastCampaign.findOneAndUpdate(
             {
                 campaignId,
                 $or: [
                     { 'retryLock.active': { $ne: true } },
-                    { 'retryLock.lockedAt': { $lt: lockExpirationThreshold } }
+                    { 'retryLock.expiresAt': { $lte: now } },
+                    {
+                        'retryLock.expiresAt': { $exists: false },
+                        'retryLock.lockedAt': { $lte: new Date(now.getTime() - RETRY_LOCK_LEASE_MS) }
+                    }
                 ]
             },
             {
                 $set: {
                     'retryLock.active': true,
-                    'retryLock.lockedAt': new Date(),
+                    'retryLock.lockedAt': now,
+                    'retryLock.expiresAt': initialExpiresAt,
                     'retryLock.lockedBy': performedBy,
                     'retryLock.token': lockToken
                 }
@@ -584,42 +693,30 @@ class BroadcastLiveTracker {
             };
         }
 
-        let isRenewing = true;
-        let renewalLost = false;
+        const lockState = { isRenewing: true, renewalLost: false };
+
         // Background active lease renewal
         const renewTimer = setInterval(async () => {
-            if (!isRenewing) return;
-            try {
-                const renewed = await BroadcastCampaign.findOneAndUpdate(
-                    {
-                        campaignId,
-                        'retryLock.active': true,
-                        'retryLock.token': lockToken
-                    },
-                    {
-                        $set: {
-                            'retryLock.lockedAt': new Date()
-                        }
-                    },
-                    { new: true }
-                );
-                if (!renewed) {
-                    renewalLost = true;
-                }
-            } catch (err) {
-                // Non-fatal logging
+            const ok = await BroadcastLiveTracker._handleHeartbeatTick(campaignId, lockToken, RETRY_LOCK_LEASE_MS, lockState);
+            if (!ok && renewTimer) {
+                clearInterval(renewTimer);
             }
-        }, 15000);
+        }, RETRY_LOCK_HEARTBEAT_MS);
         if (renewTimer?.unref) renewTimer.unref();
 
         const verifyLockOwnership = async () => {
-            if (renewalLost) return false;
-            const current = await BroadcastCampaign.findOne({
-                campaignId,
-                'retryLock.active': true,
-                'retryLock.token': lockToken
-            }).select('_id retryLock').lean();
-            return Boolean(current);
+            if (lockState.renewalLost) return false;
+            try {
+                const isValid = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, lockToken, RETRY_LOCK_LEASE_MS);
+                if (!isValid) {
+                    lockState.renewalLost = true;
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                lockState.renewalLost = true;
+                return false;
+            }
         };
 
         let retryCampaignId = null;
@@ -819,6 +916,23 @@ class BroadcastLiveTracker {
                 performedBy
             });
 
+            // Verify lock ownership before parent audit log mutation
+            if (!await verifyLockOwnership()) {
+                // Rollback claims and fail child campaign
+                await MarketingDelivery.updateMany(
+                    { jobId: campaignId, retryCampaignId },
+                    { $set: { retryClaimed: false }, $unset: { retryCampaignId: 1 } }
+                );
+                await BroadcastCampaign.updateOne(
+                    { campaignId: retryCampaignId },
+                    { $set: { status: 'FAILED' } }
+                );
+                return {
+                    success: false,
+                    error: 'RETRY_LOCK_LOST: Retry lock expired before audit log mutation.'
+                };
+            }
+
             // Record audit in parent campaign
             await BroadcastCampaign.updateOne(
                 { campaignId },
@@ -891,7 +1005,7 @@ class BroadcastLiveTracker {
                     : null
             };
         } finally {
-            isRenewing = false;
+            lockState.isRenewing = false;
             clearInterval(renewTimer);
             // Ownership-safe atomic release: ONLY release if token matches lockToken!
             await BroadcastCampaign.updateOne(
@@ -903,6 +1017,7 @@ class BroadcastLiveTracker {
                     $set: {
                         'retryLock.active': false,
                         'retryLock.lockedAt': null,
+                        'retryLock.expiresAt': null,
                         'retryLock.lockedBy': null,
                         'retryLock.token': null
                     }

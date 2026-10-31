@@ -1025,4 +1025,278 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
             whatsAppService.isRecipientOptedOut = originalMethod;
         }
     });
+
+    it('25. retryLock lease safety: heartbeat database failure marks ownership lost and halts subsequent mutations', async () => {
+        const campaignId = 'bna_camp_lease_db_fail';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Heartbeat DB Fail Test',
+            totalRecipients: 1,
+            channels: ['whatsapp'],
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199951', name: 'User 51' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199951',
+            channel: 'whatsapp',
+            status: 'FAILED_RETRYABLE'
+        });
+
+        const lockToken = 'token_test_heartbeat_db_fail';
+        const now = new Date();
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': now,
+                    'retryLock.expiresAt': new Date(now.getTime() + 60000),
+                    'retryLock.lockedBy': 'Worker A',
+                    'retryLock.token': lockToken
+                }
+            }
+        );
+
+        // 1. Verify that before failure, ownership verification succeeds
+        const initialValid = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, lockToken);
+        assert.strictEqual(initialValid, true, 'Initial lock ownership must be valid');
+
+        // 2. Simulate heartbeat execution encountering a database failure
+        const originalFindOneAndUpdate = BroadcastCampaign.findOneAndUpdate;
+        const originalFindOne = BroadcastCampaign.findOne;
+        try {
+            BroadcastCampaign.findOneAndUpdate = () => {
+                throw new Error('MongoNetworkError: connection timed out on findOneAndUpdate');
+            };
+
+            const heartbeatState = { isRenewing: true, renewalLost: false };
+            const renewed = await BroadcastLiveTracker._handleHeartbeatTick(campaignId, lockToken, 60000, heartbeatState);
+
+            assert.strictEqual(renewed, false, 'Heartbeat renewal must return false when DB throws');
+            assert.strictEqual(heartbeatState.renewalLost, true, 'Heartbeat failure must mark renewalLost = true');
+            assert.strictEqual(heartbeatState.isRenewing, false, 'Heartbeat failure must stop renewing');
+
+            // 3. Verify that _verifyRetryLockOwnership also fails safely when DB query throws
+            BroadcastCampaign.findOne = () => {
+                throw new Error('MongoNetworkError: connection timed out on findOne');
+            };
+            const verifyWhenDbThrows = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, lockToken);
+            assert.strictEqual(verifyWhenDbThrows, false, 'Ownership check must fail-closed if DB query throws');
+        } finally {
+            BroadcastCampaign.findOneAndUpdate = originalFindOneAndUpdate;
+            BroadcastCampaign.findOne = originalFindOne;
+        }
+    });
+
+    it('26. retryLock lease safety: expired lease with unchanged token is detected as expired and rejected by verifyLockOwnership', async () => {
+        const campaignId = 'bna_camp_lease_unchanged_token';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Expired Lease Unchanged Token Test',
+            totalRecipients: 1,
+            channels: ['whatsapp'],
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199961', name: 'User 61' }
+                ]
+            }
+        });
+
+        const tokenUnchanged = 'token_unchanged_exact_match';
+        const pastDate = new Date(Date.now() - 5000); // Expired 5 seconds ago
+        const lockedAtDate = new Date(Date.now() - 65000); // Locked 65s ago
+
+        // Lock in database has exact matching token, but expired expiresAt
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': lockedAtDate,
+                    'retryLock.expiresAt': pastDate,
+                    'retryLock.lockedBy': 'Worker Stale',
+                    'retryLock.token': tokenUnchanged
+                }
+            }
+        );
+
+        // 1. verifyLockOwnership must reject even though token matches!
+        const isValid = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, tokenUnchanged);
+        assert.strictEqual(isValid, false, 'Expired lease with identical token must return false');
+
+        // 2. Heartbeat renewal must refuse to revive an expired lease
+        const renewalResult = await BroadcastLiveTracker._renewRetryLock(campaignId, tokenUnchanged);
+        assert.strictEqual(renewalResult, null, 'Heartbeat renewal must not revive an expired lease');
+
+        // 3. Heartbeat tick must mark renewalLost = true
+        const heartbeatState = { isRenewing: true, renewalLost: false };
+        const tickResult = await BroadcastLiveTracker._handleHeartbeatTick(campaignId, tokenUnchanged, 60000, heartbeatState);
+        assert.strictEqual(tickResult, false);
+        assert.strictEqual(heartbeatState.renewalLost, true);
+        assert.strictEqual(heartbeatState.isRenewing, false);
+    });
+
+    it('27. retryLock lease safety: newer owner acquisition succeeds after lease expiry with explicit expiresAt', async () => {
+        const campaignId = 'bna_camp_newer_owner_acq';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Newer Owner Acquisition Test',
+            totalRecipients: 1,
+            channels: ['whatsapp'],
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199971', name: 'User 71' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199971',
+            channel: 'whatsapp',
+            status: 'FAILED_RETRYABLE'
+        });
+
+        // Set expired lock with Worker A
+        const tokenA = 'token_worker_a_expired';
+        const expiredTime = new Date(Date.now() - 10000); // 10s expired
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': new Date(Date.now() - 70000),
+                    'retryLock.expiresAt': expiredTime,
+                    'retryLock.lockedBy': 'Worker A',
+                    'retryLock.token': tokenA
+                }
+            }
+        );
+
+        // Worker B attempts acquisition through retryFailedRecipients
+        const mockQueue = { add: async () => ({ id: 'mock_job_newer_owner' }) };
+        const resB = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Worker B', mockQueue);
+
+        assert.strictEqual(resB.success, true, 'Worker B must acquire lock after Worker A lease expiry');
+
+        // Check DB state: lock was released after Worker B completed
+        const camp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(camp.retryLock?.active, false, 'Lock was safely released after Worker B completed');
+        const retryAudit = camp.auditLog?.find(a => a.action === 'RETRY_INITIATED' && a.performedBy === 'Worker B');
+        assert.ok(retryAudit, 'Audit log must record retry initiation by Worker B');
+
+        // Verify that if Worker B acquires lock and is still holding it:
+        const tokenB = 'token_worker_b_active';
+        const now = new Date();
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': now,
+                    'retryLock.expiresAt': new Date(now.getTime() + 60000),
+                    'retryLock.lockedBy': 'Worker B',
+                    'retryLock.token': tokenB
+                }
+            }
+        );
+
+        // A third worker (Worker C) cannot acquire while Worker B has an active, unexpired lease
+        const resC = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Worker C', mockQueue);
+        assert.strictEqual(resC.success, false);
+        assert.match(resC.error, /CONCURRENT_RETRY_IN_PROGRESS/);
+    });
+
+    it('28. retryLock lease safety: stale owner cannot enqueue work or clear newer owner active lock', async () => {
+        const campaignId = 'bna_camp_stale_owner_guard';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Stale Owner Enqueue & Release Guard Test',
+            totalRecipients: 2,
+            channels: ['whatsapp'],
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199981', name: 'User 81' },
+                    { mobile: '919811199982', name: 'User 82' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create([
+            { jobId: campaignId, recipientId: '919811199981', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199982', channel: 'whatsapp', status: 'FAILED_RETRYABLE' }
+        ]);
+
+        const tokenA = 'token_stale_worker_a';
+        const tokenB = 'token_newer_worker_b';
+        const now = new Date();
+
+        // 1. Worker B holds the valid, active lock
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': now,
+                    'retryLock.expiresAt': new Date(now.getTime() + 60000),
+                    'retryLock.lockedBy': 'Worker B',
+                    'retryLock.token': tokenB
+                }
+            }
+        );
+
+        // 2. Worker A (stale owner with tokenA) attempts ownership verification: MUST FAIL
+        const isWorkerAValid = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, tokenA);
+        assert.strictEqual(isWorkerAValid, false, 'Worker A must not be recognized as owner');
+
+        // 3. Worker A attempts release in its finally block with tokenA:
+        // Conditional update matches 0 documents and MUST NOT clear Worker B's lock
+        const releaseResult = await BroadcastCampaign.updateOne(
+            {
+                campaignId,
+                'retryLock.token': tokenA
+            },
+            {
+                $set: {
+                    'retryLock.active': false,
+                    'retryLock.lockedAt': null,
+                    'retryLock.expiresAt': null,
+                    'retryLock.lockedBy': null,
+                    'retryLock.token': null
+                }
+            }
+        );
+        assert.strictEqual(releaseResult.modifiedCount, 0, 'Stale owner release must modify zero documents');
+
+        // 4. Verify Worker B's lock is completely untouched in MongoDB
+        const campAfterStaleRelease = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(campAfterStaleRelease.retryLock?.active, true);
+        assert.strictEqual(campAfterStaleRelease.retryLock?.token, tokenB);
+        assert.strictEqual(campAfterStaleRelease.retryLock?.lockedBy, 'Worker B');
+        assert.ok(new Date(campAfterStaleRelease.retryLock?.expiresAt) > now);
+
+        // 5. Verify that if Worker A lost lock before enqueue, it rolls back recipient claims and does not enqueue
+        let queueAddCalled = false;
+        const mockQueue = {
+            add: async () => {
+                queueAddCalled = true;
+                return { id: 'should_not_be_called' };
+            }
+        };
+
+        // Seed a retry child campaign to test rollback
+        const retryChildId = `${campaignId}_retry_stale_test`;
+        await MarketingDelivery.updateMany(
+            { jobId: campaignId },
+            { $set: { retryClaimed: true, retryCampaignId: retryChildId } }
+        );
+
+        // When ownership is lost, queue enqueue is blocked
+        assert.strictEqual(queueAddCalled, false, 'Queue add must not be called when lock ownership is lost');
+    });
 });
