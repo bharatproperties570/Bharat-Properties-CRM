@@ -111,7 +111,10 @@ class BroadcastLiveTracker {
     }
 
     /**
-     * Updates live progress and stats as recipient micro-jobs execute
+     * Updates live progress and stats as recipient micro-jobs execute.
+     * Enforces atomic CAS: progress updates are conditional on an allowed active campaign state
+     * (ACTIVE, COOLDOWN, INITIALIZING) and will NEVER overwrite PAUSED, CANCELLED, or COMPLETED.
+     * Stale recipient jobs cannot overwrite operator states or regress progress counters ($max).
      */
     static async recordRecipientProgress({
         campaignId,
@@ -123,8 +126,6 @@ class BroadcastLiveTracker {
         const isFinished = processedCount >= totalRecipients;
 
         const updateSet = {
-            processedRecipients: processedCount,
-            currentIndex: processedCount,
             'stats.sent': stats.sent || 0,
             'stats.accepted': stats.accepted || 0,
             'stats.failed': stats.failed || 0,
@@ -141,11 +142,47 @@ class BroadcastLiveTracker {
             updateSet.completedAt = new Date();
         }
 
+        // CAS Guard: Must be in an active execution state.
+        // Stale jobs must never overwrite PAUSED or CANCELLED, and completion must not overwrite CANCELLED.
+        const filter = {
+            campaignId,
+            status: { $in: ['ACTIVE', 'COOLDOWN', 'INITIALIZING'] }
+        };
+
+        const updateDoc = {
+            $set: updateSet,
+            $max: {
+                processedRecipients: processedCount,
+                currentIndex: processedCount
+            }
+        };
+
         const updated = await BroadcastCampaign.findOneAndUpdate(
-            { campaignId },
-            { $set: updateSet },
+            filter,
+            updateDoc,
             { new: true }
         );
+
+        if (!updated) {
+            // Document was not updated because campaign was either not found or in a terminal/paused state
+            const existing = await BroadcastCampaign.findOne({ campaignId }).lean();
+            if (!existing) {
+                return {
+                    updated: false,
+                    reason: 'CAMPAIGN_NOT_FOUND',
+                    campaignId
+                };
+            }
+
+            return {
+                updated: false,
+                reason: 'REJECTED_TERMINAL_OR_PAUSED_STATE',
+                campaignId,
+                status: existing.status,
+                processedRecipients: existing.processedRecipients,
+                currentIndex: existing.currentIndex
+            };
+        }
 
         if (isFinished) {
             await this._safeRedisDel(`${REDIS_KEY_PREFIX}${campaignId}:paused`);
@@ -479,7 +516,17 @@ class BroadcastLiveTracker {
     /**
      * Operator Recovery Action: RETRY FAILED ONLY
      * Finds recipients with FAILED_RETRYABLE or DELIVERY_UNKNOWN; guarantees 0 duplicate dispatches
-     * to already sent/delivered/read recipients.
+     * to already sent/delivered/read/opted-out recipients.
+     *
+     * CONCURRENCY & IDEMPOTENCY CONTROLS:
+     * 1. Acquires an atomic retry lock on parent BroadcastCampaign to prevent concurrent duplicate retry runs.
+     * 2. Re-validates the latest status of each recipient immediately before committing retry eligibility.
+     * 3. Disqualifies any recipient marked ACCEPTED, SENT, DELIVERED, READ, or SUPPRESSED_OPTOUT.
+     * 4. Evaluates DELIVERY_UNKNOWN conservatively: acknowledges that provider delivery status was unconfirmed
+     *    and while retrying is permitted for recovery, absolute zero duplicates cannot be claimed if the provider
+     *    actually delivered the unconfirmed socket write.
+     * 5. Atomically claims candidate recipients on MarketingDelivery (retryClaimed: true, retryCampaignId).
+     * 6. Wraps BullMQ queue enqueue in safe rollback logic: on enqueue failure, unsets claims and marks child campaign FAILED.
      */
     static async retryFailedRecipients(campaignId, performedBy = 'Operator', marketingQueue = null) {
         const parentCampaign = await BroadcastCampaign.findOne({ campaignId });
@@ -487,102 +534,237 @@ class BroadcastLiveTracker {
             throw new Error(`CAMPAIGN_NOT_FOUND: Campaign ${campaignId} does not exist`);
         }
 
-        // 1. Fetch deliveries with failed or unknown status
-        const failedDeliveries = await MarketingDelivery.find({
-            jobId: campaignId,
-            status: { $in: ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN'] }
-        }).lean();
-
-        if (failedDeliveries.length === 0) {
-            return {
-                success: false,
-                error: 'NO_FAILED_RECIPIENTS: No failed or unknown recipients found to retry in this campaign.'
-            };
-        }
-
-        // 2. Fetch all confirmed recipients in this campaign to double-check
-        const confirmedDeliveries = await MarketingDelivery.find({
-            jobId: campaignId,
-            status: { $in: ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT'] }
-        }).select('recipientId').lean();
-
-        const confirmedRecipientKeys = new Set(confirmedDeliveries.map(d => String(d.recipientId).trim()));
-
-        // 3. Filter down original recipient list strictly to eligible unconfirmed failed targets
-        const originalRecipients = parentCampaign.campaignParams?.recipients || [];
-        const eligibleFailedRecipients = [];
-
-        for (const recipient of originalRecipients) {
-            const key = String(recipient.mobile || recipient.id || '').trim();
-            // Never re-dispatch if already confirmed or opted-out!
-            if (!confirmedRecipientKeys.has(key)) {
-                const hadFailure = failedDeliveries.some(f => String(f.recipientId).trim() === key);
-                if (hadFailure) {
-                    eligibleFailedRecipients.push(recipient);
-                }
-            }
-        }
-
-        if (eligibleFailedRecipients.length === 0) {
-            return {
-                success: false,
-                error: 'ALL_RECIPIENTS_CONFIRMED: All previously failed recipients were subsequently delivered or opted-out.'
-            };
-        }
-
-        // 4. Create child retry campaign
-        const retryCampaignId = `${campaignId}_retry_${Date.now()}`;
-        const retryName = `[Retry] ${parentCampaign.name}`;
-
-        const retryParams = {
-            ...parentCampaign.campaignParams,
-            campaignId: retryCampaignId,
-            name: retryName,
-            recipients: eligibleFailedRecipients,
-            forceBroadcast: true // Force retry for these specific failed targets
-        };
-
-        const retryDoc = await this.initCampaign({
-            campaignId: retryCampaignId,
-            name: retryName,
-            dealId: parentCampaign.dealId,
-            dealIds: parentCampaign.dealIds,
-            dealTitle: parentCampaign.dealTitle,
-            totalRecipients: eligibleFailedRecipients.length,
-            channels: parentCampaign.channels,
-            isBaileys: parentCampaign.isBaileys,
-            provider: parentCampaign.provider,
-            campaignParams: retryParams,
-            performedBy
-        });
-
-        // Record audit in parent campaign
-        await BroadcastCampaign.updateOne(
-            { campaignId },
+        // 1. Acquire atomic retry lock on parent campaign (prevents concurrent retry execution)
+        const lockExpirationThreshold = new Date(Date.now() - 60000); // 60s lease
+        const lockAcquired = await BroadcastCampaign.findOneAndUpdate(
             {
-                $push: {
-                    auditLog: {
-                        action: 'RETRY_INITIATED',
-                        performedBy,
-                        timestamp: new Date(),
-                        reason: `Spawned retry campaign ${retryCampaignId} for ${eligibleFailedRecipients.length} failed recipients`
+                campaignId,
+                $or: [
+                    { 'retryLock.active': { $ne: true } },
+                    { 'retryLock.lockedAt': { $lt: lockExpirationThreshold } }
+                ]
+            },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': new Date(),
+                    'retryLock.lockedBy': performedBy
+                }
+            },
+            { new: true }
+        );
+
+        if (!lockAcquired) {
+            return {
+                success: false,
+                error: 'CONCURRENT_RETRY_IN_PROGRESS: A retry operation is currently in progress for this campaign.'
+            };
+        }
+
+        let retryCampaignId = null;
+
+        try {
+            // 2. Fetch deliveries with failed or unknown status that have NOT already been claimed for retry
+            const failedDeliveries = await MarketingDelivery.find({
+                jobId: campaignId,
+                status: { $in: ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN'] },
+                retryClaimed: { $ne: true }
+            }).lean();
+
+            if (failedDeliveries.length === 0) {
+                return {
+                    success: false,
+                    error: 'NO_FAILED_RECIPIENTS: No failed or unknown recipients found to retry in this campaign.'
+                };
+            }
+
+            // 3. Immediately re-validate delivery status to exclude any confirmed or opted-out recipients
+            const confirmedDeliveries = await MarketingDelivery.find({
+                jobId: campaignId,
+                status: { $in: ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT'] }
+            }).select('recipientId').lean();
+
+            const confirmedRecipientKeys = new Set(confirmedDeliveries.map(d => String(d.recipientId).trim()));
+
+            // Optional: Re-validate opt-outs against WhatsAppService if available
+            let waService = null;
+            try {
+                waService = (await import('./WhatsAppService.js')).default;
+            } catch (e) {}
+
+            const originalRecipients = parentCampaign.campaignParams?.recipients || [];
+            const candidateFailedRecipients = [];
+            let unknownStatusCount = 0;
+
+            for (const recipient of originalRecipients) {
+                const key = String(recipient.mobile || recipient.id || '').trim();
+                // Never re-dispatch if already confirmed or opted-out
+                if (!confirmedRecipientKeys.has(key)) {
+                    const failureMatch = failedDeliveries.find(f => String(f.recipientId).trim() === key);
+                    if (failureMatch) {
+                        // Check live opt-out status
+                        if (waService && typeof waService.isRecipientOptedOut === 'function' && recipient.mobile) {
+                            try {
+                                const isOptedOut = await waService.isRecipientOptedOut(recipient.mobile);
+                                if (isOptedOut) {
+                                    // Mark delivery as suppressed in ledger so it won't be retried
+                                    await MarketingDelivery.updateOne(
+                                        { jobId: campaignId, recipientId: key, channel: 'whatsapp' },
+                                        { $set: { status: 'SUPPRESSED_OPTOUT', error: 'Recipient opted out of communications' } }
+                                    );
+                                    continue;
+                                }
+                            } catch (optErr) {}
+                        }
+
+                        if (failureMatch.status === 'DELIVERY_UNKNOWN') {
+                            unknownStatusCount++;
+                        }
+                        candidateFailedRecipients.push(recipient);
                     }
                 }
             }
-        );
 
-        // 5. Enqueue child retry campaign to marketingQueue
-        if (marketingQueue) {
-            await marketingQueue.add('bna-broadcast', retryParams, { removeOnComplete: true });
+            if (candidateFailedRecipients.length === 0) {
+                return {
+                    success: false,
+                    error: 'ALL_RECIPIENTS_CONFIRMED: All previously failed recipients were subsequently delivered, claimed, or opted-out.'
+                };
+            }
+
+            // 4. Atomically claim candidate recipients on MarketingDelivery
+            retryCampaignId = `${campaignId}_retry_${Date.now()}`;
+            const candidateKeys = candidateFailedRecipients.map(r => String(r.mobile || r.id || '').trim());
+
+            await MarketingDelivery.updateMany(
+                {
+                    jobId: campaignId,
+                    recipientId: { $in: candidateKeys },
+                    status: { $in: ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN'] },
+                    status: { $nin: ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT'] },
+                    retryClaimed: { $ne: true }
+                },
+                {
+                    $set: {
+                        retryClaimed: true,
+                        retryCampaignId
+                    }
+                }
+            );
+
+            // Re-fetch only those deliveries that were successfully claimed
+            const claimedDeliveries = await MarketingDelivery.find({
+                jobId: campaignId,
+                retryCampaignId,
+                retryClaimed: true
+            }).select('recipientId').lean();
+
+            const claimedKeys = new Set(claimedDeliveries.map(d => String(d.recipientId).trim()));
+            const finalRecipientsToRetry = candidateFailedRecipients.filter(r => claimedKeys.has(String(r.mobile || r.id || '').trim()));
+
+            if (finalRecipientsToRetry.length === 0) {
+                // Release any orphaned claims
+                await MarketingDelivery.updateMany(
+                    { jobId: campaignId, retryCampaignId },
+                    { $set: { retryClaimed: false }, $unset: { retryCampaignId: 1 } }
+                );
+                return {
+                    success: false,
+                    error: 'NO_ELIGIBLE_RECIPIENTS: All candidate recipients were claimed or transitioned concurrently.'
+                };
+            }
+
+            // 5. Create child retry campaign
+            const retryName = `[Retry] ${parentCampaign.name}`;
+            const retryParams = {
+                ...parentCampaign.campaignParams,
+                campaignId: retryCampaignId,
+                name: retryName,
+                recipients: finalRecipientsToRetry,
+                forceBroadcast: true // Force retry for these specific failed targets
+            };
+
+            await this.initCampaign({
+                campaignId: retryCampaignId,
+                name: retryName,
+                dealId: parentCampaign.dealId,
+                dealIds: parentCampaign.dealIds,
+                dealTitle: parentCampaign.dealTitle,
+                totalRecipients: finalRecipientsToRetry.length,
+                channels: parentCampaign.channels,
+                isBaileys: parentCampaign.isBaileys,
+                provider: parentCampaign.provider,
+                campaignParams: retryParams,
+                performedBy
+            });
+
+            // Record audit in parent campaign
+            await BroadcastCampaign.updateOne(
+                { campaignId },
+                {
+                    $push: {
+                        auditLog: {
+                            action: 'RETRY_INITIATED',
+                            performedBy,
+                            timestamp: new Date(),
+                            reason: `Spawned retry campaign ${retryCampaignId} for ${finalRecipientsToRetry.length} failed recipients (unknown: ${unknownStatusCount})`
+                        }
+                    }
+                }
+            );
+
+            // 6. Enqueue child retry campaign to marketingQueue with rollback protection
+            if (marketingQueue) {
+                try {
+                    await marketingQueue.add('bna-broadcast', retryParams, { removeOnComplete: true });
+                } catch (queueErr) {
+                    // ROLLBACK: Revert claims in MarketingDelivery and mark child campaign FAILED
+                    await MarketingDelivery.updateMany(
+                        { jobId: campaignId, retryCampaignId },
+                        { $set: { retryClaimed: false }, $unset: { retryCampaignId: 1 } }
+                    );
+                    await BroadcastCampaign.updateOne(
+                        { campaignId: retryCampaignId },
+                        {
+                            $set: { status: 'FAILED' },
+                            $push: {
+                                auditLog: {
+                                    action: 'CANCELLED',
+                                    performedBy: 'System',
+                                    timestamp: new Date(),
+                                    reason: `Queue enqueue failed: ${queueErr.message}. Recipient claims rolled back.`
+                                }
+                            }
+                        }
+                    );
+                    throw new Error(`QUEUE_ENQUEUE_FAILED: Failed to enqueue retry campaign (${queueErr.message}). Recipient claims rolled back.`);
+                }
+            }
+
+            return {
+                success: true,
+                message: `Retry campaign spawned for ${finalRecipientsToRetry.length} failed recipients`,
+                parentCampaignId: campaignId,
+                retryCampaignId,
+                retryRecipientCount: finalRecipientsToRetry.length,
+                unknownStatusCount,
+                deliveryUnknownConservativeNotice: unknownStatusCount > 0
+                    ? 'Includes DELIVERY_UNKNOWN recipients whose provider outcome was indeterminate at timeout. While retry is permitted, zero duplicate delivery cannot be guaranteed if the provider actually delivered the unconfirmed socket write.'
+                    : null
+            };
+        } finally {
+            // Always release atomic parent retry lock
+            await BroadcastCampaign.updateOne(
+                { campaignId },
+                {
+                    $set: {
+                        'retryLock.active': false,
+                        'retryLock.lockedAt': null,
+                        'retryLock.lockedBy': null
+                    }
+                }
+            );
         }
-
-        return {
-            success: true,
-            message: `Retry campaign spawned for ${eligibleFailedRecipients.length} failed recipients`,
-            parentCampaignId: campaignId,
-            retryCampaignId,
-            retryRecipientCount: eligibleFailedRecipients.length
-        };
     }
 }
 

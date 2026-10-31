@@ -16,6 +16,7 @@ import {
     resumeBroadcastCampaign,
     cancelBroadcastCampaign
 } from '../controllers/marketing.controller.js';
+import { dispatchSingleRecipientCore, chainNextRecipient } from '../src/workers/marketingWorker.js';
 
 describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Test Suite', () => {
     let mongod;
@@ -435,5 +436,337 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
         assert.strictEqual(cancelRes.statusCode, 200);
         assert.strictEqual(cancelRes.jsonData.success, true);
         assert.strictEqual(cancelRes.jsonData.status, 'CANCELLED');
+    });
+
+    it('13. Concurrency P1-1A: Recipient progress racing with PAUSE is rejected and preserves PAUSED state', async () => {
+        const campaignId = 'bna_camp_p1_1a';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Progress vs Pause Race Test',
+            totalRecipients: 5
+        });
+
+        // Operator pauses the campaign
+        await BroadcastLiveTracker.pauseCampaign(campaignId, 'Operator 1', 'Test Pause');
+        const pausedCamp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(pausedCamp.status, 'PAUSED');
+
+        // A racing micro-job finishes recipient 0 and attempts to record progress
+        const result = await BroadcastLiveTracker.recordRecipientProgress({
+            campaignId,
+            recipientIndex: 0,
+            totalRecipients: 5,
+            stats: { sent: 1, failed: 0 }
+        });
+
+        // Update must be rejected with explicit terminal/paused state reason
+        assert.strictEqual(result.updated, false);
+        assert.strictEqual(result.reason, 'REJECTED_TERMINAL_OR_PAUSED_STATE');
+        assert.strictEqual(result.status, 'PAUSED');
+
+        // Re-verify MongoDB record was NOT modified back to ACTIVE
+        const verified = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(verified.status, 'PAUSED');
+        assert.strictEqual(verified.processedRecipients, 0);
+    });
+
+    it('14. Concurrency P1-1B: Final recipient completion racing with CANCEL does not overwrite CANCELLED state', async () => {
+        const campaignId = 'bna_camp_p1_1b';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Completion vs Cancel Race Test',
+            totalRecipients: 2
+        });
+
+        // Step 1: Recipient 0 completes normally
+        await BroadcastLiveTracker.recordRecipientProgress({
+            campaignId,
+            recipientIndex: 0,
+            totalRecipients: 2,
+            stats: { sent: 1, failed: 0 }
+        });
+
+        // Operator cancels campaign before recipient 1 records completion
+        await BroadcastLiveTracker.cancelCampaign(campaignId, 'Operator 1', 'Emergency Stop');
+        const cancelledCamp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(cancelledCamp.status, 'CANCELLED');
+
+        // Recipient 1 finishes and attempts boundary completion
+        const result = await BroadcastLiveTracker.recordRecipientProgress({
+            campaignId,
+            recipientIndex: 1,
+            totalRecipients: 2,
+            stats: { sent: 2, failed: 0 }
+        });
+
+        // Update rejected by CAS guard
+        assert.strictEqual(result.updated, false);
+        assert.strictEqual(result.reason, 'REJECTED_TERMINAL_OR_PAUSED_STATE');
+        assert.strictEqual(result.status, 'CANCELLED');
+
+        // Verify status remains CANCELLED in DB, not overwritten to COMPLETED
+        const verified = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(verified.status, 'CANCELLED');
+    });
+
+    it('15. Concurrency P1-2A: Two simultaneous retry requests for the same campaign atomically reject the second', async () => {
+        const campaignId = 'bna_camp_p1_2a';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Dual Retry Race Test',
+            totalRecipients: 2,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199901', name: 'Recipient 1' },
+                    { mobile: '919811199902', name: 'Recipient 2' }
+                ]
+            }
+        });
+
+        // Seed 2 failed deliveries
+        await MarketingDelivery.create([
+            { jobId: campaignId, recipientId: '919811199901', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199902', channel: 'whatsapp', status: 'FAILED_FINAL' }
+        ]);
+
+        const mockQueue = {
+            add: async () => ({ id: 'mock_retry_job' })
+        };
+
+        // Fire two concurrent retry requests simultaneously
+        const [res1, res2] = await Promise.all([
+            BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator A', mockQueue),
+            BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator B', mockQueue)
+        ]);
+
+        // Exactly one must succeed and one must be rejected with CONCURRENT_RETRY_IN_PROGRESS
+        const successCount = (res1.success ? 1 : 0) + (res2.success ? 1 : 0);
+        const conflictCount = (res1.error?.includes('CONCURRENT_RETRY_IN_PROGRESS') ? 1 : 0) +
+                              (res2.error?.includes('CONCURRENT_RETRY_IN_PROGRESS') ? 1 : 0);
+
+        assert.strictEqual(successCount, 1, 'Exactly one concurrent retry should succeed');
+        assert.strictEqual(conflictCount, 1, 'Exactly one concurrent retry should be rejected with CONCURRENT_RETRY_IN_PROGRESS');
+
+        // Verify only 1 child retry campaign was created in MongoDB
+        const childCampaigns = await BroadcastCampaign.find({
+            campaignId: { $regex: `^${campaignId}_retry_` }
+        }).lean();
+        assert.strictEqual(childCampaigns.length, 1);
+    });
+
+    it('16. Concurrency P1-2B: Recipient becoming ACCEPTED/DELIVERED before retry claim is strictly excluded', async () => {
+        const campaignId = 'bna_camp_p1_2b';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Status Revalidation Race Test',
+            totalRecipients: 2,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199903', name: 'Recipient 3' },
+                    { mobile: '919811199904', name: 'Recipient 4' }
+                ]
+            }
+        });
+
+        // Seed initial failed deliveries
+        await MarketingDelivery.create([
+            { jobId: campaignId, recipientId: '919811199903', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199904', channel: 'whatsapp', status: 'FAILED_RETRYABLE' }
+        ]);
+
+        // Webhook arrives asynchronously right before retry execution, confirming Recipient 3
+        await MarketingDelivery.updateOne(
+            { jobId: campaignId, recipientId: '919811199903' },
+            { $set: { status: 'DELIVERED' } }
+        );
+
+        const mockQueue = {
+            add: async () => ({ id: 'mock_retry_job' })
+        };
+
+        const retryRes = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', mockQueue);
+        assert.strictEqual(retryRes.success, true);
+        assert.strictEqual(retryRes.retryRecipientCount, 1, 'Only the still-failed recipient should be retried');
+
+        // Verify the delivered recipient was NOT claimed for retry
+        const recip3Delivery = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199903' }).lean();
+        assert.strictEqual(recip3Delivery.status, 'DELIVERED');
+        assert.strictEqual(recip3Delivery.retryClaimed, false);
+
+        // Verify the failed recipient WAS claimed
+        const recip4Delivery = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199904' }).lean();
+        assert.strictEqual(recip4Delivery.retryClaimed, true);
+        assert.strictEqual(recip4Delivery.retryCampaignId, retryRes.retryCampaignId);
+    });
+
+    it('17. Concurrency P1-2C: Queue enqueue failure rolls back recipient claims and allows subsequent retry', async () => {
+        const campaignId = 'bna_camp_p1_2c';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Queue Rollback Test',
+            totalRecipients: 1,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199905', name: 'Recipient 5' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199905',
+            channel: 'whatsapp',
+            status: 'FAILED_FINAL'
+        });
+
+        // Mock queue that crashes on enqueue
+        const failingQueue = {
+            add: async () => {
+                throw new Error('Redis connection lost during queue.add');
+            }
+        };
+
+        // Execution must reject with QUEUE_ENQUEUE_FAILED
+        await assert.rejects(
+            async () => {
+                await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', failingQueue);
+            },
+            /QUEUE_ENQUEUE_FAILED/
+        );
+
+        // Verify claims on MarketingDelivery were rolled back
+        const delivery = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199905' }).lean();
+        assert.strictEqual(delivery.retryClaimed, false);
+        assert.strictEqual(delivery.retryCampaignId, undefined);
+
+        // Verify parent campaign's retryLock was released
+        const parentCamp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(parentCamp.retryLock?.active, false);
+
+        // Verify subsequent retry with healthy queue now succeeds cleanly
+        const healthyQueue = {
+            add: async () => ({ id: 'mock_healthy_job' })
+        };
+        const recoveryRes = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', healthyQueue);
+        assert.strictEqual(recoveryRes.success, true);
+        assert.strictEqual(recoveryRes.retryRecipientCount, 1);
+    });
+
+    it('18. Concurrency P1-3A: Pause before provider dispatch aborts send and prevents external network call', async () => {
+        const campaignId = 'bna_camp_p1_3a';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Pre-Dispatch Pause Guard Test',
+            totalRecipients: 1
+        });
+
+        // Operator pauses the campaign
+        await BroadcastLiveTracker.pauseCampaign(campaignId, 'Operator', 'Pause immediately');
+
+        // Mock job
+        const mockJob = {
+            id: 'job_p1_3a',
+            log: async () => {}
+        };
+
+        const res = await dispatchSingleRecipientCore({
+            recipient: { mobile: '919811199906', name: 'Test User' },
+            campaignId,
+            channels: ['whatsapp'],
+            meta: { title: 'Test Deal' },
+            job: mockJob
+        });
+
+        assert.strictEqual(res.halted, true);
+        assert.strictEqual(res.status, 'PAUSED');
+        assert.strictEqual(res.success, false);
+        assert.strictEqual(res.primaryWaResult.status, 'halted');
+        assert.strictEqual(res.primaryWaResult.deliveryStatus, 'PAUSED');
+    });
+
+    it('19. Concurrency P1-3B: Cancel while provider request is in flight records delivery but halts chaining', async () => {
+        const campaignId = 'bna_camp_p1_3b';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'In-Flight Cancel Test',
+            totalRecipients: 2,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199907', name: 'User 7' },
+                    { mobile: '919811199908', name: 'User 8' }
+                ]
+            }
+        });
+
+        // Simulate provider request in-flight: while dispatching recipient 0, operator cancels campaign
+        await BroadcastLiveTracker.cancelCampaign(campaignId, 'Operator', 'Mid-flight cancellation');
+
+        // Simulate in-flight external write completing and recording into ledger
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199907',
+            channel: 'whatsapp',
+            status: 'ACCEPTED',
+            provider: 'META',
+            providerMessageId: 'meta_wamid_9907'
+        });
+
+        const inFlightDelivery = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199907' }).lean();
+        assert.strictEqual(inFlightDelivery.status, 'ACCEPTED');
+
+        // Now chained scheduler attempts to process next recipient
+        const mockJob = {
+            id: 'job_p1_3b',
+            log: async () => {}
+        };
+
+        const chainRes = await chainNextRecipient(
+            mockJob,
+            { campaignId, recipients: [{ mobile: '919811199907' }, { mobile: '919811199908' }] },
+            0, // index 0 just finished
+            { sent: 1, accepted: 1, failed: 0, unknown: 0, skipped: 0 },
+            2  // total count 2
+        );
+
+        // Chaining must be strictly halted due to CANCELLED state
+        assert.strictEqual(chainRes.status, 'CANCELLED');
+        assert.strictEqual(chainRes.haltedAtIndex, 0);
+
+        // No child micro-job for recipient 1 should ever be scheduled in active/cooldown state
+        const camp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(camp.status, 'CANCELLED');
+    });
+
+    it('20. Concurrency P1-3C: Stale chained micro-job attempting to enqueue after cancellation is rejected', async () => {
+        const campaignId = 'bna_camp_p1_3c';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Stale Chained Job Test',
+            totalRecipients: 3
+        });
+
+        // Campaign is cancelled
+        await BroadcastLiveTracker.cancelCampaign(campaignId, 'Operator', 'Cancelled earlier');
+
+        const mockJob = {
+            id: 'job_p1_3c',
+            log: async () => {}
+        };
+
+        // Out-of-order stale micro-job attempts to chain to index 2
+        const chainRes = await chainNextRecipient(
+            mockJob,
+            { campaignId, recipients: [{}, {}, {}] },
+            1, // current index 1
+            { sent: 1, accepted: 1, failed: 0, unknown: 0, skipped: 0 },
+            3  // total count 3
+        );
+
+        assert.strictEqual(chainRes.status, 'CANCELLED');
+        assert.strictEqual(chainRes.haltedAtIndex, 1);
+
+        // Verify campaign remains CANCELLED
+        const camp = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(camp.status, 'CANCELLED');
     });
 });

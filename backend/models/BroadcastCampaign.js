@@ -101,6 +101,11 @@ const broadcastCampaignSchema = new mongoose.Schema({
     campaignParams: {
         type: mongoose.Schema.Types.Mixed
     },
+    retryLock: {
+        active: { type: Boolean, default: false },
+        lockedAt: { type: Date },
+        lockedBy: { type: String }
+    },
     startedAt: {
         type: Date,
         default: Date.now
