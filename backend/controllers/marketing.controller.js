@@ -7,9 +7,8 @@
 import mongoose from 'mongoose';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
-import geminiService    from '../services/GeminiService.js';
-import openAIService    from '../services/OpenAIService.js';
 import unifiedAIService from '../services/UnifiedAIService.js';
+import AIGovernance from '../services/ai/AIGovernance.js';
 import publishService from '../services/PublishService.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
@@ -468,11 +467,12 @@ export const generateWithModel = async (req, res) => {
             ? `${prompt}\n\nContext Data:\n${JSON.stringify(context, null, 2)}`
             : prompt;
 
-        // Use UnifiedAIService to support automatic provider fallback (failover)
+        // Use UnifiedAIService with central AI Governance capability
         const result = await unifiedAIService.generate(userPrompt, {
             provider: provider || 'google',
             model: model,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            capability: AIGovernance.CAPABILITIES.AI_MARKETING_GENERATION
         });
 
         res.json({ success: true, content: result });
@@ -851,8 +851,13 @@ export const publishMarketingContent = async (req, res) => {
 
 export const broadcastToBrokerGroup = async (req, res) => {
     try {
-        const { dealId, dealIds, groupIds, contactGroupIds, leadIds, whatsappGroupJids, integrationId, channels = ['whatsapp'], templateId, language, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = req.body;
-        console.log(`[BNA] Dispatching to audience: Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'})`);
+        const { 
+            dealId, dealIds, groupIds, contactGroupIds, leadIds, whatsappGroupJids, 
+            integrationId, channels = ['whatsapp'], templateId, language, templateText, 
+            isBaileys, smsTemplate, rcsTemplate, emailTemplate,
+            forceBroadcast = false, deduplicationWindowHours = 4 
+        } = req.body;
+        console.log(`[BNA] Dispatching to audience: Company=${groupIds} Contact=${contactGroupIds} MatchedLeads=${leadIds} WAGroups=${whatsappGroupJids} Integration=${integrationId} (WA: ${templateId || 'NONE'}, SMS: ${smsTemplate?.id || 'NONE'}, RCS: ${rcsTemplate?.id || 'NONE'}, Email: ${emailTemplate?.id || 'NONE'}, Force: ${Boolean(forceBroadcast)})`);
         
         const hasCompanyGroups = Array.isArray(groupIds) && groupIds.length > 0;
         const hasContactGroups = Array.isArray(contactGroupIds) && contactGroupIds.length > 0;
@@ -1040,8 +1045,11 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const queue = await getMarketingQueue();
         const { isRedisOnline } = await import('../src/config/redis.js');
 
+        const campaignId = `bna_camp_${primaryDealId || 'deal'}_${Date.now()}`;
+
         const jobData = {
             name: `BNA Broadcast: ${meta.title}`,
+            campaignId,
             dealId: primaryDealId,
             dealIds: targetDealIds,
             deal: deals[0],
@@ -1058,14 +1066,37 @@ export const broadcastToBrokerGroup = async (req, res) => {
             smsTemplate: smsTemplate || null,
             rcsTemplate: rcsTemplate || null,
             emailTemplate: emailTemplate || null,
+            forceBroadcast: Boolean(forceBroadcast),
+            deduplicationWindowHours: Number(deduplicationWindowHours) || 4,
             performedBy: req.user?.fullName || req.user?.name || (req.user?.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : '') || 'Bharat Properties'
         };
+
+        // Initialize Live Broadcast State Tracker (Phase 4)
+        try {
+            const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+            await BroadcastLiveTracker.initCampaign({
+                campaignId,
+                name: `BNA Broadcast: ${meta.title}`,
+                dealId: primaryDealId,
+                dealIds: targetDealIds,
+                dealTitle: meta.title,
+                totalRecipients: recipients.length,
+                channels,
+                isBaileys: Boolean(isBaileys),
+                provider: isBaileys ? 'BAILEYS' : 'META',
+                campaignParams: jobData,
+                performedBy: jobData.performedBy
+            });
+        } catch (trackerInitErr) {
+            console.error('[broadcastToBrokerGroup] BroadcastLiveTracker init warning:', trackerInitErr.message);
+        }
 
         if (queue && isRedisOnline) {
             const job = await queue.add('bna-broadcast', jobData, { removeOnComplete: true });
             return res.json({ 
                 success: true, 
                 message: `Broadcast queued for ${recipients.length} brokers.`,
+                campaignId,
                 jobId: job.id,
                 dispatchCount: recipients.length
             });
@@ -1078,6 +1109,7 @@ export const broadcastToBrokerGroup = async (req, res) => {
         res.json({ 
             success: true, 
             message: `Broadcast started for ${recipients.length} brokers (Direct Mode).`,
+            campaignId,
             dispatchCount: recipients.length
         });
 
@@ -1232,8 +1264,12 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 /**
  * Direct dispatch for BNA broadcasts when queue is unavailable or synchronous fallback
  */
-async function _dispatchBNADirectly(data) {
-    const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate } = data;
+export async function _dispatchBNADirectly(data) {
+    const { 
+        dealId, channels, recipients, meta, templateId, language, shareableId, 
+        performedBy, templateText, isBaileys, smsTemplate, rcsTemplate, emailTemplate,
+        forceBroadcast = false, deduplicationWindowHours = 4 
+    } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const Activity = mongoose.model('Activity');
 
@@ -1355,7 +1391,7 @@ async function _dispatchBNADirectly(data) {
         </div>
     `;
 
-    for (const recipient of recipients) {
+    const dispatchSingleRecipient = async (recipient) => {
         const results = [];
         const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
 
@@ -1368,10 +1404,10 @@ async function _dispatchBNADirectly(data) {
             meta
         });
 
+        let text = '';
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
-                let text = '';
                 if (!isGroup && !isBaileys && activeTemplateId && templateRegistryData) {
                     const personalizedComponents = await resolveMetaComponents(
                         activeTemplateId, 
@@ -1396,6 +1432,19 @@ async function _dispatchBNADirectly(data) {
                             `{{description}}\n\n` +
                             `🔗 Deal References: {{dealCode}}\n` +
                             `Contact us for full dossiers, commission splits, and site inspections.`,
+                            contextMap
+                        );
+                    } else if (recipient.context?.originalType === 'Lead') {
+                        text = interpolateUniversalTemplate(
+                            `*🌟 PROPERTY RECOMMENDATION: {{projectName}}*\n\n` +
+                            `Hello *{{customer_name}}*,\n` +
+                            `Here is an exclusive property opportunity matching your requirement:\n\n` +
+                            `💰 *Price:* {{price}}\n` +
+                            `📍 *Location:* {{location}}\n` +
+                            `📐 *Specs:* {{size}}\n\n` +
+                            `📝 *Overview:* {{description}}\n\n` +
+                            `🔗 *Ref:* {{dealCode}}\n` +
+                            `Reply directly to this message to schedule a site inspection!`,
                             contextMap
                         );
                     } else {
@@ -1479,6 +1528,8 @@ async function _dispatchBNADirectly(data) {
             } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
         }
 
+        const success = results.some(r => r.status === 'success' || r.status === 'simulated_success');
+
         // Log Activity
         try {
             await Activity.create({
@@ -1486,7 +1537,7 @@ async function _dispatchBNADirectly(data) {
                 subject: `BNA Broadcast: ${meta.title}`,
                 entityType: recipient.context?.originalType || (isGroup ? 'WhatsAppGroup' : 'Company'),
                 entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
-                status: 'Completed',
+                status: success ? 'Completed' : 'Failed',
                 visibleTo: 'Everyone',
                 description: text || `Dispatched deal details to ${recipient.name} (${recipient.mobile}) via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
                 details: { 
@@ -1513,8 +1564,116 @@ async function _dispatchBNADirectly(data) {
             console.warn('[BNA/ActivityLog] Warning:', actErr.message);
         }
 
-        // Small delay to avoid rate limiting
-        await new Promise(r => setTimeout(r, 300));
+        return { success, results };
+    };
+
+    // 🛡️ UNIFIED WHATSAPP BUSINESS SAFE-DISPATCH PIPELINE (Direct Fallback Mode)
+    // 5 chats/batch across BOTH Individual Contacts and Groups, 8-15s typing jitter, 3-10m cooldown between batches, Single-Account only.
+    const isWaWebTarget = (r) => {
+        if (!channels.includes('whatsapp')) return false;
+        if (r.isGroup || String(r.mobile || '').includes('@g.us')) return true;
+        return Boolean(isBaileys && r.mobile);
+    };
+
+    const waWebRecipients = recipients.filter(isWaWebTarget);
+    const otherRecipients = recipients.filter(r => !isWaWebTarget(r));
+
+    // 1. Dispatch non-WhatsApp Web contacts first (SMS-only, Email-only, Cloud API)
+    if (otherRecipients.length > 0) {
+        console.log(`[BNA_DIRECT] Dispatching to ${otherRecipients.length} non-WhatsApp-Web / direct recipients...`);
+        for (const recipient of otherRecipients) {
+            await dispatchSingleRecipient(recipient);
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 1000));
+        }
+    }
+
+    // 🛡️ CROSS-JOB DEDUPLICATION GUARD (Direct Mode)
+    const deduplicationWindowMs = (Number(deduplicationWindowHours) || 4) * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - deduplicationWindowMs);
+    const recentlyMessagedJids = new Set();
+
+    if (!forceBroadcast && dealId) {
+        try {
+            const dealObjId = mongoose.Types.ObjectId.isValid(dealId) ? new mongoose.Types.ObjectId(dealId) : null;
+            const dealQuery = dealObjId ? { $in: [String(dealId), dealObjId] } : String(dealId);
+
+            const recentActivities = await Activity.find({
+                type: 'Marketing',
+                'details.dealId': dealQuery,
+                status: { $in: ['Sent', 'Completed', 'sent', 'completed'] },
+                createdAt: { $gte: cutoffDate }
+            }).select('details.groupJid details.phoneNumber participants.mobile createdAt').lean();
+
+            recentActivities.forEach(act => {
+                const jid = act.details?.groupJid || act.details?.phoneNumber || act.participants?.[0]?.mobile;
+                if (jid) recentlyMessagedJids.add(String(jid).trim());
+            });
+
+            if (recentlyMessagedJids.size > 0) {
+                console.log(`🛡️ [BNA_DIRECT_DEDUPLICATION] Active: Found ${recentlyMessagedJids.size} recipients that already received Deal ${dealId} in the last ${deduplicationWindowHours || 4}h.`);
+            }
+        } catch (dupCheckErr) {
+            console.warn(`[BNA_DIRECT_DEDUPLICATION] Warning: ${dupCheckErr.message}`);
+        }
+    }
+
+    // 2. Dispatch WhatsApp Web chats (Individual Contacts & Groups) in batches of 5 with 3-10m cooldowns
+    const BATCH_SIZE = 5;
+    const totalWaChats = waWebRecipients.length;
+    const totalBatches = Math.ceil(totalWaChats / BATCH_SIZE);
+
+    if (totalWaChats > 0) {
+        const indCount = waWebRecipients.filter(r => !r.isGroup && !String(r.mobile || '').includes('@g.us')).length;
+        const grpCount = waWebRecipients.filter(r => r.isGroup || String(r.mobile || '').includes('@g.us')).length;
+        console.log(`🛡️ [BNA_DIRECT_ANTI_BAN] Dispatching ${totalWaChats} WhatsApp Web chats (${indCount} Individual Contacts, ${grpCount} Groups) across ${totalBatches} batches (${BATCH_SIZE} chats/batch, 8-15s intra-chat typing delay, 3-10m cooldown between batches).`);
+    }
+
+    for (let b = 0; b < totalBatches; b++) {
+        const batchStart = b * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, totalWaChats);
+        const currentBatch = waWebRecipients.slice(batchStart, batchEnd);
+
+        console.log(`🚀 [BNA_DIRECT] [Batch ${b + 1}/${totalBatches}] Forwarding to 5-chat batch (${currentBatch.length} chats: ${batchStart + 1} to ${batchEnd} of ${totalWaChats})...`);
+
+        for (let j = 0; j < currentBatch.length; j++) {
+            const target = currentBatch[j];
+            const isGroup = target.isGroup || String(target.mobile || '').includes('@g.us');
+            const chatLabel = isGroup ? `Group '${target.name || target.mobile}'` : `Contact '${target.name || target.mobile}'`;
+            const targetMobile = String(target.mobile || '').trim();
+
+            if (!forceBroadcast && targetMobile && recentlyMessagedJids.has(targetMobile)) {
+                console.log(`⏭️ [BNA_DIRECT_DEDUPLICATION] Skipped ${chatLabel} (Already sent Deal in last ${deduplicationWindowHours || 4}h).`);
+                continue;
+            }
+
+            console.log(`[BNA_DIRECT] [Batch ${b + 1}/${totalBatches} - Chat ${j + 1}/${currentBatch.length}] Sending to ${chatLabel}...`);
+            await dispatchSingleRecipient(target);
+            if (targetMobile) recentlyMessagedJids.add(targetMobile);
+
+            if (j < currentBatch.length - 1) {
+                const intraJitterMs = Math.floor(Math.random() * 7000) + 8000; // 8s to 15s
+                console.log(`⏳ [BNA_DIRECT] Intra-batch pacing ${Math.round(intraJitterMs / 1000)}s before next chat...`);
+                await new Promise(r => setTimeout(r, intraJitterMs));
+            }
+        }
+
+        // Inter-batch cooldown: 3 to 10 minutes between batches (only if more batches remain)
+        if (b < totalBatches - 1) {
+            const cooldownSeconds = Math.floor(Math.random() * (600 - 180 + 1)) + 180; // 180s to 600s
+            const cooldownMins = (cooldownSeconds / 60).toFixed(1);
+            console.log(`🛑 🛡️ [BNA_DIRECT_ANTI_BAN] Batch ${b + 1}/${totalBatches} finished. Cooling down for ${cooldownMins} minutes (${cooldownSeconds}s) to comply with WhatsApp Business limits...`);
+
+            let elapsed = 0;
+            while (elapsed < cooldownSeconds) {
+                const step = Math.min(10, cooldownSeconds - elapsed);
+                await new Promise(r => setTimeout(r, step * 1000));
+                elapsed += step;
+                if (elapsed % 60 === 0 || elapsed === cooldownSeconds) {
+                    console.log(`⏳ [BNA_DIRECT_COOLDOWN] ${elapsed}/${cooldownSeconds}s elapsed (~${Math.ceil((cooldownSeconds - elapsed) / 60)}m remaining)...`);
+                }
+            }
+            console.log(`⚡ [BNA_DIRECT_COOLDOWN] Resuming WhatsApp Safe Dispatch for Batch ${b + 2}/${totalBatches}...`);
+        }
     }
 }
 
@@ -2137,3 +2296,104 @@ export const generateMatchLink = async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to generate match link' });
     }
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🚀 Phase 4: Live Broadcast Progress Board & Operator Controls
+// ═════════════════════════════════════════════════════════════════════════════
+
+export const getLiveBroadcastState = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        if (!campaignId) {
+            return res.status(400).json({ success: false, error: 'campaignId is required' });
+        }
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const state = await BroadcastLiveTracker.getCampaignState(campaignId);
+        if (!state) {
+            return res.status(404).json({ success: false, error: `Campaign ${campaignId} not found` });
+        }
+        return res.json({ success: true, data: state });
+    } catch (err) {
+        console.error('[getLiveBroadcastState] Error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const getLiveBroadcasts = async (req, res) => {
+    try {
+        const { dealId, limit } = req.query;
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const parsedLimit = limit ? parseInt(limit, 10) : 10;
+        const campaigns = await BroadcastLiveTracker.listLiveCampaigns({ dealId, limit: parsedLimit });
+        return res.json({ success: true, data: campaigns });
+    } catch (err) {
+        console.error('[getLiveBroadcasts] Error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+export const pauseBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.pauseCampaign(campaignId, performedBy, reason);
+        return res.json(result);
+    } catch (err) {
+        console.error('[pauseBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONFLICT') ? 409 : 400);
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const resumeBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const queue = await getMarketingQueue();
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.resumeCampaign(campaignId, performedBy, reason, queue);
+        return res.json(result);
+    } catch (err) {
+        console.error('[resumeBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONFLICT') ? 409 : 400);
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const cancelBroadcastCampaign = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const { reason } = req.body || {};
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.cancelCampaign(campaignId, performedBy, reason);
+        return res.json(result);
+    } catch (err) {
+        console.error('[cancelBroadcastCampaign] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : 400;
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+
+export const retryFailedBroadcastRecipients = async (req, res) => {
+    try {
+        const { campaignId } = req.params;
+        const performedBy = req.user?.fullName || req.user?.name || 'Operator';
+        const queue = await getMarketingQueue();
+        const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
+        const result = await BroadcastLiveTracker.retryFailedRecipients(campaignId, performedBy, queue);
+        if (!result.success) {
+            const statusCode = result.error?.includes('CONCURRENT') ? 409 : 400;
+            return res.status(statusCode).json(result);
+        }
+        return res.json(result);
+    } catch (err) {
+        console.error('[retryFailedBroadcastRecipients] Error:', err);
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONCURRENT') ? 409 : 400);
+        return res.status(statusCode).json({ success: false, error: err.message });
+    }
+};
+

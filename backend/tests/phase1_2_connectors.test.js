@@ -369,6 +369,14 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
         );
         domainGovernancePolicy.registerDomain('realestateportal.com', { approvedBy: 'test_fixture' });
         const originalAxiosGet = (await import('axios')).default.get;
+        const dns = await import('dns');
+        const originalLookup = dns.promises.lookup;
+        dns.promises.lookup = async (host, opts) => {
+            if (host === 'realestateportal.com') {
+                return [{ address: '93.184.216.34', family: 4 }];
+            }
+            return originalLookup.call(dns.promises, host, opts);
+        };
         (await import('axios')).default.get = async () => ({
             status: 200,
             statusText: 'OK',
@@ -394,6 +402,7 @@ test('--- PHASE 1.2: AUTHORIZED DISCOVERY SOURCES & PIPELINE INTEGRATION SUITE -
             assert.equal(result.extracted_entities.filter_evaluation.passed, true);
         } finally {
             (await import('axios')).default.get = originalAxiosGet;
+            dns.promises.lookup = originalLookup;
         }
     });
 

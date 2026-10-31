@@ -18,6 +18,7 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUsers } from '../../utils/crmHooks';
 
 // ── Real CRM Modals (Phase A Integration) ──
+import LiveBroadcastBoard from '../../components/Marketing/LiveBroadcastBoard';
 import SendMessageModal from '../../components/SendMessageModal';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddLeadModal from '../../components/AddLeadModal';
@@ -2733,6 +2734,9 @@ export default function MarketingOverviewPage({ onNavigate }) {
                   <div className="kpi-sub blue">Deals via BNA</div>
                 </div>
               </div>
+
+              {/* ── Phase 4: Live Broadcast Progress Board & Recovery Controls ──── */}
+              <LiveBroadcastBoard />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.25rem' }}>
                 <div className="card glass-card">

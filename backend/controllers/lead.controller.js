@@ -19,7 +19,6 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
-import UnifiedAIService from '../services/UnifiedAIService.js';
 import AIExecutionService from '../services/ai/AIExecutionService.js';
 import AIExecutionContext from '../services/ai/AIExecutionContext.js';
 import AddressParsingService from '../services/AddressParsingService.js';
