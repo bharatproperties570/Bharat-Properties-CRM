@@ -395,7 +395,8 @@ export class AuthorityBulkProcessor {
         await run.save();
 
         const safeBatchSize = Math.max(1, Math.min(batchSize, 500));
-        const workerId = `worker_${new mongoose.Types.ObjectId().toString()}`;
+        const workerId = options.workerId || `worker_${new mongoose.Types.ObjectId().toString()}`;
+        const workerLeaseMs = options.workerLeaseMs || WORKER_LEASE_MS;
         let hasRemaining = true;
         let emptyWaitAttempts = 0;
 
@@ -477,7 +478,7 @@ export class AuthorityBulkProcessor {
             const claimedItems = [];
             for (const cand of candidates) {
                 const claimTime = new Date();
-                const leaseExpiresAt = new Date(claimTime.getTime() + WORKER_LEASE_MS);
+                const leaseExpiresAt = new Date(claimTime.getTime() + workerLeaseMs);
                 const claimed = await PropertyVerificationRunItem.findOneAndUpdate(
                     {
                         _id: cand._id,
@@ -513,12 +514,16 @@ export class AuthorityBulkProcessor {
             for (const item of claimedItems) {
                 try {
                     // Enforce per-item worker lease renewal right before processing
-                    const renewed = await this.renewItemLease(item._id, tenantId, workerId);
+                    const renewed = await this.renewItemLease(item._id, tenantId, workerId, workerLeaseMs);
                     if (!renewed) {
                         // Another worker reclaimed this item after lease expiry, or lease expired
                         continue;
                     }
                     item.leaseExpiresAt = renewed.leaseExpiresAt;
+
+                    if (typeof options.beforeItemProcessing === 'function') {
+                        await options.beforeItemProcessing(item, workerId);
+                    }
 
                     if (Boolean(item.isSynthetic) !== isFixtureMode) {
                         const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
@@ -735,13 +740,15 @@ export class AuthorityBulkProcessor {
      */
     static async renewItemLease(itemId, tenantId, workerId, leaseDurationMs = WORKER_LEASE_MS) {
         if (!itemId || !tenantId || !workerId) return null;
-        const newExpiry = new Date(Date.now() + leaseDurationMs);
+        const now = new Date();
+        const newExpiry = new Date(now.getTime() + leaseDurationMs);
         return PropertyVerificationRunItem.findOneAndUpdate(
             {
                 _id: itemId,
                 tenantId,
                 claimedBy: workerId,
-                status: 'PROCESSING'
+                status: 'PROCESSING',
+                leaseExpiresAt: { $gt: now }
             },
             {
                 $set: { leaseExpiresAt: newExpiry }

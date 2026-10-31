@@ -724,6 +724,14 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // Mismatched worker attempts renewal
             const intruderRenewal = await AuthorityBulkProcessor.renewItemLease(item._id, tenantA, 'intruder_worker_99');
             assert.equal(intruderRenewal, null, 'Lease renewal must fail for mismatched workerId');
+
+            // Expired lease cannot be renewed by stale worker (fails closed)
+            await PropertyVerificationRunItem.updateOne(
+                { _id: item._id },
+                { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+            );
+            const expiredRenewal = await AuthorityBulkProcessor.renewItemLease(item._id, tenantA, 'legitimate_worker_42');
+            assert.equal(expiredRenewal, null, 'Lease renewal must fail closed when lease has expired');
         });
 
         it('4.4 stale worker with expired lease cannot finalize item or overwrite new owner state', async () => {
@@ -888,7 +896,101 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             assert.equal(snapshots.length, 1, 'Exactly one snapshot must exist for the run item');
         });
 
-        it('4.6 in-flight lease renewal protects batch processing across batch sizes (1, 50, 500)', async () => {
+        it('4.6 in-flight lease expiry and late completion fencing prevents duplicate snapshots, counter drift and overwrites', async () => {
+            const slowInv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'SLOW-LEASE-101',
+                projectName: 'Lease Expiry Fencing Test',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const slowLink = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: slowInv._id,
+                authorityCode: 'CHD',
+                propertyId: slowInv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const slowRun = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'CREATED',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const slowItem = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: slowRun._id,
+                inventoryId: slowInv._id,
+                linkId: slowLink._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker A claims item with deterministic short lease (40ms) and stalls in-flight
+            let workerBExecuted = false;
+            await AuthorityBulkProcessor.processRun(slowRun._id, {
+                tenantId: tenantA,
+                batchSize: 1,
+                workerId: 'worker_slow_A',
+                workerLeaseMs: 40,
+                isFixtureMode: true,
+                beforeItemProcessing: async (item, workerId) => {
+                    // Simulate processing delay exceeding the 40ms worker lease
+                    await new Promise(r => setTimeout(r, 60));
+
+                    // While Worker A is delayed in-flight, Worker B reclaims and finalizes the item
+                    const workerBOutcome = await AuthorityBulkProcessor.processRun(slowRun._id, {
+                        tenantId: tenantA,
+                        batchSize: 1,
+                        workerId: 'worker_reclaim_B',
+                        workerLeaseMs: 30000,
+                        isFixtureMode: true
+                    });
+
+                    assert.equal(workerBOutcome.status, 'COMPLETED');
+                    assert.equal(workerBOutcome.succeededItems, 1);
+                    workerBExecuted = true;
+                }
+            });
+
+            assert.ok(workerBExecuted, 'Worker B must have executed during Worker A in-flight delay');
+
+            // Verify item state in DB: owned by Worker B, SUCCEEDED
+            const itemInDb = await PropertyVerificationRunItem.findById(slowItem._id);
+            assert.equal(itemInDb.status, 'SUCCEEDED');
+            assert.equal(itemInDb.claimedBy, 'worker_reclaim_B', 'Item ownership must remain with Worker B');
+            assert.ok(itemInDb.snapshotId, 'Item must have valid snapshotId from Worker B');
+
+            // Verify exactly one snapshot exists in database
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: slowItem._id
+            });
+            assert.equal(snapshots.length, 1, 'Exactly one snapshot must exist (no duplicate snapshot created by late Worker A)');
+
+            // Verify run counters: exactly 1 processed, 1 succeeded, 0 failed (no double-counting from late Worker A)
+            const finalRun = await PropertyVerificationRun.findById(slowRun._id);
+            assert.equal(finalRun.status, 'COMPLETED');
+            assert.equal(finalRun.processedItems, 1);
+            assert.equal(finalRun.succeededItems, 1);
+            assert.equal(finalRun.failedItems, 0);
+
+            // Verify renewItemLease fails closed for stale Worker A
+            const staleRenewal = await AuthorityBulkProcessor.renewItemLease(slowItem._id, tenantA, 'worker_slow_A');
+            assert.equal(staleRenewal, null, 'renewItemLease must return null for stale worker after ownership transferred');
+
+            // Retain multi-batch size coverage (1, 50, 500)
             for (const batchSize of [1, 50, 500]) {
                 const count = batchSize === 500 ? 50 : (batchSize === 50 ? 10 : 2);
                 const invList = [];
@@ -952,39 +1054,39 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 assert.equal(outcome.succeededItems, count);
                 assert.equal(outcome.failedItems, 0);
 
-                const finalRun = await PropertyVerificationRun.findById(run._id);
-                assert.equal(finalRun.status, 'COMPLETED');
-                assert.equal(finalRun.processedItems, count);
-                assert.equal(finalRun.succeededItems, count);
-                assert.equal(finalRun.failedItems, 0);
+                const finalBatchRun = await PropertyVerificationRun.findById(run._id);
+                assert.equal(finalBatchRun.status, 'COMPLETED');
+                assert.equal(finalBatchRun.processedItems, count);
+                assert.equal(finalBatchRun.succeededItems, count);
+                assert.equal(finalBatchRun.failedItems, 0);
             }
         });
 
-        it('4.7 counter integrity under concurrent worker reclaim avoids duplicate or lost counters', async () => {
-            const cInv1 = await Inventory.create({
-                tenantId: tenantA,
-                unitNo: 'CTR-101',
-                projectName: 'Counter Test',
-                sector: 'Sector 17',
-                city: 'Chandigarh',
-                type: 'commercial'
-            });
-            const cInv2 = await Inventory.create({
-                tenantId: tenantA,
-                unitNo: 'CTR-102',
-                projectName: 'Counter Test',
-                sector: 'Sector 17',
-                city: 'Chandigarh',
-                type: 'commercial'
-            });
-            const cInv3 = await Inventory.create({
-                tenantId: tenantA,
-                unitNo: 'CTR-103',
-                projectName: 'Counter Test',
-                sector: 'Sector 17',
-                city: 'Chandigarh',
-                type: 'commercial'
-            });
+        it('4.7 genuine overlapping concurrent workers via Promise.all avoid duplicate or lost counters and guarantee single snapshot per item', async () => {
+            const invList = [];
+            const linkList = [];
+            for (let i = 1; i <= 6; i++) {
+                const inv = await Inventory.create({
+                    tenantId: tenantA,
+                    unitNo: `CONC-CTR-${i}`,
+                    projectName: 'Concurrent Worker Test',
+                    sector: 'Sector 17',
+                    city: 'Chandigarh',
+                    type: 'commercial'
+                });
+                invList.push(inv);
+
+                const link = await PropertyAuthorityLink.create({
+                    tenantId: tenantA,
+                    inventoryId: inv._id,
+                    authorityCode: 'CHD',
+                    propertyId: inv.unitNo,
+                    sectorNumber: 'Sector 17',
+                    matchEligibility: 'ELIGIBLE',
+                    createdBy: userA._id
+                });
+                linkList.push(link);
+            }
 
             const run = await PropertyVerificationRun.create({
                 tenantId: tenantA,
@@ -993,50 +1095,20 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 runMode: 'BULK_MANUAL',
                 status: 'PROCESSING',
                 isFixtureMode: true,
-                totalItems: 3,
+                totalItems: 6,
                 processedItems: 0,
                 succeededItems: 0,
                 failedItems: 0
             });
 
-            const link1 = await PropertyAuthorityLink.create({
-                tenantId: tenantA,
-                inventoryId: cInv1._id,
-                authorityCode: 'CHD',
-                propertyId: cInv1.unitNo,
-                sectorNumber: 'Sector 17',
-                matchEligibility: 'ELIGIBLE',
-                createdBy: userA._id
-            });
-
-            const link2 = await PropertyAuthorityLink.create({
-                tenantId: tenantA,
-                inventoryId: cInv2._id,
-                authorityCode: 'CHD',
-                propertyId: cInv2.unitNo,
-                sectorNumber: 'Sector 17',
-                matchEligibility: 'ELIGIBLE',
-                createdBy: userA._id
-            });
-
-            const link3 = await PropertyAuthorityLink.create({
-                tenantId: tenantA,
-                inventoryId: cInv3._id,
-                authorityCode: 'CHD',
-                propertyId: cInv3.unitNo,
-                sectorNumber: 'Sector 17',
-                matchEligibility: 'ELIGIBLE',
-                createdBy: userA._id
-            });
-
-            // Item 1: already SUCCEEDED
+            // Item 1: PENDING
             await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: run._id,
-                inventoryId: cInv1._id,
-                linkId: link1._id,
+                inventoryId: invList[0]._id,
+                linkId: linkList[0]._id,
                 authorityCode: 'CHD',
-                status: 'SUCCEEDED',
+                status: 'PENDING',
                 isSynthetic: true,
                 provenance: 'SYNTHETIC_FIXTURE'
             });
@@ -1045,8 +1117,8 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: run._id,
-                inventoryId: cInv2._id,
-                linkId: link2._id,
+                inventoryId: invList[1]._id,
+                linkId: linkList[1]._id,
                 authorityCode: 'CHD',
                 status: 'PROCESSING',
                 claimedBy: 'dead_worker_999',
@@ -1056,35 +1128,49 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 provenance: 'SYNTHETIC_FIXTURE'
             });
 
-            // Item 3: PENDING
-            await PropertyVerificationRunItem.create({
-                tenantId: tenantA,
-                runId: run._id,
-                inventoryId: cInv3._id,
-                linkId: link3._id,
-                authorityCode: 'CHD',
-                status: 'PENDING',
-                isSynthetic: true,
-                provenance: 'SYNTHETIC_FIXTURE'
-            });
+            // Items 3 to 6: PENDING
+            for (let i = 2; i < 6; i++) {
+                await PropertyVerificationRunItem.create({
+                    tenantId: tenantA,
+                    runId: run._id,
+                    inventoryId: invList[i]._id,
+                    linkId: linkList[i]._id,
+                    authorityCode: 'CHD',
+                    status: 'PENDING',
+                    isSynthetic: true,
+                    provenance: 'SYNTHETIC_FIXTURE'
+                });
+            }
 
-            // Run processRun with a healthy active worker to reclaim and finalize
-            const outcome = await AuthorityBulkProcessor.processRun(run._id, {
-                tenantId: tenantA,
-                isFixtureMode: true,
-                batchSize: 10,
-                workerId: 'healthy_worker_100'
-            });
+            // Launch genuine overlapping concurrent workers via Promise.all
+            const [workerAResult, workerBResult] = await Promise.all([
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    batchSize: 2,
+                    workerId: 'worker_concurrent_alpha',
+                    maxWaitAttempts: 10,
+                    waitIntervalMs: 50
+                }),
+                AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    batchSize: 2,
+                    workerId: 'worker_concurrent_beta',
+                    maxWaitAttempts: 10,
+                    waitIntervalMs: 50
+                })
+            ]);
 
-            assert.equal(outcome.status, 'COMPLETED');
-            assert.equal(outcome.processedItems, 3, 'Total processed items must match total items exactly');
-            assert.equal(outcome.succeededItems, 3, 'All 3 items must be SUCCEEDED');
-            assert.equal(outcome.failedItems, 0);
+            // Verify both workers completed cleanly without unhandled rejections
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(workerAResult.status));
+            assert.ok(['COMPLETED', 'PROCESSING'].includes(workerBResult.status));
 
-            // Verify database counters match item aggregation exactly
+            // Verify database run document reached final COMPLETED status
             const completedRun = await PropertyVerificationRun.findById(run._id);
-            assert.equal(completedRun.processedItems, 3);
-            assert.equal(completedRun.succeededItems, 3);
+            assert.equal(completedRun.status, 'COMPLETED');
+            assert.equal(completedRun.processedItems, 6, 'Total processed items must match total items exactly');
+            assert.equal(completedRun.succeededItems, 6, 'All 6 items must be SUCCEEDED');
             assert.equal(completedRun.failedItems, 0);
 
             // Re-verify aggregate counts directly from items
@@ -1093,9 +1179,43 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 { $group: { _id: '$status', count: { $sum: 1 } } }
             ]);
             const map = Object.fromEntries(counts.map(c => [c._id, c.count]));
-            assert.equal(map.SUCCEEDED, 3);
+            assert.equal(map.SUCCEEDED, 6);
             assert.equal(map.PROCESSING || 0, 0);
             assert.equal(map.PENDING || 0, 0);
+
+            // Verify all items have terminal SUCCEEDED status and snapshotId
+            const runItems = await PropertyVerificationRunItem.find({ runId: run._id, tenantId: tenantA });
+            assert.equal(runItems.length, 6);
+            for (const item of runItems) {
+                assert.equal(item.status, 'SUCCEEDED');
+                assert.ok(item.snapshotId, 'Item must have valid snapshotId');
+            }
+
+            // Verify multi-worker participation: both workers claimed items
+            const workerIds = new Set(runItems.map(it => it.claimedBy));
+            assert.ok(
+                workerIds.has('worker_concurrent_alpha') && workerIds.has('worker_concurrent_beta'),
+                `Both concurrent workers must have participated (actual: ${Array.from(workerIds).join(', ')})`
+            );
+
+            // Verify expired lease item was reclaimed and not left to dead worker
+            const deadWorkerReclaimedItem = runItems.find(it => String(it.inventoryId) === String(invList[1]._id));
+            assert.notEqual(deadWorkerReclaimedItem.claimedBy, 'dead_worker_999');
+            assert.ok(['worker_concurrent_alpha', 'worker_concurrent_beta'].includes(deadWorkerReclaimedItem.claimedBy));
+
+            // Verify snapshot count: exactly one snapshot per run item
+            const itemIds = runItems.map(it => it._id);
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: { $in: itemIds }
+            });
+            assert.equal(snapshots.length, 6, 'Exactly one snapshot per run item must exist (no duplicates)');
+
+            // Verify uniqueness per item
+            for (const item of runItems) {
+                const itemSnapshots = snapshots.filter(s => String(s.runItemId) === String(item._id));
+                assert.equal(itemSnapshots.length, 1, `Item ${item._id} must have exactly one snapshot`);
+            }
         });
     });
 
