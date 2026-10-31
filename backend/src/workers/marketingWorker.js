@@ -201,7 +201,9 @@ async function dispatchSingleRecipientCore({
     campaignId,
     performedBy,
     dealId,
-    job
+    job,
+    haltTimeoutMs = 3000,
+    whatsAppService: waServiceParam
 }) {
     const results = [];
     const isGroup = recipient.isGroup || String(recipient.mobile || '').includes('@g.us');
@@ -217,7 +219,7 @@ async function dispatchSingleRecipientCore({
 
     let text = '';
     let primaryWaResult = null;
-    const waService = whatsAppService || (await import('../../services/WhatsAppService.js')).default;
+    const waService = waServiceParam || whatsAppService || (await import('../../services/WhatsAppService.js')).default;
     const eSvc = emailService || (await import('../../services/email.service.js')).default;
 
     if (channels.includes('whatsapp') && recipient.mobile) {
@@ -252,11 +254,16 @@ async function dispatchSingleRecipientCore({
                 return { success: false, suppressed: true, results, primaryWaResult };
             }
 
-            // 🛡️ Pre-Dispatch Halt Guard: Re-verify campaign state immediately before external network I/O
+            // 🛡️ Pre-Dispatch Halt Guard: Re-verify campaign state immediately before external network I/O (Fail-Closed)
             if (campaignId) {
+                let haltTimer;
                 try {
                     const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
-                    const preDispatchHalt = await BroadcastLiveTracker.isCampaignHalted(campaignId);
+                    const haltPromise = BroadcastLiveTracker.isCampaignHalted(campaignId);
+                    const timeoutPromise = new Promise((_, reject) => {
+                        haltTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+                    });
+                    const preDispatchHalt = await Promise.race([haltPromise, timeoutPromise]);
                     if (preDispatchHalt?.halted) {
                         if (job?.log) await job.log(`🛑 [Pre-Dispatch Guard] Campaign ${campaignId} is ${preDispatchHalt.status} immediately before network write. Aborting send to ${recipient.name || recipient.mobile}.`);
                         primaryWaResult = {
@@ -269,7 +276,26 @@ async function dispatchSingleRecipientCore({
                         return { success: false, halted: true, status: preDispatchHalt.status, results, primaryWaResult };
                     }
                 } catch (haltErr) {
-                    if (job?.log) await job.log(`[Pre-Dispatch Guard] Notice: ${haltErr.message}`);
+                    // Fail closed: Never treat verification failure as permission to send
+                    if (job?.log) await job.log(`🛑 [Pre-Dispatch Guard] Halt verification failed for campaign ${campaignId}: ${haltErr.message}. Failing closed (aborting provider write).`);
+                    primaryWaResult = {
+                        channel: 'whatsapp',
+                        status: 'halt_check_failed',
+                        deliveryStatus: 'HALT_CHECK_FAILED',
+                        error: `Halt verification failed: ${haltErr.message}. Provider write aborted for safety.`
+                    };
+                    results.push(primaryWaResult);
+                    return {
+                        success: false,
+                        halted: true,
+                        haltCheckFailed: true,
+                        status: 'HALT_CHECK_FAILED',
+                        error: `HALT_CHECK_FAILED: ${haltErr.message}`,
+                        results,
+                        primaryWaResult
+                    };
+                } finally {
+                    if (haltTimer) clearTimeout(haltTimer);
                 }
             }
 
@@ -492,7 +518,8 @@ async function dispatchSingleRecipientCore({
  * Schedules only the NEXT recipient micro-job into BullMQ with randomized anti-spam jitter or inter-batch cooldown.
  * Eliminates burst on resume, guarantees Concurrency: 1 pacing, and keeps worker memory/threads 100% free.
  */
-async function chainNextRecipient(job, data, currentIndex, currentStats, totalCount) {
+async function chainNextRecipient(job, data, currentIndex, currentStats, totalCount, options = {}) {
+    const haltTimeoutMs = options.haltTimeoutMs || data.haltTimeoutMs || 3000;
     const nextIndex = currentIndex + 1;
     if (nextIndex >= totalCount) {
         await job.log(`🎉 [BNA Campaign ${data.campaignId}] Broadcast Complete! Sent: ${currentStats.sent}, Accepted: ${currentStats.accepted || 0}, Suppressed: ${currentStats.suppressed || 0}, Failed: ${currentStats.failed}, Unknown: ${currentStats.unknown}, Skipped: ${currentStats.skipped}`);
@@ -513,10 +540,15 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
         };
     }
 
-    // 🛑 Operator Control: Halt chaining if campaign is paused or cancelled
+    // 🛑 Operator Control: Halt chaining if campaign is paused or cancelled (Fail-Closed)
+    let chainHaltTimer;
     try {
         const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
-        const haltCheck = await BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const haltPromise = BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const timeoutPromise = new Promise((_, reject) => {
+            chainHaltTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+        });
+        const haltCheck = await Promise.race([haltPromise, timeoutPromise]);
         if (haltCheck?.halted) {
             await job.log(`🛑 [Operator Control] Campaign ${data.campaignId} is ${haltCheck.status}. Halting chained execution at recipient ${currentIndex + 1}/${totalCount}.`);
             return {
@@ -527,7 +559,17 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
             };
         }
     } catch (haltErr) {
-        await job.log(`[Operator Control] Halt check warning: ${haltErr.message}`);
+        // Fail closed: Never swallow verification failure or continue chaining
+        await job.log(`🛑 [Operator Control] Pre-chaining halt verification failed for campaign ${data.campaignId}: ${haltErr.message}. Halting chained enqueue.`);
+        return {
+            status: 'HALT_CHECK_FAILED',
+            campaignId: data.campaignId,
+            haltedAtIndex: currentIndex,
+            error: haltErr.message,
+            progress: `${currentIndex + 1}/${totalCount}`
+        };
+    } finally {
+        if (chainHaltTimer) clearTimeout(chainHaltTimer);
     }
 
     // Determine Delay:
@@ -558,10 +600,15 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
         });
     } catch (trackDelayErr) {}
 
-    // 🛑 Pre-Enqueue Halt Guard: Re-verify campaign state immediately before queue add to prevent stale chained micro-jobs
+    // 🛑 Pre-Enqueue Halt Guard: Re-verify campaign state immediately before queue add to prevent stale chained micro-jobs (Fail-Closed)
+    let preEnqueueTimer;
     try {
         const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
-        const preEnqueueHalt = await BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const haltPromise = BroadcastLiveTracker.isCampaignHalted(data.campaignId);
+        const timeoutPromise = new Promise((_, reject) => {
+            preEnqueueTimer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), haltTimeoutMs);
+        });
+        const preEnqueueHalt = await Promise.race([haltPromise, timeoutPromise]);
         if (preEnqueueHalt?.halted) {
             await job.log(`🛑 [Pre-Enqueue Guard] Campaign ${data.campaignId} is ${preEnqueueHalt.status} immediately before queue insertion. Aborting micro-job ${nextIndex} enqueue.`);
             return {
@@ -573,10 +620,21 @@ async function chainNextRecipient(job, data, currentIndex, currentStats, totalCo
             };
         }
     } catch (haltCheckErr) {
-        await job.log(`[Pre-Enqueue Guard] Notice: ${haltCheckErr.message}`);
+        // Fail closed: Never swallow verification failure or enqueue micro-job
+        await job.log(`🛑 [Pre-Enqueue Guard] Pre-enqueue halt verification failed for campaign ${data.campaignId}: ${haltCheckErr.message}. Aborting micro-job ${nextIndex} enqueue.`);
+        return {
+            status: 'HALT_CHECK_FAILED',
+            campaignId: data.campaignId,
+            haltedAtIndex: currentIndex,
+            nextIndexAborted: nextIndex,
+            error: haltCheckErr.message,
+            progress: `${currentIndex + 1}/${totalCount}`
+        };
+    } finally {
+        if (preEnqueueTimer) clearTimeout(preEnqueueTimer);
     }
 
-    const { marketingQueue } = await import('../queues/marketingQueue.js');
+    const marketingQueue = options.marketingQueue || (await import('../queues/marketingQueue.js')).marketingQueue;
     await marketingQueue.add('bna-recipient-dispatch', {
         ...data,
         circuitAttempt: 0, // Reset circuit attempt on advance
@@ -1289,16 +1347,24 @@ if (name === 'bna-broadcast') {
         const overallProgress = Math.round(((recipientIndex + 1) / recipients.length) * 100);
         await job.updateProgress(overallProgress);
 
-        // 0. Operator Control: Check if campaign was paused or cancelled by operator
+        // 0. Operator Control: Check if campaign was paused or cancelled by operator (Fail-Closed)
+        let step0Timer;
         try {
             const { default: BroadcastLiveTracker } = await import('../../services/BroadcastLiveTracker.js');
-            const haltCheck = await BroadcastLiveTracker.isCampaignHalted(campaignId);
+            const haltPromise = BroadcastLiveTracker.isCampaignHalted(campaignId);
+            const timeoutPromise = new Promise((_, reject) => {
+                step0Timer = setTimeout(() => reject(new Error('HALT_CHECK_TIMEOUT')), data.haltTimeoutMs || 3000);
+            });
+            const haltCheck = await Promise.race([haltPromise, timeoutPromise]);
             if (haltCheck?.halted) {
                 await job.log(`⏸️ [Operator Control] Campaign ${campaignId} is ${haltCheck.status}. Halting micro-job for recipient ${recipientIndex + 1}/${recipients.length}.`);
                 return { status: haltCheck.status, campaignId, recipientIndex };
             }
         } catch (haltErr) {
-            await job.log(`[Operator Control] Halt check notice: ${haltErr.message}`);
+            await job.log(`🛑 [Operator Control] Halt verification failed for campaign ${campaignId}: ${haltErr.message}. Halting micro-job for safety.`);
+            return { status: 'HALT_CHECK_FAILED', campaignId, recipientIndex, error: haltErr.message };
+        } finally {
+            if (step0Timer) clearTimeout(step0Timer);
         }
 
         // 1. Idempotency Check: Was this recipient already processed in this campaign?
@@ -1347,7 +1413,8 @@ if (name === 'bna-broadcast') {
             campaignId,
             performedBy,
             dealId,
-            job
+            job,
+            haltTimeoutMs: data.haltTimeoutMs || 3000
         });
         const { success, results, primaryWaResult, suppressed, halted } = dispatchRes;
 

@@ -1326,4 +1326,298 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
             BroadcastCampaign.updateOne = originalUpdateOne;
         }
     });
+
+    it('29. Fail-Closed Halt Guard: Halt check returns PAUSED → zero provider calls, zero next-job enqueue', async () => {
+        const campaignId = 'bna_camp_halt_paused';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Halt PAUSED Test',
+            totalRecipients: 2
+        });
+
+        const originalHalt = BroadcastLiveTracker.isCampaignHalted;
+        let providerCalls = 0;
+        let queueAddCalls = 0;
+
+        const mockWaService = {
+            isRecipientOptedOut: async () => false,
+            sendTemplate: async () => { providerCalls++; return { success: true, messageId: 'meta_p1' }; },
+            sendMessage: async () => { providerCalls++; return { success: true, messageId: 'wa_p1' }; }
+        };
+        const mockQueue = {
+            add: async () => { queueAddCalls++; return { id: 'mock_queued_job' }; }
+        };
+        const mockJob = { id: 'job_halt_paused', log: async () => {} };
+
+        try {
+            BroadcastLiveTracker.isCampaignHalted = async () => ({ halted: true, status: 'PAUSED' });
+
+            // 1. Pre-Dispatch Guard test
+            const dispatchRes = await dispatchSingleRecipientCore({
+                recipient: { mobile: '919811199991', name: 'User Paused' },
+                campaignId,
+                channels: ['whatsapp'],
+                meta: { title: 'Paused Deal' },
+                job: mockJob,
+                whatsAppService: mockWaService
+            });
+
+            assert.strictEqual(dispatchRes.halted, true);
+            assert.strictEqual(dispatchRes.status, 'PAUSED');
+            assert.strictEqual(dispatchRes.success, false);
+            assert.strictEqual(providerCalls, 0, 'Zero provider calls must be made when campaign is PAUSED');
+
+            // 2. Pre-Chaining Guard test
+            const chainRes = await chainNextRecipient(
+                mockJob,
+                { campaignId, recipients: [{ mobile: '919811199991' }, { mobile: '919811199992' }] },
+                0,
+                { sent: 0, failed: 0, unknown: 0, skipped: 0 },
+                2,
+                { marketingQueue: mockQueue }
+            );
+
+            assert.strictEqual(chainRes.status, 'PAUSED');
+            assert.strictEqual(queueAddCalls, 0, 'Zero next-job enqueue must occur when campaign is PAUSED');
+        } finally {
+            BroadcastLiveTracker.isCampaignHalted = originalHalt;
+        }
+    });
+
+    it('30. Fail-Closed Halt Guard: Halt check returns CANCELLED → zero provider calls, zero next-job enqueue', async () => {
+        const campaignId = 'bna_camp_halt_cancelled';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Halt CANCELLED Test',
+            totalRecipients: 2
+        });
+
+        const originalHalt = BroadcastLiveTracker.isCampaignHalted;
+        let providerCalls = 0;
+        let queueAddCalls = 0;
+
+        const mockWaService = {
+            isRecipientOptedOut: async () => false,
+            sendTemplate: async () => { providerCalls++; return { success: true, messageId: 'meta_c1' }; },
+            sendMessage: async () => { providerCalls++; return { success: true, messageId: 'wa_c1' }; }
+        };
+        const mockQueue = {
+            add: async () => { queueAddCalls++; return { id: 'mock_queued_job' }; }
+        };
+        const mockJob = { id: 'job_halt_cancelled', log: async () => {} };
+
+        try {
+            BroadcastLiveTracker.isCampaignHalted = async () => ({ halted: true, status: 'CANCELLED' });
+
+            // 1. Pre-Dispatch Guard test
+            const dispatchRes = await dispatchSingleRecipientCore({
+                recipient: { mobile: '919811199992', name: 'User Cancelled' },
+                campaignId,
+                channels: ['whatsapp'],
+                meta: { title: 'Cancelled Deal' },
+                job: mockJob,
+                whatsAppService: mockWaService
+            });
+
+            assert.strictEqual(dispatchRes.halted, true);
+            assert.strictEqual(dispatchRes.status, 'CANCELLED');
+            assert.strictEqual(dispatchRes.success, false);
+            assert.strictEqual(providerCalls, 0, 'Zero provider calls must be made when campaign is CANCELLED');
+
+            // 2. Pre-Chaining Guard test
+            const chainRes = await chainNextRecipient(
+                mockJob,
+                { campaignId, recipients: [{ mobile: '919811199991' }, { mobile: '919811199992' }] },
+                0,
+                { sent: 0, failed: 0, unknown: 0, skipped: 0 },
+                2,
+                { marketingQueue: mockQueue }
+            );
+
+            assert.strictEqual(chainRes.status, 'CANCELLED');
+            assert.strictEqual(queueAddCalls, 0, 'Zero next-job enqueue must occur when campaign is CANCELLED');
+        } finally {
+            BroadcastLiveTracker.isCampaignHalted = originalHalt;
+        }
+    });
+
+    it('31. Fail-Closed Halt Guard: Halt check throws database error → zero provider calls, zero next-job enqueue', async () => {
+        const campaignId = 'bna_camp_halt_dberr';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Halt DB Error Test',
+            totalRecipients: 2
+        });
+
+        const originalHalt = BroadcastLiveTracker.isCampaignHalted;
+        let providerCalls = 0;
+        let queueAddCalls = 0;
+
+        const mockWaService = {
+            isRecipientOptedOut: async () => false,
+            sendTemplate: async () => { providerCalls++; return { success: true, messageId: 'meta_e1' }; },
+            sendMessage: async () => { providerCalls++; return { success: true, messageId: 'wa_e1' }; }
+        };
+        const mockQueue = {
+            add: async () => { queueAddCalls++; return { id: 'mock_queued_job' }; }
+        };
+        const mockJob = { id: 'job_halt_dberr', log: async () => {} };
+
+        try {
+            BroadcastLiveTracker.isCampaignHalted = async () => {
+                throw new Error('MongoNetworkTimeoutException: connection closed');
+            };
+
+            // 1. Pre-Dispatch Guard test: verification failure MUST abort provider write (Fail-Closed)
+            const dispatchRes = await dispatchSingleRecipientCore({
+                recipient: { mobile: '919811199993', name: 'User DB Err' },
+                campaignId,
+                channels: ['whatsapp'],
+                meta: { title: 'DB Error Deal' },
+                job: mockJob,
+                whatsAppService: mockWaService
+            });
+
+            assert.strictEqual(dispatchRes.halted, true);
+            assert.strictEqual(dispatchRes.status, 'HALT_CHECK_FAILED');
+            assert.strictEqual(dispatchRes.success, false);
+            assert.strictEqual(dispatchRes.primaryWaResult.status, 'halt_check_failed');
+            assert.strictEqual(dispatchRes.primaryWaResult.deliveryStatus, 'HALT_CHECK_FAILED');
+            assert.strictEqual(providerCalls, 0, 'Zero provider calls must occur when halt check throws database error');
+
+            // 2. Pre-Chaining Guard test: error must NOT be swallowed, zero next-job enqueue
+            const chainRes = await chainNextRecipient(
+                mockJob,
+                { campaignId, recipients: [{ mobile: '919811199991' }, { mobile: '919811199992' }] },
+                0,
+                { sent: 0, failed: 0, unknown: 0, skipped: 0 },
+                2,
+                { marketingQueue: mockQueue }
+            );
+
+            assert.strictEqual(chainRes.status, 'HALT_CHECK_FAILED');
+            assert.match(chainRes.error, /MongoNetworkTimeoutException/);
+            assert.strictEqual(queueAddCalls, 0, 'Zero next-job enqueue must occur when halt check throws error');
+        } finally {
+            BroadcastLiveTracker.isCampaignHalted = originalHalt;
+        }
+    });
+
+    it('32. Fail-Closed Halt Guard: Halt check times out → zero provider calls, zero next-job enqueue', async () => {
+        const campaignId = 'bna_camp_halt_timeout';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Halt Timeout Test',
+            totalRecipients: 2
+        });
+
+        const originalHalt = BroadcastLiveTracker.isCampaignHalted;
+        let providerCalls = 0;
+        let queueAddCalls = 0;
+
+        const mockWaService = {
+            isRecipientOptedOut: async () => false,
+            sendTemplate: async () => { providerCalls++; return { success: true, messageId: 'meta_t1' }; },
+            sendMessage: async () => { providerCalls++; return { success: true, messageId: 'wa_t1' }; }
+        };
+        const mockQueue = {
+            add: async () => { queueAddCalls++; return { id: 'mock_queued_job' }; }
+        };
+        const mockJob = { id: 'job_halt_timeout', log: async () => {} };
+
+        try {
+            // Simulate hung query that never resolves in time
+            BroadcastLiveTracker.isCampaignHalted = () => new Promise(() => {});
+
+            // 1. Pre-Dispatch Guard test with short deterministic timeout (20ms)
+            const dispatchRes = await dispatchSingleRecipientCore({
+                recipient: { mobile: '919811199994', name: 'User Timeout' },
+                campaignId,
+                channels: ['whatsapp'],
+                meta: { title: 'Timeout Deal' },
+                job: mockJob,
+                haltTimeoutMs: 20,
+                whatsAppService: mockWaService
+            });
+
+            assert.strictEqual(dispatchRes.halted, true);
+            assert.strictEqual(dispatchRes.status, 'HALT_CHECK_FAILED');
+            assert.strictEqual(dispatchRes.success, false);
+            assert.match(dispatchRes.error, /HALT_CHECK_TIMEOUT/);
+            assert.strictEqual(providerCalls, 0, 'Zero provider calls must occur when halt check times out');
+
+            // 2. Pre-Chaining Guard test with short deterministic timeout (20ms)
+            const chainRes = await chainNextRecipient(
+                mockJob,
+                { campaignId, recipients: [{ mobile: '919811199991' }, { mobile: '919811199992' }] },
+                0,
+                { sent: 0, failed: 0, unknown: 0, skipped: 0 },
+                2,
+                { marketingQueue: mockQueue, haltTimeoutMs: 20 }
+            );
+
+            assert.strictEqual(chainRes.status, 'HALT_CHECK_FAILED');
+            assert.match(chainRes.error, /HALT_CHECK_TIMEOUT/);
+            assert.strictEqual(queueAddCalls, 0, 'Zero next-job enqueue must occur when halt check times out');
+        } finally {
+            BroadcastLiveTracker.isCampaignHalted = originalHalt;
+        }
+    });
+
+    it('33. Fail-Closed Halt Guard: Normal successful halt check → existing dispatch and chaining behavior unchanged', async () => {
+        const campaignId = 'bna_camp_halt_normal';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Halt Normal Active Test',
+            totalRecipients: 2
+        });
+
+        const originalHalt = BroadcastLiveTracker.isCampaignHalted;
+        let providerCalls = 0;
+        let queueAddCalls = 0;
+
+        const mockWaService = {
+            isRecipientOptedOut: async () => false,
+            sendTemplate: async () => { providerCalls++; return { success: true, messageId: 'meta_n1' }; },
+            sendMessage: async () => { providerCalls++; return { success: true, messageId: 'wa_n1' }; }
+        };
+        const mockQueue = {
+            add: async () => { queueAddCalls++; return { id: 'mock_queued_job' }; }
+        };
+        const mockJob = { id: 'job_halt_normal', log: async () => {} };
+
+        try {
+            BroadcastLiveTracker.isCampaignHalted = async () => ({ halted: false, status: 'ACTIVE' });
+
+            // 1. Pre-Dispatch Guard test: normal ACTIVE status allows dispatch to proceed
+            const dispatchRes = await dispatchSingleRecipientCore({
+                recipient: { mobile: '919811199995', name: 'User Normal' },
+                campaignId,
+                channels: ['whatsapp'],
+                meta: { title: 'Normal Active Deal' },
+                job: mockJob,
+                whatsAppService: mockWaService
+            });
+
+            assert.strictEqual(dispatchRes.success, true);
+            assert.strictEqual(dispatchRes.halted, undefined);
+            assert.strictEqual(providerCalls, 1, 'Provider call must succeed under normal active campaign state');
+
+            // 2. Pre-Chaining Guard test: normal ACTIVE status proceeds to enqueue next recipient
+            const chainRes = await chainNextRecipient(
+                mockJob,
+                { campaignId, recipients: [{ mobile: '919811199991' }, { mobile: '919811199992' }] },
+                0,
+                { sent: 1, failed: 0, unknown: 0, skipped: 0 },
+                2,
+                { marketingQueue: mockQueue }
+            );
+
+            assert.strictEqual(chainRes.status, 'CHAINED_NEXT');
+            assert.strictEqual(chainRes.nextIndex, 1);
+            assert.strictEqual(queueAddCalls, 1, 'Next micro-job must be enqueued under normal active campaign state');
+        } finally {
+            BroadcastLiveTracker.isCampaignHalted = originalHalt;
+        }
+    });
 });
