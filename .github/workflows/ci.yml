@@ -111,6 +111,13 @@ jobs:
           npm run test:outbox
           npm run test:phase-e
 
+      - name: Run Phase 1-3 Authority Verification Conformance Tests
+        run: |
+          set -o pipefail
+          cd backend
+          npm run test:authority 2>&1 | tee test_authority.log
+          node scripts/verify-authority-test-completeness.js test_authority.log
+
   build-frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest
