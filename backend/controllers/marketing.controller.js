@@ -2386,12 +2386,13 @@ export const retryFailedBroadcastRecipients = async (req, res) => {
         const { default: BroadcastLiveTracker } = await import('../services/BroadcastLiveTracker.js');
         const result = await BroadcastLiveTracker.retryFailedRecipients(campaignId, performedBy, queue);
         if (!result.success) {
-            return res.status(400).json(result);
+            const statusCode = result.error?.includes('CONCURRENT') ? 409 : 400;
+            return res.status(statusCode).json(result);
         }
         return res.json(result);
     } catch (err) {
         console.error('[retryFailedBroadcastRecipients] Error:', err);
-        const statusCode = err.message.includes('NOT_FOUND') ? 404 : 400;
+        const statusCode = err.message.includes('NOT_FOUND') ? 404 : (err.message.includes('CONCURRENT') ? 409 : 400);
         return res.status(statusCode).json({ success: false, error: err.message });
     }
 };
