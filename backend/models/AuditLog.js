@@ -296,67 +296,292 @@ AuditLogSchema.index(
 // ========== Static Methods ==========
 
 /**
- * Safe preflight and migration for AuditLog idempotency index:
- * 1. Scans existing records for any duplicate (eventType, correlationId) pairs where correlationId is a string.
- * 2. If duplicates are found, resolves them (retains earliest record, removes subsequent duplicates).
- * 3. Builds the partial unique index on { eventType: 1, correlationId: 1 } if not already present.
+ * Validates whether an existing MongoDB index matches the exact required specification for idempotency:
+ * - Name: 'unique_audit_event_correlation'
+ * - Keys: { eventType: 1, correlationId: 1 } (exactly these two keys)
+ * - unique: true
+ * - partialFilterExpression: { correlationId: { $type: 'string' } }
+ */
+AuditLogSchema.statics.verifyIdempotencyIndexSpec = function (indexObj) {
+    if (!indexObj) {
+        return { valid: false, reason: 'Index does not exist' };
+    }
+
+    if (indexObj.name !== 'unique_audit_event_correlation') {
+        return { valid: false, reason: `Index name mismatch: expected 'unique_audit_event_correlation', got '${indexObj.name}'` };
+    }
+
+    const key = indexObj.key;
+    if (!key || key.eventType !== 1 || key.correlationId !== 1 || Object.keys(key).length !== 2) {
+        return { valid: false, reason: `Index key specification mismatch: expected { eventType: 1, correlationId: 1 }, got ${JSON.stringify(key)}` };
+    }
+
+    if (indexObj.unique !== true) {
+        return { valid: false, reason: `Index unique property mismatch: expected unique: true, got ${indexObj.unique}` };
+    }
+
+    const pfe = indexObj.partialFilterExpression;
+    if (!pfe || !pfe.correlationId || pfe.correlationId.$type !== 'string' || Object.keys(pfe).length !== 1) {
+        return { valid: false, reason: `Index partialFilterExpression mismatch: expected { correlationId: { $type: 'string' } }, got ${JSON.stringify(pfe)}` };
+    }
+
+    return { valid: true };
+};
+
+/**
+ * Read-only preflight analysis for duplicate (eventType, correlationId) records.
+ * Reports duplicate groups, counts, IDs, timestamps, eventTypes, and deterministic retention candidate.
+ * DOES NOT modify, archive, or delete any records.
+ */
+AuditLogSchema.statics.getDuplicatePreflightReport = async function () {
+    const collection = this.collection;
+    if (!collection) {
+        return { totalDuplicateGroups: 0, totalDuplicateRecords: 0, groups: [] };
+    }
+
+    // Ensure native collection exists
+    if (this.db && this.db.db) {
+        const collections = await this.db.db.listCollections({ name: collection.name }).toArray();
+        if (collections.length === 0) {
+            await this.db.db.createCollection(collection.name);
+        }
+    }
+
+    const duplicates = await this.aggregate([
+        { $match: { correlationId: { $type: 'string' } } },
+        {
+            $group: {
+                _id: { eventType: '$eventType', correlationId: '$correlationId' },
+                count: { $sum: 1 },
+                docs: {
+                    $push: {
+                        _id: '$_id',
+                        timestamp: '$timestamp',
+                        eventType: '$eventType',
+                        correlationId: '$correlationId',
+                        targetType: '$targetType',
+                        targetId: '$targetId',
+                        status: '$status'
+                    }
+                }
+            }
+        },
+        { $match: { count: { $gt: 1 } } }
+    ]);
+
+    if (!duplicates || duplicates.length === 0) {
+        return { totalDuplicateGroups: 0, totalDuplicateRecords: 0, groups: [] };
+    }
+
+    let totalDuplicateRecords = 0;
+    const groups = duplicates.map(group => {
+        // Deterministic sort: timestamp ascending, then _id ascending as tie-breaker
+        const sortedDocs = [...group.docs].sort((a, b) => {
+            const timeA = new Date(a.timestamp).getTime();
+            const timeB = new Date(b.timestamp).getTime();
+            if (timeA !== timeB) return timeA - timeB;
+            return String(a._id).localeCompare(String(b._id));
+        });
+
+        const retainedDoc = sortedDocs[0];
+        const duplicateDocs = sortedDocs.slice(1);
+        totalDuplicateRecords += duplicateDocs.length;
+
+        return {
+            eventType: group._id.eventType,
+            correlationId: group._id.correlationId,
+            totalCount: group.count,
+            duplicateCount: duplicateDocs.length,
+            retainedId: retainedDoc._id,
+            retainedTimestamp: retainedDoc.timestamp,
+            allDocs: sortedDocs,
+            duplicateIds: duplicateDocs.map(d => d._id),
+            duplicateDetails: duplicateDocs.map(d => ({
+                _id: d._id,
+                timestamp: d.timestamp,
+                eventType: d.eventType,
+                correlationId: d.correlationId,
+                targetType: d.targetType,
+                targetId: d.targetId,
+                status: d.status
+            }))
+        };
+    });
+
+    return {
+        totalDuplicateGroups: groups.length,
+        totalDuplicateRecords,
+        groups
+    };
+};
+
+/**
+ * Approved reconciliation procedure:
+ * 1. Executes read-only preflight to deterministically identify duplicate records.
+ * 2. Fetches full original AuditLog documents and preserves them in a verifiable archive collection.
+ * 3. Verifies archive document count and document identity prior to allowing any deletion.
+ * 4. Only after verified archival, removes the duplicate records from the primary collection.
+ */
+AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options = {}) {
+    const preflight = await this.getDuplicatePreflightReport();
+    if (preflight.totalDuplicateGroups === 0) {
+        return { success: true, archivedCount: 0, removedCount: 0, groupsReconciled: 0 };
+    }
+
+    const allDuplicateIds = preflight.groups.flatMap(g => g.duplicateIds);
+    if (allDuplicateIds.length === 0) {
+        return { success: true, archivedCount: 0, removedCount: 0, groupsReconciled: 0 };
+    }
+
+    const archiveCollectionName = options.archiveCollectionName || 'auditlogs_archive_duplicates';
+    const archiveColl = this.db.db.collection(archiveCollectionName);
+
+    // 1. Fetch complete original records
+    const docsToArchive = await this.find({ _id: { $in: allDuplicateIds } }).lean();
+    if (docsToArchive.length !== allDuplicateIds.length) {
+        throw new Error(`ARCHIVE_COUNT_MISMATCH: Expected ${allDuplicateIds.length} original documents, found ${docsToArchive.length} in database`);
+    }
+
+    const now = new Date();
+    const preparedDocs = docsToArchive.map(doc => {
+        const group = preflight.groups.find(g => g.duplicateIds.some(id => String(id) === String(doc._id)));
+        return {
+            ...doc,
+            archivalMetadata: {
+                archivedAt: now,
+                retainedRecordId: group?.retainedId || null,
+                archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                migrationVersion: 'P4.1_HOTFIX'
+            }
+        };
+    });
+
+    // 2. Count before archival
+    const archiveCountBefore = await archiveColl.countDocuments();
+
+    // 3. Insert into archive collection
+    await archiveColl.insertMany(preparedDocs);
+
+    // 4. Verify archive count and identity
+    const archiveCountAfter = await archiveColl.countDocuments();
+    if (archiveCountAfter - archiveCountBefore !== allDuplicateIds.length) {
+        throw new Error(`ARCHIVE_VERIFICATION_FAILED: Archive count grew by ${archiveCountAfter - archiveCountBefore}, expected ${allDuplicateIds.length}`);
+    }
+
+    for (const id of allDuplicateIds) {
+        const verifiedInArchive = await archiveColl.findOne({ _id: id });
+        if (!verifiedInArchive) {
+            throw new Error(`ARCHIVE_IDENTITY_VERIFICATION_FAILED: Document ${id} missing from archive collection`);
+        }
+    }
+
+    // 5. Verified removal
+    const deleteRes = await this.deleteMany({ _id: { $in: allDuplicateIds } });
+    const remainingCount = await this.countDocuments({ _id: { $in: allDuplicateIds } });
+    if (remainingCount !== 0) {
+        throw new Error(`DELETION_VERIFICATION_FAILED: ${remainingCount} duplicate record(s) still present in AuditLog collection`);
+    }
+
+    return {
+        success: true,
+        archivedCount: preparedDocs.length,
+        removedCount: deleteRes.deletedCount,
+        groupsReconciled: preflight.totalDuplicateGroups,
+        archiveCollection: archiveCollectionName,
+        preflight
+    };
+};
+
+/**
+ * Migration helper for ensuring idempotency index:
+ * 1. Verifies existing index if present against exact specification. Rejects incorrect specification.
+ * 2. Runs read-only preflight. If duplicates exist, fails safely without modifying/deleting records.
+ * 3. Builds partial unique index on { eventType: 1, correlationId: 1 }.
+ * 4. Detects concurrent write races (code 11000) during build and aborts safely.
+ * 5. Verifies created index properties and propagates all errors.
  */
 AuditLogSchema.statics.ensureIdempotencyIndex = async function () {
-    try {
-        const collection = this.collection;
-        if (!collection) return;
-
-        // Ensure collection exists in native db to avoid ns does not exist error on fresh DBs
-        if (this.db && this.db.db) {
-            const collections = await this.db.db.listCollections({ name: collection.name }).toArray();
-            if (collections.length === 0) {
-                await this.db.db.createCollection(collection.name);
-            }
-        }
-
-        // 1. Detect duplicates among existing records
-        const duplicates = await this.aggregate([
-            { $match: { correlationId: { $type: 'string' } } },
-            {
-                $group: {
-                    _id: { eventType: '$eventType', correlationId: '$correlationId' },
-                    count: { $sum: 1 },
-                    ids: { $push: '$_id' }
-                }
-            },
-            { $match: { count: { $gt: 1 } } }
-        ]);
-
-        if (duplicates && duplicates.length > 0) {
-            console.warn(`[AuditLog] Preflight detected ${duplicates.length} duplicate correlationId group(s). Reconciling...`);
-            for (const dup of duplicates) {
-                const [keepId, ...removeIds] = dup.ids;
-                console.warn(`[AuditLog] Reconciling duplicate correlationId ${dup._id.correlationId}: keeping ${keepId}, removing ${removeIds.length} duplicate(s)`);
-                await this.deleteMany({ _id: { $in: removeIds } });
-            }
-        }
-
-        // 2. Ensure index exists
-        const existingIndexes = await collection.indexes();
-        const hasIndex = existingIndexes.some(
-            idx => idx.name === 'unique_audit_event_correlation' ||
-                (idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1 && idx.unique)
-        );
-
-        if (!hasIndex) {
-            await collection.createIndex(
-                { eventType: 1, correlationId: 1 },
-                {
-                    unique: true,
-                    partialFilterExpression: { correlationId: { $type: 'string' } },
-                    name: 'unique_audit_event_correlation'
-                }
-            );
-            console.log('[AuditLog] Created unique partial index on { eventType: 1, correlationId: 1 }');
-        }
-    } catch (err) {
-        console.error('[AuditLog] ensureIdempotencyIndex preflight error:', err.message);
+    const collection = this.collection;
+    if (!collection) {
+        throw new Error('AuditLog collection is not initialized');
     }
+
+    // Ensure collection exists in native db to avoid ns does not exist error on fresh DBs
+    if (this.db && this.db.db) {
+        const collections = await this.db.db.listCollections({ name: collection.name }).toArray();
+        if (collections.length === 0) {
+            await this.db.db.createCollection(collection.name);
+        }
+    }
+
+    // 1. Check existing indexes for name or key collisions
+    const existingIndexes = await collection.indexes();
+    const existingSameName = existingIndexes.find(idx => idx.name === 'unique_audit_event_correlation');
+    if (existingSameName) {
+        const specCheck = this.verifyIdempotencyIndexSpec(existingSameName);
+        if (!specCheck.valid) {
+            const specErr = new Error(`INVALID_INDEX_SPECIFICATION: Existing index 'unique_audit_event_correlation' does not match required specification: ${specCheck.reason}`);
+            specErr.code = 'INVALID_INDEX_SPECIFICATION';
+            specErr.existingIndex = existingSameName;
+            throw specErr;
+        }
+        return { created: false, verified: true, index: existingSameName };
+    }
+
+    const existingSameKey = existingIndexes.find(
+        idx => idx.key && idx.key.eventType === 1 && idx.key.correlationId === 1
+    );
+    if (existingSameKey) {
+        const specCheck = this.verifyIdempotencyIndexSpec(existingSameKey);
+        if (!specCheck.valid) {
+            const specErr = new Error(`INVALID_INDEX_SPECIFICATION: Existing index '${existingSameKey.name}' covering (eventType, correlationId) does not match required specification: ${specCheck.reason}`);
+            specErr.code = 'INVALID_INDEX_SPECIFICATION';
+            specErr.existingIndex = existingSameKey;
+            throw specErr;
+        }
+        return { created: false, verified: true, index: existingSameKey };
+    }
+
+    // 2. Read-only preflight check: fail closed without deleting records if duplicates exist
+    const preflight = await this.getDuplicatePreflightReport();
+    if (preflight.totalDuplicateGroups > 0) {
+        const dupErr = new Error(`DUPLICATE_AUDIT_LOGS_DETECTED: Preflight detected ${preflight.totalDuplicateGroups} duplicate correlationId group(s) with ${preflight.totalDuplicateRecords} duplicate record(s). Cannot create unique index without approved archival reconciliation.`);
+        dupErr.code = 'DUPLICATE_AUDIT_LOGS_DETECTED';
+        dupErr.preflight = preflight;
+        throw dupErr;
+    }
+
+    // 3. Build the partial unique index
+    try {
+        await collection.createIndex(
+            { eventType: 1, correlationId: 1 },
+            {
+                unique: true,
+                partialFilterExpression: { correlationId: { $type: 'string' } },
+                name: 'unique_audit_event_correlation'
+            }
+        );
+    } catch (createErr) {
+        if (createErr.code === 11000 || createErr.code === 11001) {
+            const raceErr = new Error(`CONCURRENT_DUPLICATES_DETECTED: Concurrent writes introduced duplicate correlationId records during index creation: ${createErr.message}`);
+            raceErr.code = 'CONCURRENT_DUPLICATES_DETECTED';
+            raceErr.originalError = createErr;
+            throw raceErr;
+        }
+        throw createErr;
+    }
+
+    // 4. Verify created index matches exact required properties
+    const updatedIndexes = await collection.indexes();
+    const createdIdx = updatedIndexes.find(idx => idx.name === 'unique_audit_event_correlation');
+    const finalCheck = this.verifyIdempotencyIndexSpec(createdIdx);
+    if (!finalCheck.valid) {
+        const verifyErr = new Error(`INDEX_VERIFICATION_FAILED: Created index does not match required specification: ${finalCheck.reason}`);
+        verifyErr.code = 'INDEX_VERIFICATION_FAILED';
+        throw verifyErr;
+    }
+
+    return { created: true, verified: true, index: createdIdx };
 };
 
 // Get user's audit trail

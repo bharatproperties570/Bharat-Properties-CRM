@@ -21,6 +21,7 @@ import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Role from '../models/Role.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
+import { runMigration } from '../scripts/migrate_audit_log_idempotency_index.js';
 
 import {
     AuthorityBulkProcessor,
@@ -3868,6 +3869,232 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 correlationId: raceCorrelationId
             });
             assert.equal(matchingRecords.length, 1, 'Database partial unique index must ensure exactly one AuditLog record remains in DB under concurrent race');
+        });
+
+        it('4.32 Existing duplicate AuditLog records remain untouched after read-only preflight and preflight returns deterministic report', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `preflight_safety_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            const doc1 = await AuditLog.create({
+                ...baseDoc,
+                description: 'First record (earliest)',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+            const doc2 = await AuditLog.create({
+                ...baseDoc,
+                description: 'Second record',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+            const doc3 = await AuditLog.create({
+                ...baseDoc,
+                description: 'Third record',
+                timestamp: new Date('2026-10-31T03:00:00.000Z')
+            });
+
+            // Run read-only preflight
+            const preflight = await AuditLog.getDuplicatePreflightReport();
+            assert.ok(preflight.totalDuplicateGroups >= 1);
+
+            const group = preflight.groups.find(g => g.correlationId === corrId);
+            assert.ok(group, 'Preflight report must include our duplicate correlation group');
+            assert.equal(group.totalCount, 3);
+            assert.equal(group.duplicateCount, 2);
+            assert.equal(String(group.retainedId), String(doc1._id), 'Earliest record by timestamp must be selected as retention candidate');
+            assert.deepEqual(group.duplicateIds.map(String), [String(doc2._id), String(doc3._id)]);
+            assert.equal(group.duplicateDetails.length, 2);
+            assert.equal(group.duplicateDetails[0].eventType, 'authority_orphan_snapshot_purged');
+            assert.equal(group.duplicateDetails[0].correlationId, corrId);
+
+            // Verify database records remain 100% untouched
+            const recordsInDb = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsInDb.length, 3, 'Preflight MUST be read-only and preserve all duplicate records in database');
+
+            // Clean up test documents
+            await AuditLog.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.33 Migration and ensureIdempotencyIndex() abort safely without deleting records when unresolved duplicates exist', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `migration_abort_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Original',
+                timestamp: new Date('2026-10-31T04:00:00.000Z')
+            });
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Duplicate',
+                timestamp: new Date('2026-10-31T05:00:00.000Z')
+            });
+
+            // 1. ensureIdempotencyIndex() must fail closed without deleting records
+            let caughtErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                caughtErr = err;
+            }
+
+            assert.ok(caughtErr, 'ensureIdempotencyIndex must throw when duplicate records exist');
+            assert.equal(caughtErr.code, 'DUPLICATE_AUDIT_LOGS_DETECTED');
+
+            const recordsAfterEnsure = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsAfterEnsure.length, 2, 'ensureIdempotencyIndex must NOT delete duplicate records');
+
+            // 2. Standalone migration runner must also abort safely
+            let migErr = null;
+            try {
+                await runMigration({ preflightOnly: false, archiveDuplicates: false });
+            } catch (err) {
+                migErr = err;
+            }
+
+            assert.ok(migErr, 'runMigration must reject when unresolved duplicates exist');
+            assert.equal(migErr.code, 'UNRESOLVED_DUPLICATES');
+
+            const recordsAfterMig = await AuditLog.find({ correlationId: corrId });
+            assert.equal(recordsAfterMig.length, 2, 'Migration must NOT delete duplicate records without approved archival');
+
+            // Clean up test documents
+            await AuditLog.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.34 Approved reconciliation archives complete original records with verified counts and identity before removal', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `archive_reconcile_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success'
+            };
+
+            const doc1 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To keep',
+                timestamp: new Date('2026-10-31T06:00:00.000Z')
+            });
+            const doc2 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To archive 1',
+                timestamp: new Date('2026-10-31T07:00:00.000Z')
+            });
+            const doc3 = await AuditLog.create({
+                ...baseDoc,
+                description: 'To archive 2',
+                timestamp: new Date('2026-10-31T08:00:00.000Z')
+            });
+
+            // Execute approved reconciliation
+            const archiveRes = await AuditLog.archiveAndReconcileDuplicates();
+            assert.equal(archiveRes.success, true);
+            assert.equal(archiveRes.archivedCount, 2);
+            assert.equal(archiveRes.removedCount, 2);
+
+            // Verify in archive collection
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+            const archivedDocs = await archiveColl.find({ correlationId: corrId }).toArray();
+            assert.equal(archivedDocs.length, 2, 'Exactly 2 records must be preserved in archive collection');
+
+            for (const doc of archivedDocs) {
+                assert.ok(doc.archivalMetadata, 'Archived records must contain archival metadata');
+                assert.ok(doc.archivalMetadata.archivedAt);
+                assert.equal(doc.archivalMetadata.archivalReason, 'DUPLICATE_CORRELATION_ID_RECONCILIATION');
+                assert.equal(String(doc.archivalMetadata.retainedRecordId), String(doc1._id));
+            }
+
+            // Verify in primary collection: only doc1 remains
+            const primaryDocs = await AuditLog.find({ correlationId: corrId });
+            assert.equal(primaryDocs.length, 1, 'Only retained earliest record must remain in primary collection');
+            assert.equal(String(primaryDocs[0]._id), String(doc1._id));
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.35 Incorrect existing index is rejected and propagates an error', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            // Create an incorrect index named 'unique_audit_event_correlation' with missing unique and partialFilterExpression
+            await AuditLog.collection.createIndex(
+                { eventType: 1, correlationId: 1 },
+                { name: 'unique_audit_event_correlation' }
+            );
+
+            let caughtErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                caughtErr = err;
+            }
+
+            assert.ok(caughtErr, 'ensureIdempotencyIndex must reject index with incorrect specification');
+            assert.equal(caughtErr.code, 'INVALID_INDEX_SPECIFICATION');
+            assert.ok(caughtErr.message.includes('Index unique property mismatch'));
+
+            // Drop incorrect index
+            await AuditLog.collection.dropIndex('unique_audit_event_correlation');
+        });
+
+        it('4.36 Index creation errors propagate and cause migration failure, and valid index configuration restores cleanly', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            // Mock collection.createIndex to simulate unexpected database outage
+            const originalCreateIndex = AuditLog.collection.createIndex;
+            AuditLog.collection.createIndex = async function () {
+                throw new Error('SIMULATED_MONGODB_INDEX_CREATION_FAILURE');
+            };
+
+            let outageErr = null;
+            try {
+                await AuditLog.ensureIdempotencyIndex();
+            } catch (err) {
+                outageErr = err;
+            } finally {
+                AuditLog.collection.createIndex = originalCreateIndex;
+            }
+
+            assert.ok(outageErr, 'Index creation failure must propagate without being swallowed');
+            assert.equal(outageErr.message, 'SIMULATED_MONGODB_INDEX_CREATION_FAILURE');
+
+            // Restore genuine index cleanly
+            const restoreRes = await AuditLog.ensureIdempotencyIndex();
+            assert.equal(restoreRes.verified, true);
         });
     });
 
