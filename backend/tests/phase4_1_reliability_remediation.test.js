@@ -2109,7 +2109,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             assert.equal(finalSnapshots.length, 1, 'Exactly one snapshot exists after retry');
         });
 
-        it('4.17 Worker B pauses during orphan cleanup; lease expires; Worker C reclaims; B fails. Verify B cannot delete C snapshot or mark C RunItem FAILED, clear C lease, or change recovery metadata', async () => {
+        it('4.17 Worker B pauses during orphan cleanup; lease expires; Worker C reclaims via atomic claim path; B fails. Verify B cannot delete C snapshot or mark C RunItem FAILED, clear C lease, or change recovery metadata', async () => {
             const inv = await Inventory.create({
                 tenantId: tenantA,
                 unitNo: 'FENCE-REC-417-1',
@@ -2190,7 +2190,30 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                         { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
                     );
 
-                    // Worker C reclaims the item, purges crashed Worker A's orphan snapshot, and creates snapshot C
+                    // Worker C reclaims the item using the production atomic claim query
+                    const claimTime = new Date();
+                    const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                        {
+                            _id: item._id,
+                            tenantId: tenantA,
+                            $or: [
+                                { status: 'PENDING' },
+                                { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                            ]
+                        },
+                        {
+                            $set: {
+                                status: 'PROCESSING',
+                                claimedBy: 'worker_reclaim_C',
+                                claimedAt: claimTime,
+                                leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                            }
+                        },
+                        { new: true }
+                    );
+                    assert.ok(claimedItemC, 'Worker C must claim item via production atomic claim query');
+
+                    // Worker C purges crashed Worker A's orphan snapshot, and creates snapshot C
                     await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
                         tenantId: tenantA,
                         runItemId: item._id,
@@ -2219,9 +2242,6 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                         { _id: item._id },
                         {
                             $set: {
-                                status: 'PROCESSING',
-                                claimedBy: 'worker_reclaim_C',
-                                leaseExpiresAt: new Date(Date.now() + 60000),
                                 snapshotId: snapC._id,
                                 'recoveryState.stage': 'ORPHAN_RECOVERED',
                                 'recoveryState.recoveredByWorkerId': 'worker_reclaim_C',
@@ -2716,6 +2736,318 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             assert.equal(itemInDb.status, 'SUCCEEDED');
             assert.equal(String(itemInDb.snapshotId), String(snapshots[0]._id));
             assert.equal(itemInDb.recoveryState.stage, 'ORPHAN_RECOVERED');
+        });
+
+        it('4.23 Simulate a process crash after snapshot deletion but before AuditLog persistence', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CRASH-RECON-423-1',
+                projectName: 'Crash Reconciliation Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_crashed_A',
+                leaseExpiresAt: new Date(Date.now() - 5000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker A crashed leaving an orphan snapshot
+            const orphanedSnapshotA = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                linkId: link._id,
+                runItemId: item._id,
+                createdByWorkerId: 'worker_crashed_A',
+                sourceReferenceUrl: 'https://authority.fixture.internal/chd',
+                observedAt: new Date(),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE',
+                identityEvidence: { compositeKey: link.propertyId, sectorNumber: link.sectorNumber, propertyId: link.propertyId },
+                normalizedData: { propertyId: link.propertyId, sectorNumber: link.sectorNumber },
+                contentHash: '7'.repeat(64),
+                isSealed: true,
+                dataQualityStatus: 'COMPLETE'
+            });
+
+            // Worker B claims the item
+            item.claimedBy = 'worker_crashing_B';
+            item.leaseExpiresAt = new Date(Date.now() + 30000);
+            await item.save();
+
+            // Worker B runs processItem, but crashes immediately after snapshot purge (simulated via afterOrphanPurged)
+            try {
+                await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_crashing_B',
+                    afterOrphanPurged: async () => {
+                        // Simulate sudden node process death / crash immediately after snapshot purge
+                        await PropertyVerificationRunItem.updateOne(
+                            { _id: item._id },
+                            { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } }
+                        );
+                        throw new Error('SIMULATED_PROCESS_DEATH_AFTER_PURGE');
+                    }
+                });
+            } catch (err) {
+                // simulated crash
+            }
+
+            // Verify snapshot A was indeed purged from MongoDB
+            const checkSnapA = await PropertyVerificationSnapshot.findById(orphanedSnapshotA._id);
+            assert.equal(checkSnapA, null, 'Orphaned snapshot A was purged before the crash');
+
+            // Worker C reclaims the item using the production atomic claim query
+            const claimTime = new Date();
+            const claimedItemC = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    $or: [
+                        { status: 'PENDING' },
+                        { status: 'PROCESSING', leaseExpiresAt: { $lt: claimTime } }
+                    ]
+                },
+                {
+                    $set: {
+                        status: 'PROCESSING',
+                        claimedBy: 'worker_reconciler_C',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: new Date(claimTime.getTime() + 60000)
+                    }
+                },
+                { new: true }
+            );
+            assert.ok(claimedItemC, 'Worker C successfully claims the crashed item');
+
+            // Worker C processes the item — it reconciles the missing audit event, completes recovery, and generates snapshot C
+            const cResult = await AuthorityBulkProcessor.processItem(claimedItemC, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_reconciler_C'
+            });
+
+            assert.equal(cResult.success, true);
+            assert.ok(cResult.snapshotId);
+
+            // Verify reconciled audit log was generated
+            const reconciledAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_snapshot_purged',
+                'metadata.reconciledAfterCrash': true,
+                'metadata.recoveredByWorkerId': 'worker_reconciler_C'
+            });
+            assert.ok(reconciledAudit, 'Reconciled audit log must be persisted for the purged snapshot');
+
+            // Verify RunItem completed successfully
+            const finalItem = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(finalItem.status, 'SUCCEEDED');
+            assert.equal(finalItem.recoveryState.stage, 'ORPHAN_RECOVERED');
+            assert.equal(finalItem.recoveryState.recoveredByWorkerId, 'worker_reconciler_C');
+
+            // Exactly 1 valid snapshot exists in DB (owned by Worker C)
+            const finalSnapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(finalSnapshots.length, 1);
+            assert.equal(finalSnapshots[0].createdByWorkerId, 'worker_reconciler_C');
+        });
+
+        it('4.24 Exercise standalone rollback when purge returns deletedCount: 0', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ROLLBACK-ZERO-424-1',
+                projectName: 'Rollback Zero Deleted Count Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_rollback_zero',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Mock _finalizeItemWithOwnershipCheck to simulate finalization failure (e.g. lease expired right before finalization)
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function () {
+                return null; // Triggers standalone rollback
+            };
+
+            // Stub purgeOrphanedSnapshot to return deletedCount: 0
+            const originalPurge = PropertyVerificationSnapshot.purgeOrphanedSnapshot;
+            PropertyVerificationSnapshot.purgeOrphanedSnapshot = async function () {
+                return { acknowledged: true, deletedCount: 0, success: false };
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_rollback_zero'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+                PropertyVerificationSnapshot.purgeOrphanedSnapshot = originalPurge;
+            }
+
+            // Worker returns lease expired or preempted with ownershipLost: true
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            // AuditLog records authority_orphan_cleanup_failed due to unconfirmed purge
+            const failureAudit = await AuditLog.findOne({
+                eventType: 'authority_orphan_cleanup_failed',
+                'metadata.workerId': 'worker_rollback_zero'
+            });
+            assert.ok(failureAudit, 'AuditLog must record cleanup failure in standalone rollback');
+            assert.ok(failureAudit.description.includes('ORPHAN_DELETION_UNCONFIRMED'));
+        });
+
+        it('4.25 Simulate AuditLog failures in the standalone rollback branch', async () => {
+            const inv = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'ROLLBACK-AUDIT-425-1',
+                projectName: 'Rollback Audit Failure Project',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: inv._id,
+                authorityCode: 'CHD',
+                propertyId: inv.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: inv._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_audit_fail_rollback',
+                leaseExpiresAt: new Date(Date.now() + 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Mock _finalizeItemWithOwnershipCheck to trigger rollback
+            const originalFinalize = AuthorityBulkProcessor._finalizeItemWithOwnershipCheck;
+            AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = async function () {
+                return null;
+            };
+
+            // Intercept AuditLog.create to throw on orphan purge logging
+            const originalAuditCreate = AuditLog.create;
+            AuditLog.create = async function (doc) {
+                const event = Array.isArray(doc) ? doc[0]?.eventType : doc?.eventType;
+                if (event === 'authority_orphan_snapshot_purged') {
+                    throw new Error('Simulated database error during rollback purge audit');
+                }
+                return originalAuditCreate.apply(this, arguments);
+            };
+
+            let result;
+            try {
+                result = await AuthorityBulkProcessor.processItem(item, {
+                    tenantId: tenantA,
+                    isFixtureMode: true,
+                    authorityCode: 'CHD',
+                    workerId: 'worker_audit_fail_rollback'
+                });
+            } finally {
+                AuthorityBulkProcessor._finalizeItemWithOwnershipCheck = originalFinalize;
+                AuditLog.create = originalAuditCreate;
+            }
+
+            // Worker returns lease expired or preempted safely
+            assert.equal(result.success, false);
+            assert.equal(result.reason, 'LEASE_EXPIRED_OR_PREEMPTED');
+            assert.equal(result.ownershipLost, true);
+
+            // Verify RunItem recoveryState recorded the cleanup failure
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.recoveryState.stage, 'CLEANUP_FAILED');
+            assert.ok(itemInDb.recoveryState.error.includes('Simulated database error during rollback purge audit'));
         });
     });
 

@@ -43,7 +43,7 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             user = await User.findById(userId).select('fullName email').lean();
         }
-        return await AuditLog.create({
+        const doc = {
             eventType,
             userId: userId || null,
             userName: user?.fullName || 'System/AuthorityEngine',
@@ -55,7 +55,12 @@ async function logAuditEvent(eventType, userId, targetType, targetId, descriptio
             ipAddress: '127.0.0.1',
             userAgent: 'AuthorityBulkProcessor/v4.1',
             status
-        });
+        };
+        if (options?.session) {
+            const created = await AuditLog.create([doc], { session: options.session });
+            return created[0];
+        }
+        return await AuditLog.create(doc);
     } catch (err) {
         console.error('[AuthorityBulkProcessor] AuditLog error:', err.message);
         if (options?.throwOnError) {
@@ -568,6 +573,7 @@ export class AuthorityBulkProcessor {
                         workerId,
                         beforeSnapshotPersistence: options.beforeSnapshotPersistence,
                         beforeOrphanCleanup: options.beforeOrphanCleanup,
+                        afterOrphanPurged: options.afterOrphanPurged,
                         disableOrphanRecovery: options.disableOrphanRecovery
                     });
 
@@ -866,6 +872,7 @@ export class AuthorityBulkProcessor {
             workerId,
             beforeSnapshotPersistence,
             beforeOrphanCleanup,
+            afterOrphanPurged,
             disableOrphanRecovery = false
         } = options;
         const effectiveWorkerId = workerId || item.claimedBy || null;
@@ -976,7 +983,74 @@ export class AuthorityBulkProcessor {
             return { success: false, reason: 'LIVE_DISABLED' };
         }
 
-        // 4. Concurrency Protection & Orphan Recovery: Check if a snapshot already exists for this run item
+        // 4. Concurrency Protection & Orphan Recovery:
+        // Case 4A: Check if prior worker crashed after purging snapshot but before completing audit/recovery-state update
+        if (!item.snapshotId && item.recoveryState?.stage === 'ORPHAN_DETECTED') {
+            const existingSnapshotForCheck = await PropertyVerificationSnapshot.findOne({
+                runItemId: item._id,
+                tenantId
+            });
+
+            if (!existingSnapshotForCheck) {
+                // Prior worker crashed after snapshot was purged! Reconcile missing audit and mark recovery state.
+                const activeLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId
+                );
+                if (!activeLease) {
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+
+                await logAuditEvent(
+                    'authority_orphan_snapshot_purged',
+                    item.requestedBy || null,
+                    'authority_snapshot',
+                    item.recoveryState.orphanedSnapshotId,
+                    `Unfinalized orphan snapshot ${item.recoveryState.orphanedSnapshotId} purged by prior worker, reconciled after crash by worker ${effectiveWorkerId}`,
+                    {
+                        snapshotId: item.recoveryState.orphanedSnapshotId,
+                        runItemId: item._id,
+                        tenantId,
+                        orphanedByWorkerId: item.recoveryState.orphanedByWorkerId,
+                        recoveredByWorkerId: effectiveWorkerId,
+                        reconciledAfterCrash: true
+                    },
+                    'success',
+                    { throwOnError: true }
+                );
+
+                const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                    item._id,
+                    tenantId,
+                    effectiveWorkerId,
+                    {
+                        $set: {
+                            'recoveryState.stage': 'ORPHAN_RECOVERED',
+                            'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                            'recoveryState.recoveredAt': new Date(),
+                            'recoveryState.error': null,
+                            'recoveryState.crashReconciled': true
+                        },
+                        $inc: { 'recoveryState.retryCount': 1 }
+                    }
+                );
+
+                if (!recoveredItem) {
+                    return {
+                        success: false,
+                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                        ownershipLost: true
+                    };
+                }
+            }
+        }
+
+        // Check if a snapshot already exists for this run item
         const existingSnapshot = await PropertyVerificationSnapshot.findOne({
             runItemId: item._id,
             tenantId
@@ -1034,179 +1108,389 @@ export class AuthorityBulkProcessor {
                 };
             }
 
-            try {
-                if (typeof beforeOrphanCleanup === 'function') {
-                    await beforeOrphanCleanup(existingSnapshot, effectiveWorkerId);
-                }
+            if (supportsTransactions) {
+                let session = null;
+                try {
+                    session = await mongoose.startSession();
+                    session.startTransaction();
 
-                // Re-verify lease immediately before purge in case beforeOrphanCleanup or pause took time
-                const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId
-                );
-                if (!leaseStillValid) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-
-                const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
-                    tenantId,
-                    runItemId: item._id,
-                    snapshotId: existingSnapshot._id,
-                    createdByWorkerId: existingSnapshot.createdByWorkerId
-                });
-
-                const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
-                    (typeof purgeRes === 'number' && purgeRes > 0) ||
-                    (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
-
-                if (!isDeleted) {
-                    // Check if worker lease expired or preempted concurrently
-                    const activeLeaseAfterPurge = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                    // Fenced verification within transaction
+                    const inTxLease = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
                         item._id,
                         tenantId,
-                        effectiveWorkerId
+                        effectiveWorkerId,
+                        session
                     );
-                    if (!activeLeaseAfterPurge) {
+                    if (!inTxLease) {
+                        await session.abortTransaction();
+                        await session.endSession();
                         return {
                             success: false,
                             reason: 'LEASE_EXPIRED_OR_PREEMPTED',
                             ownershipLost: true
                         };
                     }
-                    throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
-                }
 
-                // Make critical orphan-cleanup audit persistence failures observable (throwOnError: true)
-                await logAuditEvent(
-                    'authority_orphan_snapshot_purged',
-                    item.requestedBy || null,
-                    'authority_snapshot',
-                    existingSnapshot._id,
-                    `Unfinalized orphan snapshot ${existingSnapshot._id} purged during crash recovery by worker ${effectiveWorkerId}`,
-                    {
-                        snapshotId: existingSnapshot._id,
-                        runItemId: item._id,
-                        tenantId,
-                        orphanedByWorkerId: existingSnapshot.createdByWorkerId,
-                        recoveredByWorkerId: effectiveWorkerId,
-                        contentHash: existingSnapshot.contentHash,
-                        authorityCode: existingSnapshot.authorityCode
-                    },
-                    'success',
-                    { throwOnError: true }
-                );
-
-                // Fenced update: MUST match current worker ownership and unexpired lease
-                const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        $set: {
-                            'recoveryState.stage': 'ORPHAN_RECOVERED',
-                            'recoveryState.orphanedSnapshotId': existingSnapshot._id,
-                            'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
-                            'recoveryState.recoveredByWorkerId': effectiveWorkerId,
-                            'recoveryState.recoveredAt': new Date(),
-                            'recoveryState.error': null
-                        },
-                        $inc: { 'recoveryState.retryCount': 1 }
+                    if (typeof beforeOrphanCleanup === 'function') {
+                        await beforeOrphanCleanup(existingSnapshot, effectiveWorkerId);
                     }
-                );
 
-                if (!recoveredItem) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
-            } catch (cleanupErr) {
-                // If worker lease expired or ownership was lost, return ownershipLost immediately without modifying new owner
-                const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId
-                );
-                if (!leaseStillValid) {
-                    return {
-                        success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
-                    };
-                }
+                    // Purge orphan snapshot within transaction
+                    const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                        tenantId,
+                        runItemId: item._id,
+                        snapshotId: existingSnapshot._id,
+                        createdByWorkerId: existingSnapshot.createdByWorkerId,
+                        session
+                    });
 
-                // Critical audit persistence for cleanup failure (observable failure handling)
-                let auditError = null;
-                try {
+                    const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
+                        (typeof purgeRes === 'number' && purgeRes > 0) ||
+                        (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
+
+                    if (!isDeleted) {
+                        throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
+                    }
+
+                    if (typeof afterOrphanPurged === 'function') {
+                        await afterOrphanPurged(existingSnapshot, effectiveWorkerId);
+                    }
+
+                    // Audit log within transaction
                     await logAuditEvent(
-                        'authority_orphan_cleanup_failed',
+                        'authority_orphan_snapshot_purged',
                         item.requestedBy || null,
                         'authority_snapshot',
                         existingSnapshot._id,
-                        `Failed to purge orphaned snapshot ${existingSnapshot._id}: ${cleanupErr.message}`,
+                        `Unfinalized orphan snapshot ${existingSnapshot._id} purged during crash recovery by worker ${effectiveWorkerId}`,
                         {
                             snapshotId: existingSnapshot._id,
                             runItemId: item._id,
                             tenantId,
                             orphanedByWorkerId: existingSnapshot.createdByWorkerId,
-                            workerId: effectiveWorkerId,
-                            error: cleanupErr.message
+                            recoveredByWorkerId: effectiveWorkerId,
+                            contentHash: existingSnapshot.contentHash,
+                            authorityCode: existingSnapshot.authorityCode
                         },
-                        'failure',
-                        { throwOnError: true }
+                        'success',
+                        { session, throwOnError: true }
                     );
-                } catch (logErr) {
-                    auditError = logErr;
-                    console.error('[AuthorityBulkProcessor] AuditLog failure during cleanup error recording:', logErr.message);
-                }
 
-                const combinedErrorMessage = auditError
-                    ? `ORPHAN_CLEANUP_FAILED: ${cleanupErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
-                    : `ORPHAN_CLEANUP_FAILED: ${cleanupErr.message}`;
-
-                // Fenced failure update: only mark failed if still holding active ownership
-                const failedItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
-                    item._id,
-                    tenantId,
-                    effectiveWorkerId,
-                    {
-                        $set: {
-                            'recoveryState.stage': 'CLEANUP_FAILED',
-                            'recoveryState.orphanedSnapshotId': existingSnapshot._id,
-                            'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
-                            'recoveryState.failedAt': new Date(),
-                            'recoveryState.error': combinedErrorMessage,
-                            status: 'FAILED',
-                            errorMessage: combinedErrorMessage,
-                            processedAt: new Date(),
-                            leaseExpiresAt: null
+                    // Fenced recovery state update within transaction
+                    const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ORPHAN_RECOVERED',
+                                'recoveryState.orphanedSnapshotId': existingSnapshot._id,
+                                'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
+                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                'recoveryState.recoveredAt': new Date(),
+                                'recoveryState.error': null
+                            },
+                            $inc: { 'recoveryState.retryCount': 1 }
                         },
-                        $inc: { 'recoveryState.retryCount': 1 }
-                    }
-                );
+                        session
+                    );
 
-                if (!failedItem) {
+                    if (!recoveredItem) {
+                        await session.abortTransaction();
+                        await session.endSession();
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    await session.commitTransaction();
+                    await session.endSession();
+                } catch (txErr) {
+                    if (session) {
+                        try { await session.abortTransaction(); } catch (_) {}
+                        try { await session.endSession(); } catch (_) {}
+                    }
+
+                    const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId
+                    );
+                    if (!leaseStillValid) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    let auditError = null;
+                    try {
+                        await logAuditEvent(
+                            'authority_orphan_cleanup_failed',
+                            item.requestedBy || null,
+                            'authority_snapshot',
+                            existingSnapshot._id,
+                            `Failed to purge orphaned snapshot ${existingSnapshot._id} in transaction: ${txErr.message}`,
+                            {
+                                snapshotId: existingSnapshot._id,
+                                runItemId: item._id,
+                                tenantId,
+                                orphanedByWorkerId: existingSnapshot.createdByWorkerId,
+                                workerId: effectiveWorkerId,
+                                error: txErr.message
+                            },
+                            'failure',
+                            { throwOnError: true }
+                        );
+                    } catch (logErr) {
+                        auditError = logErr;
+                        console.error('[AuthorityBulkProcessor] AuditLog failure during transaction cleanup error recording:', logErr.message);
+                    }
+
+                    const combinedErrorMessage = auditError
+                        ? `ORPHAN_CLEANUP_FAILED: ${txErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
+                        : `ORPHAN_CLEANUP_FAILED: ${txErr.message}`;
+
+                    const failedItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'CLEANUP_FAILED',
+                                'recoveryState.orphanedSnapshotId': existingSnapshot._id,
+                                'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
+                                'recoveryState.failedAt': new Date(),
+                                'recoveryState.error': combinedErrorMessage,
+                                status: 'FAILED',
+                                errorMessage: combinedErrorMessage,
+                                processedAt: new Date(),
+                                leaseExpiresAt: null
+                            },
+                            $inc: { 'recoveryState.retryCount': 1 }
+                        }
+                    );
+
+                    if (!failedItem) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
                     return {
                         success: false,
-                        reason: 'LEASE_EXPIRED_OR_PREEMPTED',
-                        ownershipLost: true
+                        reason: 'ORPHAN_CLEANUP_FAILED',
+                        code: 'ORPHAN_CLEANUP_FAILED',
+                        error: combinedErrorMessage,
+                        auditError: auditError ? auditError.message : null,
+                        ownershipLost: false
                     };
                 }
+            } else {
+                // Standalone mode without transactions: durable fail-closed recovery lifecycle
+                try {
+                    if (typeof beforeOrphanCleanup === 'function') {
+                        await beforeOrphanCleanup(existingSnapshot, effectiveWorkerId);
+                    }
 
-                return {
-                    success: false,
-                    reason: 'ORPHAN_CLEANUP_FAILED',
-                    code: 'ORPHAN_CLEANUP_FAILED',
-                    error: combinedErrorMessage,
-                    auditError: auditError ? auditError.message : null,
-                    ownershipLost: false
-                };
+                    // 1. Re-verify lease immediately before purge
+                    const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId
+                    );
+                    if (!leaseStillValid) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    // 2. Stage ORPHAN_DETECTED state on RunItem with fenced ownership check
+                    const stagedItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ORPHAN_DETECTED',
+                                'recoveryState.orphanedSnapshotId': existingSnapshot._id,
+                                'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
+                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                'recoveryState.detectedAt': new Date()
+                            }
+                        }
+                    );
+                    if (!stagedItem) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    // 3. Purge orphaned snapshot
+                    const purgeRes = await PropertyVerificationSnapshot.purgeOrphanedSnapshot({
+                        tenantId,
+                        runItemId: item._id,
+                        snapshotId: existingSnapshot._id,
+                        createdByWorkerId: existingSnapshot.createdByWorkerId
+                    });
+
+                    const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
+                        (typeof purgeRes === 'number' && purgeRes > 0) ||
+                        (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
+
+                    if (!isDeleted) {
+                        const activeLeaseAfterPurge = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                            item._id,
+                            tenantId,
+                            effectiveWorkerId
+                        );
+                        if (!activeLeaseAfterPurge) {
+                            return {
+                                success: false,
+                                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                                ownershipLost: true
+                            };
+                        }
+                        throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
+                    }
+
+                    if (typeof afterOrphanPurged === 'function') {
+                        await afterOrphanPurged(existingSnapshot, effectiveWorkerId);
+                    }
+
+                    // 4. Observable audit persistence (throwOnError: true)
+                    await logAuditEvent(
+                        'authority_orphan_snapshot_purged',
+                        item.requestedBy || null,
+                        'authority_snapshot',
+                        existingSnapshot._id,
+                        `Unfinalized orphan snapshot ${existingSnapshot._id} purged during crash recovery by worker ${effectiveWorkerId}`,
+                        {
+                            snapshotId: existingSnapshot._id,
+                            runItemId: item._id,
+                            tenantId,
+                            orphanedByWorkerId: existingSnapshot.createdByWorkerId,
+                            recoveredByWorkerId: effectiveWorkerId,
+                            contentHash: existingSnapshot.contentHash,
+                            authorityCode: existingSnapshot.authorityCode
+                        },
+                        'success',
+                        { throwOnError: true }
+                    );
+
+                    // 5. Fenced update: MUST match current worker ownership and unexpired lease
+                    const recoveredItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'ORPHAN_RECOVERED',
+                                'recoveryState.orphanedSnapshotId': existingSnapshot._id,
+                                'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
+                                'recoveryState.recoveredByWorkerId': effectiveWorkerId,
+                                'recoveryState.recoveredAt': new Date(),
+                                'recoveryState.error': null
+                            },
+                            $inc: { 'recoveryState.retryCount': 1 }
+                        }
+                    );
+
+                    if (!recoveredItem) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+                } catch (cleanupErr) {
+                    const leaseStillValid = await AuthorityBulkProcessor._verifyWorkerLeaseOwnership(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId
+                    );
+                    if (!leaseStillValid) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    let auditError = null;
+                    try {
+                        await logAuditEvent(
+                            'authority_orphan_cleanup_failed',
+                            item.requestedBy || null,
+                            'authority_snapshot',
+                            existingSnapshot._id,
+                            `Failed to purge orphaned snapshot ${existingSnapshot._id}: ${cleanupErr.message}`,
+                            {
+                                snapshotId: existingSnapshot._id,
+                                runItemId: item._id,
+                                tenantId,
+                                orphanedByWorkerId: existingSnapshot.createdByWorkerId,
+                                workerId: effectiveWorkerId,
+                                error: cleanupErr.message
+                            },
+                            'failure',
+                            { throwOnError: true }
+                        );
+                    } catch (logErr) {
+                        auditError = logErr;
+                        console.error('[AuthorityBulkProcessor] AuditLog failure during cleanup error recording:', logErr.message);
+                    }
+
+                    const combinedErrorMessage = auditError
+                        ? `ORPHAN_CLEANUP_FAILED: ${cleanupErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
+                        : `ORPHAN_CLEANUP_FAILED: ${cleanupErr.message}`;
+
+                    const failedItem = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        effectiveWorkerId,
+                        {
+                            $set: {
+                                'recoveryState.stage': 'CLEANUP_FAILED',
+                                'recoveryState.orphanedSnapshotId': existingSnapshot._id,
+                                'recoveryState.orphanedByWorkerId': existingSnapshot.createdByWorkerId,
+                                'recoveryState.failedAt': new Date(),
+                                'recoveryState.error': combinedErrorMessage,
+                                status: 'FAILED',
+                                errorMessage: combinedErrorMessage,
+                                processedAt: new Date(),
+                                leaseExpiresAt: null
+                            },
+                            $inc: { 'recoveryState.retryCount': 1 }
+                        }
+                    );
+
+                    if (!failedItem) {
+                        return {
+                            success: false,
+                            reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                            ownershipLost: true
+                        };
+                    }
+
+                    return {
+                        success: false,
+                        reason: 'ORPHAN_CLEANUP_FAILED',
+                        code: 'ORPHAN_CLEANUP_FAILED',
+                        error: combinedErrorMessage,
+                        auditError: auditError ? auditError.message : null,
+                        ownershipLost: false
+                    };
+                }
             }
         }
 
@@ -1484,40 +1768,56 @@ export class AuthorityBulkProcessor {
                         const isDeleted = (typeof purgeRes === 'boolean' && purgeRes) ||
                             (typeof purgeRes === 'number' && purgeRes > 0) ||
                             (purgeRes && typeof purgeRes === 'object' && purgeRes.deletedCount > 0);
-                        if (isDeleted) {
-                            await logAuditEvent(
-                                'authority_orphan_snapshot_purged',
-                                item.requestedBy || null,
-                                'authority_snapshot',
-                                snapshot._id,
-                                `Orphaned snapshot ${snapshot._id} purged after worker lease preemption during finalization`,
-                                {
-                                    snapshotId: snapshot._id,
-                                    runItemId: item._id,
-                                    tenantId,
-                                    workerId: effectiveWorkerId,
-                                    reason: 'FINALIZATION_OWNERSHIP_LOST'
-                                }
-                            );
+                        if (!isDeleted) {
+                            throw new Error(`ORPHAN_DELETION_UNCONFIRMED: Snapshot purge returned deletedCount: ${purgeRes?.deletedCount ?? 0}`);
                         }
-                    } catch (cleanupErr) {
-                        // Never suppress cleanup failure: record durable recovery state and audit event
                         await logAuditEvent(
-                            'authority_orphan_cleanup_failed',
+                            'authority_orphan_snapshot_purged',
                             item.requestedBy || null,
                             'authority_snapshot',
                             snapshot._id,
-                            `Failed to purge orphaned snapshot ${snapshot._id} after preemption: ${cleanupErr.message}`,
+                            `Orphaned snapshot ${snapshot._id} purged after worker lease preemption during finalization`,
                             {
                                 snapshotId: snapshot._id,
                                 runItemId: item._id,
                                 tenantId,
                                 workerId: effectiveWorkerId,
-                                error: cleanupErr.message
-                            }
+                                reason: 'FINALIZATION_OWNERSHIP_LOST'
+                            },
+                            'success',
+                            { throwOnError: true }
                         );
-                        // Fenced failure update: do not overwrite state if pre-empted
-                        await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
+                    } catch (cleanupErr) {
+                        // Never suppress cleanup failure: record durable recovery state and audit event
+                        let auditError = null;
+                        try {
+                            await logAuditEvent(
+                                'authority_orphan_cleanup_failed',
+                                item.requestedBy || null,
+                                'authority_snapshot',
+                                snapshot._id,
+                                `Failed to purge orphaned snapshot ${snapshot._id} after preemption: ${cleanupErr.message}`,
+                                {
+                                    snapshotId: snapshot._id,
+                                    runItemId: item._id,
+                                    tenantId,
+                                    workerId: effectiveWorkerId,
+                                    error: cleanupErr.message
+                                },
+                                'failure',
+                                { throwOnError: true }
+                            );
+                        } catch (auditErr) {
+                            auditError = auditErr;
+                            console.error('[AuthorityBulkProcessor] Critical: orphan cleanup failure audit log failed in standalone rollback:', auditErr.message);
+                        }
+
+                        const combinedErrorMessage = auditError
+                            ? `CLEANUP_FAILED: ${cleanupErr.message}; AUDIT_LOG_FAILED: ${auditError.message}`
+                            : `CLEANUP_FAILED: ${cleanupErr.message}`;
+
+                        // Fenced failure update: check whether fenced update matched active owner
+                        const fencedRes = await AuthorityBulkProcessor._updateOrphanRecoveryStateWithOwnershipCheck(
                             item._id,
                             tenantId,
                             effectiveWorkerId,
@@ -1527,10 +1827,13 @@ export class AuthorityBulkProcessor {
                                     'recoveryState.orphanedSnapshotId': snapshot._id,
                                     'recoveryState.orphanedByWorkerId': effectiveWorkerId,
                                     'recoveryState.failedAt': new Date(),
-                                    'recoveryState.error': cleanupErr.message
+                                    'recoveryState.error': combinedErrorMessage
                                 }
                             }
                         );
+                        if (!fencedRes) {
+                            console.warn(`[AuthorityBulkProcessor] Stale worker ${effectiveWorkerId} lost ownership during rollback failure recording; state preserved for replacement worker.`);
+                        }
                     }
                 }
                 return {
