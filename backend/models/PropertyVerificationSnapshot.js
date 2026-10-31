@@ -641,14 +641,24 @@ PropertyVerificationSnapshotSchema.statics.getHistoryForLink = function (tenantI
 /**
  * Safely purge an unfinalized orphaned snapshot during crash recovery.
  * Requires explicit tenantId and runItemId boundaries.
+ * Optionally fences by createdByWorkerId to guarantee that a replacement
+ * worker's snapshot is never deleted.
  * 
  * @param {object} params
  * @param {mongoose.Types.ObjectId|string} params.tenantId
  * @param {mongoose.Types.ObjectId|string} params.runItemId
  * @param {mongoose.Types.ObjectId|string} [params.snapshotId]
- * @returns {Promise<boolean>}
+ * @param {string} [params.createdByWorkerId]
+ * @param {mongoose.ClientSession} [params.session]
+ * @returns {Promise<{ acknowledged: boolean, deletedCount: number, success: boolean }>}
  */
-PropertyVerificationSnapshotSchema.statics.purgeOrphanedSnapshot = async function ({ tenantId, runItemId, snapshotId = null }) {
+PropertyVerificationSnapshotSchema.statics.purgeOrphanedSnapshot = async function ({
+    tenantId,
+    runItemId,
+    snapshotId = null,
+    createdByWorkerId = null,
+    session = null
+}) {
     if (!tenantId || !runItemId) {
         throw new Error('TENANT_AND_RUN_ITEM_REQUIRED: Cannot purge orphaned snapshot without tenant and runItem boundaries.');
     }
@@ -656,8 +666,20 @@ PropertyVerificationSnapshotSchema.statics.purgeOrphanedSnapshot = async functio
     if (snapshotId) {
         query._id = snapshotId;
     }
-    const res = await this.deleteOne(query, { allowOrphanCleanup: true });
-    return res.deletedCount > 0;
+    if (createdByWorkerId) {
+        query.createdByWorkerId = createdByWorkerId;
+    }
+    const options = { allowOrphanCleanup: true };
+    if (session) {
+        options.session = session;
+    }
+    const res = await this.deleteOne(query, options);
+    const deletedCount = res?.deletedCount ?? 0;
+    return {
+        acknowledged: res?.acknowledged !== false,
+        deletedCount,
+        success: deletedCount > 0
+    };
 };
 
 const computeNormalizedContentHash = computeSnapshotContentHash;
