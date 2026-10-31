@@ -816,61 +816,111 @@ describe('Phase 2.2 — Security and Runtime Test Hardening', () => {
         });
 
         it('4.7 applyApprovedChanges applies legitimate allowed fields and creates durable audit', async () => {
-            const run = await PropertyVerificationRun.create({
-                tenantId: tenantA,
-                authorityCode: 'HSVP',
-                requestedBy: userFullAdmin._id,
-                runMode: 'SINGLE',
-                status: 'COMPLETED'
-            });
-
-            const link = await PropertyAuthorityLink.create({
-                tenantId: tenantA,
-                inventoryId: testInventory._id,
-                authorityCode: 'HSVP',
-                sectorNumber: '15',
-                propertyId: 'PLOT-5',
-                compositeKey: 'HSVP:SEC15:PLOT5',
-                createdBy: userFullAdmin._id
-            });
-
-            const item = await PropertyVerificationRunItem.create({
-                tenantId: tenantA,
-                runId: run._id,
-                inventoryId: testInventory._id,
-                linkId: link._id,
-                authorityCode: 'HSVP',
-                status: 'SUCCEEDED',
-                reviewerDecision: 'APPROVED',
-                proposedChanges: [
+            try {
+                await AuthoritySourceSettings.findOneAndUpdate(
+                    { tenantId: tenantA, authorityCode: 'HSVP' },
                     {
-                        field: 'authorityVerification.propertySize',
-                        currentValue: 'Unknown',
-                        proposedValue: '350 Sq Yards',
-                        approved: true
+                        $set: {
+                            isEnabled: true,
+                            isPaused: false,
+                            permissionStatus: 'GRANTED',
+                            approvedAccessMethod: 'PUBLIC_API',
+                            approvalReference: 'GOV/HSVP/2026/001',
+                            approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                            reviewStatus: 'APPROVED',
+                            ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                            identityRequirements: { verified: true },
+                            permittedFields: ['propertyId', 'sectorNumber', 'propertySize']
+                        }
+                    },
+                    { upsert: true }
+                );
+
+                const run = await PropertyVerificationRun.create({
+                    tenantId: tenantA,
+                    authorityCode: 'HSVP',
+                    requestedBy: userFullAdmin._id,
+                    runMode: 'SINGLE',
+                    status: 'COMPLETED',
+                    isFixtureMode: false,
+                    provenance: 'LIVE'
+                });
+
+                const link = await PropertyAuthorityLink.create({
+                    tenantId: tenantA,
+                    inventoryId: testInventory._id,
+                    authorityCode: 'HSVP',
+                    sectorNumber: '15',
+                    propertyId: 'PLOT-5',
+                    compositeKey: 'HSVP:SEC15:PLOT5',
+                    createdBy: userFullAdmin._id
+                });
+
+                const snap = await PropertyVerificationSnapshot.create({
+                    tenantId: tenantA,
+                    authorityCode: 'HSVP',
+                    linkId: link._id,
+                    runItemId: new mongoose.Types.ObjectId(),
+                    observedAt: new Date(),
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    normalizedData: {},
+                    isSealed: true
+                });
+
+                const item = await PropertyVerificationRunItem.create({
+                    tenantId: tenantA,
+                    runId: run._id,
+                    snapshotId: snap._id,
+                    inventoryId: testInventory._id,
+                    linkId: link._id,
+                    authorityCode: 'HSVP',
+                    status: 'SUCCEEDED',
+                    reviewerDecision: 'APPROVED',
+                    isSynthetic: false,
+                    provenance: 'LIVE',
+                    proposedChanges: [
+                        {
+                            field: 'authorityVerification.propertySize',
+                            currentValue: 'Unknown',
+                            proposedValue: '350 Sq Yards',
+                            approved: true
+                        }
+                    ]
+                });
+
+                const res = await fetch(`${baseUrl}/api/authority/apply/${item._id}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${tokenFullAdmin}`
                     }
-                ]
-            });
+                });
 
-            const res = await fetch(`${baseUrl}/api/authority/apply/${item._id}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${tokenFullAdmin}`
-                }
-            });
+                assert.equal(res.status, 200);
+                const data = await res.json();
+                assert.equal(data.success, true);
+                assert.equal(data.data.appliedFields.length, 1);
+                assert.ok(data.data.auditId);
 
-            assert.equal(res.status, 200);
-            const data = await res.json();
-            assert.equal(data.success, true);
-            assert.equal(data.data.appliedFields.length, 1);
-            assert.ok(data.data.auditId);
-
-            // Verify Inventory was updated in subdocument
-            const updatedInv = await Inventory.findById(testInventory._id).lean();
-            assert.equal(updatedInv.authorityVerification?.propertySize, '350 Sq Yards');
-            // Ensure status was untouched
-            assert.equal(String(updatedInv.status), String(testInventory.status));
+                // Verify Inventory was updated in subdocument
+                const updatedInv = await Inventory.findById(testInventory._id).lean();
+                assert.equal(updatedInv.authorityVerification?.propertySize, '350 Sq Yards');
+                // Ensure status was untouched
+                assert.equal(String(updatedInv.status), String(testInventory.status));
+            } finally {
+                await AuthoritySourceSettings.findOneAndUpdate(
+                    { tenantId: tenantA, authorityCode: 'HSVP' },
+                    {
+                        $set: {
+                            isEnabled: false,
+                            isPaused: false,
+                            permissionStatus: 'NOT_OBTAINED',
+                            reviewStatus: 'DRAFT'
+                        }
+                    }
+                );
+            }
         });
     });
 

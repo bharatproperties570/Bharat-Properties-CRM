@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - 'enterprise/**'
+      - 'feature/**'
   pull_request:
     branches:
       - main
       - 'enterprise/**'
+      - 'feature/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -118,6 +120,11 @@ jobs:
           npm run test:authority 2>&1 | tee test_authority.log
           node scripts/verify-authority-test-completeness.js test_authority.log
 
+      - name: Run Phase 4 Authority Operational Completion Tests
+        run: |
+          cd backend
+          npm run test:phase4-authority
+
   build-frontend:
     name: Frontend Build Check
     runs-on: ubuntu-latest
@@ -135,6 +142,10 @@ jobs:
       - name: Install root dependencies (Deterministic)
         run: |
           npm ci
+
+      - name: Run Frontend unit tests
+        run: |
+          npm run test:frontend
 
       - name: Run Vite production build
         run: |

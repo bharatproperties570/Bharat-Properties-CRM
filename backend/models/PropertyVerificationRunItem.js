@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { CANONICAL_TO_CRM_FIELD_MAP, CRM_TO_CANONICAL_FIELD_MAP } from '../services/authority/authorityFieldDictionary.js';
 
 /**
  * PropertyVerificationRunItem
@@ -59,7 +60,8 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     linkId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'PropertyAuthorityLink',
-        required: true
+        required: false,
+        default: null
     },
     authorityCode: {
         type: String,
@@ -147,6 +149,29 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     },
 
     // ========== Application Audit ==========
+    isSynthetic: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    provenance: {
+        type: String,
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
+        index: true
+    },
+    claimedBy: {
+        type: String,
+        default: null
+    },
+    claimedAt: {
+        type: Date,
+        default: null
+    },
+    leaseExpiresAt: {
+        type: Date,
+        default: null,
+        index: true
+    },
     appliedAt: {
         type: Date,
         default: null
@@ -164,7 +189,107 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     // Prevent duplicate applications
     applied: {
         type: Boolean,
-        default: false
+        default: false,
+        index: true
+    },
+    // ========== Atomic Application State & Claim ==========
+    applyState: {
+        type: String,
+        enum: ['UNAPPLIED', 'APPLYING', 'APPLIED', 'FAILED', 'COMPENSATION_FAILED'],
+        default: 'UNAPPLIED',
+        index: true
+    },
+    // ========== Crash Recovery & Orphan Management ==========
+    recoveryState: {
+        stage: {
+            type: String,
+            enum: ['NONE', 'ORPHAN_DETECTED', 'ORPHAN_RECOVERED', 'CLEANUP_FAILED'],
+            default: 'NONE'
+        },
+        orphanedSnapshotId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        orphanedByWorkerId: {
+            type: String,
+            default: null
+        },
+        recoveredByWorkerId: {
+            type: String,
+            default: null
+        },
+        recoveredAt: {
+            type: Date,
+            default: null
+        },
+        failedAt: {
+            type: Date,
+            default: null
+        },
+        error: {
+            type: String,
+            default: null
+        },
+        retryCount: {
+            type: Number,
+            default: 0
+        }
+    },
+    applyClaim: {
+        claimedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null
+        },
+        claimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        reconcilerClaimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        fenceToken: {
+            type: Number,
+            default: 0
+        },
+        claimedAt: {
+            type: Date,
+            default: null
+        },
+        leaseExpiresAt: {
+            type: Date,
+            default: null,
+            index: true
+        },
+        stage: {
+            type: String,
+            enum: ['IDLE', 'CLAIMED', 'INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING', 'COMPLETED', 'FAILED', 'COMPENSATING', 'COMPENSATED', 'COMPENSATION_FAILED', 'RECONCILING'],
+            default: 'IDLE'
+        },
+        expectedPreviousClaimId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null
+        },
+        idempotencyKey: {
+            type: String,
+            default: null
+        },
+        compensation: {
+            inventoryBefore: {
+                type: mongoose.Schema.Types.Mixed,
+                default: null
+            },
+            auditId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'AuditLog',
+                default: null
+            }
+        }
+    },
+    applyError: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: true,
@@ -173,8 +298,12 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
 
 // ========== Indexes ==========
 PropertyVerificationRunItemSchema.index({ runId: 1, status: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, runId: 1, status: 1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, inventoryId: 1, createdAt: -1 });
 PropertyVerificationRunItemSchema.index({ tenantId: 1, reviewerDecision: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, applyState: 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, 'applyClaim.claimId': 1 });
+PropertyVerificationRunItemSchema.index({ tenantId: 1, 'applyClaim.leaseExpiresAt': 1 });
 // Prevent duplicate items for the same inventory in the same run
 PropertyVerificationRunItemSchema.index(
     { runId: 1, inventoryId: 1 },
@@ -290,5 +419,13 @@ PropertyVerificationRunItemSchema.statics.getPendingReview = function (tenantId)
         .sort({ createdAt: -1 });
 };
 
-export { ITEM_STATUSES, MATCH_STATUSES, REVIEWER_DECISIONS, BLOCKED_UPDATE_FIELDS, ALLOWED_UPDATE_FIELDS };
+export {
+    ITEM_STATUSES,
+    MATCH_STATUSES,
+    REVIEWER_DECISIONS,
+    BLOCKED_UPDATE_FIELDS,
+    ALLOWED_UPDATE_FIELDS,
+    CANONICAL_TO_CRM_FIELD_MAP,
+    CRM_TO_CANONICAL_FIELD_MAP
+};
 export default mongoose.model('PropertyVerificationRunItem', PropertyVerificationRunItemSchema);

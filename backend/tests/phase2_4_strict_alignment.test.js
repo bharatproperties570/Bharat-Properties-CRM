@@ -49,6 +49,7 @@ import PropertyVerificationRunItem, {
     ALLOWED_UPDATE_FIELDS
 } from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import { SENTINEL } from '../services/authority/authorityFieldDictionary.js';
 import authorityRoutes from '../routes/authorityVerification.routes.js';
 
@@ -61,6 +62,7 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
     let adminUser;
     let adminToken;
     let adminRole;
+    let testSnapshot;
 
     before(async () => {
         let MongoMemoryServer;
@@ -123,6 +125,18 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
         });
 
         adminToken = jwt.sign({ id: adminUser._id }, config.jwtSecret, { expiresIn: '2h' });
+
+        testSnapshot = await PropertyVerificationSnapshot.create({
+            tenantId: tenantA,
+            authorityCode: 'HSVP',
+            linkId: new mongoose.Types.ObjectId(),
+            runItemId: new mongoose.Types.ObjectId(),
+            observedAt: new Date(),
+            isSynthetic: false,
+            provenance: 'LIVE',
+            normalizedData: {},
+            isSealed: true
+        });
     });
 
     after(async () => {
@@ -233,11 +247,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.completelyUnknownSubField',
@@ -271,11 +288,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -316,11 +336,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'status',
@@ -352,11 +375,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -394,6 +420,31 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
         let testLink;
 
         beforeEach(async () => {
+            for (const code of ['HSVP', 'GMADA', 'CHD']) {
+                await AuthoritySourceSettings.findOneAndUpdate(
+                    { tenantId: tenantA, authorityCode: code },
+                    {
+                        $set: {
+                            isEnabled: true,
+                            isPaused: false,
+                            permissionStatus: 'GRANTED',
+                            approvedAccessMethod: 'PUBLIC_API',
+                            approvalReference: `GOV/${code}/2026/001`,
+                            approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                            reviewStatus: 'APPROVED',
+                            ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                            identityRequirements: { verified: true },
+                            permittedFields: [
+                                'propertyId', 'sectorNumber', 'propertySize', 'propertyAreaValue', 'propertyAreaUnit',
+                                'allotmentDate', 'transferDate', 'phaseCode', 'blockCode', 'litigationStatus',
+                                'mortgageStatus', 'duesStatus', 'leaseRentStatus', 'buildingPlanApproved', 'occupancyCertificate'
+                            ]
+                        }
+                    },
+                    { upsert: true }
+                );
+            }
+
             testInventory = await Inventory.create({
                 tenantId: tenantA,
                 unitNo: 'CANONICAL-TEST-1',
@@ -415,7 +466,21 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 runMode: 'SINGLE',
                 status: 'COMPLETED',
-                requestedBy: adminUser._id
+                requestedBy: adminUser._id,
+                isFixtureMode: false,
+                provenance: 'LIVE'
+            });
+
+            testSnapshot = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: testLink._id,
+                runItemId: new mongoose.Types.ObjectId(),
+                observedAt: new Date(),
+                isSynthetic: false,
+                provenance: 'LIVE',
+                normalizedData: {},
+                isSealed: true
             });
         });
 
@@ -431,11 +496,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.allotmentDate',
@@ -477,11 +545,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'GMADA',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertySize',
@@ -530,11 +601,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'CHD',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.sectorNumber',
@@ -583,11 +657,14 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: testRun._id,
+                snapshotId: testSnapshot._id,
                 inventoryId: testInventory._id,
                 linkId: testLink._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.litigationStatus',
@@ -618,6 +695,15 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             assert.equal(refreshed.authorityVerification.litigationStatus, 'Court case pending in High Court');
             assert.equal(typeof refreshed.authorityVerification.buildingPlanApproved, 'boolean');
             assert.equal(refreshed.authorityVerification.buildingPlanApproved, true);
+        });
+
+        after(async () => {
+            for (const code of ['HSVP', 'GMADA', 'CHD']) {
+                await AuthoritySourceSettings.findOneAndUpdate(
+                    { tenantId: tenantA, authorityCode: code },
+                    { $set: { isEnabled: false, permissionStatus: 'NOT_OBTAINED' } }
+                );
+            }
         });
     });
 
@@ -691,17 +777,34 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                 authorityCode: 'HSVP',
                 runMode: 'SINGLE',
                 status: 'COMPLETED',
-                requestedBy: adminUser._id
+                requestedBy: adminUser._id,
+                isFixtureMode: false,
+                provenance: 'LIVE'
+            });
+
+            const snap43 = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: link._id,
+                runItemId: new mongoose.Types.ObjectId(),
+                observedAt: new Date(),
+                isSynthetic: false,
+                provenance: 'LIVE',
+                normalizedData: {},
+                isSealed: true
             });
 
             const runItem = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: run._id,
+                snapshotId: snap43._id,
                 inventoryId: legacyInsert.insertedId,
                 linkId: link._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertyId',
@@ -711,6 +814,25 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
                     }
                 ]
             });
+
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                {
+                    $set: {
+                        isEnabled: true,
+                        isPaused: false,
+                        permissionStatus: 'GRANTED',
+                        approvedAccessMethod: 'PUBLIC_API',
+                        approvalReference: 'GOV/HSVP/2026/001',
+                        approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                        reviewStatus: 'APPROVED',
+                        ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                        identityRequirements: { verified: true },
+                        permittedFields: ['propertyId']
+                    }
+                },
+                { upsert: true }
+            );
 
             const res = await fetch(`${baseUrl}/api/authority/apply/${runItem._id}`, {
                 method: 'POST',
@@ -724,6 +846,11 @@ describe('Phase 2.4 — Strict-Mode Semantics, Schema Alignment & Reconciliation
             const rawUpdated = await Inventory.collection.findOne({ _id: legacyInsert.insertedId });
             assert.ok(rawUpdated.authorityVerification);
             assert.equal(rawUpdated.authorityVerification.propertyId, 'P-LEGACY-RESOLVED');
+
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                { $set: { isEnabled: false, permissionStatus: 'NOT_OBTAINED' } }
+            );
         });
 
         it('4.4 JSON serialization of Inventory without authority data is clean', async () => {

@@ -47,6 +47,11 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         ref: 'PropertyVerificationRunItem',
         default: null
     },
+    createdByWorkerId: {
+        type: String,
+        default: null,
+        index: true
+    },
 
     // ========== Source Reference ==========
     // Approved source URL (NOT containing session tokens or credentials)
@@ -157,6 +162,18 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
         default: true
     },
 
+    // ========== Provenance & Fixture Protection ==========
+    isSynthetic: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    provenance: {
+        type: String,
+        enum: ['LIVE', 'SYNTHETIC_FIXTURE'],
+        index: true
+    },
+
     // ========== Cryptographic Integrity ==========
     // Deterministic SHA-256 hash of normalized permitted facts (excludes cookies, tokens, PII)
     contentHash: {
@@ -173,6 +190,15 @@ const PropertyVerificationSnapshotSchema = new mongoose.Schema({
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, linkId: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ tenantId: 1, authorityCode: 1, observedAt: -1 });
 PropertyVerificationSnapshotSchema.index({ linkId: 1, observedAt: -1 });
+PropertyVerificationSnapshotSchema.index({ tenantId: 1, contentHash: 1 });
+PropertyVerificationSnapshotSchema.index(
+    { tenantId: 1, runItemId: 1 },
+    {
+        unique: true,
+        partialFilterExpression: { runItemId: { $type: 'objectId' } }
+    }
+);
+PropertyVerificationSnapshotSchema.index({ runItemId: 1 });
 
 // Module-private policy collection (inaccessible and unmodifiable from outside)
 const _PERMITTED_SNAPSHOT_NORMALIZED_KEYS = new Set([
@@ -520,18 +546,27 @@ PropertyVerificationSnapshotSchema.pre('replaceOne', function (next) {
 });
 
 PropertyVerificationSnapshotSchema.pre('deleteOne', function (next) {
+    if (this.getOptions()?.allowOrphanCleanup) {
+        return next();
+    }
     const err = new Error('PropertyVerificationSnapshot is immutable — deletion is prohibited');
     err.code = 'SNAPSHOT_IMMUTABLE';
     next(err);
 });
 
 PropertyVerificationSnapshotSchema.pre('deleteMany', function (next) {
+    if (this.getOptions()?.allowOrphanCleanup) {
+        return next();
+    }
     const err = new Error('PropertyVerificationSnapshot is immutable — deletion is prohibited');
     err.code = 'SNAPSHOT_IMMUTABLE';
     next(err);
 });
 
 PropertyVerificationSnapshotSchema.pre('findOneAndDelete', function (next) {
+    if (this.getOptions()?.allowOrphanCleanup) {
+        return next();
+    }
     const err = new Error('PropertyVerificationSnapshot is immutable — deletion is prohibited');
     err.code = 'SNAPSHOT_IMMUTABLE';
     next(err);
@@ -601,6 +636,28 @@ PropertyVerificationSnapshotSchema.statics.getHistoryForLink = function (tenantI
     return this.find({ tenantId, linkId })
         .sort({ observedAt: -1 })
         .limit(limit);
+};
+
+/**
+ * Safely purge an unfinalized orphaned snapshot during crash recovery.
+ * Requires explicit tenantId and runItemId boundaries.
+ * 
+ * @param {object} params
+ * @param {mongoose.Types.ObjectId|string} params.tenantId
+ * @param {mongoose.Types.ObjectId|string} params.runItemId
+ * @param {mongoose.Types.ObjectId|string} [params.snapshotId]
+ * @returns {Promise<boolean>}
+ */
+PropertyVerificationSnapshotSchema.statics.purgeOrphanedSnapshot = async function ({ tenantId, runItemId, snapshotId = null }) {
+    if (!tenantId || !runItemId) {
+        throw new Error('TENANT_AND_RUN_ITEM_REQUIRED: Cannot purge orphaned snapshot without tenant and runItem boundaries.');
+    }
+    const query = { tenantId, runItemId };
+    if (snapshotId) {
+        query._id = snapshotId;
+    }
+    const res = await this.deleteOne(query, { allowOrphanCleanup: true });
+    return res.deletedCount > 0;
 };
 
 const computeNormalizedContentHash = computeSnapshotContentHash;

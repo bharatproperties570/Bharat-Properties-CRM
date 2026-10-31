@@ -163,8 +163,16 @@ const AuditLogSchema = new mongoose.Schema({
             'authority_link_created',
             'authority_run_created',
             'authority_run_policy_rejected',
+            'authority_run_batch_processed',
+            'authority_run_paused',
+            'authority_run_resumed',
+            'authority_run_completed',
+            'authority_run_cancelled',
             'authority_review_submitted',
-            'authority_changes_applied'
+            'authority_changes_applied',
+            'authority_changes_apply_compensated',
+            'authority_orphan_snapshot_purged',
+            'authority_orphan_cleanup_failed'
         ],
         index: true
     },
@@ -190,7 +198,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Target Info (what was affected) ==========
     targetType: {
         type: String,
-        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run']
+        enum: ['user', 'role', 'lead', 'deal', 'contact', 'company', 'inventory', 'payment', 'commission', 'campaign', 'domain', 'other', 'authority_settings', 'authority_run', 'authority_snapshot']
     },
     targetId: {
         type: mongoose.Schema.Types.ObjectId
@@ -224,7 +232,7 @@ const AuditLogSchema = new mongoose.Schema({
     // ========== Status ==========
     status: {
         type: String,
-        enum: ['success', 'failure', 'warning'],
+        enum: ['success', 'failure', 'warning', 'compensated'],
         default: 'success'
     },
     department: { type: String, index: true }, // Regional tracking for Enterprise Isolation

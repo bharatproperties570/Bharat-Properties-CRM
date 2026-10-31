@@ -6,18 +6,21 @@
  * All sources default to DISABLED.
  */
 
+import mongoose from 'mongoose';
 import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem, {
     BLOCKED_UPDATE_FIELDS,
-    ALLOWED_UPDATE_FIELDS
+    ALLOWED_UPDATE_FIELDS,
+    CRM_TO_CANONICAL_FIELD_MAP
 } from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
 import Inventory from '../models/Inventory.js';
 import AuditLog from '../models/AuditLog.js';
-import { buildCompositeKey } from '../services/authority/authorityNormalizer.js';
+import { buildCompositeKey, computeSnapshotContentHash } from '../services/authority/authorityNormalizer.js';
 import { isSentinel } from '../services/authority/authorityFieldDictionary.js';
+import { AuthorityBulkProcessor } from '../services/authority/AuthorityBulkProcessor.js';
 
 // ============================================================
 // HELPERS
@@ -351,7 +354,7 @@ export const createVerificationRun = async (req, res) => {
         const tenantId = getTenantId(req);
         if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
 
-        const { authorityCode, runMode, inventoryIds } = req.body;
+        const { authorityCode, runMode = 'SINGLE', inventoryIds, isFixtureMode = false, autoProcess = false } = req.body;
 
         if (!authorityCode || !runMode) {
             return res.status(400).json({ success: false, message: 'authorityCode and runMode required' });
@@ -359,103 +362,38 @@ export const createVerificationRun = async (req, res) => {
         if (!['HSVP', 'CHD', 'GMADA'].includes(authorityCode)) {
             return res.status(400).json({ success: false, message: 'Invalid authority code' });
         }
-        if (!['SINGLE', 'BULK_MANUAL'].includes(runMode)) {
-            return res.status(400).json({ success: false, message: 'Only SINGLE and BULK_MANUAL modes supported in Phase 2' });
+        if (!['SINGLE', 'BULK_MANUAL', 'BULK_SCHEDULED'].includes(runMode)) {
+            return res.status(400).json({ success: false, message: 'Only SINGLE, BULK_MANUAL, and BULK_SCHEDULED modes supported' });
         }
 
-        // Check source activation status — MUST be fail-closed
-        const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
-        if (!sourceSettings) {
-            return res.status(422).json({
-                success: false,
-                message: 'Authority source not configured',
-                status: 'POLICY_REJECTED'
-            });
-        }
+        const ids = Array.isArray(inventoryIds) ? inventoryIds : (inventoryIds ? [inventoryIds] : []);
 
-        const activationCheck = sourceSettings.checkActivationEligibility();
-        if (!sourceSettings.isEffectivelyActive()) {
-            // Create the run record but immediately mark as POLICY_REJECTED
-            const run = await PropertyVerificationRun.create({
-                tenantId,
-                authorityCode,
-                requestedBy: req.user._id,
-                runMode,
-                policyVersion: sourceSettings.policyVersion,
-                status: 'POLICY_REJECTED',
-                completedAt: new Date(),
-                totalItems: Array.isArray(inventoryIds) ? inventoryIds.length : 0,
-                policyRejectionReasons: activationCheck.blockers.length > 0
-                    ? activationCheck.blockers
-                    : ['Source is not effectively active (disabled or paused)'],
-                errorSummary: 'Verification source is not activated. Live adapters are not implemented in Phase 2.'
-            });
+        // Use bounded bulk creation service (eliminating serial lookups, preserving tenant isolation)
+        const run = await AuthorityBulkProcessor.createBulkRun({
+            tenantId,
+            authorityCode,
+            requestedBy: req.user._id,
+            inventoryIds: ids,
+            runMode,
+            isFixtureMode: Boolean(isFixtureMode)
+        });
 
+        if (run.status === 'POLICY_REJECTED') {
             await auditEvent(
                 'authority_run_policy_rejected',
                 req.user._id,
                 'authority_run',
                 run._id,
                 `Verification run POLICY_REJECTED for ${authorityCode}: source not activated`,
-                { runId: run._id, authorityCode, blockers: activationCheck.blockers }
+                { runId: run._id, authorityCode, blockers: run.policyRejectionReasons }
             );
 
             return res.status(422).json({
                 success: false,
                 message: 'Verification source is not activated',
-                data: run.toSummary(),
-                blockers: activationCheck.blockers
+                data: run.toSummary ? run.toSummary() : run,
+                blockers: run.policyRejectionReasons || ['Source is not effectively active (disabled or paused)']
             });
-        }
-
-        // Source is active — create run in CREATED state
-        // NOTE: Even with an active source, Phase 2 does NOT implement live fetching.
-        // The run is created but processing won't occur until adapters exist.
-        const totalItems = Array.isArray(inventoryIds) ? inventoryIds.length : 1;
-
-        const run = await PropertyVerificationRun.create({
-            tenantId,
-            authorityCode,
-            requestedBy: req.user._id,
-            runMode,
-            policyVersion: sourceSettings.policyVersion,
-            status: 'CREATED',
-            totalItems,
-            errorSummary: 'Run created. Live verification adapters are not yet implemented (Phase 2 foundation only).'
-        });
-
-        // Create run items for each inventory if provided
-        if (Array.isArray(inventoryIds) && inventoryIds.length > 0) {
-            const itemOps = [];
-            for (const invId of inventoryIds) {
-                // Verify inventory and link exist
-                const inv = await Inventory.findOne({ _id: invId, tenantId }).select('_id').lean();
-                if (!inv) continue;
-
-                const link = await PropertyAuthorityLink.findOne({
-                    tenantId, inventoryId: invId, authorityCode, isActive: true
-                });
-                if (!link) continue;
-
-                itemOps.push({
-                    tenantId,
-                    runId: run._id,
-                    inventoryId: invId,
-                    linkId: link._id,
-                    authorityCode,
-                    status: 'PENDING'
-                });
-            }
-
-            if (itemOps.length > 0) {
-                await PropertyVerificationRunItem.insertMany(itemOps, { ordered: false }).catch(err => {
-                    // Duplicates are ok — unique index on runId+inventoryId
-                    if (err.code !== 11000) throw err;
-                });
-            }
-
-            run.totalItems = itemOps.length;
-            await run.save();
         }
 
         await auditEvent(
@@ -463,14 +401,21 @@ export const createVerificationRun = async (req, res) => {
             req.user._id,
             'authority_run',
             run._id,
-            `Verification run created for ${authorityCode} (${runMode}, ${run.totalItems} items)`,
-            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems }
+            `Verification run created for ${authorityCode} (${runMode})`,
+            { runId: run._id, authorityCode, runMode, totalItems: run.totalItems, isFixtureMode: run.isFixtureMode }
         );
 
-        res.status(201).json({ success: true, data: run.toSummary() });
+        if (autoProcess) {
+            AuthorityBulkProcessor.processRun(run._id, {
+                tenantId,
+                isFixtureMode: Boolean(isFixtureMode)
+            }).catch(err => console.error('[AutoProcess] Run error:', err));
+        }
+
+        res.status(201).json({ success: true, data: run.toSummary ? run.toSummary() : run });
     } catch (error) {
         console.error('createVerificationRun error:', error);
-        res.status(500).json({ success: false, message: 'Failed to create verification run' });
+        res.status(500).json({ success: false, message: error.message || 'Failed to create verification run' });
     }
 };
 
@@ -520,6 +465,150 @@ export const getVerificationRunById = async (req, res) => {
     }
 };
 
+/**
+ * POST /api/authority/runs/:runId/process
+ * Execute or advance a verification run in bounded batches.
+ * Permission: authorityVerification.create or edit
+ */
+export const processVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { batchSize = 50, isFixtureMode } = req.body;
+
+        const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
+        if (!run) {
+            return res.status(404).json({ success: false, message: 'Run not found' });
+        }
+
+        // Derive mode strictly from stored run; reject mode mismatch if provided
+        if (isFixtureMode !== undefined && Boolean(isFixtureMode) !== Boolean(run.isFixtureMode)) {
+            return res.status(422).json({
+                success: false,
+                code: 'MODE_MISMATCH',
+                message: 'Mode mismatch: requested isFixtureMode does not match persisted run configuration'
+            });
+        }
+
+        const outcome = await AuthorityBulkProcessor.processRun(runId, {
+            tenantId,
+            batchSize: Number(batchSize) || 50,
+            isFixtureMode: Boolean(run.isFixtureMode),
+            userId: req.user._id
+        });
+
+        res.json({ success: true, data: outcome });
+    } catch (error) {
+        console.error('processVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to process verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/pause
+ * Pause an active verification run.
+ * Permission: authorityVerification.edit
+ */
+export const pauseVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { reason = 'Paused by user' } = req.body;
+        const run = await AuthorityBulkProcessor.pauseRun(runId, tenantId, req.user._id, reason);
+
+        res.json({ success: true, data: run.toSummary() });
+    } catch (error) {
+        console.error('pauseVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to pause verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/resume
+ * Resume an interrupted or paused verification run.
+ * Permission: authorityVerification.edit
+ */
+export const resumeVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { isFixtureMode } = req.body;
+
+        const run = await PropertyVerificationRun.findOne({ _id: runId, tenantId });
+        if (!run) {
+            return res.status(404).json({ success: false, message: 'Run not found' });
+        }
+
+        // Derive mode strictly from stored run; reject mode mismatch if provided
+        if (isFixtureMode !== undefined && Boolean(isFixtureMode) !== Boolean(run.isFixtureMode)) {
+            return res.status(422).json({
+                success: false,
+                code: 'MODE_MISMATCH',
+                message: 'Mode mismatch: requested isFixtureMode does not match persisted run configuration'
+            });
+        }
+
+        const outcome = await AuthorityBulkProcessor.resumeRun(runId, tenantId, {
+            isFixtureMode: Boolean(run.isFixtureMode),
+            userId: req.user._id
+        });
+
+        res.json({ success: true, data: outcome });
+    } catch (error) {
+        console.error('resumeVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to resume verification run' });
+    }
+};
+
+/**
+ * POST /api/authority/runs/:runId/cancel
+ * Cancel a verification run.
+ * Permission: authorityVerification.edit
+ */
+export const cancelVerificationRun = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const { reason = 'Cancelled by user' } = req.body;
+
+        const run = await AuthorityBulkProcessor.cancelRun(runId, tenantId, req.user._id, reason);
+
+        res.json({ success: true, data: run.toSummary() });
+    } catch (error) {
+        console.error('cancelVerificationRun error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to cancel verification run' });
+    }
+};
+
+/**
+ * GET /api/authority/runs/:runId/progress
+ * Get progress status for a verification run.
+ * Permission: authorityVerification.view
+ */
+export const getRunProgress = async (req, res) => {
+    try {
+        const tenantId = getTenantId(req);
+        if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant context required' });
+
+        const { runId } = req.params;
+        const progress = await AuthorityBulkProcessor.getRunProgress(runId, tenantId);
+
+        res.json({ success: true, data: progress });
+    } catch (error) {
+        console.error('getRunProgress error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to get run progress' });
+    }
+};
+
+
 // ============================================================
 // REVIEW & APPLY
 // ============================================================
@@ -564,6 +653,12 @@ export const submitReview = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
 
+        // Verify inventory exists and belongs to tenant
+        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
+        if (!inventory) {
+            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
+        }
+
         if (item.reviewerDecision !== 'PENDING') {
             return res.status(409).json({ success: false, message: 'Item already reviewed' });
         }
@@ -606,6 +701,323 @@ export const submitReview = async (req, res) => {
     }
 };
 
+// ============================================================
+// SAGA COMPENSATION & FENCING HELPERS (Phase 4.2)
+// ============================================================
+
+/**
+ * Durably compensates an interrupted or failed apply saga (standalone MongoDB fallback).
+ * Restores Inventory to pre-apply values (matching claimId), records durable compensation audit,
+ * and records FAILED/COMPENSATED or COMPENSATION_FAILED state on PropertyVerificationRunItem.
+ */
+export const compensateApplySaga = async ({
+    itemId,
+    tenantId,
+    inventoryId,
+    claimId,
+    stage,
+    compensation,
+    errorMsg,
+    appliedBy = null,
+    session = null
+}) => {
+    let inventoryRevertError = null;
+    let auditCompensationError = null;
+
+    // 1. Revert Inventory mutation if stage indicates possible or confirmed mutation
+    if (stage && ['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(stage)) {
+        if (compensation?.inventoryBefore && typeof compensation.inventoryBefore === 'object') {
+            try {
+                // Check whether Inventory was actually tagged/mutated with this claimId
+                const mutatedDoc = await Inventory.findOne({
+                    _id: inventoryId,
+                    tenantId,
+                    'authorityVerification.applyClaimId': claimId
+                });
+
+                if (mutatedDoc) {
+                    const revertOps = {};
+                    for (const [key, val] of Object.entries(compensation.inventoryBefore)) {
+                        revertOps[key] = (val === undefined || val === null) ? null : val;
+                    }
+                    revertOps['authorityVerification.applyClaimId'] = null;
+
+                    const invRes = await Inventory.updateOne(
+                        {
+                            _id: inventoryId,
+                            tenantId,
+                            'authorityVerification.applyClaimId': claimId
+                        },
+                        { $set: revertOps },
+                        session ? { session } : {}
+                    );
+
+                    if (invRes.matchedCount !== 1) {
+                        throw new Error(`Inventory rollback failed: matchedCount was ${invRes.matchedCount}`);
+                    }
+                } else if (stage !== 'INVENTORY_MUTATING') {
+                    // Stage indicated mutated, but document does not have this claimId.
+                    // Verify if it is already reverted (idempotency check)
+                    const existingInv = await Inventory.findOne({ _id: inventoryId, tenantId });
+                    if (existingInv?.authorityVerification?.applyClaimId && String(existingInv.authorityVerification.applyClaimId) !== String(claimId)) {
+                        console.warn(`[SagaCompensation] Inventory ${inventoryId} claimed by another claim ${existingInv.authorityVerification.applyClaimId}; skipping overwrite`);
+                    }
+                }
+            } catch (invErr) {
+                console.error(`[SagaCompensation] Error reverting inventory ${inventoryId}:`, invErr);
+                inventoryRevertError = invErr;
+            }
+        }
+    }
+
+    // 2. Record durable compensation audit record (integrity over silent deletion)
+    if (compensation?.auditId) {
+        try {
+            await auditEvent(
+                'authority_changes_apply_compensated',
+                appliedBy || null,
+                'inventory',
+                inventoryId,
+                `Authority verification changes apply compensated for claim ${claimId}`,
+                {
+                    before: {
+                        claimId: claimId ? claimId.toString() : null,
+                        originalAuditId: compensation.auditId ? compensation.auditId.toString() : null,
+                        stage,
+                        revertedChanges: compensation.inventoryBefore
+                    },
+                    after: {
+                        status: 'COMPENSATED',
+                        applyState: 'FAILED',
+                        revertedAt: new Date(),
+                        error: errorMsg
+                    }
+                },
+                session ? { session } : {}
+            );
+
+            // Update original audit record status to compensated
+            try {
+                await AuditLog.updateOne(
+                    { _id: compensation.auditId },
+                    {
+                        $set: {
+                            status: 'compensated',
+                            'metadata.compensated': true,
+                            'metadata.compensationClaimId': claimId ? claimId.toString() : null
+                        }
+                    },
+                    session ? { session } : {}
+                );
+            } catch (origErr) {
+                console.warn(`[SagaCompensation] Warning updating original audit ${compensation.auditId}:`, origErr);
+            }
+        } catch (auditErr) {
+            console.error(`[SagaCompensation] Error recording compensation audit for item ${itemId}:`, auditErr);
+            auditCompensationError = auditErr;
+        }
+    }
+
+    // 3. Mark RunItem state: fail-closed if any compensation step failed
+    if (inventoryRevertError || auditCompensationError) {
+        const failureDetails = [
+            inventoryRevertError ? `Inventory revert failed: ${inventoryRevertError.message}` : null,
+            auditCompensationError ? `Audit compensation failed: ${auditCompensationError.message}` : null
+        ].filter(Boolean).join('; ');
+
+        try {
+            await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: itemId,
+                    tenantId,
+                    'applyClaim.claimId': claimId
+                },
+                {
+                    $set: {
+                        applyState: 'COMPENSATION_FAILED',
+                        'applyClaim.stage': 'COMPENSATION_FAILED',
+                        'applyClaim.leaseExpiresAt': null,
+                        applyError: `Compensation failed: ${failureDetails}`
+                    }
+                },
+                session ? { session } : {}
+            );
+        } catch (itemErr) {
+            console.error(`[SagaCompensation] Error updating run item ${itemId} to COMPENSATION_FAILED:`, itemErr);
+        }
+
+        const compErr = new Error(`Compensation failed: ${failureDetails}`);
+        compErr.code = 'COMPENSATION_FAILED';
+        throw compErr;
+    }
+
+    try {
+        const itemRes = await PropertyVerificationRunItem.updateOne(
+            {
+                _id: itemId,
+                tenantId,
+                'applyClaim.claimId': claimId
+            },
+            {
+                $set: {
+                    applyState: 'FAILED',
+                    'applyClaim.stage': 'COMPENSATED',
+                    'applyClaim.leaseExpiresAt': null,
+                    applyError: errorMsg || 'Apply failed; saga compensated'
+                }
+            },
+            session ? { session } : {}
+        );
+        if (itemRes.matchedCount !== 1) {
+            console.warn(`[SagaCompensation] RunItem ${itemId} not updated during compensation: matchedCount was ${itemRes.matchedCount}`);
+        }
+    } catch (itemErr) {
+        console.error(`[SagaCompensation] Error updating run item ${itemId}:`, itemErr);
+        throw itemErr;
+    }
+};
+
+/**
+ * Reconciles an interrupted or stale apply claim whose lease has expired.
+ * Atomically claims ownership of the expired saga, rolls back any partial Inventory mutation,
+ * records durable compensation audit logs, and returns the item to a clean FAILED/COMPENSATED state.
+ */
+export const reconcileInterruptedApplySaga = async (itemId, tenantId) => {
+    const item = await PropertyVerificationRunItem.findOne({ _id: itemId, tenantId });
+    if (!item || item.applied || item.applyState === 'APPLIED') {
+        return { reconciled: false, reason: 'ALREADY_COMPLETED' };
+    }
+
+    if (item.applyState === 'COMPENSATION_FAILED' || item.applyClaim?.stage === 'COMPENSATION_FAILED') {
+        return { reconciled: false, reason: 'COMPENSATION_UNRESOLVED' };
+    }
+
+    const claim = item.applyClaim;
+    const now = new Date();
+
+    if (item.applyState !== 'APPLYING' || !claim?.leaseExpiresAt || claim.leaseExpiresAt >= now) {
+        return { reconciled: false, reason: 'NOT_ELIGIBLE_OR_LEASE_ACTIVE' };
+    }
+
+    // Atomically reserve the expired saga for this reconciler (prevents concurrent double-reconciliation)
+    const reconcilerClaimId = new mongoose.Types.ObjectId();
+    const reconcilerExpiry = new Date(now.getTime() + 30000);
+
+    const reservedItem = await PropertyVerificationRunItem.findOneAndUpdate(
+        {
+            _id: itemId,
+            tenantId,
+            applyState: 'APPLYING',
+            'applyClaim.claimId': claim.claimId,
+            'applyClaim.leaseExpiresAt': { $lt: now },
+            'applyClaim.stage': { $ne: 'RECONCILING' }
+        },
+        {
+            $set: {
+                'applyClaim.stage': 'RECONCILING',
+                'applyClaim.reconcilerClaimId': reconcilerClaimId,
+                'applyClaim.leaseExpiresAt': reconcilerExpiry
+            }
+        },
+        { new: true }
+    );
+
+    if (!reservedItem) {
+        return { reconciled: false, reason: 'LOCKED_BY_ANOTHER_RECONCILER_OR_INELIGIBLE' };
+    }
+
+    const originalStage = claim.stage;
+    let inventoryMutated = false;
+
+    if (['INVENTORY_MUTATING', 'INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+        const inv = await Inventory.findOne({
+            _id: reservedItem.inventoryId,
+            tenantId,
+            'authorityVerification.applyClaimId': claim.claimId
+        });
+        if (inv) {
+            inventoryMutated = true;
+        }
+    }
+
+    if (inventoryMutated || ['INVENTORY_MUTATED', 'AUDIT_LOGGING', 'AUDIT_LOGGED', 'FINALIZING'].includes(originalStage)) {
+        await compensateApplySaga({
+            itemId: reservedItem._id,
+            tenantId,
+            inventoryId: reservedItem.inventoryId,
+            claimId: claim.claimId,
+            stage: originalStage,
+            compensation: claim.compensation,
+            errorMsg: 'Interrupted apply saga lease expired; compensated by reconciler'
+        });
+        return { reconciled: true, action: 'COMPENSATED' };
+    } else {
+        // Stage was CLAIMED or INVENTORY_MUTATING (where Inventory was never mutated)
+        // Safely release the expired claim
+        await PropertyVerificationRunItem.updateOne(
+            { _id: reservedItem._id, tenantId, 'applyClaim.claimId': claim.claimId },
+            {
+                $set: {
+                    applyState: 'FAILED',
+                    'applyClaim.stage': 'COMPENSATED',
+                    'applyClaim.leaseExpiresAt': null,
+                    applyError: 'Lease expired before mutation stage; claim released'
+                }
+            }
+        );
+        return { reconciled: true, action: 'RELEASED' };
+    }
+};
+
+/**
+ * Renews the active lease on an in-progress apply claim.
+ * Fails closed if the claim has expired, fenceToken mismatches, or was preempted by another worker.
+ * Supports flexible signature:
+ * - renewApplyClaimLease(itemId, tenantId, claimId, extensionMs)
+ * - renewApplyClaimLease(itemId, tenantId, claimId, fenceToken, extensionMs)
+ * - renewApplyClaimLease(itemId, tenantId, claimId, { fenceToken, extensionMs })
+ */
+export const renewApplyClaimLease = async (itemId, tenantId, claimId, fenceTokenOrExtension = null, extensionMs = 30000) => {
+    let fenceToken = null;
+    let extension = extensionMs;
+
+    if (typeof fenceTokenOrExtension === 'number') {
+        if (fenceTokenOrExtension >= 1000) {
+            // Called as renewApplyClaimLease(itemId, tenantId, claimId, extensionMs)
+            extension = fenceTokenOrExtension;
+        } else {
+            // Called as renewApplyClaimLease(itemId, tenantId, claimId, fenceToken, extensionMs)
+            fenceToken = fenceTokenOrExtension;
+        }
+    } else if (typeof fenceTokenOrExtension === 'object' && fenceTokenOrExtension !== null) {
+        fenceToken = fenceTokenOrExtension.fenceToken ?? null;
+        extension = fenceTokenOrExtension.extensionMs ?? extensionMs;
+    }
+
+    const now = new Date();
+    const newExpiry = new Date(now.getTime() + extension);
+    const filter = {
+        _id: itemId,
+        tenantId,
+        'applyClaim.claimId': claimId,
+        'applyClaim.leaseExpiresAt': { $gt: now },
+        applyState: 'APPLYING'
+    };
+    if (fenceToken !== null && fenceToken !== undefined) {
+        filter['applyClaim.fenceToken'] = fenceToken;
+    }
+    const updated = await PropertyVerificationRunItem.findOneAndUpdate(
+        filter,
+        {
+            $set: {
+                'applyClaim.leaseExpiresAt': newExpiry
+            }
+        },
+        { new: true }
+    );
+    return updated;
+};
+
 /**
  * POST /api/authority/apply/:itemId
  * Apply approved changes to the Inventory record.
@@ -630,17 +1042,47 @@ export const applyApprovedChanges = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
 
-        // Prevent duplicate application
-        if (item.applied) {
-            return res.status(409).json({
+        // Verify inventory exists and belongs to tenant
+        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
+        if (!inventory) {
+            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
+        }
+
+        // 0. Fail-Closed Check: previous compensation failed and requires manual reconciliation
+        if (item.applyState === 'COMPENSATION_FAILED' || item.applyClaim?.stage === 'COMPENSATION_FAILED') {
+            return res.status(422).json({
                 success: false,
-                message: 'Changes already applied',
-                appliedAt: item.appliedAt,
-                appliedBy: item.appliedBy
+                code: 'COMPENSATION_UNRESOLVED',
+                message: 'Cannot apply changes: previous application compensation failed and requires manual reconciliation',
+                error: item.applyError
             });
         }
 
-        // Must be reviewed and at least partially approved
+        // 1. Synthetic Fixture Protection: reject immediately if item is marked synthetic
+        if (
+            item.isSynthetic === true ||
+            item.provenance === 'SYNTHETIC_FIXTURE'
+        ) {
+            return res.status(422).json({
+                success: false,
+                code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                message: 'Cannot apply changes: synthetic fixture data is prohibited from modifying Inventory records'
+            });
+        }
+
+        // 2. Prevent duplicate application (idempotency check)
+        if (item.applied || item.applyState === 'APPLIED') {
+            return res.status(409).json({
+                success: false,
+                code: 'ALREADY_APPLIED',
+                message: 'Changes already applied',
+                appliedAt: item.appliedAt,
+                appliedBy: item.appliedBy,
+                applicationAuditId: item.applicationAuditId
+            });
+        }
+
+        // 3. Must be reviewed and at least partially approved
         if (!['APPROVED', 'PARTIAL'].includes(item.reviewerDecision)) {
             return res.status(422).json({
                 success: false,
@@ -790,86 +1232,513 @@ export const applyApprovedChanges = async (req, res) => {
             });
         }
 
-        // Add verification audit metadata to subdocument
+        // ============================================================
+        // STRICT FAIL-CLOSED VERIFICATION & PROVENANCE GATES
+        // Must pass before any CRM Inventory mutation is permitted
+        // ============================================================
+
+        // 1. Snapshot existence and tenant matching
+        if (!item.snapshotId) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_SNAPSHOT',
+                message: 'Cannot apply changes: run item lacks a referenced verification snapshot'
+            });
+        }
+        const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
+        if (!snapshot) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_SNAPSHOT',
+                message: 'Cannot apply changes: referenced verification snapshot does not exist or tenant mismatch'
+            });
+        }
+
+        // 2. Run existence and tenant matching
+        if (!item.runId) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_RUN',
+                message: 'Cannot apply changes: run item lacks a referenced verification run'
+            });
+        }
+        const run = await PropertyVerificationRun.findOne({ _id: item.runId, tenantId });
+        if (!run) {
+            return res.status(422).json({
+                success: false,
+                code: 'MISSING_RUN',
+                message: 'Cannot apply changes: referenced verification run does not exist or tenant mismatch'
+            });
+        }
+
+        // 3. Strict Synthetic Protection: reject if any flag indicates fixture/synthetic mode
+        if (
+            item.isSynthetic === true ||
+            item.provenance === 'SYNTHETIC_FIXTURE' ||
+            snapshot.isSynthetic === true ||
+            snapshot.provenance === 'SYNTHETIC_FIXTURE' ||
+            run.isFixtureMode === true ||
+            run.provenance === 'SYNTHETIC_FIXTURE'
+        ) {
+            return res.status(422).json({
+                success: false,
+                code: 'SYNTHETIC_FIXTURE_BLOCKED',
+                message: 'Cannot apply changes: synthetic fixture data is prohibited from modifying Inventory records'
+            });
+        }
+
+        // 4. Strict Explicit LIVE Provenance: do not infer LIVE from schema defaults or legacy missing values
+        const isExplicitLiveItem = item.isSynthetic === false && item.provenance === 'LIVE';
+        const isExplicitLiveSnapshot = snapshot.isSynthetic === false && snapshot.provenance === 'LIVE';
+        const isExplicitLiveRun = run.isFixtureMode === false && run.provenance === 'LIVE';
+
+        if (!isExplicitLiveItem || !isExplicitLiveSnapshot || !isExplicitLiveRun) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_PROVENANCE',
+                message: 'Cannot apply changes: explicit LIVE provenance required on run, item, and snapshot'
+            });
+        }
+
+        // 5. Authorized LIVE Source check: authority source must be actively approved & enabled
+        const authorityCode = item.authorityCode || run.authorityCode || snapshot.authorityCode;
+        const sourceSettings = await AuthoritySourceSettings.getForTenant(tenantId, authorityCode);
+        if (!sourceSettings || sourceSettings.permissionStatus !== 'GRANTED' || !sourceSettings.isEnabled || sourceSettings.isPaused) {
+            return res.status(422).json({
+                success: false,
+                code: 'SOURCE_NOT_AUTHORIZED',
+                message: `Cannot apply changes: authority source ${authorityCode} is not authorized for live operation`
+            });
+        }
+
+        const activationCheck = sourceSettings.checkActivationEligibility ? sourceSettings.checkActivationEligibility() : { canActivate: true, blockers: [] };
+        const nonFieldBlockers = (activationCheck.blockers || []).filter(b => !b.includes('permitted fields'));
+        if (nonFieldBlockers.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'SOURCE_NOT_AUTHORIZED',
+                message: `Cannot apply changes: authority source ${authorityCode} has configuration blockers: ${nonFieldBlockers.join(', ')}`
+            });
+        }
+
+        // 6. Source-Specific Permitted Fields Enforcement (Finding 1)
+        const permittedList = Array.isArray(sourceSettings.permittedFields) ? sourceSettings.permittedFields : [];
+        const permittedSet = new Set(permittedList);
+        const unauthorizedSourceFields = [];
+
+        if (permittedList.length === 0) {
+            // Empty permissions list authorizes zero fields
+            for (const af of appliedFields) {
+                const canonicalName = CRM_TO_CANONICAL_FIELD_MAP[af.field] || af.field.replace(/^authorityVerification\./, '');
+                unauthorizedSourceFields.push({
+                    field: af.field,
+                    canonicalField: canonicalName,
+                    reason: `Authority source ${authorityCode} has an empty permittedFields list — no fields are authorized`
+                });
+            }
+        } else {
+            for (const af of appliedFields) {
+                const canonicalName = CRM_TO_CANONICAL_FIELD_MAP[af.field] || af.field.replace(/^authorityVerification\./, '');
+                if (!permittedSet.has(canonicalName) && !permittedSet.has(af.field)) {
+                    unauthorizedSourceFields.push({
+                        field: af.field,
+                        canonicalField: canonicalName,
+                        reason: `Field '${canonicalName}' is not in permittedFields for source ${authorityCode}`
+                    });
+                }
+            }
+        }
+
+        if (unauthorizedSourceFields.length > 0) {
+            return res.status(422).json({
+                success: false,
+                code: 'UNAUTHORIZED_SOURCE_FIELDS',
+                message: `Validation failed: source ${authorityCode} is not authorized to update field(s): ${unauthorizedSourceFields.map(f => f.canonicalField || f.field).join(', ')}`,
+                rejectedFields: unauthorizedSourceFields
+            });
+        }
+
+        // 7. Snapshot Cryptographic Integrity Verification (Finding 5)
+        if (snapshot.isSealed !== true) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot is not sealed'
+            });
+        }
+
+        if (!snapshot.contentHash || typeof snapshot.contentHash !== 'string' || !/^[a-f0-9]{32,64}$/i.test(snapshot.contentHash.trim())) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot lacks a valid cryptographic content hash'
+            });
+        }
+
+        // Recompute content hash over canonical normalized data
+        const recomputedHash = computeSnapshotContentHash(snapshot.normalizedData || {});
+        if (!recomputedHash || recomputedHash.toLowerCase() !== snapshot.contentHash.trim().toLowerCase()) {
+            return res.status(422).json({
+                success: false,
+                code: 'INVALID_SOURCE_EVIDENCE',
+                message: 'Cannot apply changes: snapshot cryptographic integrity verification failed (content hash mismatch)'
+            });
+        }
+
+        // 8. Durable Saga Compensation Snapshot & Fencing Initialization (Phase 4.2)
+        const topologyType = mongoose.connection?.client?.topology?.description?.type;
+        const supportsTransactions = topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+        if (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true' && !supportsTransactions) {
+            return res.status(503).json({
+                success: false,
+                code: 'TRANSACTIONS_UNAVAILABLE',
+                message: 'Cannot apply changes: MongoDB replica set transactions required by configuration but not available'
+            });
+        }
+
+        // Snapshot previous state for durable saga compensation
+        const previousValues = {};
+        const currentAv = inventory.authorityVerification
+            ? (typeof inventory.authorityVerification.toObject === 'function'
+                ? inventory.authorityVerification.toObject()
+                : inventory.authorityVerification)
+            : {};
+
+        for (const key of Object.keys(updateOps)) {
+            const fieldPath = key.replace(/^authorityVerification\./, '');
+            previousValues[key] = currentAv[fieldPath] !== undefined ? currentAv[fieldPath] : null;
+        }
+        previousValues['authorityVerification.applyClaimId'] = currentAv.applyClaimId || null;
+        const expectedPreviousClaimId = currentAv.applyClaimId || null;
+
+        const claimNow = new Date();
+        const claimExpiry = new Date(claimNow.getTime() + 30000); // 30-second bounded claim lease
+        const claimId = new mongoose.Types.ObjectId();
+        const idempotencyKey = `${item._id}_${item.snapshotId}_${Date.now()}`;
+
+        // If an abandoned claim with expired lease exists on this item, reconcile it before claiming
+        const existingItem = await PropertyVerificationRunItem.findOne({ _id: item._id, tenantId });
+        if (existingItem?.applyState === 'APPLYING' && existingItem.applyClaim?.leaseExpiresAt && existingItem.applyClaim.leaseExpiresAt < claimNow) {
+            await reconcileInterruptedApplySaga(existingItem._id, tenantId);
+        }
+
+        const claimedItem = await PropertyVerificationRunItem.findOneAndUpdate(
+            {
+                _id: item._id,
+                tenantId,
+                applied: false,
+                $or: [
+                    { applyState: { $in: ['UNAPPLIED', 'FAILED', null] } },
+                    { 'applyClaim.leaseExpiresAt': { $lt: claimNow } }
+                ]
+            },
+            {
+                $set: {
+                    applyState: 'APPLYING',
+                    'applyClaim.claimedBy': req.user._id,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.claimedAt': claimNow,
+                    'applyClaim.leaseExpiresAt': claimExpiry,
+                    'applyClaim.stage': 'CLAIMED',
+                    'applyClaim.idempotencyKey': idempotencyKey,
+                    'applyClaim.expectedPreviousClaimId': expectedPreviousClaimId,
+                    'applyClaim.compensation': {
+                        inventoryBefore: previousValues,
+                        auditId: null
+                    },
+                    applyError: null
+                },
+                $inc: {
+                    'applyClaim.fenceToken': 1
+                }
+            },
+            { new: true }
+        );
+
+        if (!claimedItem) {
+            // Concurrency contention or duplicate apply
+            const freshItem = await PropertyVerificationRunItem.findOne({ _id: item._id, tenantId });
+            if (freshItem?.applied || freshItem?.applyState === 'APPLIED') {
+                return res.status(409).json({
+                    success: false,
+                    code: 'ALREADY_APPLIED',
+                    message: 'Changes already applied',
+                    appliedAt: freshItem.appliedAt,
+                    appliedBy: freshItem.appliedBy,
+                    applicationAuditId: freshItem.applicationAuditId
+                });
+            }
+            return res.status(409).json({
+                success: false,
+                code: 'APPLICATION_IN_PROGRESS',
+                message: 'Application already in progress by another request'
+            });
+        }
+
+        // 9. Coordinate Mutation, AuditLog, and Run Item State (Durable Recoverable Saga)
         updateOps['authorityVerification.lastVerifiedAt'] = new Date();
         updateOps['authorityVerification.authorityCode'] = item.authorityCode;
         updateOps['authorityVerification.verificationRunId'] = item.runId;
-        if (item.snapshotId) {
-            updateOps['authorityVerification.verificationSnapshotId'] = item.snapshotId;
-            const snapshot = await PropertyVerificationSnapshot.findOne({ _id: item.snapshotId, tenantId });
-            if (snapshot && snapshot.contentHash) {
-                updateOps['authorityVerification.snapshotContentHash'] = snapshot.contentHash;
-                updateOps['authorityVerification.rawSnapshotHash'] = snapshot.contentHash;
+        updateOps['authorityVerification.verificationSnapshotId'] = item.snapshotId;
+        updateOps['authorityVerification.snapshotContentHash'] = snapshot.contentHash;
+        updateOps['authorityVerification.rawSnapshotHash'] = snapshot.contentHash;
+        updateOps['authorityVerification.applyClaimId'] = claimId;
+
+        let session = null;
+        let useTransaction = false;
+
+        if (supportsTransactions) {
+            try {
+                session = await mongoose.startSession();
+                session.startTransaction();
+                useTransaction = true;
+            } catch (sessionErr) {
+                if (session) {
+                    try { await session.endSession(); } catch {}
+                    session = null;
+                }
+                if (process.env.AUTHORITY_REQUIRE_TRANSACTIONS === 'true') {
+                    return res.status(503).json({
+                        success: false,
+                        code: 'TRANSACTIONS_UNAVAILABLE',
+                        message: `Cannot apply changes: Failed to initialize replica set transaction: ${sessionErr.message}`
+                    });
+                }
+                useTransaction = false;
             }
         }
 
-        // Verify inventory still exists and belongs to tenant
-        const inventory = await Inventory.findOne({ _id: item.inventoryId, tenantId });
-        if (!inventory) {
-            return res.status(404).json({ success: false, message: 'Inventory not found or access denied' });
-        }
+        let currentStage = 'CLAIMED';
+        let recordedAuditId = null;
 
-        // If legacy document has authorityVerification: null, initialize it to an empty object
-        // so MongoDB dotted path $set does not fail with PathNotViable (code 28).
-        // Retains strict tenant-scope filter on the recovery write.
-        if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
-            await Inventory.updateOne(
-                { _id: item.inventoryId, tenantId },
-                { $set: { authorityVerification: {} } }
-            );
-        }
-
-        // Apply update with strict schema enforcement (strict: 'throw' and runValidators: true)
         try {
-            await Inventory.findOneAndUpdate(
-                { _id: item.inventoryId, tenantId },
-                { $set: updateOps },
-                { strict: 'throw', runValidators: true }
+            // Stage 1a: Persist INVENTORY_MUTATING conditionally BEFORE touching Inventory
+            const mutatingRes = await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: item._id,
+                    tenantId,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
+                    'applyClaim.leaseExpiresAt': { $gt: new Date() },
+                    applyState: 'APPLYING'
+                },
+                {
+                    $set: {
+                        'applyClaim.stage': 'INVENTORY_MUTATING'
+                    }
+                },
+                useTransaction ? { session } : {}
             );
-        } catch (dbError) {
-            if (dbError.name === 'StrictModeError' || (dbError.message && dbError.message.includes('strict mode is set to throw'))) {
+            if (mutatingRes.matchedCount !== 1) {
+                const err = new Error('APPLY_CLAIM_PREEMPTED_OR_EXPIRED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+            currentStage = 'INVENTORY_MUTATING';
+
+            // Stage 1b: Mutate Inventory with strict claim fencing
+            if (!inventory.authorityVerification || typeof inventory.authorityVerification !== 'object') {
+                await Inventory.updateOne(
+                    { _id: item.inventoryId, tenantId },
+                    { $set: { authorityVerification: {} } },
+                    useTransaction ? { session } : {}
+                );
+            }
+
+            const inventoryFilter = {
+                _id: item.inventoryId,
+                tenantId
+            };
+            if (expectedPreviousClaimId) {
+                inventoryFilter['authorityVerification.applyClaimId'] = expectedPreviousClaimId;
+            } else {
+                inventoryFilter['$or'] = [
+                    { 'authorityVerification.applyClaimId': null },
+                    { 'authorityVerification.applyClaimId': { $exists: false } }
+                ];
+            }
+
+            const mutatedInventory = await Inventory.findOneAndUpdate(
+                inventoryFilter,
+                { $set: updateOps },
+                { strict: 'throw', runValidators: true, new: true, ...(useTransaction ? { session } : {}) }
+            );
+            if (!mutatedInventory) {
+                const err = new Error('INVENTORY_MUTATION_FENCED_PREEMPTED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+
+            // Stage 1c: Persist INVENTORY_MUTATED conditionally validating lease & claim
+            const stage1Res = await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: item._id,
+                    tenantId,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
+                    'applyClaim.leaseExpiresAt': { $gt: new Date() },
+                    applyState: 'APPLYING'
+                },
+                {
+                    $set: { 'applyClaim.stage': 'INVENTORY_MUTATED' }
+                },
+                useTransaction ? { session } : {}
+            );
+            if (stage1Res.matchedCount !== 1) {
+                const err = new Error('APPLY_CLAIM_PREEMPTED_OR_EXPIRED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+            currentStage = 'INVENTORY_MUTATED';
+
+            // Stage 2: AuditLog Insertion
+            currentStage = 'AUDIT_LOGGING';
+            const auditRecord = await auditEvent(
+                'authority_changes_applied',
+                req.user._id,
+                'inventory',
+                item.inventoryId,
+                `Authority verification changes applied from ${item.authorityCode}`,
+                {
+                    itemId: item._id,
+                    runId: item.runId,
+                    authorityCode: item.authorityCode,
+                    appliedFields,
+                    rejectedFields,
+                    claimId: claimId.toString(),
+                    changes: { before: previousValues, after: updateOps }
+                },
+                useTransaction ? { session } : {}
+            );
+            recordedAuditId = auditRecord?._id || null;
+
+            // Record stage AUDIT_LOGGED conditionally validating lease & claim
+            const stage2Res = await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: item._id,
+                    tenantId,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
+                    'applyClaim.leaseExpiresAt': { $gt: new Date() },
+                    applyState: 'APPLYING'
+                },
+                {
+                    $set: {
+                        'applyClaim.stage': 'AUDIT_LOGGED',
+                        'applyClaim.compensation.auditId': recordedAuditId
+                    }
+                },
+                useTransaction ? { session } : {}
+            );
+            if (stage2Res.matchedCount !== 1) {
+                const err = new Error('APPLY_CLAIM_PREEMPTED_OR_EXPIRED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+            currentStage = 'AUDIT_LOGGED';
+
+            // Stage 3: RunItem Finalization
+            currentStage = 'FINALIZING';
+            const appliedAt = new Date();
+            const finalRes = await PropertyVerificationRunItem.updateOne(
+                {
+                    _id: item._id,
+                    tenantId,
+                    'applyClaim.claimId': claimId,
+                    'applyClaim.fenceToken': claimedItem.applyClaim.fenceToken,
+                    'applyClaim.leaseExpiresAt': { $gt: new Date() },
+                    applyState: 'APPLYING'
+                },
+                {
+                    $set: {
+                        applied: true,
+                        applyState: 'APPLIED',
+                        'applyClaim.stage': 'COMPLETED',
+                        appliedAt,
+                        appliedBy: req.user._id,
+                        applicationAuditId: recordedAuditId,
+                        'applyClaim.leaseExpiresAt': null
+                    }
+                },
+                useTransaction ? { session } : {}
+            );
+
+            if (finalRes.matchedCount !== 1) {
+                const err = new Error('APPLY_CLAIM_PREEMPTED_OR_EXPIRED');
+                err.code = 'CLAIM_PREEMPTED';
+                throw err;
+            }
+            currentStage = 'COMPLETED';
+
+            if (useTransaction && session) {
+                await session.commitTransaction();
+                await session.endSession();
+                session = null;
+            }
+
+            return res.json({
+                success: true,
+                message: `Applied ${appliedFields.length} field(s)`,
+                data: {
+                    appliedFields,
+                    rejectedFields,
+                    auditId: recordedAuditId
+                }
+            });
+        } catch (execErr) {
+            if (useTransaction && session) {
+                try { await session.abortTransaction(); } catch {}
+                try { await session.endSession(); } catch {}
+                session = null;
+            }
+
+            // Execute durable saga compensation
+            try {
+                await compensateApplySaga({
+                    itemId: item._id,
+                    tenantId,
+                    inventoryId: item.inventoryId,
+                    claimId,
+                    stage: currentStage,
+                    compensation: {
+                        inventoryBefore: previousValues,
+                        auditId: recordedAuditId
+                    },
+                    errorMsg: execErr.message,
+                    appliedBy: req.user._id
+                });
+            } catch (compErr) {
+                console.error(`[applyApprovedChanges] Compensation execution error:`, compErr);
+            }
+
+            if (
+                execErr.code === 'CLAIM_PREEMPTED' ||
+                execErr.message === 'APPLY_CLAIM_PREEMPTED_OR_EXPIRED' ||
+                execErr.message === 'INVENTORY_MUTATION_FENCED_PREEMPTED' ||
+                execErr.codeName === 'WriteConflict' ||
+                execErr.code === 112 ||
+                execErr.codeName === 'LockTimeout' ||
+                execErr.code === 24 ||
+                (typeof execErr.hasErrorLabel === 'function' && execErr.hasErrorLabel('TransientTransactionError'))
+            ) {
+                return res.status(409).json({
+                    success: false,
+                    code: 'CLAIM_PREEMPTED',
+                    message: 'Apply claim expired or was preempted by concurrent write conflict before completion'
+                });
+            }
+
+            if (execErr.name === 'StrictModeError' || (execErr.message && execErr.message.includes('strict mode is set to throw'))) {
                 return res.status(422).json({
                     success: false,
-                    message: dbError.message,
+                    message: execErr.message,
                     errorType: 'StrictModeError'
                 });
             }
-            throw dbError;
+
+            throw execErr;
         }
-
-        // Create audit record
-        const auditRecord = await auditEvent(
-            'authority_changes_applied',
-            req.user._id,
-            'inventory',
-            item.inventoryId,
-            `Authority verification changes applied from ${item.authorityCode}`,
-            {
-                itemId: item._id,
-                runId: item.runId,
-                authorityCode: item.authorityCode,
-                appliedFields,
-                rejectedFields,
-                changes: { before: {}, after: updateOps }
-            }
-        );
-
-        // Mark item as applied
-        item.applied = true;
-        item.appliedAt = new Date();
-        item.appliedBy = req.user._id;
-        item.applicationAuditId = auditRecord?._id || null;
-        await item.save();
-
-        res.json({
-            success: true,
-            message: `Applied ${appliedFields.length} field(s)`,
-            data: {
-                appliedFields,
-                rejectedFields,
-                auditId: auditRecord?._id
-            }
-        });
     } catch (error) {
         console.error('applyApprovedChanges error:', error);
         res.status(500).json({ success: false, message: 'Failed to apply changes' });

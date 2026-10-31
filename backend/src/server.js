@@ -152,6 +152,10 @@ async function startServer() {
             
             const { startArchivalCron } = await import("../cron/archivalWorker.js");
             if (startArchivalCron) startArchivalCron();
+
+            // Initialize Phase 4 Authority Refresh Scheduler (strictly disabled by default, Asia/Kolkata)
+            const { initAuthorityScheduler } = await import("../services/authority/AuthorityRefreshScheduler.js");
+            if (initAuthorityScheduler) initAuthorityScheduler();
         } catch(e) { /* Ignore optional crons not found */ }
 
         // --- C9 Graceful Shutdown ---
@@ -165,6 +169,12 @@ async function startServer() {
             // 1. Stop polling/scheduling
             outboxPublisher.stop();
             clearInterval(nurtureInterval);
+
+            // Stop authority refresh scheduler
+            try {
+                const { stopAuthorityScheduler } = await import("../services/authority/AuthorityRefreshScheduler.js");
+                if (stopAuthorityScheduler) stopAuthorityScheduler();
+            } catch (e) {}
 
             // 2. Setup hard timeout for drain
             const SHUTDOWN_DRAIN_TIMEOUT_MS = 60000;

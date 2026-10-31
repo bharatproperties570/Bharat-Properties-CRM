@@ -76,7 +76,8 @@ const AuthorityVerificationSubSchema = new mongoose.Schema({
     verificationRunId: { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyVerificationRun', default: null },
     verificationSnapshotId: { type: mongoose.Schema.Types.ObjectId, ref: 'PropertyVerificationSnapshot', default: null },
     snapshotContentHash: { type: String, default: null },
-    rawSnapshotHash: { type: String, default: null }
+    rawSnapshotHash: { type: String, default: null },
+    applyClaimId: { type: mongoose.Schema.Types.ObjectId, default: null }
 }, {
     _id: false,
     strict: 'throw'

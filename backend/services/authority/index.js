@@ -32,3 +32,11 @@ export {
     GMADA_SYNTHETIC,
     ALL_SYNTHETIC_FIXTURES
 } from './fixtures/syntheticPhase3AFixtures.js';
+
+export { AuthorityBulkProcessor } from './AuthorityBulkProcessor.js';
+export {
+    AuthorityRefreshScheduler,
+    authorityScheduler,
+    initAuthorityScheduler,
+    stopAuthorityScheduler
+} from './AuthorityRefreshScheduler.js';

@@ -57,6 +57,7 @@ import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
 import PropertyVerificationRunItem from '../models/PropertyVerificationRunItem.js';
 import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import AuditLog from '../models/AuditLog.js';
 import Role from '../models/Role.js';
 import Lookup from '../models/Lookup.js';
@@ -411,13 +412,34 @@ test('--- PHASE 2.12: FINAL STATUS CONTRACT, DERIVATION & TEST EVIDENCE RECONCIL
             createdBy: testUser._id
         });
 
+        await AuthoritySourceSettings.findOneAndUpdate(
+            { tenantId, authorityCode: 'HSVP' },
+            {
+                $set: {
+                    isEnabled: true,
+                    isPaused: false,
+                    permissionStatus: 'GRANTED',
+                    approvedAccessMethod: 'PUBLIC_API',
+                    approvalReference: 'GOV/HSVP/2026/001',
+                    approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                    reviewStatus: 'APPROVED',
+                    ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                    identityRequirements: { verified: true },
+                    permittedFields: ['propertyId', 'sectorNumber', 'litigationStatus', 'mortgageStatus']
+                }
+            },
+            { upsert: true }
+        );
+
         const run = await PropertyVerificationRun.create({
             tenantId,
             authorityCode: 'HSVP',
             runMode: 'SINGLE',
             status: 'COMPLETED',
             requestedBy: testUser._id,
-            createdBy: testUser._id
+            createdBy: testUser._id,
+            isFixtureMode: false,
+            provenance: 'LIVE'
         });
 
         const initialStatus = inv.status;
@@ -479,15 +501,30 @@ test('--- PHASE 2.12: FINAL STATUS CONTRACT, DERIVATION & TEST EVIDENCE RECONCIL
         assert.strictEqual(freshInv.authorityVerification.mortgageStatus, 'NO_MORTGAGE');
 
         // 7.2 Successfully apply valid categorical string observation
+        const snap = await PropertyVerificationSnapshot.create({
+            tenantId,
+            authorityCode: 'HSVP',
+            linkId: link._id,
+            runItemId: new mongoose.Types.ObjectId(),
+            observedAt: new Date(),
+            isSynthetic: false,
+            provenance: 'LIVE',
+            normalizedData: {},
+            isSealed: true
+        });
+
         const itemValid = await PropertyVerificationRunItem.create({
             tenantId,
             runId: run._id,
+            snapshotId: snap._id,
             linkId: link._id,
             authorityCode: 'HSVP',
             inventoryId: inv._id,
             authorityPropertyId: 'PROP-42',
             status: 'SUCCEEDED',
             reviewerDecision: 'APPROVED',
+            isSynthetic: false,
+            provenance: 'LIVE',
             proposedChanges: [
                 {
                     field: 'authorityVerification.litigationStatus',

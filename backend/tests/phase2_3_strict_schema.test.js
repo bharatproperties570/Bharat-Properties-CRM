@@ -38,6 +38,8 @@ import Lookup from '../models/Lookup.js';
 import Team from '../models/Team.js';
 import PropertyAuthorityLink from '../models/PropertyAuthorityLink.js';
 import PropertyVerificationRun from '../models/PropertyVerificationRun.js';
+import PropertyVerificationSnapshot from '../models/PropertyVerificationSnapshot.js';
+import AuthoritySourceSettings from '../models/AuthoritySourceSettings.js';
 import PropertyVerificationRunItem, {
     BLOCKED_UPDATE_FIELDS,
     ALLOWED_UPDATE_FIELDS
@@ -581,12 +583,33 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
                 status: 'Available'
             });
 
+            await AuthoritySourceSettings.findOneAndUpdate(
+                { tenantId: tenantA, authorityCode: 'HSVP' },
+                {
+                    $set: {
+                        isEnabled: true,
+                        isPaused: false,
+                        permissionStatus: 'GRANTED',
+                        approvedAccessMethod: 'PUBLIC_API',
+                        approvalReference: 'GOV/HSVP/2026/001',
+                        approvalExpiryDate: new Date(Date.now() + 86400000 * 365),
+                        reviewStatus: 'APPROVED',
+                        ratePolicy: { maxRequestsPerDay: 1000, maxRequestsPerHour: 100 },
+                        identityRequirements: { verified: true },
+                        permittedFields: ['propertyId', 'sectorNumber', 'propertySize', 'buildingPlanApproved', 'phaseCode']
+                    }
+                },
+                { upsert: true }
+            );
+
             const run = await PropertyVerificationRun.create({
                 tenantId: tenantA,
                 authorityCode: 'HSVP',
                 requestedBy: adminUser._id,
                 runMode: 'SINGLE',
-                status: 'COMPLETED'
+                status: 'COMPLETED',
+                isFixtureMode: false,
+                provenance: 'LIVE'
             });
 
             const link = await PropertyAuthorityLink.create({
@@ -599,14 +622,29 @@ describe('Phase 2.3 — Strict Schema Hardening & Reconciliation', () => {
                 createdBy: adminUser._id
             });
 
+            const snap = await PropertyVerificationSnapshot.create({
+                tenantId: tenantA,
+                authorityCode: 'HSVP',
+                linkId: link._id,
+                runItemId: new mongoose.Types.ObjectId(),
+                observedAt: new Date(),
+                isSynthetic: false,
+                provenance: 'LIVE',
+                normalizedData: {},
+                isSealed: true
+            });
+
             const item = await PropertyVerificationRunItem.create({
                 tenantId: tenantA,
                 runId: run._id,
+                snapshotId: snap._id,
                 inventoryId: inv._id,
                 linkId: link._id,
                 authorityCode: 'HSVP',
                 status: 'SUCCEEDED',
                 reviewerDecision: 'APPROVED',
+                isSynthetic: false,
+                provenance: 'LIVE',
                 proposedChanges: [
                     {
                         field: 'authorityVerification.propertySize',
