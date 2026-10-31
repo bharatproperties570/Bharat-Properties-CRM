@@ -1232,71 +1232,98 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
             { jobId: campaignId, recipientId: '919811199982', channel: 'whatsapp', status: 'FAILED_RETRYABLE' }
         ]);
 
-        const tokenA = 'token_stale_worker_a';
-        const tokenB = 'token_newer_worker_b';
-        const now = new Date();
-
-        // 1. Worker B holds the valid, active lock
-        await BroadcastCampaign.updateOne(
-            { campaignId },
-            {
-                $set: {
-                    'retryLock.active': true,
-                    'retryLock.lockedAt': now,
-                    'retryLock.expiresAt': new Date(now.getTime() + 60000),
-                    'retryLock.lockedBy': 'Worker B',
-                    'retryLock.token': tokenB
-                }
-            }
-        );
-
-        // 2. Worker A (stale owner with tokenA) attempts ownership verification: MUST FAIL
-        const isWorkerAValid = await BroadcastLiveTracker._verifyRetryLockOwnership(campaignId, tokenA);
-        assert.strictEqual(isWorkerAValid, false, 'Worker A must not be recognized as owner');
-
-        // 3. Worker A attempts release in its finally block with tokenA:
-        // Conditional update matches 0 documents and MUST NOT clear Worker B's lock
-        const releaseResult = await BroadcastCampaign.updateOne(
-            {
-                campaignId,
-                'retryLock.token': tokenA
-            },
-            {
-                $set: {
-                    'retryLock.active': false,
-                    'retryLock.lockedAt': null,
-                    'retryLock.expiresAt': null,
-                    'retryLock.lockedBy': null,
-                    'retryLock.token': null
-                }
-            }
-        );
-        assert.strictEqual(releaseResult.modifiedCount, 0, 'Stale owner release must modify zero documents');
-
-        // 4. Verify Worker B's lock is completely untouched in MongoDB
-        const campAfterStaleRelease = await BroadcastCampaign.findOne({ campaignId }).lean();
-        assert.strictEqual(campAfterStaleRelease.retryLock?.active, true);
-        assert.strictEqual(campAfterStaleRelease.retryLock?.token, tokenB);
-        assert.strictEqual(campAfterStaleRelease.retryLock?.lockedBy, 'Worker B');
-        assert.ok(new Date(campAfterStaleRelease.retryLock?.expiresAt) > now);
-
-        // 5. Verify that if Worker A lost lock before enqueue, it rolls back recipient claims and does not enqueue
         let queueAddCalled = false;
         const mockQueue = {
             add: async () => {
                 queueAddCalled = true;
-                return { id: 'should_not_be_called' };
+                return { id: 'mock_retry_job_should_never_enqueue' };
             }
         };
 
-        // Seed a retry child campaign to test rollback
-        const retryChildId = `${campaignId}_retry_stale_test`;
-        await MarketingDelivery.updateMany(
-            { jobId: campaignId },
-            { $set: { retryClaimed: true, retryCampaignId: retryChildId } }
-        );
+        const originalUpdateOne = BroadcastCampaign.updateOne;
+        const tokenB = 'token_worker_b_steals_lock_99999';
+        let synchronizationPointHit = false;
 
-        // When ownership is lost, queue enqueue is blocked
-        assert.strictEqual(queueAddCalled, false, 'Queue add must not be called when lock ownership is lost');
+        try {
+            // Hook BroadcastCampaign.updateOne to deterministically simulate lock theft
+            // right after child campaign creation and before the pre-enqueue ownership check.
+            BroadcastCampaign.updateOne = async function (filter, update, options) {
+                // Execute the intended update first
+                const res = await originalUpdateOne.call(this, filter, update, options);
+
+                // Deterministic synchronization point: right after child creation,
+                // when the parent campaign auditLog is updated for RETRY_INITIATED,
+                // simulate Worker B acquiring the lock with token B!
+                if (filter && filter.campaignId === campaignId && update && update.$push?.auditLog?.action === 'RETRY_INITIATED') {
+                    synchronizationPointHit = true;
+                    await originalUpdateOne.call(
+                        BroadcastCampaign,
+                        { campaignId },
+                        {
+                            $set: {
+                                'retryLock.active': true,
+                                'retryLock.lockedAt': new Date(),
+                                'retryLock.expiresAt': new Date(Date.now() + 60000),
+                                'retryLock.lockedBy': 'Worker B',
+                                'retryLock.token': tokenB
+                            }
+                        }
+                    );
+                }
+
+                return res;
+            };
+
+            // Execute the full real retryFailedRecipients path
+            const res = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Worker A', mockQueue);
+
+            // 1. Verify synchronization point was reached
+            assert.strictEqual(synchronizationPointHit, true, 'Synchronization point must be reached after child creation');
+
+            // 2. Original worker detects RETRY_LOCK_LOST
+            assert.strictEqual(res.success, false, 'Operation must fail when lock is lost before enqueue');
+            assert.match(res.error, /RETRY_LOCK_LOST.*queue enqueue/, 'Error must explicitly state RETRY_LOCK_LOST before queue enqueue');
+
+            // 3. marketingQueue.add() is NEVER called
+            assert.strictEqual(queueAddCalled, false, 'marketingQueue.add() must never be called');
+
+            // 4. Recipient claims belonging to the aborted retry are rolled back
+            const deliveries = await MarketingDelivery.find({ jobId: campaignId }).lean();
+            assert.strictEqual(deliveries.length, 2, 'Must still have 2 deliveries');
+            for (const d of deliveries) {
+                assert.strictEqual(d.retryClaimed, false, `Recipient ${d.recipientId} claim must be rolled back to false`);
+                assert.strictEqual(d.retryCampaignId, undefined, `Recipient ${d.recipientId} retryCampaignId must be unset`);
+            }
+
+            // 5. Child retry campaign is marked FAILED
+            const childCampaign = await BroadcastCampaign.findOne({
+                campaignId: new RegExp(`^${campaignId}_retry_`)
+            }).lean();
+            assert.ok(childCampaign, 'Child retry campaign must exist in database');
+            assert.strictEqual(childCampaign.status, 'FAILED', 'Child retry campaign must be marked FAILED');
+
+            // 6. Token B remains active and unchanged in MongoDB
+            const parentCamp = await BroadcastCampaign.findOne({ campaignId }).lean();
+            assert.strictEqual(parentCamp.retryLock?.active, true, 'Retry lock must remain active');
+            assert.strictEqual(parentCamp.retryLock?.token, tokenB, 'Token B must remain active and unchanged');
+            assert.strictEqual(parentCamp.retryLock?.lockedBy, 'Worker B', 'LockedBy must still be Worker B');
+            assert.ok(new Date(parentCamp.retryLock?.expiresAt) > new Date(), 'Lease for Token B must remain unexpired');
+
+            // 7. Original worker\'s finally cleanup cannot release or modify Token B\'s lock
+            // (parentCamp was fetched after retryFailedRecipients fully returned, confirming finally block did not unset token B)
+            // Additionally test an explicit release attempt with stale token to prove token conditional safety:
+            const staleReleaseResult = await BroadcastCampaign.updateOne(
+                { campaignId, 'retryLock.token': 'token_stale_worker_a' },
+                { $set: { 'retryLock.active': false, 'retryLock.token': null } }
+            );
+            assert.strictEqual(staleReleaseResult.modifiedCount, 0, 'Stale owner release query must match and modify zero documents');
+
+            const postReleaseCamp = await BroadcastCampaign.findOne({ campaignId }).lean();
+            assert.strictEqual(postReleaseCamp.retryLock?.token, tokenB, 'Token B must remain untouched after any stale release attempt');
+            assert.strictEqual(postReleaseCamp.retryLock?.active, true, 'Lock must remain active for Worker B');
+
+        } finally {
+            BroadcastCampaign.updateOne = originalUpdateOne;
+        }
     });
 });
