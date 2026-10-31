@@ -725,6 +725,378 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             const intruderRenewal = await AuthorityBulkProcessor.renewItemLease(item._id, tenantA, 'intruder_worker_99');
             assert.equal(intruderRenewal, null, 'Lease renewal must fail for mismatched workerId');
         });
+
+        it('4.4 stale worker with expired lease cannot finalize item or overwrite new owner state', async () => {
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: invA1._id,
+                authorityCode: 'CHD',
+                propertyId: invA1.unitNo || '101',
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            // Step 1: Worker 1 claims item, but its lease expires in the past
+            const pastLease = new Date(Date.now() - 5000);
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: invA1._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_stale_1',
+                claimedAt: new Date(Date.now() - 35000),
+                leaseExpiresAt: pastLease,
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Step 2: Second worker reclaims the expired item
+            const claimTime = new Date();
+            const futureLease = new Date(claimTime.getTime() + 30000);
+            const reclaimed = await PropertyVerificationRunItem.findOneAndUpdate(
+                {
+                    _id: item._id,
+                    tenantId: tenantA,
+                    status: 'PROCESSING',
+                    leaseExpiresAt: { $lt: claimTime }
+                },
+                {
+                    $set: {
+                        claimedBy: 'worker_new_owner_2',
+                        claimedAt: claimTime,
+                        leaseExpiresAt: futureLease
+                    }
+                },
+                { new: true }
+            );
+
+            assert.ok(reclaimed, 'Worker 2 must successfully reclaim the expired item');
+            assert.equal(reclaimed.claimedBy, 'worker_new_owner_2');
+
+            // Step 3: Stale Worker 1 attempts to finalize the item
+            const staleFinalization = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantA,
+                'worker_stale_1',
+                {
+                    status: 'SUCCEEDED',
+                    matchStatus: 'EXACT_MATCH',
+                    processedAt: new Date()
+                }
+            );
+
+            assert.equal(staleFinalization, null, 'Stale worker finalization must return null (fenced out)');
+
+            // Step 4: Verify database document was not modified by stale worker
+            const itemInDb = await PropertyVerificationRunItem.findById(item._id);
+            assert.equal(itemInDb.claimedBy, 'worker_new_owner_2', 'Item ownership must remain with Worker 2');
+            assert.equal(itemInDb.status, 'PROCESSING', 'Item status must remain PROCESSING');
+            assert.ok(itemInDb.leaseExpiresAt, 'Active lease must not be cleared');
+            assert.equal(itemInDb.leaseExpiresAt.getTime(), futureLease.getTime(), 'Worker 2 leaseExpiresAt must be intact');
+        });
+
+        it('4.5 stale worker cannot clear active lease of new owner or cause duplicate snapshots', async () => {
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 1
+            });
+
+            const link = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: invA2._id,
+                authorityCode: 'CHD',
+                propertyId: invA2.unitNo || '102',
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            // Item claimed by Worker 1 with expired lease
+            const item = await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: invA2._id,
+                linkId: link._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'worker_delayed_alpha',
+                claimedAt: new Date(Date.now() - 40000),
+                leaseExpiresAt: new Date(Date.now() - 10000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Worker 2 reclaims and processes item cleanly
+            const worker2ClaimTime = new Date();
+            const worker2Lease = new Date(worker2ClaimTime.getTime() + 30000);
+            await PropertyVerificationRunItem.updateOne(
+                { _id: item._id, tenantId: tenantA },
+                {
+                    $set: {
+                        claimedBy: 'worker_active_beta',
+                        claimedAt: worker2ClaimTime,
+                        leaseExpiresAt: worker2Lease
+                    }
+                }
+            );
+
+            const updatedItemForWorker2 = await PropertyVerificationRunItem.findById(item._id);
+            const worker2Result = await AuthorityBulkProcessor.processItem(updatedItemForWorker2, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_active_beta'
+            });
+
+            assert.equal(worker2Result.success, true, 'Worker 2 must successfully complete item');
+            assert.ok(worker2Result.snapshotId, 'Worker 2 must produce a snapshot');
+
+            // Stale Worker 1 now attempts processItem with stale workerId
+            const staleItemDoc = await PropertyVerificationRunItem.findById(item._id);
+            const staleResult = await AuthorityBulkProcessor.processItem(staleItemDoc, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                authorityCode: 'CHD',
+                workerId: 'worker_delayed_alpha'
+            });
+
+            assert.ok(staleResult.alreadyProcessed || staleResult.ownershipLost, 'Stale worker must not re-process');
+
+            // Verify exactly ONE snapshot exists in database
+            const snapshots = await PropertyVerificationSnapshot.find({
+                tenantId: tenantA,
+                runItemId: item._id
+            });
+            assert.equal(snapshots.length, 1, 'Exactly one snapshot must exist for the run item');
+        });
+
+        it('4.6 in-flight lease renewal protects batch processing across batch sizes (1, 50, 500)', async () => {
+            for (const batchSize of [1, 50, 500]) {
+                const count = batchSize === 500 ? 50 : (batchSize === 50 ? 10 : 2);
+                const invList = [];
+                const linkList = [];
+
+                for (let i = 0; i < count; i++) {
+                    const inv = await Inventory.create({
+                        tenantId: tenantA,
+                        unitNo: `BATCH-${batchSize}-U${i}`,
+                        projectName: 'Batch Lease Test Project',
+                        sector: 'Sector 17',
+                        city: 'Chandigarh',
+                        type: 'commercial'
+                    });
+                    invList.push(inv);
+
+                    const link = await PropertyAuthorityLink.create({
+                        tenantId: tenantA,
+                        inventoryId: inv._id,
+                        authorityCode: 'CHD',
+                        propertyId: inv.unitNo,
+                        sectorNumber: 'Sector 17',
+                        matchEligibility: 'ELIGIBLE',
+                        createdBy: userA._id
+                    });
+                    linkList.push(link);
+                }
+
+                const run = await PropertyVerificationRun.create({
+                    tenantId: tenantA,
+                    authorityCode: 'CHD',
+                    requestedBy: userA._id,
+                    runMode: 'BULK_MANUAL',
+                    status: 'CREATED',
+                    isFixtureMode: true,
+                    totalItems: count
+                });
+
+                for (let i = 0; i < count; i++) {
+                    await PropertyVerificationRunItem.create({
+                        tenantId: tenantA,
+                        runId: run._id,
+                        inventoryId: invList[i]._id,
+                        linkId: linkList[i]._id,
+                        authorityCode: 'CHD',
+                        status: 'PENDING',
+                        isSynthetic: true,
+                        provenance: 'SYNTHETIC_FIXTURE'
+                    });
+                }
+
+                const outcome = await AuthorityBulkProcessor.processRun(run._id, {
+                    tenantId: tenantA,
+                    batchSize: batchSize,
+                    isFixtureMode: true,
+                    workerId: `worker_batch_test_${batchSize}`
+                });
+
+                assert.equal(outcome.status, 'COMPLETED');
+                assert.equal(outcome.processedItems, count);
+                assert.equal(outcome.succeededItems, count);
+                assert.equal(outcome.failedItems, 0);
+
+                const finalRun = await PropertyVerificationRun.findById(run._id);
+                assert.equal(finalRun.status, 'COMPLETED');
+                assert.equal(finalRun.processedItems, count);
+                assert.equal(finalRun.succeededItems, count);
+                assert.equal(finalRun.failedItems, 0);
+            }
+        });
+
+        it('4.7 counter integrity under concurrent worker reclaim avoids duplicate or lost counters', async () => {
+            const cInv1 = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CTR-101',
+                projectName: 'Counter Test',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+            const cInv2 = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CTR-102',
+                projectName: 'Counter Test',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+            const cInv3 = await Inventory.create({
+                tenantId: tenantA,
+                unitNo: 'CTR-103',
+                projectName: 'Counter Test',
+                sector: 'Sector 17',
+                city: 'Chandigarh',
+                type: 'commercial'
+            });
+
+            const run = await PropertyVerificationRun.create({
+                tenantId: tenantA,
+                authorityCode: 'CHD',
+                requestedBy: userA._id,
+                runMode: 'BULK_MANUAL',
+                status: 'PROCESSING',
+                isFixtureMode: true,
+                totalItems: 3,
+                processedItems: 0,
+                succeededItems: 0,
+                failedItems: 0
+            });
+
+            const link1 = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: cInv1._id,
+                authorityCode: 'CHD',
+                propertyId: cInv1.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const link2 = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: cInv2._id,
+                authorityCode: 'CHD',
+                propertyId: cInv2.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            const link3 = await PropertyAuthorityLink.create({
+                tenantId: tenantA,
+                inventoryId: cInv3._id,
+                authorityCode: 'CHD',
+                propertyId: cInv3.unitNo,
+                sectorNumber: 'Sector 17',
+                matchEligibility: 'ELIGIBLE',
+                createdBy: userA._id
+            });
+
+            // Item 1: already SUCCEEDED
+            await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: cInv1._id,
+                linkId: link1._id,
+                authorityCode: 'CHD',
+                status: 'SUCCEEDED',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Item 2: expired lease from a dead worker
+            await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: cInv2._id,
+                linkId: link2._id,
+                authorityCode: 'CHD',
+                status: 'PROCESSING',
+                claimedBy: 'dead_worker_999',
+                claimedAt: new Date(Date.now() - 60000),
+                leaseExpiresAt: new Date(Date.now() - 30000),
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Item 3: PENDING
+            await PropertyVerificationRunItem.create({
+                tenantId: tenantA,
+                runId: run._id,
+                inventoryId: cInv3._id,
+                linkId: link3._id,
+                authorityCode: 'CHD',
+                status: 'PENDING',
+                isSynthetic: true,
+                provenance: 'SYNTHETIC_FIXTURE'
+            });
+
+            // Run processRun with a healthy active worker to reclaim and finalize
+            const outcome = await AuthorityBulkProcessor.processRun(run._id, {
+                tenantId: tenantA,
+                isFixtureMode: true,
+                batchSize: 10,
+                workerId: 'healthy_worker_100'
+            });
+
+            assert.equal(outcome.status, 'COMPLETED');
+            assert.equal(outcome.processedItems, 3, 'Total processed items must match total items exactly');
+            assert.equal(outcome.succeededItems, 3, 'All 3 items must be SUCCEEDED');
+            assert.equal(outcome.failedItems, 0);
+
+            // Verify database counters match item aggregation exactly
+            const completedRun = await PropertyVerificationRun.findById(run._id);
+            assert.equal(completedRun.processedItems, 3);
+            assert.equal(completedRun.succeededItems, 3);
+            assert.equal(completedRun.failedItems, 0);
+
+            // Re-verify aggregate counts directly from items
+            const counts = await PropertyVerificationRunItem.aggregate([
+                { $match: { runId: run._id, tenantId: tenantA } },
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]);
+            const map = Object.fromEntries(counts.map(c => [c._id, c.count]));
+            assert.equal(map.SUCCEEDED, 3);
+            assert.equal(map.PROCESSING || 0, 0);
+            assert.equal(map.PENDING || 0, 0);
+        });
     });
 
     describe('5. Snapshot Cryptographic Integrity Verification', () => {

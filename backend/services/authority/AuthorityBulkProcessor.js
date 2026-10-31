@@ -135,10 +135,11 @@ function getSyntheticFixtureForLink(authorityCode, link, inventory) {
 
 const WORKER_LEASE_MS = 30 * 1000; // 30-second worker lease for resilient concurrent batch execution
 
-export { safeInsertMany };
+export { safeInsertMany, WORKER_LEASE_MS };
 
 export class AuthorityBulkProcessor {
     static safeInsertMany = safeInsertMany;
+    static WORKER_LEASE_MS = WORKER_LEASE_MS;
 
     /**
      * Create a new bulk verification run for a list of inventories using bounded operations.
@@ -511,46 +512,74 @@ export class AuthorityBulkProcessor {
 
             for (const item of claimedItems) {
                 try {
+                    // Enforce per-item worker lease renewal right before processing
+                    const renewed = await this.renewItemLease(item._id, tenantId, workerId);
+                    if (!renewed) {
+                        // Another worker reclaimed this item after lease expiry, or lease expired
+                        continue;
+                    }
+                    item.leaseExpiresAt = renewed.leaseExpiresAt;
+
                     if (Boolean(item.isSynthetic) !== isFixtureMode) {
-                        batchFailed++;
-                        item.status = 'FAILED';
-                        item.errorMessage = 'MODE_MISMATCH: Item synthetic flag does not match run mode';
-                        item.processedAt = new Date();
-                        await item.save();
+                        const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                            item._id,
+                            tenantId,
+                            workerId,
+                            {
+                                status: 'FAILED',
+                                errorMessage: 'MODE_MISMATCH: Item synthetic flag does not match run mode',
+                                processedAt: new Date()
+                            }
+                        );
+                        if (finalized) {
+                            batchFailed++;
+                        }
                         continue;
                     }
 
                     const result = await this.processItem(item, {
                         tenantId,
                         isFixtureMode,
-                        authorityCode: run.authorityCode
+                        authorityCode: run.authorityCode,
+                        workerId
                     });
 
                     if (result.success) {
                         batchSucceeded++;
-                    } else {
+                    } else if (!result.ownershipLost) {
                         batchFailed++;
                     }
                 } catch (itemErr) {
-                    batchFailed++;
-                    item.status = 'FAILED';
-                    item.errorMessage = itemErr.message || 'Item processing error';
-                    item.processedAt = new Date();
-                    await item.save();
+                    const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                        item._id,
+                        tenantId,
+                        workerId,
+                        {
+                            status: 'FAILED',
+                            errorMessage: itemErr.message || 'Item processing error',
+                            processedAt: new Date()
+                        }
+                    );
+                    if (finalized) {
+                        batchFailed++;
+                    }
                 }
             }
 
-            // Atomically increment run counters to prevent lost updates across concurrent workers
-            await PropertyVerificationRun.updateOne(
-                { _id: runId, tenantId },
-                {
-                    $inc: {
-                        processedItems: claimedItems.length,
-                        succeededItems: batchSucceeded,
-                        failedItems: batchFailed
+            // Atomically increment run counters by actually committed items to prevent duplicate counters
+            const batchCommitted = batchSucceeded + batchFailed;
+            if (batchCommitted > 0) {
+                await PropertyVerificationRun.updateOne(
+                    { _id: runId, tenantId },
+                    {
+                        $inc: {
+                            processedItems: batchCommitted,
+                            succeededItems: batchSucceeded,
+                            failedItems: batchFailed
+                        }
                     }
-                }
-            );
+                );
+            }
 
             // Audit batch completion
             await logAuditEvent(
@@ -660,15 +689,53 @@ export class AuthorityBulkProcessor {
     }
 
     /**
+     * Atomically finalizes a RunItem state conditional upon active worker lease ownership.
+     * Prevents a stale/expired worker from overwriting state or clearing the lease
+     * of a new worker that may have reclaimed the item.
+     * 
+     * @param {string|mongoose.Types.ObjectId} itemId
+     * @param {string|mongoose.Types.ObjectId} tenantId
+     * @param {string|null} workerId
+     * @param {Object} updateFields
+     * @returns {Promise<PropertyVerificationRunItem|null>}
+     */
+    static async _finalizeItemWithOwnershipCheck(itemId, tenantId, workerId, updateFields) {
+        const now = new Date();
+        const query = {
+            _id: itemId,
+            tenantId,
+            status: 'PROCESSING'
+        };
+
+        if (workerId) {
+            query.claimedBy = workerId;
+            query.leaseExpiresAt = { $gt: now };
+        }
+
+        return PropertyVerificationRunItem.findOneAndUpdate(
+            query,
+            {
+                $set: {
+                    ...updateFields,
+                    leaseExpiresAt: null
+                }
+            },
+            { new: true }
+        );
+    }
+
+    /**
      * Renew active worker lease for an in-flight run item.
      * 
      * @param {string|mongoose.Types.ObjectId} itemId 
      * @param {string|mongoose.Types.ObjectId} tenantId 
      * @param {string} workerId 
+     * @param {number} [leaseDurationMs=WORKER_LEASE_MS]
      * @returns {Promise<PropertyVerificationRunItem|null>}
      */
-    static async renewItemLease(itemId, tenantId, workerId) {
-        const newExpiry = new Date(Date.now() + WORKER_LEASE_MS);
+    static async renewItemLease(itemId, tenantId, workerId, leaseDurationMs = WORKER_LEASE_MS) {
+        if (!itemId || !tenantId || !workerId) return null;
+        const newExpiry = new Date(Date.now() + leaseDurationMs);
         return PropertyVerificationRunItem.findOneAndUpdate(
             {
                 _id: itemId,
@@ -688,7 +755,8 @@ export class AuthorityBulkProcessor {
      * Safe, idempotent, and error-isolated.
      */
     static async processItem(item, options = {}) {
-        const { tenantId, isFixtureMode = true, authorityCode } = options;
+        const { tenantId, isFixtureMode = true, authorityCode, workerId } = options;
+        const effectiveWorkerId = workerId || item.claimedBy || null;
 
         if (item.status === 'SUCCEEDED' && item.snapshotId) {
             return { success: true, alreadyProcessed: true };
@@ -700,11 +768,19 @@ export class AuthorityBulkProcessor {
             : await PropertyAuthorityLink.findOne({ _id: item.linkId, tenantId });
 
         if (!link) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Authority link not found or cross-tenant access rejected';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'FAILED',
+                    errorMessage: 'Authority link not found or cross-tenant access rejected',
+                    processedAt: new Date()
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'LINK_NOT_FOUND' };
         }
 
@@ -713,11 +789,19 @@ export class AuthorityBulkProcessor {
             : await Inventory.findOne({ _id: item.inventoryId, tenantId });
 
         if (!inventory) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Inventory record not found or cross-tenant access rejected';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'FAILED',
+                    errorMessage: 'Inventory record not found or cross-tenant access rejected',
+                    processedAt: new Date()
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'INVENTORY_NOT_FOUND' };
         }
 
@@ -729,26 +813,42 @@ export class AuthorityBulkProcessor {
             !link.sectorNumber ||
             (auth === 'HSVP' && !link.urbanEstate)
         ) {
-            item.status = 'FAILED';
-            item.matchStatus = 'IDENTITY_MISMATCH';
-            item.errorMessage = 'Incomplete identity: propertyId and sectorNumber are required';
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'FAILED',
+                    matchStatus: 'IDENTITY_MISMATCH',
+                    errorMessage: 'Incomplete identity: propertyId and sectorNumber are required',
+                    processedAt: new Date(),
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'INCOMPLETE_IDENTITY' };
         }
 
         // 3. Execution boundary: Live vs Fixture
         if (!isFixtureMode) {
-            item.status = 'FAILED';
-            item.errorMessage = 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.';
-            item.processedAt = new Date();
-            item.isSynthetic = false;
-            item.provenance = 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'FAILED',
+                    errorMessage: 'Live authority verification is disabled. Authorization status: NOT_OBTAINED.',
+                    processedAt: new Date(),
+                    isSynthetic: false,
+                    provenance: 'LIVE'
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'LIVE_DISABLED' };
         }
 
@@ -758,41 +858,65 @@ export class AuthorityBulkProcessor {
             tenantId
         });
         if (existingSnapshot) {
-            item.status = 'SUCCEEDED';
-            item.snapshotId = existingSnapshot._id;
-            item.isSynthetic = true;
-            item.provenance = 'SYNTHETIC_FIXTURE';
-            item.processedAt = new Date();
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'SUCCEEDED',
+                    snapshotId: existingSnapshot._id,
+                    isSynthetic: true,
+                    provenance: 'SYNTHETIC_FIXTURE',
+                    processedAt: new Date()
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: true, snapshotId: existingSnapshot._id, alreadyProcessed: true };
         }
 
         // 5. Fixture pipeline execution
         const rawFixture = getSyntheticFixtureForLink(auth, link, inventory);
         if (!rawFixture) {
-            item.status = 'NO_MATCH';
-            item.matchStatus = 'NO_MATCH';
-            item.errorMessage = `No fixture available for authority ${item.authorityCode} with current identity`;
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'NO_MATCH',
+                    matchStatus: 'NO_MATCH',
+                    errorMessage: `No fixture available for authority ${item.authorityCode} with current identity`,
+                    processedAt: new Date(),
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'NO_FIXTURE' };
         }
 
         const candidate = executeFixturePipeline(item.authorityCode, rawFixture, inventory);
 
         if (candidate.status === 'REJECTED_QUALITY') {
-            item.status = 'FAILED';
-            item.matchStatus = 'NOT_ATTEMPTED';
-            item.errorMessage = `Quality rejection: ${(candidate.errors || []).join('; ')}`;
-            item.processedAt = new Date();
-            item.isSynthetic = Boolean(isFixtureMode);
-            item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-            item.leaseExpiresAt = null;
-            await item.save();
+            const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+                item._id,
+                tenantId,
+                effectiveWorkerId,
+                {
+                    status: 'FAILED',
+                    matchStatus: 'NOT_ATTEMPTED',
+                    errorMessage: `Quality rejection: ${(candidate.errors || []).join('; ')}`,
+                    processedAt: new Date(),
+                    isSynthetic: Boolean(isFixtureMode),
+                    provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE'
+                }
+            );
+            if (!finalized) {
+                return { success: false, reason: 'LEASE_EXPIRED_OR_PREEMPTED', ownershipLost: true };
+            }
             return { success: false, reason: 'QUALITY_REJECTED' };
         }
 
@@ -857,26 +981,51 @@ export class AuthorityBulkProcessor {
         }
 
         // 8. Update item status to SUCCEEDED with explicit synthetic provenance
-        item.status = 'SUCCEEDED';
-        item.matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
+        const matchStatus = candidate.matchEvidence?.confidence === 'EXACT'
             ? 'EXACT_MATCH'
             : (candidate.matchEvidence?.confidence === 'PARTIAL' ? 'PARTIAL_MATCH' : 'NO_MATCH');
+
+        const finalized = await AuthorityBulkProcessor._finalizeItemWithOwnershipCheck(
+            item._id,
+            tenantId,
+            effectiveWorkerId,
+            {
+                status: 'SUCCEEDED',
+                matchStatus,
+                snapshotId: snapshot._id,
+                proposedChanges,
+                reviewerDecision: 'PENDING',
+                isSynthetic: Boolean(isFixtureMode),
+                provenance: isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE',
+                processedAt: new Date(),
+                errorMessage: null
+            }
+        );
+
+        if (!finalized) {
+            return {
+                success: false,
+                reason: 'LEASE_EXPIRED_OR_PREEMPTED',
+                ownershipLost: true
+            };
+        }
+
+        item.status = 'SUCCEEDED';
+        item.matchStatus = matchStatus;
         item.snapshotId = snapshot._id;
         item.proposedChanges = proposedChanges;
         item.reviewerDecision = 'PENDING';
         item.isSynthetic = Boolean(isFixtureMode);
         item.provenance = isFixtureMode ? 'SYNTHETIC_FIXTURE' : 'LIVE';
-        item.processedAt = new Date();
+        item.processedAt = finalized.processedAt;
         item.errorMessage = null;
         item.leaseExpiresAt = null;
-
-        await item.save();
 
         return {
             success: true,
             itemId: item._id,
             snapshotId: snapshot._id,
-            matchStatus: item.matchStatus,
+            matchStatus,
             proposedChangesCount: proposedChanges.length
         };
     }
