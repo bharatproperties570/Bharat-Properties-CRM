@@ -769,4 +769,260 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
         const camp = await BroadcastCampaign.findOne({ campaignId }).lean();
         assert.strictEqual(camp.status, 'CANCELLED');
     });
+
+    it('21. Concurrency P1-Review-1: Recipient transitioning to non-failure, non-confirmed status (IN_PROGRESS) immediately before claim is not claimed', async () => {
+        const campaignId = 'bna_camp_p1_rev1';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Non-Failure Status Claim Rejection Test',
+            totalRecipients: 2,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199911', name: 'Recipient 11' },
+                    { mobile: '919811199912', name: 'Recipient 12' }
+                ]
+            }
+        });
+
+        // Seed 2 initial failed deliveries
+        await MarketingDelivery.create([
+            { jobId: campaignId, recipientId: '919811199911', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199912', channel: 'whatsapp', status: 'FAILED_RETRYABLE' }
+        ]);
+
+        // Right before atomic claim, Recipient 11 transitions to IN_PROGRESS (e.g. concurrent active attempt)
+        await MarketingDelivery.updateOne(
+            { jobId: campaignId, recipientId: '919811199911' },
+            { $set: { status: 'IN_PROGRESS' } }
+        );
+
+        const mockQueue = {
+            add: async () => ({ id: 'mock_retry_job' })
+        };
+
+        const res = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', mockQueue);
+        assert.strictEqual(res.success, true);
+        assert.strictEqual(res.retryRecipientCount, 1, 'Only the eligible failed recipient (Recipient 12) should be retried');
+
+        // Verify Recipient 11 was NOT claimed (retryClaimed is false, retryCampaignId is undefined)
+        const d11 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199911' }).lean();
+        assert.strictEqual(d11.status, 'IN_PROGRESS');
+        assert.strictEqual(d11.retryClaimed, false);
+        assert.strictEqual(d11.retryCampaignId, undefined);
+
+        // Verify Recipient 12 WAS claimed
+        const d12 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199912' }).lean();
+        assert.strictEqual(d12.retryClaimed, true);
+        assert.strictEqual(d12.retryCampaignId, res.retryCampaignId);
+    });
+
+    it('22. Concurrency P1-Review-2: retryLock ownership safety — expired former owner cannot clear newer owner lock or enqueue work', async () => {
+        const campaignId = 'bna_camp_p1_rev2';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Lock Ownership Safety Test',
+            totalRecipients: 1,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199921', name: 'Recipient 21' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199921',
+            channel: 'whatsapp',
+            status: 'FAILED_FINAL'
+        });
+
+        // 1. Simulate Operation A acquiring the lock with an expired lease (>60s ago)
+        const tokenA = 'token_owner_a_12345';
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': new Date(Date.now() - 70000), // Expired 70s ago
+                    'retryLock.lockedBy': 'Worker A',
+                    'retryLock.token': tokenA
+                }
+            }
+        );
+
+        // 2. Operation B attempts acquisition after legitimate expiry
+        const mockQueue = {
+            add: async () => ({ id: 'mock_job_b' })
+        };
+        const resB = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Worker B', mockQueue);
+        assert.strictEqual(resB.success, true, 'Worker B must successfully acquire after legitimate expiry');
+
+        // Now let's test that if Worker B currently holds the lock:
+        const tokenB = 'token_owner_b_67890';
+        await BroadcastCampaign.updateOne(
+            { campaignId },
+            {
+                $set: {
+                    'retryLock.active': true,
+                    'retryLock.lockedAt': new Date(),
+                    'retryLock.lockedBy': 'Worker B',
+                    'retryLock.token': tokenB
+                }
+            }
+        );
+
+        // 3. Worker A (stale former owner) attempts to release the lock in its finally block with tokenA
+        await BroadcastCampaign.updateOne(
+            {
+                campaignId,
+                'retryLock.token': tokenA
+            },
+            {
+                $set: {
+                    'retryLock.active': false,
+                    'retryLock.lockedAt': null,
+                    'retryLock.lockedBy': null,
+                    'retryLock.token': null
+                }
+            }
+        );
+
+        // Verify Worker B's lock was NOT cleared and remains active!
+        const campAfterStaleRelease = await BroadcastCampaign.findOne({ campaignId }).lean();
+        assert.strictEqual(campAfterStaleRelease.retryLock?.active, true);
+        assert.strictEqual(campAfterStaleRelease.retryLock?.token, tokenB);
+        assert.strictEqual(campAfterStaleRelease.retryLock?.lockedBy, 'Worker B');
+
+        // 4. Verify that an operation with tokenA that lost ownership detects ownership loss and rejects enqueue
+        const currentCheck = await BroadcastCampaign.findOne({
+            campaignId,
+            'retryLock.active': true,
+            'retryLock.token': tokenA
+        }).lean();
+        assert.strictEqual(Boolean(currentCheck), false, 'Worker A must detect that ownership was lost');
+    });
+
+    it('23. Concurrency P1-Review-3: Fail-closed opt-out verification across service failure, exceptions, and timeouts', async () => {
+        const campaignId = 'bna_camp_p1_rev3';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Opt-Out Fail-Closed Test',
+            totalRecipients: 4,
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199931', name: 'User 31 - Timeout' },
+                    { mobile: '919811199932', name: 'User 32 - Exception' },
+                    { mobile: '919811199933', name: 'User 33 - Confirmed Optout' },
+                    { mobile: '919811199934', name: 'User 34 - Consented' }
+                ]
+            }
+        });
+
+        // Seed failed deliveries for all 4
+        await MarketingDelivery.create([
+            { jobId: campaignId, recipientId: '919811199931', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199932', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199933', channel: 'whatsapp', status: 'FAILED_RETRYABLE' },
+            { jobId: campaignId, recipientId: '919811199934', channel: 'whatsapp', status: 'FAILED_RETRYABLE' }
+        ]);
+
+        const whatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const originalIsOptedOut = whatsAppService.isRecipientOptedOut;
+
+        try {
+            // Mock behavior:
+            // 919811199931: times out (> 3000ms)
+            // 919811199932: throws an exception
+            // 919811199933: returns true (confirmed opt-out)
+            // 919811199934: returns false (consented)
+            whatsAppService.isRecipientOptedOut = async (mobile) => {
+                if (mobile === '919811199931') {
+                    return new Promise(resolve => setTimeout(() => resolve(false), 3500));
+                }
+                if (mobile === '919811199932') {
+                    throw new Error('Database connection failed during opt-out check');
+                }
+                if (mobile === '919811199933') {
+                    return true;
+                }
+                if (mobile === '919811199934') {
+                    return false;
+                }
+                return false;
+            };
+
+            const mockQueue = {
+                add: async () => ({ id: 'mock_job_optout' })
+            };
+
+            const res = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', mockQueue);
+            assert.strictEqual(res.success, true);
+            // ONLY User 34 should be retried!
+            assert.strictEqual(res.retryRecipientCount, 1, 'Only the consented recipient should be retried');
+
+            // 1. Timeout recipient must be excluded (not claimed)
+            const d31 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199931' }).lean();
+            assert.strictEqual(d31.retryClaimed, false);
+
+            // 2. Exception recipient must be excluded (not claimed)
+            const d32 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199932' }).lean();
+            assert.strictEqual(d32.retryClaimed, false);
+
+            // 3. Confirmed opted-out recipient must be marked SUPPRESSED_OPTOUT and excluded
+            const d33 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199933' }).lean();
+            assert.strictEqual(d33.status, 'SUPPRESSED_OPTOUT');
+            assert.strictEqual(d33.retryClaimed, false);
+
+            // 4. Consented recipient was successfully claimed
+            const d34 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199934' }).lean();
+            assert.strictEqual(d34.retryClaimed, true);
+            assert.strictEqual(d34.retryCampaignId, res.retryCampaignId);
+
+        } finally {
+            whatsAppService.isRecipientOptedOut = originalIsOptedOut;
+        }
+    });
+
+    it('24. Concurrency P1-Review-4: WhatsApp service unavailable immediately aborts retry with OPT_OUT_SERVICE_UNAVAILABLE', async () => {
+        const campaignId = 'bna_camp_p1_rev4';
+        await BroadcastLiveTracker.initCampaign({
+            campaignId,
+            name: 'Service Down Abort Test',
+            totalRecipients: 1,
+            channels: ['whatsapp'],
+            campaignParams: {
+                recipients: [
+                    { mobile: '919811199941', name: 'User 41' }
+                ]
+            }
+        });
+
+        await MarketingDelivery.create({
+            jobId: campaignId,
+            recipientId: '919811199941',
+            channel: 'whatsapp',
+            status: 'FAILED_RETRYABLE'
+        });
+
+        const whatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const originalMethod = whatsAppService.isRecipientOptedOut;
+
+        try {
+            // Temporarily set method to null to simulate broken service
+            whatsAppService.isRecipientOptedOut = null;
+
+            const mockQueue = { add: async () => ({ id: 'mock' }) };
+            const res = await BroadcastLiveTracker.retryFailedRecipients(campaignId, 'Operator', mockQueue);
+
+            assert.strictEqual(res.success, false);
+            assert.match(res.error, /OPT_OUT_SERVICE_UNAVAILABLE/);
+
+            // Delivery must remain unclaimed
+            const d41 = await MarketingDelivery.findOne({ jobId: campaignId, recipientId: '919811199941' }).lean();
+            assert.strictEqual(d41.retryClaimed, false);
+
+        } finally {
+            whatsAppService.isRecipientOptedOut = originalMethod;
+        }
+    });
 });

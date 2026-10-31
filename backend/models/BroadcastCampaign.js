@@ -104,7 +104,8 @@ const broadcastCampaignSchema = new mongoose.Schema({
     retryLock: {
         active: { type: Boolean, default: false },
         lockedAt: { type: Date },
-        lockedBy: { type: String }
+        lockedBy: { type: String },
+        token: { type: String }
     },
     startedAt: {
         type: Date,

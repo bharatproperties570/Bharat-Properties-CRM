@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import BroadcastCampaign from '../models/BroadcastCampaign.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
 import redisConnection from '../src/config/redis.js';
@@ -519,14 +520,34 @@ class BroadcastLiveTracker {
      * to already sent/delivered/read/opted-out recipients.
      *
      * CONCURRENCY & IDEMPOTENCY CONTROLS:
-     * 1. Acquires an atomic retry lock on parent BroadcastCampaign to prevent concurrent duplicate retry runs.
-     * 2. Re-validates the latest status of each recipient immediately before committing retry eligibility.
-     * 3. Disqualifies any recipient marked ACCEPTED, SENT, DELIVERED, READ, or SUPPRESSED_OPTOUT.
-     * 4. Evaluates DELIVERY_UNKNOWN conservatively: acknowledges that provider delivery status was unconfirmed
-     *    and while retrying is permitted for recovery, absolute zero duplicates cannot be claimed if the provider
-     *    actually delivered the unconfirmed socket write.
-     * 5. Atomically claims candidate recipients on MarketingDelivery (retryClaimed: true, retryCampaignId).
-     * 6. Wraps BullMQ queue enqueue in safe rollback logic: on enqueue failure, unsets claims and marks child campaign FAILED.
+     * 1. Ownership-Safe Retry Lock:
+     *    - Generates a unique cryptographically random ownership token (UUID).
+     *    - Acquires lock via atomic CAS with a 60-second lease threshold.
+     *    - Actively renews the lease via a background timer while the operation is in flight.
+     *    - Periodically verifies ownership; if lease expires or is claimed by a newer owner,
+     *      the former owner stops immediately before mutating data or enqueuing work.
+     *    - Every release is conditional on the exact ownership token so an expired former owner
+     *      can never clear a newer owner's lock.
+     * 2. Fail-Closed Opt-Out Verification:
+     *    - Verifies WhatsAppService availability. If WhatsApp opt-out verification is required
+     *      but the service is unavailable, aborts the retry operation immediately.
+     *    - If an opt-out check throws or times out, the recipient is excluded from retry candidates
+     *      (never treat an unavailable opt-out check as consent).
+     *    - Logs operational warnings without exposing private recipient data.
+     *    - Confirmed opt-outs are updated to SUPPRESSED_OPTOUT in the delivery ledger.
+     * 3. Atomic Multi-Field Claim on MarketingDelivery:
+     *    - Uses explicit $and to avoid JavaScript duplicate object key collisions.
+     *    - Atomically requires: status in ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN']
+     *      AND status not in ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT']
+     *      AND retryClaimed: { $ne: true } AND matching jobId and recipientId.
+     *    - Verifies matchedCount / modifiedCount and constructs child campaign recipients exclusively
+     *      from confirmed claimed records.
+     * 4. Enqueue Rollback & Recovery:
+     *    - BullMQ enqueue is wrapped in rollback logic: on enqueue failure, unsets claims on MarketingDelivery,
+     *      marks child campaign FAILED, and safely releases the parent lock.
+     * 5. Conservative DELIVERY_UNKNOWN Semantics:
+     *    - Discloses potential duplicate delivery risk if the provider previously transmitted
+     *      the unconfirmed socket write.
      */
     static async retryFailedRecipients(campaignId, performedBy = 'Operator', marketingQueue = null) {
         const parentCampaign = await BroadcastCampaign.findOne({ campaignId });
@@ -534,7 +555,8 @@ class BroadcastLiveTracker {
             throw new Error(`CAMPAIGN_NOT_FOUND: Campaign ${campaignId} does not exist`);
         }
 
-        // 1. Acquire atomic retry lock on parent campaign (prevents concurrent retry execution)
+        // 1. Acquire ownership-safe retry lock on parent campaign
+        const lockToken = crypto.randomUUID();
         const lockExpirationThreshold = new Date(Date.now() - 60000); // 60s lease
         const lockAcquired = await BroadcastCampaign.findOneAndUpdate(
             {
@@ -548,7 +570,8 @@ class BroadcastLiveTracker {
                 $set: {
                     'retryLock.active': true,
                     'retryLock.lockedAt': new Date(),
-                    'retryLock.lockedBy': performedBy
+                    'retryLock.lockedBy': performedBy,
+                    'retryLock.token': lockToken
                 }
             },
             { new: true }
@@ -560,6 +583,44 @@ class BroadcastLiveTracker {
                 error: 'CONCURRENT_RETRY_IN_PROGRESS: A retry operation is currently in progress for this campaign.'
             };
         }
+
+        let isRenewing = true;
+        let renewalLost = false;
+        // Background active lease renewal
+        const renewTimer = setInterval(async () => {
+            if (!isRenewing) return;
+            try {
+                const renewed = await BroadcastCampaign.findOneAndUpdate(
+                    {
+                        campaignId,
+                        'retryLock.active': true,
+                        'retryLock.token': lockToken
+                    },
+                    {
+                        $set: {
+                            'retryLock.lockedAt': new Date()
+                        }
+                    },
+                    { new: true }
+                );
+                if (!renewed) {
+                    renewalLost = true;
+                }
+            } catch (err) {
+                // Non-fatal logging
+            }
+        }, 15000);
+        if (renewTimer?.unref) renewTimer.unref();
+
+        const verifyLockOwnership = async () => {
+            if (renewalLost) return false;
+            const current = await BroadcastCampaign.findOne({
+                campaignId,
+                'retryLock.active': true,
+                'retryLock.token': lockToken
+            }).select('_id retryLock').lean();
+            return Boolean(current);
+        };
 
         let retryCampaignId = null;
 
@@ -586,35 +647,63 @@ class BroadcastLiveTracker {
 
             const confirmedRecipientKeys = new Set(confirmedDeliveries.map(d => String(d.recipientId).trim()));
 
-            // Optional: Re-validate opt-outs against WhatsAppService if available
+            // 4. Fail-Closed Opt-Out Verification:
+            // If WhatsApp opt-out verification is required, WhatsAppService must be available
+            const channels = parentCampaign.channels || ['whatsapp'];
+            const isWhatsAppCampaign = channels.includes('whatsapp');
             let waService = null;
-            try {
-                waService = (await import('./WhatsAppService.js')).default;
-            } catch (e) {}
+
+            if (isWhatsAppCampaign) {
+                try {
+                    const waModule = await import('./WhatsAppService.js');
+                    waService = waModule.default;
+                    if (!waService || typeof waService.isRecipientOptedOut !== 'function') {
+                        throw new Error('isRecipientOptedOut is not a function on WhatsAppService');
+                    }
+                } catch (serviceLoadErr) {
+                    console.error('[BroadcastLiveTracker] Opt-out verification service unavailable:', serviceLoadErr.message);
+                    return {
+                        success: false,
+                        error: `OPT_OUT_SERVICE_UNAVAILABLE: WhatsApp consent verification service is unavailable (${serviceLoadErr.message}). Cannot verify consent.`
+                    };
+                }
+            }
 
             const originalRecipients = parentCampaign.campaignParams?.recipients || [];
             const candidateFailedRecipients = [];
             let unknownStatusCount = 0;
 
-            for (const recipient of originalRecipients) {
+            for (let idx = 0; idx < originalRecipients.length; idx++) {
+                const recipient = originalRecipients[idx];
                 const key = String(recipient.mobile || recipient.id || '').trim();
+
                 // Never re-dispatch if already confirmed or opted-out
                 if (!confirmedRecipientKeys.has(key)) {
                     const failureMatch = failedDeliveries.find(f => String(f.recipientId).trim() === key);
                     if (failureMatch) {
-                        // Check live opt-out status
-                        if (waService && typeof waService.isRecipientOptedOut === 'function' && recipient.mobile) {
+                        // Fail-closed opt-out lookup
+                        if (waService && recipient.mobile) {
+                            let isOptedOut = false;
                             try {
-                                const isOptedOut = await waService.isRecipientOptedOut(recipient.mobile);
-                                if (isOptedOut) {
-                                    // Mark delivery as suppressed in ledger so it won't be retried
-                                    await MarketingDelivery.updateOne(
-                                        { jobId: campaignId, recipientId: key, channel: 'whatsapp' },
-                                        { $set: { status: 'SUPPRESSED_OPTOUT', error: 'Recipient opted out of communications' } }
-                                    );
-                                    continue;
-                                }
-                            } catch (optErr) {}
+                                const optOutPromise = waService.isRecipientOptedOut(recipient.mobile);
+                                const timeoutPromise = new Promise((_, reject) =>
+                                    setTimeout(() => reject(new Error('OPT_OUT_LOOKUP_TIMEOUT')), 3000)
+                                );
+                                isOptedOut = await Promise.race([optOutPromise, timeoutPromise]);
+                            } catch (optErr) {
+                                // Fail closed: exclude recipient from retry without exposing private recipient data
+                                console.warn(`[BroadcastLiveTracker] Opt-out verification failed for recipient at index ${idx}: ${optErr.message}. Failing closed (treating as ineligible).`);
+                                continue;
+                            }
+
+                            if (isOptedOut) {
+                                // Mark delivery as SUPPRESSED_OPTOUT in ledger
+                                await MarketingDelivery.updateOne(
+                                    { jobId: campaignId, recipientId: key, channel: 'whatsapp' },
+                                    { $set: { status: 'SUPPRESSED_OPTOUT', error: 'Recipient opted out of communications' } }
+                                );
+                                continue;
+                            }
                         }
 
                         if (failureMatch.status === 'DELIVERY_UNKNOWN') {
@@ -632,18 +721,30 @@ class BroadcastLiveTracker {
                 };
             }
 
-            // 4. Atomically claim candidate recipients on MarketingDelivery
+            // Verify lock ownership before proceeding to claim
+            if (!await verifyLockOwnership()) {
+                return {
+                    success: false,
+                    error: 'RETRY_LOCK_LOST: Retry lock expired or was acquired by another process.'
+                };
+            }
+
+            // 5. Atomically claim candidate recipients on MarketingDelivery with explicit $and (no duplicate keys)
             retryCampaignId = `${campaignId}_retry_${Date.now()}`;
             const candidateKeys = candidateFailedRecipients.map(r => String(r.mobile || r.id || '').trim());
 
-            await MarketingDelivery.updateMany(
-                {
-                    jobId: campaignId,
-                    recipientId: { $in: candidateKeys },
-                    status: { $in: ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN'] },
-                    status: { $nin: ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT'] },
-                    retryClaimed: { $ne: true }
-                },
+            const claimFilter = {
+                jobId: campaignId,
+                recipientId: { $in: candidateKeys },
+                retryClaimed: { $ne: true },
+                $and: [
+                    { status: { $in: ['FAILED_FINAL', 'FAILED_RETRYABLE', 'DELIVERY_UNKNOWN'] } },
+                    { status: { $nin: ['SENT', 'ACCEPTED', 'DELIVERED', 'READ', 'SUPPRESSED_OPTOUT'] } }
+                ]
+            };
+
+            const claimResult = await MarketingDelivery.updateMany(
+                claimFilter,
                 {
                     $set: {
                         retryClaimed: true,
@@ -651,6 +752,13 @@ class BroadcastLiveTracker {
                     }
                 }
             );
+
+            if (!claimResult || claimResult.modifiedCount === 0) {
+                return {
+                    success: false,
+                    error: 'NO_ELIGIBLE_RECIPIENTS: All candidate recipients were claimed or transitioned concurrently.'
+                };
+            }
 
             // Re-fetch only those deliveries that were successfully claimed
             const claimedDeliveries = await MarketingDelivery.find({
@@ -674,7 +782,20 @@ class BroadcastLiveTracker {
                 };
             }
 
-            // 5. Create child retry campaign
+            // Verify lock ownership before child campaign creation
+            if (!await verifyLockOwnership()) {
+                // Rollback claims
+                await MarketingDelivery.updateMany(
+                    { jobId: campaignId, retryCampaignId },
+                    { $set: { retryClaimed: false }, $unset: { retryCampaignId: 1 } }
+                );
+                return {
+                    success: false,
+                    error: 'RETRY_LOCK_LOST: Retry lock expired or was acquired by another process.'
+                };
+            }
+
+            // 6. Create child retry campaign
             const retryName = `[Retry] ${parentCampaign.name}`;
             const retryParams = {
                 ...parentCampaign.campaignParams,
@@ -713,7 +834,24 @@ class BroadcastLiveTracker {
                 }
             );
 
-            // 6. Enqueue child retry campaign to marketingQueue with rollback protection
+            // Verify lock ownership before BullMQ queue insertion
+            if (!await verifyLockOwnership()) {
+                // Rollback claims and fail child campaign
+                await MarketingDelivery.updateMany(
+                    { jobId: campaignId, retryCampaignId },
+                    { $set: { retryClaimed: false }, $unset: { retryCampaignId: 1 } }
+                );
+                await BroadcastCampaign.updateOne(
+                    { campaignId: retryCampaignId },
+                    { $set: { status: 'FAILED' } }
+                );
+                return {
+                    success: false,
+                    error: 'RETRY_LOCK_LOST: Retry lock expired before queue enqueue.'
+                };
+            }
+
+            // 7. Enqueue child retry campaign to marketingQueue with rollback protection
             if (marketingQueue) {
                 try {
                     await marketingQueue.add('bna-broadcast', retryParams, { removeOnComplete: true });
@@ -753,14 +891,20 @@ class BroadcastLiveTracker {
                     : null
             };
         } finally {
-            // Always release atomic parent retry lock
+            isRenewing = false;
+            clearInterval(renewTimer);
+            // Ownership-safe atomic release: ONLY release if token matches lockToken!
             await BroadcastCampaign.updateOne(
-                { campaignId },
+                {
+                    campaignId,
+                    'retryLock.token': lockToken
+                },
                 {
                     $set: {
                         'retryLock.active': false,
                         'retryLock.lockedAt': null,
-                        'retryLock.lockedBy': null
+                        'retryLock.lockedBy': null,
+                        'retryLock.token': null
                     }
                 }
             );
