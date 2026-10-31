@@ -203,7 +203,7 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
     recoveryState: {
         stage: {
             type: String,
-            enum: ['NONE', 'ORPHAN_DETECTED', 'ORPHAN_RECOVERED', 'CLEANUP_FAILED'],
+            enum: ['NONE', 'ORPHAN_DETECTED', 'ORPHAN_PURGED_AUDIT_PENDING', 'ROLLBACK_PURGE_PENDING', 'ORPHAN_RECOVERED', 'CLEANUP_FAILED'],
             default: 'NONE'
         },
         orphanedSnapshotId: {
@@ -219,6 +219,10 @@ const PropertyVerificationRunItemSchema = new mongoose.Schema({
             default: null
         },
         recoveredAt: {
+            type: Date,
+            default: null
+        },
+        purgedAt: {
             type: Date,
             default: null
         },
