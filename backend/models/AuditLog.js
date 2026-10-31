@@ -298,13 +298,15 @@ AuditLogSchema.index(
 /**
  * Validates whether an existing MongoDB index matches the exact required specification for idempotency:
  * - Name: 'unique_audit_event_correlation'
- * - Keys: { eventType: 1, correlationId: 1 } (exactly these two keys)
+ * - Keys: ['eventType', 'correlationId'] in exact order, both sort 1, exactly 2 keys
  * - unique: true
- * - partialFilterExpression: { correlationId: { $type: 'string' } }
+ * - partialFilterExpression: contains exactly one field 'correlationId'
+ * - correlationId filter contains exactly one operator: $type: 'string'
+ * Rejects extra nested operators ($gt, $exists, etc.), extra filter fields, incorrect order/specification.
  */
 AuditLogSchema.statics.verifyIdempotencyIndexSpec = function (indexObj) {
-    if (!indexObj) {
-        return { valid: false, reason: 'Index does not exist' };
+    if (!indexObj || typeof indexObj !== 'object' || Array.isArray(indexObj)) {
+        return { valid: false, reason: 'Index does not exist or is invalid' };
     }
 
     if (indexObj.name !== 'unique_audit_event_correlation') {
@@ -312,8 +314,17 @@ AuditLogSchema.statics.verifyIdempotencyIndexSpec = function (indexObj) {
     }
 
     const key = indexObj.key;
-    if (!key || key.eventType !== 1 || key.correlationId !== 1 || Object.keys(key).length !== 2) {
-        return { valid: false, reason: `Index key specification mismatch: expected { eventType: 1, correlationId: 1 }, got ${JSON.stringify(key)}` };
+    if (!key || typeof key !== 'object' || Array.isArray(key)) {
+        return { valid: false, reason: 'Index key is missing or invalid' };
+    }
+
+    const keyNames = Object.keys(key);
+    if (keyNames.length !== 2 || keyNames[0] !== 'eventType' || keyNames[1] !== 'correlationId') {
+        return { valid: false, reason: `Index key order/fields mismatch: expected ['eventType', 'correlationId'], got ${JSON.stringify(keyNames)}` };
+    }
+
+    if (key.eventType !== 1 || key.correlationId !== 1) {
+        return { valid: false, reason: `Index key sort directions mismatch: expected { eventType: 1, correlationId: 1 }, got ${JSON.stringify(key)}` };
     }
 
     if (indexObj.unique !== true) {
@@ -321,8 +332,27 @@ AuditLogSchema.statics.verifyIdempotencyIndexSpec = function (indexObj) {
     }
 
     const pfe = indexObj.partialFilterExpression;
-    if (!pfe || !pfe.correlationId || pfe.correlationId.$type !== 'string' || Object.keys(pfe).length !== 1) {
-        return { valid: false, reason: `Index partialFilterExpression mismatch: expected { correlationId: { $type: 'string' } }, got ${JSON.stringify(pfe)}` };
+    if (!pfe || typeof pfe !== 'object' || Array.isArray(pfe)) {
+        return { valid: false, reason: 'Index partialFilterExpression is missing or invalid' };
+    }
+
+    const pfeFields = Object.keys(pfe);
+    if (pfeFields.length !== 1 || pfeFields[0] !== 'correlationId') {
+        return { valid: false, reason: `Index partialFilterExpression must contain exactly 'correlationId', got fields: ${JSON.stringify(pfeFields)}` };
+    }
+
+    const corrFilter = pfe.correlationId;
+    if (!corrFilter || typeof corrFilter !== 'object' || Array.isArray(corrFilter)) {
+        return { valid: false, reason: 'correlationId filter in partialFilterExpression must be an operator object' };
+    }
+
+    const corrOperators = Object.keys(corrFilter);
+    if (corrOperators.length !== 1 || corrOperators[0] !== '$type') {
+        return { valid: false, reason: `correlationId in partialFilterExpression must contain exactly one operator '$type', got: ${JSON.stringify(corrOperators)}` };
+    }
+
+    if (corrFilter.$type !== 'string') {
+        return { valid: false, reason: `correlationId.$type must be 'string', got: ${JSON.stringify(corrFilter.$type)}` };
     }
 
     return { valid: true };
@@ -419,63 +449,90 @@ AuditLogSchema.statics.getDuplicatePreflightReport = async function () {
  * Approved reconciliation procedure:
  * 1. Executes read-only preflight to deterministically identify duplicate records.
  * 2. Fetches full original AuditLog documents and preserves them in a verifiable archive collection.
- * 3. Verifies archive document count and document identity prior to allowing any deletion.
+ *    - Crash-resumable: checks existing archive documents against source identity and content.
+ *    - Inserts only missing documents; never overwrites conflicting documents.
+ * 3. Verifies every duplicate source record is safely archived before deleting anything from AuditLog.
  * 4. Only after verified archival, removes the duplicate records from the primary collection.
  */
 AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options = {}) {
     const preflight = await this.getDuplicatePreflightReport();
     if (preflight.totalDuplicateGroups === 0) {
-        return { success: true, archivedCount: 0, removedCount: 0, groupsReconciled: 0 };
+        return { success: true, archivedCount: 0, newlyArchivedCount: 0, removedCount: 0, groupsReconciled: 0 };
     }
 
     const allDuplicateIds = preflight.groups.flatMap(g => g.duplicateIds);
     if (allDuplicateIds.length === 0) {
-        return { success: true, archivedCount: 0, removedCount: 0, groupsReconciled: 0 };
+        return { success: true, archivedCount: 0, newlyArchivedCount: 0, removedCount: 0, groupsReconciled: 0 };
     }
 
     const archiveCollectionName = options.archiveCollectionName || 'auditlogs_archive_duplicates';
     const archiveColl = this.db.db.collection(archiveCollectionName);
 
-    // 1. Fetch complete original records
+    // 1. Fetch complete original records from primary AuditLog collection
     const docsToArchive = await this.find({ _id: { $in: allDuplicateIds } }).lean();
     if (docsToArchive.length !== allDuplicateIds.length) {
         throw new Error(`ARCHIVE_COUNT_MISMATCH: Expected ${allDuplicateIds.length} original documents, found ${docsToArchive.length} in database`);
     }
 
     const now = new Date();
-    const preparedDocs = docsToArchive.map(doc => {
-        const group = preflight.groups.find(g => g.duplicateIds.some(id => String(id) === String(doc._id)));
-        return {
-            ...doc,
-            archivalMetadata: {
-                archivedAt: now,
-                retainedRecordId: group?.retainedId || null,
-                archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
-                migrationVersion: 'P4.1_HOTFIX'
-            }
-        };
-    });
+    const missingDocsToInsert = [];
 
-    // 2. Count before archival
-    const archiveCountBefore = await archiveColl.countDocuments();
+    // Helper to compare core content fields between source and archived doc
+    function isContentEquivalent(src, archived) {
+        if (!archived) return false;
+        const eventTypeMatches = src.eventType === archived.eventType;
+        const correlationMatches = src.correlationId === archived.correlationId;
+        const targetTypeMatches = src.targetType === archived.targetType;
+        const targetIdMatches = String(src.targetId || '') === String(archived.targetId || '');
+        const statusMatches = (src.status || '') === (archived.status || '');
+        const timeMatches = new Date(src.timestamp).getTime() === new Date(archived.timestamp).getTime();
 
-    // 3. Insert into archive collection
-    await archiveColl.insertMany(preparedDocs);
-
-    // 4. Verify archive count and identity
-    const archiveCountAfter = await archiveColl.countDocuments();
-    if (archiveCountAfter - archiveCountBefore !== allDuplicateIds.length) {
-        throw new Error(`ARCHIVE_VERIFICATION_FAILED: Archive count grew by ${archiveCountAfter - archiveCountBefore}, expected ${allDuplicateIds.length}`);
+        return eventTypeMatches && correlationMatches && targetTypeMatches && targetIdMatches && statusMatches && timeMatches;
     }
 
-    for (const id of allDuplicateIds) {
-        const verifiedInArchive = await archiveColl.findOne({ _id: id });
-        if (!verifiedInArchive) {
-            throw new Error(`ARCHIVE_IDENTITY_VERIFICATION_FAILED: Document ${id} missing from archive collection`);
+    // 2. Check each duplicate document against archive: insert only missing, check content integrity
+    for (const doc of docsToArchive) {
+        const existingArchiveDoc = await archiveColl.findOne({ _id: doc._id });
+        if (existingArchiveDoc) {
+            // Document already in archive (e.g. from prior interrupted run): verify content
+            if (!isContentEquivalent(doc, existingArchiveDoc)) {
+                throw new Error(`ARCHIVE_CONTENT_CONFLICT: Conflicting document already exists in archive collection for _id ${doc._id}. Content mismatch detected; refusing to overwrite or discard.`);
+            }
+            // Content matches: document is already safely preserved in archive
+        } else {
+            // Missing from archive: prepare for idempotent insertion
+            const group = preflight.groups.find(g => g.duplicateIds.some(id => String(id) === String(doc._id)));
+            missingDocsToInsert.push({
+                ...doc,
+                archivalMetadata: {
+                    archivedAt: now,
+                    retainedRecordId: group?.retainedId || null,
+                    archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                    migrationVersion: 'P4.1_HOTFIX'
+                }
+            });
         }
     }
 
-    // 5. Verified removal
+    // 3. Insert ONLY missing documents
+    let newlyArchivedCount = 0;
+    if (missingDocsToInsert.length > 0) {
+        const insertRes = await archiveColl.insertMany(missingDocsToInsert, { ordered: true });
+        newlyArchivedCount = insertRes.insertedCount || missingDocsToInsert.length;
+    }
+
+    // 4. Verify that 100% of duplicate source records are safely and verifiably in archive
+    for (const doc of docsToArchive) {
+        const verifiedDoc = await archiveColl.findOne({ _id: doc._id });
+        if (!verifiedDoc) {
+            throw new Error(`ARCHIVE_VERIFICATION_FAILED: Duplicate source record ${doc._id} is not present in archive collection`);
+        }
+        if (!isContentEquivalent(doc, verifiedDoc)) {
+            throw new Error(`ARCHIVE_VERIFICATION_FAILED: Content verification failed for record ${doc._id} in archive collection`);
+        }
+    }
+
+    // 5. Verified removal: ONLY executed after all records are verifiably archived
     const deleteRes = await this.deleteMany({ _id: { $in: allDuplicateIds } });
     const remainingCount = await this.countDocuments({ _id: { $in: allDuplicateIds } });
     if (remainingCount !== 0) {
@@ -484,7 +541,8 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
 
     return {
         success: true,
-        archivedCount: preparedDocs.length,
+        archivedCount: docsToArchive.length,
+        newlyArchivedCount,
         removedCount: deleteRes.deletedCount,
         groupsReconciled: preflight.totalDuplicateGroups,
         archiveCollection: archiveCollectionName,

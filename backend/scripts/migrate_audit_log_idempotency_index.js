@@ -10,6 +10,26 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 export async function runMigration(options = {}) {
+    // 1. Enforce production guard directly inside programmatic invocation
+    const mongoUri = options.mongoUri ||
+        process.env.MONGODB_URI ||
+        process.env.MONGO_URI ||
+        mongoose.connection?.client?.s?.url ||
+        mongoose.connection?._connectionString || '';
+
+    const host = (mongoose.connection?.host || '').toLowerCase();
+    const uriLower = String(mongoUri).toLowerCase();
+    const isProductionAtlas = uriLower.includes('mongodb.net') || uriLower.includes('cluster') ||
+        host.includes('mongodb.net') || host.includes('cluster');
+
+    const allowProduction = options.allowProductionMigration === true || process.env.ALLOW_PRODUCTION_MIGRATION === 'true';
+
+    if (isProductionAtlas && !allowProduction) {
+        const err = new Error('PRODUCTION_MIGRATION_UNAUTHORIZED: Direct programmatic invocation against production MongoDB Atlas requires explicit authorization (allowProductionMigration: true or ALLOW_PRODUCTION_MIGRATION=true)');
+        err.code = 'PRODUCTION_MIGRATION_UNAUTHORIZED';
+        throw err;
+    }
+
     const isPreflight = options.preflightOnly ?? process.argv.includes('--preflight-only');
     const shouldArchive = options.archiveDuplicates ?? process.argv.includes('--archive-duplicates');
 
@@ -28,8 +48,12 @@ export async function runMigration(options = {}) {
         }
 
         if (isPreflight) {
-            console.log('ℹ️ Preflight check complete. No database modifications made.');
-            return { success: false, reason: 'PREFLIGHT_FOUND_DUPLICATES', preflight };
+            const msg = `PREFLIGHT_FOUND_DUPLICATES: Found ${preflight.totalDuplicateGroups} duplicate group(s) with ${preflight.totalDuplicateRecords} duplicate record(s). Database is not ready for unique index.`;
+            console.error(`❌ ${msg}`);
+            const err = new Error(msg);
+            err.code = 'PREFLIGHT_FOUND_DUPLICATES';
+            err.preflight = preflight;
+            throw err;
         }
 
         if (!shouldArchive) {
@@ -50,7 +74,7 @@ export async function runMigration(options = {}) {
     } else {
         console.log('✅ Preflight verified: Zero duplicate correlation records found.');
         if (isPreflight) {
-            console.log('ℹ️ Preflight check complete. Collection is ready for unique index.');
+            console.log('ℹ️ Preflight check passed. Database is ready for unique index. No database modifications made.');
             return { success: true, preflight };
         }
     }
@@ -106,8 +130,13 @@ async function cli() {
         });
         console.log('✅ Connected securely.');
 
-        await runMigration();
-        console.log('🎉 Migration completed successfully.');
+        const result = await runMigration();
+        if (process.argv.includes('--preflight-only')) {
+            console.log('🎉 Preflight check completed successfully.');
+        } else {
+            console.log('🎉 Migration completed successfully.');
+        }
+        process.exit(0);
     } catch (err) {
         console.error('❌ Migration failed:', err.message);
         process.exit(1);

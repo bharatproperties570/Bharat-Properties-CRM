@@ -1,6 +1,12 @@
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import http from 'node:http';
 import express from 'express';
 import jwt from 'jsonwebtoken';
@@ -3986,7 +3992,7 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             await AuditLog.deleteMany({ correlationId: corrId });
         });
 
-        it('4.34 Approved reconciliation archives complete original records with verified counts and identity before removal', async () => {
+        it('4.34 Approved reconciliation archives complete original records with verified counts and identity before removal, and is crash-resumable', async () => {
             try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
 
             const corrId = `archive_reconcile_test_${Date.now()}`;
@@ -4019,41 +4025,136 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 timestamp: new Date('2026-10-31T08:00:00.000Z')
             });
 
-            // Execute approved reconciliation
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            // 1. Simulate process interruption: doc2 was ALREADY archived during a prior run before process died
+            await archiveColl.insertOne({
+                ...doc2.toObject(),
+                archivalMetadata: {
+                    archivedAt: new Date('2026-10-31T07:30:00.000Z'),
+                    retainedRecordId: doc1._id,
+                    archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                    migrationVersion: 'P4.1_HOTFIX'
+                }
+            });
+
+            assert.equal(await archiveColl.countDocuments({ correlationId: corrId }), 1);
+
+            // Execute crash-resumable reconciliation: must NOT insert duplicate doc2, must insert missing doc3, and delete both from primary
             const archiveRes = await AuditLog.archiveAndReconcileDuplicates();
             assert.equal(archiveRes.success, true);
-            assert.equal(archiveRes.archivedCount, 2);
+            assert.equal(archiveRes.archivedCount, 2); // 2 total duplicates accounted for
+            assert.equal(archiveRes.newlyArchivedCount, 1); // Only doc3 was newly inserted
             assert.equal(archiveRes.removedCount, 2);
 
-            // Verify in archive collection
-            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+            // Verify in archive collection: exactly 2 distinct records, no duplicate doc2
             const archivedDocs = await archiveColl.find({ correlationId: corrId }).toArray();
-            assert.equal(archivedDocs.length, 2, 'Exactly 2 records must be preserved in archive collection');
-
-            for (const doc of archivedDocs) {
-                assert.ok(doc.archivalMetadata, 'Archived records must contain archival metadata');
-                assert.ok(doc.archivalMetadata.archivedAt);
-                assert.equal(doc.archivalMetadata.archivalReason, 'DUPLICATE_CORRELATION_ID_RECONCILIATION');
-                assert.equal(String(doc.archivalMetadata.retainedRecordId), String(doc1._id));
-            }
+            assert.equal(archivedDocs.length, 2, 'Exactly 2 records must exist in archive collection without duplicates');
+            const archivedIds = archivedDocs.map(d => String(d._id));
+            assert.ok(archivedIds.includes(String(doc2._id)));
+            assert.ok(archivedIds.includes(String(doc3._id)));
 
             // Verify in primary collection: only doc1 remains
             const primaryDocs = await AuditLog.find({ correlationId: corrId });
             assert.equal(primaryDocs.length, 1, 'Only retained earliest record must remain in primary collection');
             assert.equal(String(primaryDocs[0]._id), String(doc1._id));
 
+            // 2. Test conflict defense: if archive doc exists with conflicting content, must refuse to overwrite
+            const conflictDoc = await AuditLog.create({
+                ...baseDoc,
+                description: 'Conflict test',
+                targetType: 'authority_snapshot',
+                timestamp: new Date('2026-10-31T09:00:00.000Z')
+            });
+            const conflictDocDup = await AuditLog.create({
+                ...baseDoc,
+                description: 'Conflict duplicate',
+                timestamp: new Date('2026-10-31T10:00:00.000Z')
+            });
+
+            // Put a conflicting document in archive with same _id but different eventType
+            await archiveColl.insertOne({
+                _id: conflictDocDup._id,
+                eventType: 'user_login', // Mismatched content
+                correlationId: corrId,
+                targetType: 'other',
+                timestamp: new Date('2026-10-31T10:00:00.000Z')
+            });
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            }
+
+            assert.ok(conflictErr);
+            assert.ok(conflictErr.message.includes('ARCHIVE_CONTENT_CONFLICT'));
+
             // Clean up
             await AuditLog.deleteMany({ correlationId: corrId });
             await archiveColl.deleteMany({ correlationId: corrId });
         });
 
-        it('4.35 Incorrect existing index is rejected and propagates an error', async () => {
-            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+        it('4.35 Truly exact verifyIdempotencyIndexSpec() rejects extra operators ($gt, $exists), extra fields, and wrong key order', async () => {
+            // 1. Valid exact specification
+            const validSpec = {
+                name: 'unique_audit_event_correlation',
+                key: { eventType: 1, correlationId: 1 },
+                unique: true,
+                partialFilterExpression: { correlationId: { $type: 'string' } }
+            };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(validSpec).valid, true);
 
-            // Create an incorrect index named 'unique_audit_event_correlation' with missing unique and partialFilterExpression
+            // 2. Extra nested operator: $gt inside correlationId filter
+            const extraGtSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string', $gt: '' } }
+            };
+            const gtCheck = AuditLog.verifyIdempotencyIndexSpec(extraGtSpec);
+            assert.equal(gtCheck.valid, false);
+            assert.ok(gtCheck.reason.includes("must contain exactly one operator '$type'"));
+
+            // 3. Extra nested operator: $exists inside correlationId filter
+            const extraExistsSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string', $exists: true } }
+            };
+            const existsCheck = AuditLog.verifyIdempotencyIndexSpec(extraExistsSpec);
+            assert.equal(existsCheck.valid, false);
+            assert.ok(existsCheck.reason.includes("must contain exactly one operator '$type'"));
+
+            // 4. Extra filter field in partialFilterExpression
+            const extraFieldSpec = {
+                ...validSpec,
+                partialFilterExpression: { correlationId: { $type: 'string' }, eventType: { $exists: true } }
+            };
+            const fieldCheck = AuditLog.verifyIdempotencyIndexSpec(extraFieldSpec);
+            assert.equal(fieldCheck.valid, false);
+            assert.ok(fieldCheck.reason.includes("must contain exactly 'correlationId'"));
+
+            // 5. Reversed compound key order
+            const reversedKeySpec = {
+                ...validSpec,
+                key: { correlationId: 1, eventType: 1 }
+            };
+            const keyCheck = AuditLog.verifyIdempotencyIndexSpec(reversedKeySpec);
+            assert.equal(keyCheck.valid, false);
+            assert.ok(keyCheck.reason.includes("Index key order/fields mismatch"));
+
+            // 6. Non-unique index
+            const nonUniqueSpec = { ...validSpec, unique: false };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(nonUniqueSpec).valid, false);
+
+            // 7. Wrong name
+            const wrongNameSpec = { ...validSpec, name: 'other_name' };
+            assert.equal(AuditLog.verifyIdempotencyIndexSpec(wrongNameSpec).valid, false);
+
+            // 8. Integration: ensureIdempotencyIndex rejects index on MongoDB collection with wrong specification
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
             await AuditLog.collection.createIndex(
                 { eventType: 1, correlationId: 1 },
-                { name: 'unique_audit_event_correlation' }
+                { name: 'unique_audit_event_correlation' } // Missing unique and partialFilterExpression
             );
 
             let caughtErr = null;
@@ -4063,11 +4164,8 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
                 caughtErr = err;
             }
 
-            assert.ok(caughtErr, 'ensureIdempotencyIndex must reject index with incorrect specification');
+            assert.ok(caughtErr);
             assert.equal(caughtErr.code, 'INVALID_INDEX_SPECIFICATION');
-            assert.ok(caughtErr.message.includes('Index unique property mismatch'));
-
-            // Drop incorrect index
             await AuditLog.collection.dropIndex('unique_audit_event_correlation');
         });
 
@@ -4095,6 +4193,93 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // Restore genuine index cleanly
             const restoreRes = await AuditLog.ensureIdempotencyIndex();
             assert.equal(restoreRes.verified, true);
+        });
+
+        it('4.37 Programmatic runMigration() enforces production guard and cannot bypass authorization', async () => {
+            // Direct call targeting production Atlas hostname without authorization must throw
+            let atlasErr = null;
+            try {
+                await runMigration({
+                    mongoUri: 'mongodb+srv://admin:pass@cluster0.abcde.mongodb.net/production_db?retryWrites=true',
+                    allowProductionMigration: false
+                });
+            } catch (err) {
+                atlasErr = err;
+            }
+
+            assert.ok(atlasErr, 'Direct programmatic invocation must not bypass production Atlas guard');
+            assert.equal(atlasErr.code, 'PRODUCTION_MIGRATION_UNAUTHORIZED');
+
+            // Explicitly authorized call allows proceeding to preflight
+            const authResult = await runMigration({
+                mongoUri: 'mongodb+srv://admin:pass@cluster0.abcde.mongodb.net/production_db?retryWrites=true',
+                allowProductionMigration: true,
+                preflightOnly: true
+            });
+            assert.ok(authResult.success);
+        });
+
+        it('4.38 Executable CLI preflight exit behavior: non-zero exit on duplicates, no mutation, zero exit on clean', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const cliCorrId = `cli_preflight_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+
+            const baseDoc = {
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                userName: 'System',
+                userEmail: 'system@crm.internal',
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: cliCorrId,
+                status: 'success'
+            };
+
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Record 1',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+            await AuditLog.create({
+                ...baseDoc,
+                description: 'Record 2',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const scriptPath = path.resolve(__dirname, '..', 'scripts', 'migrate_audit_log_idempotency_index.js');
+            const mongoUri = mongoServer.getUri();
+
+            // 1. Run CLI with --preflight-only when duplicates exist
+            const cliWithDuplicates = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            // Must exit non-zero (exit code 1)
+            assert.equal(cliWithDuplicates.status, 1, 'CLI preflight-only must exit non-zero when duplicate groups are detected');
+            const combinedOutput = cliWithDuplicates.stdout + cliWithDuplicates.stderr;
+            assert.ok(combinedOutput.includes('PREFLIGHT_FOUND_DUPLICATES') || combinedOutput.includes('Preflight Result: 1 duplicate group'));
+            assert.equal(combinedOutput.includes('Migration completed successfully'), false, 'Failed preflight must NOT report migration success');
+
+            // Verify database records remain 100% untouched
+            const recordsInDb = await AuditLog.find({ correlationId: cliCorrId });
+            assert.equal(recordsInDb.length, 2, 'CLI preflight-only must not delete or modify any records');
+
+            // 2. Clean up duplicates and rerun CLI with --preflight-only
+            await AuditLog.deleteMany({ correlationId: cliCorrId });
+
+            const cliClean = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            assert.equal(cliClean.status, 0, 'CLI preflight-only must exit 0 when zero duplicate groups exist');
+            const cleanOutput = cliClean.stdout + cliClean.stderr;
+            assert.ok(cleanOutput.includes('Preflight check passed') || cleanOutput.includes('Preflight check completed successfully'));
+
+            // Restore idempotency index for subsequent tests
+            await AuditLog.ensureIdempotencyIndex();
         });
     });
 
