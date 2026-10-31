@@ -1620,4 +1620,73 @@ describe('Phase 4: WhatsApp Live Dispatch Board & Operator Recovery Controls Tes
             BroadcastLiveTracker.isCampaignHalted = originalHalt;
         }
     });
+
+    it('34. Dedicated MarketingDelivery Unique Index Constraint: Rejects duplicate (jobId, recipientId, channel) with code 11000 and accepts distinct keys', async () => {
+        const coll = mongoose.connection.db.collection('marketingdeliveries');
+
+        // Explicitly create the exact unique index matching production specification
+        await coll.createIndex(
+            { jobId: 1, recipientId: 1, channel: 1 },
+            { unique: true, name: 'jobId_1_recipientId_1_channel_1' }
+        );
+
+        const testJobId = 'bna_camp_unique_test_034';
+        const testRecipientId = '919811100034';
+        const testChannel = 'whatsapp';
+
+        // 1. Initial insert must succeed
+        const firstDoc = await MarketingDelivery.create({
+            jobId: testJobId,
+            recipientId: testRecipientId,
+            channel: testChannel,
+            status: 'ACCEPTED',
+            provider: 'META'
+        });
+        assert.ok(firstDoc._id, 'Initial delivery document should be successfully created');
+
+        // 2. Duplicate insert with identical (jobId, recipientId, channel) must be rejected with 11000
+        let duplicateError = null;
+        try {
+            await MarketingDelivery.create({
+                jobId: testJobId,
+                recipientId: testRecipientId,
+                channel: testChannel,
+                status: 'DELIVERED',
+                provider: 'META'
+            });
+        } catch (err) {
+            duplicateError = err;
+        }
+
+        assert.ok(duplicateError, 'Duplicate insertion must be rejected by MongoDB');
+        assert.strictEqual(
+            duplicateError.code,
+            11000,
+            `Expected duplicate key error code 11000, got ${duplicateError?.code}`
+        );
+
+        // 3. Different recipient with same jobId and channel must be accepted
+        const diffRecipientDoc = await MarketingDelivery.create({
+            jobId: testJobId,
+            recipientId: '919811100035',
+            channel: testChannel,
+            status: 'ACCEPTED',
+            provider: 'META'
+        });
+        assert.ok(diffRecipientDoc._id, 'Record with different recipientId must be accepted');
+
+        // 4. Different channel with same jobId and recipientId must be accepted
+        const diffChannelDoc = await MarketingDelivery.create({
+            jobId: testJobId,
+            recipientId: testRecipientId,
+            channel: 'sms',
+            status: 'ACCEPTED',
+            provider: 'MOCK'
+        });
+        assert.ok(diffChannelDoc._id, 'Record with different channel must be accepted');
+
+        // 5. Verify total document count for this job in test collection
+        const totalDocs = await MarketingDelivery.countDocuments({ jobId: testJobId });
+        assert.strictEqual(totalDocs, 3, 'Exactly three distinct records should exist in collection');
+    });
 });
