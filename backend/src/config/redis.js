@@ -545,16 +545,20 @@ const mockWorkers = new Map();
 
 export class Queue {
     constructor(name, opts = {}) {
-        if (internalConnection && internalConnection.isMock) {
-            if (process.env.NODE_ENV === 'production') {
-                throw new Error(`CRITICAL_STORAGE_ERROR: MockQueue cannot be initialized in production environment for queue '${name}'. Redis is required.`);
+        const hasExplicitConnection = 'connection' in opts;
+        const conn = hasExplicitConnection ? opts.connection : internalConnection;
+        if (process.env.NODE_ENV === 'production') {
+            if (!conn || conn.isMock) {
+                throw new Error(`CRITICAL_STORAGE_ERROR: Cannot initialize Queue '${name}' in production: Redis connection is ${conn ? 'MockRedis' : 'absent'}. Real Redis is required.`);
             }
+        } else if (conn && conn.isMock) {
             this.name = name;
             mockQueues.set(name, this);
             console.log(`[MockQueue] Registered mock queue: ${name}`);
             return this;
         }
-        return new BullQueue(name, opts);
+        const bullOpts = hasExplicitConnection ? opts : { connection: internalConnection, ...opts };
+        return new BullQueue(name, bullOpts);
     }
     async add(name, data, opts) {
         const jobId = `mock-${Date.now()}`;
@@ -599,24 +603,28 @@ export class Queue {
 export class Worker extends EventEmitter {
     constructor(name, processor, opts = {}) {
         super();
-        if (internalConnection && internalConnection.isMock) {
-            if (process.env.NODE_ENV === 'production') {
-                throw new Error(`CRITICAL_STORAGE_ERROR: MockWorker cannot be initialized in production environment for worker '${name}'. Redis is required.`);
+        const hasExplicitConnection = 'connection' in opts;
+        const conn = hasExplicitConnection ? opts.connection : internalConnection;
+        if (process.env.NODE_ENV === 'production') {
+            if (!conn || conn.isMock) {
+                throw new Error(`CRITICAL_STORAGE_ERROR: Cannot initialize Worker '${name}' in production: Redis connection is ${conn ? 'MockRedis' : 'absent'}. Real Redis is required.`);
             }
+        } else if (conn && conn.isMock) {
             this.name = name;
             this.processor = processor;
             mockWorkers.set(name, this);
             console.log(`[MockWorker] Registered mock worker: ${name}`);
             return this;
         }
-        return new BullWorker(name, processor, opts);
+        const bullOpts = hasExplicitConnection ? opts : { connection: internalConnection, ...opts };
+        return new BullWorker(name, processor, bullOpts);
     }
     async close() {
         return;
     }
 }
 
-export { MockRedis };
+export { MockRedis, redisOptions };
 export default redisProxy;
 
 

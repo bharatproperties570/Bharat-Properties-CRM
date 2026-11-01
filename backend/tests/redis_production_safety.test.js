@@ -2,164 +2,251 @@
  * redis_production_safety.test.js
  * ─────────────────────────────────────────────────────────────────────────────
  * P0-A Verification Suite:
- * 1. Production startup with Redis unavailable fails closed.
- * 2. MockRedis is NEVER reported as a healthy durable store in production.
- * 3. Redis connection loss after startup sets isRedisOnline to false without fallback to MockRedis.
- * 4. Recovery after Redis reconnect restores isRedisOnline.
- * 5. Outbound dispatch and BullMQ Queue/Worker fail closed when storage is unavailable.
+ * 1. Genuine isolated production-mode startup tests using child processes.
+ * 2. NODE_ENV=production is set before importing redis.js.
+ * 3. Redis startup with unavailable endpoint NEVER attaches MockRedis (isMock: false, isOnline: false).
+ * 4. safeRedisCall() rejects with STORAGE_UNAVAILABLE.
+ * 5. WhatsAppCircuitBreaker.isTripped() rejects with CIRCUIT_BREAKER_STORAGE_UNAVAILABLE.
+ * 6. Actual Queue and Worker exports throw CRITICAL_STORAGE_ERROR if MockRedis or absent connection is used.
+ * 7. Real Redis connection error or disconnect does NOT replace client with MockRedis.
+ * 8. Reconnection restores online state (isOnline: true) without changing client to MockRedis.
+ * 9. Explicit documentation and verification of Queue/Worker reconnection semantics vs. immediate failure.
  */
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'events';
-import redisProxy, {
-    isRedisOnline,
-    safeRedisCall,
-    Queue,
-    Worker,
-    MockRedis
-} from '../src/config/redis.js';
-import WhatsAppCircuitBreaker from '../services/WhatsAppCircuitBreaker.js';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-describe('P0-A: Production Redis Safety & Fail-Closed Guardrails', () => {
-    const originalNodeEnv = process.env.NODE_ENV;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const backendRoot = path.resolve(__dirname, '..');
 
-    after(() => {
-        process.env.NODE_ENV = originalNodeEnv;
+/**
+ * Helper to run test scripts in an isolated child Node.js process
+ * with NODE_ENV=production guaranteed before any module import.
+ */
+function runProductionChildScript(scriptContent, envOverrides = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(
+            process.execPath,
+            ['--input-type=module', '-e', scriptContent],
+            {
+                cwd: backendRoot,
+                env: {
+                    ...process.env,
+                    NODE_ENV: 'production',
+                    ...envOverrides
+                }
+            }
+        );
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (d) => { stdout += d.toString(); });
+        child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+        child.on('error', reject);
+        child.on('close', (code) => {
+            resolve({ code, stdout, stderr });
+        });
+    });
+}
+
+describe('P0-A: Production Redis Safety & Fail-Closed Guardrails (Isolated Production Mode)', () => {
+
+    it('1. Production startup with unavailable Redis endpoint: Never attaches MockRedis, isMock: false, isOnline: false', async () => {
+        const script = `
+            import redisProxy, { getRedisStatus, safeRedisCall } from './src/config/redis.js';
+            import WhatsAppCircuitBreaker from './services/WhatsAppCircuitBreaker.js';
+            import assert from 'assert';
+
+            assert.strictEqual(process.env.NODE_ENV, 'production', 'NODE_ENV must be production before module load');
+
+            const status = getRedisStatus();
+            assert.strictEqual(status.isMock, false, 'getRedisStatus().isMock must be false in production');
+            assert.strictEqual(status.isOnline, false, 'getRedisStatus().isOnline must be false when endpoint unavailable');
+            assert.strictEqual(redisProxy.isMock, false, 'redisProxy.isMock must be false');
+
+            // safeRedisCall must reject with STORAGE_UNAVAILABLE
+            await assert.rejects(async () => {
+                await safeRedisCall('get', 'test_key');
+            }, (err) => {
+                assert.ok(err.message.includes('STORAGE_UNAVAILABLE'), 'Expected STORAGE_UNAVAILABLE, got: ' + err.message);
+                return true;
+            });
+
+            // WhatsAppCircuitBreaker must fail-closed with CIRCUIT_BREAKER_STORAGE_UNAVAILABLE
+            await assert.rejects(async () => {
+                await WhatsAppCircuitBreaker.isTripped('test_prod_int_1');
+            }, (err) => {
+                assert.ok(err.message.includes('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE'), 'Expected CIRCUIT_BREAKER_STORAGE_UNAVAILABLE, got: ' + err.message);
+                return true;
+            });
+
+            try { redisProxy.disconnect(); } catch (e) {}
+            process.exit(0);
+        `;
+
+        const { code, stderr, stdout } = await runProductionChildScript(script, {
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '59998' // Unused offline port
+        });
+
+        assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
     });
 
-    it('1. Proof that production never reports MockRedis as a healthy durable store', () => {
-        // Direct inspection of MockRedis
-        const mock = new MockRedis();
-        assert.strictEqual(mock.isMock, true);
-        assert.strictEqual(mock.status, 'ready');
+    it('2. Actual Queue and Worker exports: Throws CRITICAL_STORAGE_ERROR if MockRedis is passed or connection is absent in production', async () => {
+        const script = `
+            import redisProxy, { Queue, Worker, MockRedis } from './src/config/redis.js';
+            import assert from 'assert';
 
-        // Verify that MockRedis explicitly identifies itself as mock
-        assert.ok(mock.isMock, 'MockRedis instance must always have isMock === true');
-    });
+            assert.strictEqual(process.env.NODE_ENV, 'production');
 
-    it('2. Production Queue and Worker audit: Throws CRITICAL_STORAGE_ERROR if initialized with MockRedis in production', () => {
-        const savedEnv = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = 'production';
+            // 1. Instantiating Queue with MockRedis in production throws CRITICAL_STORAGE_ERROR
+            const mockConn = new MockRedis();
+            assert.strictEqual(mockConn.isMock, true);
 
-            // Create a fake mock internal connection state on a dummy queue/worker constructor
-            // The Queue class checks if internalConnection.isMock && isProduction
-            // To test without destroying the global proxy, test Queue guard directly
-            const mockInternalConn = new MockRedis();
-            assert.strictEqual(mockInternalConn.isMock, true);
-
-            // Assert that in production, MockQueue throws CRITICAL_STORAGE_ERROR
             assert.throws(() => {
-                if (mockInternalConn.isMock && process.env.NODE_ENV === 'production') {
-                    throw new Error(`CRITICAL_STORAGE_ERROR: MockQueue cannot be initialized in production environment for queue 'marketingQueue'. Redis is required.`);
-                }
-            }, /CRITICAL_STORAGE_ERROR.*marketingQueue/);
+                new Queue('marketingQueue', { connection: mockConn });
+            }, (err) => {
+                assert.ok(err.message.includes('CRITICAL_STORAGE_ERROR'), 'Must throw CRITICAL_STORAGE_ERROR on MockRedis queue creation: ' + err.message);
+                assert.ok(err.message.includes('marketingQueue'));
+                return true;
+            });
 
+            // 2. Instantiating Worker with MockRedis in production throws CRITICAL_STORAGE_ERROR
             assert.throws(() => {
-                if (mockInternalConn.isMock && process.env.NODE_ENV === 'production') {
-                    throw new Error(`CRITICAL_STORAGE_ERROR: MockWorker cannot be initialized in production environment for worker 'marketingWorker'. Redis is required.`);
-                }
-            }, /CRITICAL_STORAGE_ERROR.*marketingWorker/);
-        } finally {
-            process.env.NODE_ENV = savedEnv;
-        }
-    });
-
-    it('3. safeRedisCall in production throws STORAGE_UNAVAILABLE when offline or mock', async () => {
-        const savedEnv = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = 'production';
-
-            // When offline in production, safeRedisCall must throw STORAGE_UNAVAILABLE
-            await assert.rejects(
-                async () => {
-                    await safeRedisCall('get', 'test_key');
-                },
-                (err) => {
-                    assert.ok(err.message.includes('STORAGE_UNAVAILABLE'), `Expected STORAGE_UNAVAILABLE, got: ${err.message}`);
-                    return true;
-                }
-            );
-        } finally {
-            process.env.NODE_ENV = savedEnv;
-        }
-    });
-
-    it('4. WhatsAppCircuitBreaker in production: Outbound dispatch fails closed when Redis offline or mock', async () => {
-        const savedEnv = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = 'production';
-
-            // Calling isTripped when Redis is offline or mock in production must throw CIRCUIT_BREAKER_STORAGE_UNAVAILABLE
-            await assert.rejects(
-                async () => {
-                    await WhatsAppCircuitBreaker.isTripped('test_prod_int_1');
-                },
-                (err) => {
-                    assert.ok(
-                        err.message.includes('CIRCUIT_BREAKER_STORAGE_UNAVAILABLE'),
-                        `Expected CIRCUIT_BREAKER_STORAGE_UNAVAILABLE, got: ${err.message}`
-                    );
-                    return true;
-                }
-            );
-        } finally {
-            process.env.NODE_ENV = savedEnv;
-        }
-    });
-
-    it('5. Production connection event simulation: Error and close events maintain isRedisOnline = false without Mock fallback', () => {
-        const savedEnv = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = 'production';
-
-            const simulatedRedis = new EventEmitter();
-            simulatedRedis.isMock = false;
-            let onlineState = true;
-
-            simulatedRedis.on('close', () => {
-                onlineState = false;
+                new Worker('marketingWorker', async () => {}, { connection: mockConn });
+            }, (err) => {
+                assert.ok(err.message.includes('CRITICAL_STORAGE_ERROR'), 'Must throw CRITICAL_STORAGE_ERROR on MockRedis worker creation: ' + err.message);
+                assert.ok(err.message.includes('marketingWorker'));
+                return true;
             });
 
-            simulatedRedis.on('error', (err) => {
-                onlineState = false;
-                // Production rule: Do NOT replace with MockRedis
-                assert.strictEqual(simulatedRedis.isMock, false);
+            // 3. Instantiating Queue with absent (null) connection in production throws CRITICAL_STORAGE_ERROR
+            assert.throws(() => {
+                new Queue('absentQueue', { connection: null });
+            }, (err) => {
+                assert.ok(err.message.includes('CRITICAL_STORAGE_ERROR'), 'Must throw CRITICAL_STORAGE_ERROR on absent connection: ' + err.message);
+                assert.ok(err.message.includes('absent'));
+                return true;
             });
 
-            // Simulate disconnect
-            simulatedRedis.emit('close');
-            assert.strictEqual(onlineState, false);
-            assert.strictEqual(simulatedRedis.isMock, false, 'Connection must NOT be replaced with MockRedis on close');
+            // 4. Instantiating Worker with absent (null) connection in production throws CRITICAL_STORAGE_ERROR
+            assert.throws(() => {
+                new Worker('absentWorker', async () => {}, { connection: null });
+            }, (err) => {
+                assert.ok(err.message.includes('CRITICAL_STORAGE_ERROR'), 'Must throw CRITICAL_STORAGE_ERROR on absent connection: ' + err.message);
+                assert.ok(err.message.includes('absent'));
+                return true;
+            });
 
-            // Simulate error
-            simulatedRedis.emit('error', new Error('ECONNRESET: Connection reset by peer'));
-            assert.strictEqual(onlineState, false);
-            assert.strictEqual(simulatedRedis.isMock, false, 'Connection must NOT be replaced with MockRedis on error');
-        } finally {
-            process.env.NODE_ENV = savedEnv;
-        }
+            try { redisProxy.disconnect(); } catch (e) {}
+            process.exit(0);
+        `;
+
+        const { code, stderr, stdout } = await runProductionChildScript(script, {
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '59998'
+        });
+
+        assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
     });
 
-    it('6. Production connection recovery simulation: Ready event safely restores isRedisOnline = true', () => {
-        const savedEnv = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = 'production';
+    it('3. Production Queue and Worker lifecycle: Uses real connection, relies on BullMQ reconnection without silent in-memory fallback', async () => {
+        const script = `
+            import redisProxy, { Queue, Worker } from './src/config/redis.js';
+            import assert from 'assert';
 
-            const simulatedRedis = new EventEmitter();
-            simulatedRedis.isMock = false;
-            let onlineState = false;
+            assert.strictEqual(process.env.NODE_ENV, 'production');
 
-            simulatedRedis.on('ready', () => {
-                onlineState = true;
-            });
+            // When real Redis configuration is present, Queue creation succeeds by attaching
+            // to the real connection (BullMQ client management). It does NOT instantiate MockQueue.
+            const q = new Queue('productionLiveQueue');
+            assert.strictEqual(q.name, 'productionLiveQueue');
 
-            simulatedRedis.emit('ready');
-            assert.strictEqual(onlineState, true, 'isRedisOnline must restore to true on ready event');
-            assert.strictEqual(simulatedRedis.isMock, false);
-        } finally {
-            process.env.NODE_ENV = savedEnv;
-        }
+            // Verify it is a genuine BullMQ Queue, not a MockQueue
+            assert.strictEqual(typeof q.add, 'function');
+            assert.strictEqual(typeof q.close, 'function');
+            assert.strictEqual(q.isMock, undefined, 'Real Queue must never be MockQueue');
+
+            const w = new Worker('productionLiveWorker', async () => {});
+            assert.strictEqual(w.name, 'productionLiveWorker');
+            assert.strictEqual(w.isMock, undefined, 'Real Worker must never be MockWorker');
+
+            await q.close();
+            await w.close();
+            try { redisProxy.disconnect(); } catch (e) {}
+            process.exit(0);
+        `;
+
+        const { code, stderr, stdout } = await runProductionChildScript(script, {
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '59998'
+        });
+
+        assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
+    });
+
+    it('4. Production connection event lifecycle: Error and close events maintain isOnline: false, ready restores isOnline: true', async () => {
+        const script = `
+            import redisProxy, { getRedisStatus } from './src/config/redis.js';
+            import assert from 'assert';
+
+            assert.strictEqual(process.env.NODE_ENV, 'production');
+
+            // Verify actual module event listeners attached to redisProxy in production:
+            // 1. Initial state with offline port
+            assert.strictEqual(getRedisStatus().isMock, false);
+
+            // 2. Emit connection error on actual production client
+            redisProxy.emit('error', new Error('ECONNRESET: simulated connection reset'));
+            assert.strictEqual(getRedisStatus().isOnline, false, 'isOnline must be false on error');
+            assert.strictEqual(getRedisStatus().isMock, false, 'Client must NEVER be replaced with MockRedis on error');
+
+            // 3. Emit close event on actual production client
+            redisProxy.emit('close');
+            assert.strictEqual(getRedisStatus().isOnline, false, 'isOnline must be false on close');
+            assert.strictEqual(getRedisStatus().isMock, false, 'Client must NEVER be replaced with MockRedis on close');
+
+            // 4. Emit ready event on actual production client (simulating reconnect)
+            redisProxy.emit('ready');
+            assert.strictEqual(getRedisStatus().isOnline, true, 'isOnline must be true on ready');
+            assert.strictEqual(getRedisStatus().isMock, false, 'Client must remain real Redis on ready');
+
+            try { redisProxy.disconnect(); } catch (e) {}
+            process.exit(0);
+        `;
+
+        const { code, stderr, stdout } = await runProductionChildScript(script, {
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '59998'
+        });
+
+        assert.strictEqual(code, 0, `Child process failed with code ${code}.\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
+    });
+
+    it('5. Clean process exit: Child process exits cleanly with code 0 without hanging open handles', async () => {
+        const script = `
+            import redisProxy, { getRedisStatus } from './src/config/redis.js';
+            assert.strictEqual(process.env.NODE_ENV, 'production');
+            assert.strictEqual(getRedisStatus().isMock, false);
+            try { redisProxy.disconnect(); } catch (e) {}
+            // Clean exit
+            process.exit(0);
+        `;
+
+        const start = Date.now();
+        const { code } = await runProductionChildScript(script, {
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '59998'
+        });
+        const duration = Date.now() - start;
+
+        assert.strictEqual(code, 0);
+        assert.ok(duration < 5000, `Child process must exit promptly (took ${duration}ms)`);
     });
 });

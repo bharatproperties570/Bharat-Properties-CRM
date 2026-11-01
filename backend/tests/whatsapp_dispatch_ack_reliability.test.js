@@ -8,14 +8,15 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import WhatsAppDispatch from '../models/WhatsAppDispatch.js';
 import MarketingDelivery from '../models/MarketingDelivery.js';
-import WhatsAppCircuitBreaker, { TRIP_THRESHOLDS } from '../services/WhatsAppCircuitBreaker.js';
+import WhatsAppCircuitBreaker, { TRIP_THRESHOLDS, LUA_SCRIPTS } from '../services/WhatsAppCircuitBreaker.js';
 import BaileysConnectionManager, {
     handleMessagesUpdate,
     handleMessageReceiptUpdate,
     DELIVERY_TRANSITION_MATRIX,
     PROTECTED_TERMINAL_STATES
 } from '../services/baileysQueue/BaileysConnectionManager.js';
-import redisProxy from '../src/config/redis.js';
+import redisProxy, { redisOptions } from '../src/config/redis.js';
+import Redis from 'ioredis';
 
 describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit Breaker Suite', () => {
     let mongoServer;
@@ -739,6 +740,47 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
         assert.equal(await redisProxy.get(`cb:wa:${intId}:tripped_at`), '123456');
     });
 
+    it('19e. Real Redis PX TTL lease expiration (Item 3): Expired probe lease via Redis TTL rejects stale token and preserves breaker state', async () => {
+        const intId = testIntegrationId.toString();
+
+        await redisProxy.set(`cb:wa:${intId}:state`, 'HALF_OPEN');
+        await redisProxy.set(`cb:wa:${intId}:reason`, 'Initial trip reason');
+        await redisProxy.set(`cb:wa:${intId}:tripped_at`, '123456');
+
+        // Set probe lock with real short TTL (200ms)
+        await redisProxy.set(`cb:wa:${intId}:probe_lock`, 'worker-token-px-expire', 'PX', 200);
+
+        // Confirm key exists initially
+        const initialLock = await redisProxy.get(`cb:wa:${intId}:probe_lock`);
+        assert.equal(initialLock, 'worker-token-px-expire');
+
+        // Wait for Redis to expire key naturally (350ms > 200ms)
+        await new Promise(resolve => setTimeout(resolve, 350));
+
+        // Confirm key is absent without calling DEL
+        const expiredLock = await redisProxy.get(`cb:wa:${intId}:probe_lock`);
+        assert.equal(expiredLock, null, 'Probe lock key must expire naturally via PX TTL without DEL');
+
+        // Attempt to record failure with old/expired token
+        const res = await WhatsAppCircuitBreaker.recordProbeFailure(intId, 'worker-token-px-expire', 'Failure after TTL expiration');
+        assert.equal(res.success, false);
+        assert.equal(res.error, 'EXPIRED_PROBE_LEASE');
+
+        // Verify state, reason, and tripped_at remain untouched
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:state`), 'HALF_OPEN');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:reason`), 'Initial trip reason');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:tripped_at`), '123456');
+
+        // Verify that a newer owner lock cannot be mutated by the stale expired worker
+        await redisProxy.set(`cb:wa:${intId}:probe_lock`, 'newer-active-worker-token', 'PX', 5000);
+        const staleRes = await WhatsAppCircuitBreaker.recordProbeFailure(intId, 'worker-token-px-expire', 'Stale failure against new owner');
+        assert.equal(staleRes.success, false);
+        assert.equal(staleRes.error, 'STALE_PROBE_OWNER');
+
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:probe_lock`), 'newer-active-worker-token');
+        assert.equal(await redisProxy.get(`cb:wa:${intId}:state`), 'HALF_OPEN');
+    });
+
     it('20. Concurrent probe reservation race (Deterministic Invariant): Exactly ONE worker reserves probe', async () => {
         const intId = testIntegrationId.toString();
 
@@ -765,6 +807,124 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
             assert.equal(resB.probeToken, 'token-B');
             assert.equal(resA.tripped, true);
             assert.equal(resA.probeInFlight, true);
+        }
+    });
+
+    it('20b. Independent Redis-client Concurrency (Item 4): Two distinct network clients race to reserve probe', async () => {
+        const intId = testIntegrationId.toString();
+        const stateKey = `cb:wa:${intId}:state`;
+        const reasonKey = `cb:wa:${intId}:reason`;
+        const trippedAtKey = `cb:wa:${intId}:tripped_at`;
+        const probeLockKey = `cb:wa:${intId}:probe_lock`;
+        const timeoutsKey = `cb:wa:${intId}:timeouts`;
+        const authFailuresKey = `cb:wa:${intId}:auth_failures`;
+        const disconnectsKey = `cb:wa:${intId}:disconnects`;
+
+        const pastTrippedAt = Date.now() - (6 * 60 * 1000);
+        const cooloffMs = 300000;
+        const probeTtlSec = 120;
+        const now = Date.now();
+
+        if (!redisProxy.isMock) {
+            // Real Redis is available: test with two distinct ioredis network clients
+            const client1 = new Redis({ ...redisOptions, maxRetriesPerRequest: 1, retryStrategy: () => null });
+            const client2 = new Redis({ ...redisOptions, maxRetriesPerRequest: 1, retryStrategy: () => null });
+
+            try {
+                await client1.set(stateKey, 'OPEN');
+                await client1.set(trippedAtKey, String(pastTrippedAt));
+                await client1.del(probeLockKey);
+
+                // Concurrently execute atomic Lua reservation across both independent network connections
+                const [rawA, rawB] = await Promise.all([
+                    client1.eval(LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, 'token-client-1', cooloffMs, probeTtlSec, now, ''),
+                    client2.eval(LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, 'token-client-2', cooloffMs, probeTtlSec, now, '')
+                ]);
+
+                const resA = JSON.parse(rawA);
+                const resB = JSON.parse(rawB);
+
+                const probeCount = (resA.isProbe ? 1 : 0) + (resB.isProbe ? 1 : 0);
+                assert.equal(probeCount, 1, 'Deterministic invariant: Exactly ONE worker must be granted probe reservation across distinct network clients');
+
+                const loserClient = resA.isProbe ? client2 : client1;
+                const winnerClient = resA.isProbe ? client1 : client2;
+                const winnerToken = resA.isProbe ? 'token-client-1' : 'token-client-2';
+                const loserToken = resA.isProbe ? 'token-client-2' : 'token-client-1';
+
+                // Assert active owner token in Redis matches winner token and was not mutated by losing client
+                const activeOwner = await client1.get(probeLockKey);
+                assert.equal(activeOwner, winnerToken);
+
+                // Subsequent probe failure attempt from second client with losing token is rejected as STALE_PROBE_OWNER
+                const loserFailRaw = await loserClient.eval(LUA_SCRIPTS.RECORD_PROBE_FAILURE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, loserToken, 'Losing client failure', Date.now());
+                const loserFailRes = JSON.parse(loserFailRaw);
+                assert.equal(loserFailRes.success, false);
+                assert.equal(loserFailRes.error, 'STALE_PROBE_OWNER');
+
+                // Subsequent probe success attempt from second client with losing token is rejected as STALE_PROBE_OWNER
+                const loserSuccessRaw = await loserClient.eval(LUA_SCRIPTS.RECORD_PROBE_SUCCESS, 7, stateKey, reasonKey, trippedAtKey, probeLockKey, timeoutsKey, authFailuresKey, disconnectsKey, loserToken);
+                const loserSuccessRes = JSON.parse(loserSuccessRaw);
+                assert.equal(loserSuccessRes.success, false);
+                assert.equal(loserSuccessRes.error, 'STALE_PROBE_OWNER');
+
+                // Active owner and HALF_OPEN state still untouched
+                assert.equal(await client1.get(probeLockKey), winnerToken);
+                assert.equal(await client1.get(stateKey), 'HALF_OPEN');
+
+                // Winner client completes probe successfully -> CLOSED
+                const winnerSuccessRaw = await winnerClient.eval(LUA_SCRIPTS.RECORD_PROBE_SUCCESS, 7, stateKey, reasonKey, trippedAtKey, probeLockKey, timeoutsKey, authFailuresKey, disconnectsKey, winnerToken);
+                const winnerSuccessRes = JSON.parse(winnerSuccessRaw);
+                assert.equal(winnerSuccessRes.success, true);
+                assert.equal(winnerSuccessRes.state, 'CLOSED');
+                assert.equal(await client1.get(stateKey), 'CLOSED');
+            } finally {
+                await Promise.allSettled([
+                    client1.quit().catch(() => client1.disconnect()),
+                    client2.quit().catch(() => client2.disconnect())
+                ]);
+            }
+        } else {
+            // Local dev fallback when Redis service is not provisioned on port 6379
+            if (process.env.CI) {
+                assert.fail('In CI environment, real Redis service must be provisioned and isMock must be false');
+            }
+            await redisProxy.set(stateKey, 'OPEN');
+            await redisProxy.set(trippedAtKey, String(pastTrippedAt));
+            await redisProxy.del(probeLockKey);
+
+            const [rawA, rawB] = await Promise.all([
+                redisProxy.eval(LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, 'token-client-1', cooloffMs, probeTtlSec, now, ''),
+                redisProxy.eval(LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, 'token-client-2', cooloffMs, probeTtlSec, now, '')
+            ]);
+
+            const resA = JSON.parse(rawA);
+            const resB = JSON.parse(rawB);
+            const probeCount = (resA.isProbe ? 1 : 0) + (resB.isProbe ? 1 : 0);
+            assert.equal(probeCount, 1, 'Exactly ONE worker must be granted probe reservation');
+
+            const winnerToken = resA.isProbe ? 'token-client-1' : 'token-client-2';
+            const loserToken = resA.isProbe ? 'token-client-2' : 'token-client-1';
+
+            assert.equal(await redisProxy.get(probeLockKey), winnerToken);
+
+            const loserFailRaw = await redisProxy.eval(LUA_SCRIPTS.RECORD_PROBE_FAILURE, 4, stateKey, reasonKey, trippedAtKey, probeLockKey, loserToken, 'Losing client failure', Date.now());
+            const loserFailRes = JSON.parse(loserFailRaw);
+            assert.equal(loserFailRes.success, false);
+            assert.equal(loserFailRes.error, 'STALE_PROBE_OWNER');
+
+            const loserSuccessRaw = await redisProxy.eval(LUA_SCRIPTS.RECORD_PROBE_SUCCESS, 7, stateKey, reasonKey, trippedAtKey, probeLockKey, timeoutsKey, authFailuresKey, disconnectsKey, loserToken);
+            const loserSuccessRes = JSON.parse(loserSuccessRaw);
+            assert.equal(loserSuccessRes.success, false);
+            assert.equal(loserSuccessRes.error, 'STALE_PROBE_OWNER');
+
+            assert.equal(await redisProxy.get(probeLockKey), winnerToken);
+            assert.equal(await redisProxy.get(stateKey), 'HALF_OPEN');
+
+            const winnerSuccessRaw = await redisProxy.eval(LUA_SCRIPTS.RECORD_PROBE_SUCCESS, 7, stateKey, reasonKey, trippedAtKey, probeLockKey, timeoutsKey, authFailuresKey, disconnectsKey, winnerToken);
+            const winnerSuccessRes = JSON.parse(winnerSuccessRaw);
+            assert.equal(winnerSuccessRes.success, true);
+            assert.equal(winnerSuccessRes.state, 'CLOSED');
         }
     });
 
@@ -866,9 +1026,58 @@ describe('Phase C & 3 — Outbound Dispatch, Monotonic State & Durable Circuit B
         assert.equal(state.tripped, true);
     });
 
-    it('26. CI / Provisioned Redis Verification (P0-C): Assert real Redis connection when provisioned', async () => {
-        if (process.env.CI) {
+    it('26. CI / Provisioned Redis Verification (P0-C & Item 5): Comprehensive real Redis validation', async () => {
+        if (process.env.CI || !redisProxy.isMock) {
+            // 1. Assert real Redis client (not MockRedis)
             assert.strictEqual(redisProxy.isMock, false, 'In CI environment, real Redis service must be provisioned and isMock must be false');
+
+            // 2. Assert responds to PING with PONG
+            const pingRes = await redisProxy.ping();
+            assert.strictEqual(pingRes, 'PONG', 'Real Redis must respond to PING with PONG');
+
+            // 3. Assert atomic Lua script execution produces valid JSON on real Redis
+            const intId = new mongoose.Types.ObjectId().toString();
+            const rawJson = await redisProxy.eval(
+                LUA_SCRIPTS.CHECK_AND_RESERVE_PROBE,
+                4,
+                `cb:wa:${intId}:state`,
+                `cb:wa:${intId}:reason`,
+                `cb:wa:${intId}:tripped_at`,
+                `cb:wa:${intId}:probe_lock`,
+                'ci-worker-token',
+                300000,
+                120,
+                Date.now(),
+                ''
+            );
+            assert.ok(typeof rawJson === 'string', 'Lua script must return JSON string on real Redis');
+            const parsed = JSON.parse(rawJson);
+            assert.strictEqual(parsed.state, 'CLOSED', 'Default uninitialized state in real Redis must return CLOSED');
+
+            // 4. Assert real Redis key expiration behaves as expected under TTL
+            const ttlTestKey = `test:ttl:${Date.now()}`;
+            await redisProxy.set(ttlTestKey, 'ttl-val', 'PX', 150);
+            assert.strictEqual(await redisProxy.get(ttlTestKey), 'ttl-val');
+            await new Promise(resolve => setTimeout(resolve, 250));
+            assert.strictEqual(await redisProxy.get(ttlTestKey), null, 'Real Redis key must expire naturally under TTL');
+
+            // 5. Assert multi-client shared state across independent connections
+            const c1 = new Redis({ ...redisOptions, maxRetriesPerRequest: 1, retryStrategy: () => null });
+            const c2 = new Redis({ ...redisOptions, maxRetriesPerRequest: 1, retryStrategy: () => null });
+            try {
+                const sharedKey = `test:shared:${Date.now()}`;
+                await c1.set(sharedKey, 'hello-from-client-1');
+                const readByC2 = await c2.get(sharedKey);
+                assert.strictEqual(readByC2, 'hello-from-client-1', 'Independent connection c2 must read write from c1');
+                await c1.del(sharedKey);
+            } finally {
+                await Promise.allSettled([
+                    c1.quit().catch(() => c1.disconnect()),
+                    c2.quit().catch(() => c2.disconnect())
+                ]);
+            }
+        } else {
+            console.log('ℹ️ Local environment without real Redis: Real Redis CI assertions deferred to CI runner.');
         }
     });
 });
