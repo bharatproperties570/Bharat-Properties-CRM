@@ -284,18 +284,26 @@ export const evaluateLeadStageQualification = async (leadData = {}, existingLead
  */
 export const checkLeadQualifiedStatus = (lead) => {
     if (!lead) return false;
-    const coreFields = [
-        'requirement', 'budget', 'propertyType', 'subType',
-        'unitType', 'sizeType', 'purpose', 'timeline', 'locCity', 'locArea'
-    ];
+    const rule = cachedRule || DEFAULT_QUALIFICATION_RULE;
+    const fieldsToEvaluate = (Array.isArray(rule.selectedFields) && rule.selectedFields.length > 0)
+        ? rule.selectedFields
+        : DEFAULT_QUALIFICATION_FIELDS.filter(f => f.isCore).map(f => f.key);
+
+    const availableFields = DEFAULT_QUALIFICATION_FIELDS;
+    const fieldMap = new Map(availableFields.map(f => [f.key, f]));
 
     let filledCount = 0;
-    for (const field of coreFields) {
-        if (isFieldFilled(lead, field)) filledCount++;
+    for (const key of fieldsToEvaluate) {
+        const def = fieldMap.get(key);
+        const aliases = def?.aliases || [];
+        if (isFieldFilled(lead, key, aliases)) {
+            filledCount++;
+        }
     }
 
-    const percentage = (filledCount / coreFields.length) * 100;
-    return percentage >= 80;
+    const threshold = Number(rule.thresholdPercent) || 80;
+    const percentage = Math.round((filledCount / fieldsToEvaluate.length) * 100);
+    return percentage >= threshold;
 };
 
 export default {

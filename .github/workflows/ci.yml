@@ -57,6 +57,11 @@ jobs:
           cd backend
           npm test
 
+      - name: Run Phase 3 Lead Lifecycle, Scoring & Qualification Remediation Tests
+        run: |
+          cd backend
+          npm run test:phase3
+
       - name: Run Phase 4 & 4.6 Multi-Tenancy & Contact Deduplication Tests
         run: |
           cd backend

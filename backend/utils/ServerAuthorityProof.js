@@ -330,15 +330,24 @@ export const StageTransitionEngine = {
         }
         return result;
     },
-    evaluateAndTransition: async (leadId, activityType, outcome, outcomeReason, context = {}) => {
-        // We must also wrap evaluateAndTransition because it calls executeTransition internally in the logic file.
-        // Wait, if evaluateAndTransition calls executeTransition internally in StageTransitionEngineLogic.js,
-        // it will call the UNWRAPPED executeTransition!
-        // So we must handle the intent returned from evaluateAndTransition as well!
-        const result = await StageTransitionEngineLogic.evaluateAndTransition(leadId, activityType, outcome, outcomeReason, context);
+    evaluateAndTransition: async (leadId, activityType, outcome, outcomeReason, param5 = {}, param6 = {}) => {
+        // Support both 5-param (context as 5th) and 6-param (stageFormData as 5th, context as 6th) signatures
+        let stageFormData = {};
+        let context = {};
+        if (param6 && (param6.activityId || param6.triggeredByUser || param6.purpose || param6.status || param6.session)) {
+            stageFormData = param5 || {};
+            context = param6;
+        } else if (param5 && (param5.activityId || param5.triggeredByUser || param5.purpose || param5.status || param5.session)) {
+            context = param5;
+            stageFormData = {};
+        } else {
+            stageFormData = param5 || {};
+            context = param6 || {};
+        }
+
+        const result = await StageTransitionEngineLogic.evaluateAndTransition(leadId, activityType, outcome, outcomeReason, stageFormData, context);
         if (result?.stageChanged) {
-            // Wait, evaluateAndTransition returns { stageChanged, prevStage, newStage }.
-            // Does it return triggerRevivalSync? Let's propagate it.
+            // Propagate revival sync if triggered
             if (result.triggerRevivalSync) {
                 const revivalIntent = await RevivalSyncService.processRevivalActions(leadId, context.triggeredByUser);
                 if (revivalIntent?.intent === 'REQUEST_SYSTEM_ENRICHMENT') {
