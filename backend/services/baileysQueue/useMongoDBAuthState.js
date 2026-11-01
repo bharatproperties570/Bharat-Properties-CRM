@@ -23,7 +23,10 @@ export class BaileysAuthKeyCorruptionError extends Error {
     }
 }
 
-export const useMongoDBAuthState = async (sessionId) => {
+export const useMongoDBAuthState = async (sessionId, options = {}) => {
+    // Explicitly resolve integration identifier used for Circuit Breaker attribution
+    const integrationId = options?.integrationId || sessionId;
+
     const writeData = async (data, fileId) => {
         try {
             await BaileysAuth.updateOne(
@@ -33,10 +36,12 @@ export const useMongoDBAuthState = async (sessionId) => {
             );
         } catch (error) {
             console.error(`[BaileysAuth] Error writing to MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
-            // Wire auth persistence failure to durable circuit breaker
-            import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                WhatsAppCircuitBreaker.recordAuthFailure(sessionId, error).catch(() => {});
-            }).catch(() => {});
+            // Wire auth persistence failure to durable circuit breaker using resolved integrationId
+            if (integrationId) {
+                import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                    WhatsAppCircuitBreaker.recordAuthFailure(integrationId, error).catch(() => {});
+                }).catch(() => {});
+            }
 
             throw new BaileysAuthDatabaseError(`Failed to write Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
@@ -167,9 +172,11 @@ export const useMongoDBAuthState = async (sessionId) => {
                             await BaileysAuth.bulkWrite(operations, { ordered: false });
                         } catch (error) {
                             console.error(`[BaileysAuth] Bulk write error for session ${sessionId}:`, error.message);
-                            import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                                WhatsAppCircuitBreaker.recordAuthFailure(sessionId, error).catch(() => {});
-                            }).catch(() => {});
+                            if (integrationId) {
+                                import('../WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                                    WhatsAppCircuitBreaker.recordAuthFailure(integrationId, error).catch(() => {});
+                                }).catch(() => {});
+                            }
 
                             throw new BaileysAuthDatabaseError(`Failed to persist keys bulkWrite for session '${sessionId}'`, error, { sessionId });
                         }

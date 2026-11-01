@@ -9,6 +9,7 @@ import WhatsAppGroupRegistry from '../models/WhatsAppGroupRegistry.js';
 import WhatsAppGroupRegistryService, { GROUP_METADATA_MAX_AGE_MS } from '../services/WhatsAppGroupRegistryService.js';
 import WhatsAppService from '../services/WhatsAppService.js';
 import WhatsAppIntegration from '../models/WhatsAppIntegration.js';
+import BaileysConnectionManager from '../services/baileysQueue/BaileysConnectionManager.js';
 
 describe('Phase B & 4 — Enterprise Group Registry & Permission Freshness Suite', () => {
     let mongoServer;
@@ -169,20 +170,33 @@ describe('Phase B & 4 — Enterprise Group Registry & Permission Freshness Suite
             _id: testIntegrationId,
             provider: 'BAILEYS',
             status: 'ACTIVE',
-            accountLabel: 'Test Line'
+            accountLabel: 'Test Line',
+            connectionType: 'QR_SCANNER',
+            phoneNumberId: '919876543210'
         });
 
-        // 1. Target an unverified/missing group
-        const res = await WhatsAppService.sendMessage('unregistered-group@g.us', 'Hello group', {
-            integrationId: testIntegrationId.toString(),
-            useBaileys: true,
-            provider: 'BAILEYS'
-        });
+        const mockSock = {
+            user: { id: '919876543210:1@s.whatsapp.net' },
+            ws: { isOpen: true },
+            sendMessage: async () => ({ key: { id: 'test_msg' } })
+        };
+        BaileysConnectionManager._setSocketForTesting(testIntegrationId.toString(), mockSock);
 
-        assert.equal(res.success, false);
-        assert.equal(res.deliveryStatus, 'FAILED');
-        assert.ok(res.error.includes('GROUP_PERMISSION_DENIED'));
-        assert.ok(res.error.includes('not registered'));
+        try {
+            // 1. Target an unverified/missing group
+            const res = await WhatsAppService.sendMessage('unregistered-group@g.us', 'Hello group', {
+                integrationId: testIntegrationId.toString(),
+                useBaileys: true,
+                provider: 'BAILEYS'
+            });
+
+            assert.equal(res.success, false);
+            assert.equal(res.deliveryStatus, 'FAILED');
+            assert.ok(res.error.includes('GROUP_PERMISSION_DENIED'));
+            assert.ok(res.error.includes('not registered'));
+        } finally {
+            BaileysConnectionManager._setSocketForTesting(testIntegrationId.toString(), null);
+        }
     });
 
     it('8. Actual WhatsAppService fails closed with GROUP_PERMISSION_VALIDATION_UNAVAILABLE when registry throws DB error', async () => {
@@ -190,8 +204,17 @@ describe('Phase B & 4 — Enterprise Group Registry & Permission Freshness Suite
             _id: testIntegrationId,
             provider: 'BAILEYS',
             status: 'ACTIVE',
-            accountLabel: 'Test Line'
+            accountLabel: 'Test Line',
+            connectionType: 'QR_SCANNER',
+            phoneNumberId: '919876543210'
         });
+
+        const mockSock = {
+            user: { id: '919876543210:1@s.whatsapp.net' },
+            ws: { isOpen: true },
+            sendMessage: async () => ({ key: { id: 'test_msg' } })
+        };
+        BaileysConnectionManager._setSocketForTesting(testIntegrationId.toString(), mockSock);
 
         const origFindOne = WhatsAppGroupRegistry.findOne;
         WhatsAppGroupRegistry.findOne = () => {
@@ -210,6 +233,7 @@ describe('Phase B & 4 — Enterprise Group Registry & Permission Freshness Suite
             assert.ok(res.error.includes('GROUP_PERMISSION_VALIDATION_UNAVAILABLE'));
         } finally {
             WhatsAppGroupRegistry.findOne = origFindOne;
+            BaileysConnectionManager._setSocketForTesting(testIntegrationId.toString(), null);
         }
     });
 });

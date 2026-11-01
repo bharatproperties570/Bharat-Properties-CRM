@@ -87,6 +87,13 @@ jobs:
           npm run test:whatsapp-remediation
           npm run test:whatsapp-phase4
 
+      - name: Run Enterprise WhatsApp Baileys Reliability Suites (PR #39)
+        run: |
+          cd backend
+          npm run test:whatsapp-auth-integrity
+          npm run test:whatsapp-group-permission
+          npm run test:whatsapp-dispatch-ack
+
       - name: Run Phase 10 Deals Domain Lifecycle Tests
         run: |
           cd backend

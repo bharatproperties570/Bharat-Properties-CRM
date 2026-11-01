@@ -260,4 +260,38 @@ describe('Phase A & 5 — Authentication State & Key Corruption Integrity Suite'
         assert.equal(readA['group1'].cipherKey, 'secret-a');
         assert.equal(readB['group1'].cipherKey, 'secret-b');
     });
+
+    it('10. Authentication Failure Attribution: Explicit integrationId is attributed to circuit breaker on persistence failure', async () => {
+        const sessionId = 'session_custom_prefix_999';
+        const targetIntegrationId = 'integration_attributed_target_888';
+
+        const { saveCreds } = await useMongoDBAuthState(sessionId, { integrationId: targetIntegrationId });
+
+        const origUpdateOne = BaileysAuth.updateOne;
+        BaileysAuth.updateOne = () => {
+            throw new Error('MongoWriteException: disk full');
+        };
+
+        try {
+            await assert.rejects(
+                async () => {
+                    await saveCreds();
+                },
+                (err) => {
+                    assert.ok(err instanceof BaileysAuthDatabaseError);
+                    return true;
+                }
+            );
+
+            // Small delay to allow fire-and-forget recordAuthFailure to execute
+            await new Promise(r => setTimeout(r, 50));
+
+            // Verify circuit breaker health for targetIntegrationId recorded auth failure
+            const { default: WhatsAppCircuitBreaker } = await import('../services/WhatsAppCircuitBreaker.js');
+            const health = await WhatsAppCircuitBreaker.getHealth(targetIntegrationId);
+            assert.equal(health.consecutiveAuthFailures, 1, 'Auth failure must be attributed to explicit integrationId');
+        } finally {
+            BaileysAuth.updateOne = origUpdateOne;
+        }
+    });
 });

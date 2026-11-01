@@ -2379,9 +2379,10 @@ class WhatsAppService {
             }
 
             // 🛡️ Enterprise Circuit Breaker Check (Fail-Closed)
+            let cbStatus = null;
             try {
                 const { default: WhatsAppCircuitBreaker } = await import('./WhatsAppCircuitBreaker.js');
-                const cbStatus = await WhatsAppCircuitBreaker.isTripped(config.integrationId);
+                cbStatus = await WhatsAppCircuitBreaker.isTripped(config.integrationId);
                 if (cbStatus.tripped) {
                     return {
                         success: false,
@@ -2538,7 +2539,11 @@ class WhatsAppService {
                     // WhatsApp ACK timed out while socket remains alive.
                     // Enterprise rule: Do NOT blindly retry; mark as DELIVERY_UNKNOWN to prevent duplicate messages in groups.
                     import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                        WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid }).catch(() => {});
+                        if (cbStatus?.isProbe && cbStatus?.probeToken) {
+                            WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, 'ACK timeout').catch(() => {});
+                        } else {
+                            WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid }).catch(() => {});
+                        }
                     }).catch(() => {});
 
                     return {
@@ -2608,7 +2613,7 @@ class WhatsAppService {
             }
 
             import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
-                WhatsAppCircuitBreaker.recordSuccess(config.integrationId).catch(() => {});
+                WhatsAppCircuitBreaker.recordSuccess(config.integrationId, cbStatus?.probeToken).catch(() => {});
             }).catch(() => {});
 
             return { 
@@ -2620,6 +2625,12 @@ class WhatsAppService {
                 latencyMs: Date.now() - sendStartTime
             };
         } catch (error) {
+            if (cbStatus?.isProbe && cbStatus?.probeToken) {
+                import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                    WhatsAppCircuitBreaker.recordProbeFailure(config.integrationId, cbStatus.probeToken, error?.message || 'Send failed').catch(() => {});
+                }).catch(() => {});
+            }
+
             if (error?.message?.includes('DISTRIBUTED_LOCK_LOST') || error?.code === 'DISTRIBUTED_LOCK_LOST' || lockContext?.isLockLost?.()) {
                 return {
                     success: false,
