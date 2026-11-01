@@ -3,16 +3,47 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
+// 🛡️ Enterprise Chunk & MIME Auto-Recovery Helper
+function isChunkOrMimeError(errStr) {
+    const s = String(errStr || '').toLowerCase();
+    return s.includes('importing a module script failed') ||
+           s.includes('failed to fetch dynamically imported module') ||
+           s.includes('chunkloaderror') ||
+           s.includes('text/html') ||
+           s.includes('not a valid javascript mime type') ||
+           s.includes('expected a javascript module script') ||
+           s.includes('mime type') ||
+           s.includes("unexpected token '<'") ||
+           s.includes('syntaxerror: unexpected token');
+}
+
+function triggerControlledReload(key) {
+    const storageKey = key || 'vite_chunk_auto_reload';
+    const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(storageKey) : null;
+    const now = Date.now();
+    // Guard against reload loops: allow max 1 auto-reload every 12 seconds
+    if (!lastReload || now - Number(lastReload) > 12000) {
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(storageKey, String(now));
+        window.location.reload();
+        return true;
+    }
+    return false;
+}
+
+// 🛡️ 1. Vite Native Preload Error Hook (Triggers when a dynamic import fails)
+window.addEventListener('vite:preloadError', (event) => {
+    console.warn('[Vite] Preload error detected (deployment update). Reloading cleanly...', event);
+    event.preventDefault();
+    triggerControlledReload('vite_preload_auto_reload');
+});
+
+// 🛡️ 2. Global Error Handler
 window.onerror = function(message, source, lineno, colno, error) {
-    const msgStr = String(message || '').toLowerCase();
+    const msgStr = String(message || error?.message || '').toLowerCase();
     
-    // 🛡️ Enterprise Chunk Auto-Recovery: When a dynamic import fails due to code deployment or stale Vite chunk, auto-reload once cleanly
-    if (msgStr.includes('importing a module script failed') || msgStr.includes('failed to fetch dynamically imported module') || msgStr.includes('chunkloaderror')) {
-        const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('vite_chunk_auto_reload') : null;
-        const now = Date.now();
-        if (!lastReload || now - Number(lastReload) > 10000) {
-            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('vite_chunk_auto_reload', String(now));
-            window.location.reload();
+    // Auto-recover from chunk load and MIME type mismatch errors
+    if (isChunkOrMimeError(msgStr)) {
+        if (triggerControlledReload('vite_global_chunk_reload')) {
             return true;
         }
     }
@@ -26,19 +57,17 @@ window.onerror = function(message, source, lineno, colno, error) {
     document.body.appendChild(errorDiv);
 };
 
+// 🛡️ 3. Unhandled Promise Rejections (Dynamic import rejections)
 window.addEventListener("unhandledrejection", function(event) {
     const reasonStr = String(event.reason?.message || event.reason || '').toLowerCase();
     
     // Ignore benign network / abort errors in global overlay
     if (reasonStr.includes('network error') || reasonStr.includes('timeout') || reasonStr.includes('canceled')) return;
     
-    // 🛡️ Enterprise Chunk Auto-Recovery for unhandled promise rejections
-    if (reasonStr.includes('importing a module script failed') || reasonStr.includes('failed to fetch dynamically imported module') || reasonStr.includes('chunkloaderror')) {
-        const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('vite_chunk_auto_reload') : null;
-        const now = Date.now();
-        if (!lastReload || now - Number(lastReload) > 10000) {
-            if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('vite_chunk_auto_reload', String(now));
-            window.location.reload();
+    // Auto-recover from chunk / MIME type rejections
+    if (isChunkOrMimeError(reasonStr)) {
+        event.preventDefault();
+        if (triggerControlledReload('vite_rejection_chunk_reload')) {
             return;
         }
     }
