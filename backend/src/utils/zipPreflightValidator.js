@@ -5,11 +5,13 @@ import path from 'path';
  * 
  * Implements byte-level binary preflight directly on raw ZIP buffers to neutralize:
  * 1. Zip bombs (compression ratio > 10:1, cumulative > 50 MB, single entry > 5 MB, entries > 100).
- * 2. Path traversal attacks (relative paths `..`, root slash `/`, Windows volume `C:`).
- * 3. Shared-payload overlapping file intervals.
+ * 2. Path traversal attacks (relative paths `..`, root slash `/`, Windows volume `C:`, alternate data streams `:`).
+ * 3. Shared-payload and descriptor-overlapping file intervals.
  * 4. Local header vs Central Directory header spoofing / mismatches.
- * 5. ZIP64 and multi-disk spanned archives (unsupported attack vectors).
- * 6. Forged EOCD signatures in archive comment fields.
+ * 5. Data Descriptor validation (Bit 3) with signature (16B) and without signature (12B).
+ * 6. ZIP symbolic-link (S_IFLNK) and unsupported file-type rejection (FIFO, device files, sockets).
+ * 7. ZIP64 and multi-disk spanned archives.
+ * 8. Forged EOCD signatures in archive comment fields and central-directory boundary integrity.
  */
 
 export const ZIP_LIMITS = {
@@ -26,8 +28,21 @@ const SIGNATURES = {
     LOCAL_FILE_HEADER: 0x04034b50,       // PK\x03\x04
     CENTRAL_DIR_HEADER: 0x02014b50,      // PK\x01\x02
     EOCD: 0x06054b50,                    // PK\x05\x06
+    DATA_DESCRIPTOR: 0x08074b50,         // PK\x07\x08
     ZIP64_EOCD_LOCATOR: 0x07064b50,      // PK\x06\x07
     ZIP64_EOCD_RECORD: 0x06064b50        // PK\x06\x06
+};
+
+// POSIX File Types in externalFileAttr (upper 16 bits)
+const POSIX_TYPES = {
+    S_IFMT:   0o170000,
+    S_IFSOCK: 0o140000,
+    S_IFLNK:  0o120000,
+    S_IFREG:  0o100000,
+    S_IFBLK:  0o060000,
+    S_IFDIR:  0o040000,
+    S_IFCHR:  0o020000,
+    S_IFIFO:  0o010000
 };
 
 export class ZipSecurityError extends Error {
@@ -64,14 +79,12 @@ export const validateZipPreflight = (buffer) => {
     }
 
     // 3. Reverse Scan for EOCD (End of Central Directory)
-    // EOCD record is 22 bytes minimum; comment field can be at most 65,535 bytes
     const maxSearch = Math.min(bufLen, 22 + 65535);
     let eocdOffset = -1;
 
     for (let i = bufLen - 22; i >= bufLen - maxSearch; i--) {
         if (buffer.readUInt32LE(i) === SIGNATURES.EOCD) {
             const commentLength = buffer.readUInt16LE(i + 20);
-            // Verify exact boundary consistency to defeat forged EOCD signatures in comments
             if (i + 22 + commentLength === bufLen) {
                 eocdOffset = i;
                 break;
@@ -107,15 +120,15 @@ export const validateZipPreflight = (buffer) => {
     }
 
     if (totalEntries === 0) {
+        if (cdOffset !== eocdOffset || cdSize !== 0) {
+            throw new ZipSecurityError('CORRUPT_CENTRAL_DIRECTORY', 'Empty archive contains non-zero Central Directory pointer');
+        }
         return { entriesCount: 0, cumulativeUncompressedSize: 0, entries: [] };
     }
 
-    // Central Directory bounds verification
-    if (cdOffset + cdSize > eocdOffset) {
-        throw new ZipSecurityError('CORRUPT_CENTRAL_DIRECTORY', 'Central Directory overlaps End-of-Central-Directory record');
-    }
-    if (cdOffset > eocdOffset) {
-        throw new ZipSecurityError('CORRUPT_CENTRAL_DIRECTORY', 'Central Directory offset points past EOCD');
+    // Central Directory and EOCD boundary integrity: Central Directory must end exactly where EOCD begins
+    if (cdOffset + cdSize !== eocdOffset) {
+        throw new ZipSecurityError('CORRUPT_CENTRAL_DIRECTORY', `Central Directory extent (${cdOffset} + ${cdSize} = ${cdOffset + cdSize}) does not match EOCD start boundary (${eocdOffset})`);
     }
 
     // 5. Parse Central Directory Headers
@@ -134,14 +147,30 @@ export const validateZipPreflight = (buffer) => {
             throw new ZipSecurityError('INVALID_CD_HEADER_SIGNATURE', `Invalid Central Directory signature at offset ${pointer}`);
         }
 
+        const versionMadeBy = buffer.readUInt16LE(pointer + 4);
         const flag = buffer.readUInt16LE(pointer + 8);
         const method = buffer.readUInt16LE(pointer + 10);
+        const crc = buffer.readUInt32LE(pointer + 16);
         const compressedSize = buffer.readUInt32LE(pointer + 20);
         const uncompressedSize = buffer.readUInt32LE(pointer + 24);
         const fileNameLength = buffer.readUInt16LE(pointer + 28);
         const extraFieldLength = buffer.readUInt16LE(pointer + 30);
         const commentLength = buffer.readUInt16LE(pointer + 32);
+        const externalFileAttr = buffer.readUInt32LE(pointer + 38);
         const localHeaderOffset = buffer.readUInt32LE(pointer + 42);
+
+        // Security: File Type & Symlink Verification via POSIX mode
+        const posixMode = (externalFileAttr >>> 16) & POSIX_TYPES.S_IFMT;
+        if (posixMode === POSIX_TYPES.S_IFLNK) {
+            throw new ZipSecurityError('ZIP_SYMLINK_REJECTED', `Symbolic link entry detected in ZIP archive (mode: 0o${posixMode.toString(8)})`);
+        }
+        if (posixMode !== 0 && posixMode !== POSIX_TYPES.S_IFREG && posixMode !== POSIX_TYPES.S_IFDIR) {
+            throw new ZipSecurityError('UNSUPPORTED_FILE_TYPE', `Unsupported file type detected in ZIP archive (mode: 0o${posixMode.toString(8)})`);
+        }
+        // MSDOS Volume label check
+        if ((externalFileAttr & 0x08) !== 0) {
+            throw new ZipSecurityError('UNSUPPORTED_FILE_TYPE', 'MS-DOS volume label entries are not supported');
+        }
 
         // Encryption Check (Bit 0)
         if ((flag & 0x0001) !== 0) {
@@ -153,7 +182,12 @@ export const validateZipPreflight = (buffer) => {
             throw new ZipSecurityError('UNSUPPORTED_COMPRESSION_METHOD', `Unsupported compression method: ${method}. Only Store (0) and Deflate (8) allowed`);
         }
 
-        // Filename extraction
+        // For Stored files, compressed and uncompressed size must be identical
+        if (method === 0 && compressedSize !== uncompressedSize) {
+            throw new ZipSecurityError('CORRUPT_LOCAL_DATA_EXTENTS', `Stored entry specifies compressed size ${compressedSize} !== uncompressed size ${uncompressedSize}`);
+        }
+
+        // Filename extraction & normalization checks
         const nameStart = pointer + 46;
         const nameEnd = nameStart + fileNameLength;
         if (nameEnd > cdOffset + cdSize) {
@@ -161,14 +195,25 @@ export const validateZipPreflight = (buffer) => {
         }
         const fileName = buffer.toString('utf8', nameStart, nameEnd);
 
-        // Path Traversal Security Checks
+        // Disallow null bytes and control characters
+        if (fileName.includes('\0')) {
+            throw new ZipSecurityError('ZIP_PATH_TRAVERSAL_DETECTED', 'Null byte detected in entry filename');
+        }
+        if (/[\x01-\x1f]/.test(fileName)) {
+            throw new ZipSecurityError('INVALID_ENTRY_FILENAME', 'Control characters detected in entry filename');
+        }
+
+        // Path Traversal Security Checks (including Windows alternate data streams ':')
+        const normalized = path.normalize(fileName.replace(/\\/g, '/'));
         if (
             fileName.includes('..') ||
+            fileName.includes(':') ||
             fileName.startsWith('/') ||
             fileName.startsWith('\\') ||
-            /^[a-zA-Z]:/.test(fileName) ||
             path.isAbsolute(fileName) ||
-            path.normalize(fileName).startsWith('..')
+            normalized.startsWith('../') ||
+            normalized === '..' ||
+            path.isAbsolute(normalized)
         ) {
             throw new ZipSecurityError('ZIP_PATH_TRAVERSAL_DETECTED', `Path traversal sequence detected in entry filename: ${fileName}`);
         }
@@ -215,8 +260,10 @@ export const validateZipPreflight = (buffer) => {
             throw new ZipSecurityError('ZIP_HEADER_MISMATCH', `Local header filename ("${localName}") does not match central directory ("${fileName}")`);
         }
 
-        // Bit 3 (Data Descriptor): If bit 3 is NOT set, local and central sizes must match exactly
-        if ((flag & 0x0008) === 0) {
+        const hasDataDescriptor = (flag & 0x0008) !== 0;
+
+        // If Bit 3 is NOT set, local and central sizes must match exactly
+        if (!hasDataDescriptor) {
             if (localCompressed !== compressedSize || localUncompressed !== uncompressedSize) {
                 throw new ZipSecurityError('ZIP_HEADER_MISMATCH', `Size mismatch between local header and central directory for "${fileName}"`);
             }
@@ -230,9 +277,45 @@ export const validateZipPreflight = (buffer) => {
             throw new ZipSecurityError('CORRUPT_LOCAL_DATA_EXTENTS', `Payload for "${fileName}" overflows into Central Directory boundary`);
         }
 
+        let entryEndOffset = dataEnd;
+
+        // 🛡️ Data Descriptor Validation (Bit 3)
+        if (hasDataDescriptor) {
+            let descriptorFound = false;
+
+            // Form A: With signature 0x08074b50 (16 bytes: sig 4B, crc 4B, comp 4B, uncomp 4B)
+            if (dataEnd + 16 <= cdOffset && buffer.readUInt32LE(dataEnd) === SIGNATURES.DATA_DESCRIPTOR) {
+                const descComp = buffer.readUInt32LE(dataEnd + 8);
+                const descUncomp = buffer.readUInt32LE(dataEnd + 12);
+                if (descComp !== compressedSize || descUncomp !== uncompressedSize) {
+                    throw new ZipSecurityError('ZIP_DESCRIPTOR_MISMATCH', `Data descriptor size mismatch for "${fileName}"`);
+                }
+                entryEndOffset = dataEnd + 16;
+                descriptorFound = true;
+            }
+            // Form B: Without signature (12 bytes: crc 4B, comp 4B, uncomp 4B)
+            else if (dataEnd + 12 <= cdOffset) {
+                const descComp = buffer.readUInt32LE(dataEnd + 4);
+                const descUncomp = buffer.readUInt32LE(dataEnd + 8);
+                if (descComp === compressedSize && descUncomp === uncompressedSize) {
+                    entryEndOffset = dataEnd + 12;
+                    descriptorFound = true;
+                }
+            }
+
+            if (!descriptorFound) {
+                throw new ZipSecurityError('CORRUPT_DATA_DESCRIPTOR', `Valid Data Descriptor not found following compressed payload for "${fileName}"`);
+            }
+        }
+
+        // Ensure entry extent does not overflow into Central Directory
+        if (entryEndOffset > cdOffset) {
+            throw new ZipSecurityError('CORRUPT_LOCAL_DATA_EXTENTS', `Entry "${fileName}" with descriptor overflows Central Directory`);
+        }
+
         payloadIntervals.push({
             start: localHeaderOffset,
-            end: dataEnd,
+            end: entryEndOffset,
             fileName
         });
 
@@ -258,7 +341,7 @@ export const validateZipPreflight = (buffer) => {
         if (current.end > next.start) {
             throw new ZipSecurityError(
                 'ZIP_PAYLOAD_OVERLAP_DETECTED',
-                `Overlapping payload intervals detected between "${current.fileName}" [${current.start}..${current.end}) and "${next.fileName}" [${next.start}..${next.end})`
+                `Overlapping payload/descriptor intervals detected between "${current.fileName}" [${current.start}..${current.end}) and "${next.fileName}" [${next.start}..${next.end})`
             );
         }
     }

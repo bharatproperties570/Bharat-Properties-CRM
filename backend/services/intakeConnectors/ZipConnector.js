@@ -1,9 +1,78 @@
 import fs from 'fs';
 import path from 'path';
-import JSZip from 'jszip';
+import { Worker } from 'node:worker_threads';
 import BaseConnector from './BaseConnector.js';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
 import { validateZipPreflight, ZIP_LIMITS, ZipSecurityError } from '../../src/utils/zipPreflightValidator.js';
+
+const WORKER_SCRIPT_PATH = path.resolve(process.cwd(), 'backend/src/workers/zipExtractionWorker.js');
+
+/**
+ * Spawns a dedicated worker thread for ZIP decompression with hard cancellation.
+ * @param {string} filePath - Absolute path to zip file
+ * @param {number} maxBytes - Maximum cumulative allowed uncompressed bytes
+ * @param {number} timeoutMs - Execution timeout in ms
+ * @returns {Promise<Array<{filename: string, content: string}>>}
+ */
+export const runExtractionWorker = (
+    filePath,
+    maxBytes = ZIP_LIMITS.MAX_TOTAL_UNCOMPRESSED_SIZE,
+    timeoutMs = ZIP_LIMITS.EXTRACTION_TIMEOUT_MS
+) => {
+    return new Promise((resolve, reject) => {
+        let isSettled = false;
+        let worker;
+
+        try {
+            worker = new Worker(WORKER_SCRIPT_PATH, {
+                workerData: { filePath, maxBytes }
+            });
+        } catch (spawnErr) {
+            return reject(new ZipSecurityError('WORKER_SPAWN_FAILED', spawnErr.message));
+        }
+
+        const timer = setTimeout(async () => {
+            if (isSettled) return;
+            isSettled = true;
+            try {
+                await worker.terminate();
+            } catch (termErr) {
+                console.error('[ZipConnector] Error terminating worker on timeout:', termErr.message);
+            }
+            reject(new ZipSecurityError(
+                'EXTRACTION_TIMEOUT',
+                `ZIP extraction exceeded maximum timeout of ${timeoutMs}ms and worker was terminated`
+            ));
+        }, timeoutMs);
+
+        worker.on('message', (message) => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(timer);
+            if (message && message.success) {
+                resolve(message.extractedTexts || []);
+            } else {
+                reject(new ZipSecurityError(message?.code || 'EXTRACTION_ERROR', message?.error || 'Extraction failed in worker'));
+            }
+        });
+
+        worker.on('error', (err) => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(timer);
+            reject(new ZipSecurityError('WORKER_ERROR', err.message));
+        });
+
+        worker.on('exit', (code) => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(timer);
+            if (code !== 0) {
+                reject(new ZipSecurityError('WORKER_EXITED', `Extraction worker exited abnormally with code ${code}`));
+            }
+        });
+    });
+};
 
 class ZipConnector extends BaseConnector {
     constructor() {
@@ -29,57 +98,13 @@ class ZipConnector extends BaseConnector {
             // Validates EOCD, rejects ZIP64/multi-disk, checks header consistency, detects overlaps, enforces limits
             validateZipPreflight(data);
 
-            // 🛡️ Gate 2R.12: Terminable Extraction Worker with 5,000ms hard timeout
-            let timeoutId;
-            const extractionPromise = (async () => {
-                const contents = await JSZip.loadAsync(data);
-                const extractedTexts = [];
-                let cumulativeExtractedBytes = 0;
-
-                for (const filename of Object.keys(contents.files)) {
-                    const file = contents.files[filename];
-
-                    if (file.dir || filename.startsWith('__MACOSX') || filename.split('/').pop().startsWith('.')) {
-                        continue;
-                    }
-
-                    const lowerName = filename.toLowerCase();
-                    if (lowerName.endsWith('.txt') || lowerName.endsWith('.csv')) {
-                        const text = await file.async('string');
-                        cumulativeExtractedBytes += Buffer.byteLength(text, 'utf8');
-
-                        if (cumulativeExtractedBytes > ZIP_LIMITS.MAX_TOTAL_UNCOMPRESSED_SIZE) {
-                            throw new ZipSecurityError(
-                                'ZIP_CUMULATIVE_SIZE_EXCEEDED',
-                                `Extracted contents exceeded maximum cumulative size limit (${(ZIP_LIMITS.MAX_TOTAL_UNCOMPRESSED_SIZE / (1024 * 1024)).toFixed(0)} MB)`
-                            );
-                        }
-
-                        extractedTexts.push({
-                            filename,
-                            content: text
-                        });
-                    }
-                }
-
-                return extractedTexts;
-            })();
-
-            const timeoutPromise = new Promise((_, reject) => {
-                timeoutId = setTimeout(() => {
-                    reject(new ZipSecurityError(
-                        'EXTRACTION_TIMEOUT',
-                        `ZIP extraction exceeded maximum timeout of ${ZIP_LIMITS.EXTRACTION_TIMEOUT_MS}ms`
-                    ));
-                }, ZIP_LIMITS.EXTRACTION_TIMEOUT_MS);
-            });
-
-            let extractedTexts;
-            try {
-                extractedTexts = await Promise.race([extractionPromise, timeoutPromise]);
-            } finally {
-                clearTimeout(timeoutId);
-            }
+            // 🛡️ Gate 2R.12: Dedicated Terminable Extraction Worker Thread
+            // Runs decompression in an isolated thread; immediately terminates thread on 5,000ms timeout
+            const extractedTexts = await runExtractionWorker(
+                filePath,
+                ZIP_LIMITS.MAX_TOTAL_UNCOMPRESSED_SIZE,
+                ZIP_LIMITS.EXTRACTION_TIMEOUT_MS
+            );
 
             const consolidatedContent = extractedTexts.map(t => `--- File: ${t.filename} ---\n${t.content}`).join('\n\n');
             
@@ -107,7 +132,7 @@ class ZipConnector extends BaseConnector {
 
             return { ...finalData, duplicate_hash: hash, createdBy: user_id };
         } finally {
-            // Guarantee file cleanup
+            // Guarantee file cleanup after completion, failure, or timeout
             if (fs.existsSync(filePath)) {
                 try { fs.unlinkSync(filePath); } catch (e) {}
             }
