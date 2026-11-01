@@ -4281,6 +4281,249 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // Restore idempotency index for subsequent tests
             await AuditLog.ensureIdempotencyIndex();
         });
+
+        it('4.39 Canonical full-document comparison: rejects archival reconciliation when archived metadata, description, changes, userId or errorMessage differ while core fields match', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const baseUserId = new mongoose.Types.ObjectId();
+            const targetId = new mongoose.Types.ObjectId();
+            const corrId = `canonical_full_doc_test_${Date.now()}`;
+            const now = new Date('2026-10-31T12:00:00.000Z');
+
+            const baseSrc = {
+                _id: new mongoose.Types.ObjectId(),
+                eventType: 'authority_orphan_snapshot_purged',
+                correlationId: corrId,
+                targetType: 'authority_snapshot',
+                targetId,
+                status: 'success',
+                timestamp: now,
+                userId: baseUserId,
+                userName: 'Test Operator',
+                userEmail: 'operator@crm.internal',
+                description: 'Original purge description',
+                changes: { before: { status: 'PENDING' }, after: { status: 'SUCCEEDED' } },
+                metadata: { attempt: 1, workerId: 'worker_orig' },
+                errorMessage: 'None'
+            };
+
+            const baseArchived = {
+                ...baseSrc,
+                archivalMetadata: {
+                    archivedAt: new Date(),
+                    retainedRecordId: new mongoose.Types.ObjectId(),
+                    archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                    migrationVersion: 'P4.1_HOTFIX'
+                }
+            };
+
+            // 1. Direct unit verification of isContentEquivalent()
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, baseArchived), true, 'Exact canonical match must return true');
+
+            // 1a. metadata differs while core fields are identical
+            const diffMetadata = { ...baseArchived, metadata: { attempt: 2, workerId: 'worker_different' } };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffMetadata), false, 'Differing metadata must return false');
+
+            // 1b. description differs while core fields are identical
+            const diffDescription = { ...baseArchived, description: 'Tampered description' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffDescription), false, 'Differing description must return false');
+
+            // 1c. changes differs while core fields are identical
+            const diffChanges = { ...baseArchived, changes: { before: { status: 'FAILED' }, after: { status: 'SUCCEEDED' } } };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffChanges), false, 'Differing changes must return false');
+
+            // 1d. userId differs while core fields are identical
+            const diffUserId = { ...baseArchived, userId: new mongoose.Types.ObjectId() };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffUserId), false, 'Differing userId must return false');
+
+            // 1e. errorMessage differs while core fields are identical
+            const diffErrorMessage = { ...baseArchived, errorMessage: 'Corrupted worker lease' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, diffErrorMessage), false, 'Differing errorMessage must return false');
+
+            // 1f. Extra or unexpected source field
+            const unexpectedField = { ...baseArchived, unexpectedKey: 'smuggled_data' };
+            assert.equal(AuditLog.isContentEquivalent(baseSrc, unexpectedField), false, 'Unexpected field must return false');
+
+            // 2. Integration verification: archiveAndReconcileDuplicates() rejects each differing field
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const differingFields = [
+                { field: 'metadata', archiveVal: { attempt: 99, modified: true } },
+                { field: 'description', archiveVal: 'Conflicting description in archive' },
+                { field: 'changes', archiveVal: { before: { status: 'ALTERED' }, after: { status: 'MODIFIED' } } },
+                { field: 'userId', archiveVal: new mongoose.Types.ObjectId() },
+                { field: 'errorMessage', archiveVal: 'Different failure reason' }
+            ];
+
+            for (const { field, archiveVal } of differingFields) {
+                const testCorrId = `diff_test_${field}_${Date.now()}`;
+
+                // Create retained record and duplicate record in primary collection
+                const recRetained = await AuditLog.create({
+                    ...baseSrc,
+                    _id: new mongoose.Types.ObjectId(),
+                    correlationId: testCorrId,
+                    timestamp: new Date('2026-10-31T05:00:00.000Z')
+                });
+
+                const recDup = await AuditLog.create({
+                    ...baseSrc,
+                    _id: new mongoose.Types.ObjectId(),
+                    correlationId: testCorrId,
+                    timestamp: new Date('2026-10-31T06:00:00.000Z')
+                });
+
+                // Pre-populate archive with conflicting record for recDup where ONLY `field` differs
+                await archiveColl.insertOne({
+                    ...recDup.toObject(),
+                    [field]: archiveVal,
+                    archivalMetadata: {
+                        archivedAt: new Date(),
+                        retainedRecordId: recRetained._id,
+                        archivalReason: 'DUPLICATE_CORRELATION_ID_RECONCILIATION',
+                        migrationVersion: 'P4.1_HOTFIX'
+                    }
+                });
+
+                // Reconciliation must strictly reject due to canonical full-document content mismatch
+                let caughtReconcileErr = null;
+                try {
+                    await AuditLog.archiveAndReconcileDuplicates();
+                } catch (err) {
+                    caughtReconcileErr = err;
+                }
+
+                assert.ok(caughtReconcileErr, `Reconciliation must reject when '${field}' differs`);
+                assert.ok(caughtReconcileErr.message.includes('ARCHIVE_CONTENT_CONFLICT'));
+
+                // Verify neither primary document was deleted
+                const primaryCount = await AuditLog.countDocuments({ correlationId: testCorrId });
+                assert.equal(primaryCount, 2, `Primary documents must not be deleted when '${field}' differs`);
+
+                // Clean up for next field
+                await AuditLog.deleteMany({ correlationId: testCorrId });
+                await archiveColl.deleteMany({ correlationId: testCorrId });
+            }
+        });
+
+        it('4.40 Pre-deletion verification aborts without deleting source documents if source document is modified after archival', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `pre_delete_verify_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to archive and delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            // Intercept db.collection to wrap insertMany on auditlogs_archive_duplicates
+            // This simulates an in-flight race where the primary record in AuditLog is modified
+            // after initial archival insertion but before primary deletion
+            const originalDbCollection = AuditLog.db.db.collection.bind(AuditLog.db.db);
+            AuditLog.db.db.collection = function (name, opts) {
+                const col = originalDbCollection(name, opts);
+                if (name === 'auditlogs_archive_duplicates') {
+                    const originalInsertMany = col.insertMany.bind(col);
+                    col.insertMany = async function (docs, insertOpts) {
+                        const res = await originalInsertMany(docs, insertOpts);
+                        // Mutate primary source document in AuditLog collection AFTER archive insert
+                        await AuditLog.collection.updateOne(
+                            { _id: recDup._id },
+                            { $set: { description: 'MUTATED_AFTER_ARCHIVAL_PRIOR_TO_DELETION' } }
+                        );
+                        return res;
+                    };
+                }
+                return col;
+            };
+
+            let verifyErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                verifyErr = err;
+            } finally {
+                AuditLog.db.db.collection = originalDbCollection;
+            }
+
+            assert.ok(verifyErr, 'Pre-deletion verification must detect modified source document');
+            assert.ok(verifyErr.message.includes('SOURCE_VERIFICATION_FAILED'));
+
+            // Verify primary records are completely preserved (NOT deleted)
+            const remainingPrimary = await AuditLog.find({ correlationId: corrId });
+            assert.equal(remainingPrimary.length, 2, 'Primary records must remain intact when pre-deletion verification fails');
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.41 Strictly read-only preflight: when AuditLog collection is absent, preflight returns empty report and leaves collection absent without mutation', async () => {
+            // 1. Drop auditlogs collection completely
+            await AuditLog.db.db.dropCollection('auditlogs').catch(() => {});
+
+            // Confirm collection is absent
+            const collectionsBefore = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsBefore.length, 0, 'AuditLog collection must initially be absent');
+
+            // 2. Call getDuplicatePreflightReport() directly
+            const preflightReport = await AuditLog.getDuplicatePreflightReport();
+            assert.equal(preflightReport.totalDuplicateGroups, 0);
+            assert.equal(preflightReport.totalDuplicateRecords, 0);
+            assert.deepEqual(preflightReport.groups, []);
+
+            // Confirm collection remains absent (no createCollection was invoked)
+            const collectionsAfterReport = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterReport.length, 0, 'AuditLog collection must remain absent after getDuplicatePreflightReport()');
+
+            // 3. Call programmatic runMigration({ preflightOnly: true })
+            const migrationRes = await runMigration({ preflightOnly: true });
+            assert.equal(migrationRes.success, true);
+            assert.equal(migrationRes.preflight.totalDuplicateGroups, 0);
+
+            // Confirm collection remains absent after runMigration({ preflightOnly: true })
+            const collectionsAfterMigration = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterMigration.length, 0, 'AuditLog collection must remain absent after programmatic preflight');
+
+            // 4. Call CLI with --preflight-only
+            const scriptPath = path.resolve(__dirname, '..', 'scripts', 'migrate_audit_log_idempotency_index.js');
+            const mongoUri = mongoServer.getUri();
+
+            const cliAbsent = spawnSync('node', [scriptPath, '--preflight-only'], {
+                env: { ...process.env, MONGODB_URI: mongoUri },
+                encoding: 'utf8'
+            });
+
+            assert.equal(cliAbsent.status, 0, 'CLI preflight-only must exit 0 when collection is absent');
+            const cliOutput = cliAbsent.stdout + cliAbsent.stderr;
+            assert.ok(cliOutput.includes('Preflight check passed') || cliOutput.includes('Preflight check completed successfully'));
+
+            // Confirm collection STILL remains absent after CLI invocation
+            const collectionsAfterCli = await AuditLog.db.db.listCollections({ name: 'auditlogs' }).toArray();
+            assert.equal(collectionsAfterCli.length, 0, 'AuditLog collection must remain absent after CLI preflight');
+
+            // 5. Restore AuditLog collection and index for subsequent test suites
+            await AuditLog.ensureIdempotencyIndex();
+        });
     });
 
     describe('5. Snapshot Cryptographic Integrity Verification', () => {

@@ -362,6 +362,7 @@ AuditLogSchema.statics.verifyIdempotencyIndexSpec = function (indexObj) {
  * Read-only preflight analysis for duplicate (eventType, correlationId) records.
  * Reports duplicate groups, counts, IDs, timestamps, eventTypes, and deterministic retention candidate.
  * DOES NOT modify, archive, or delete any records.
+ * If the native AuditLog collection does not exist, returns an empty report without creating any collection, index, or document.
  */
 AuditLogSchema.statics.getDuplicatePreflightReport = async function () {
     const collection = this.collection;
@@ -369,11 +370,12 @@ AuditLogSchema.statics.getDuplicatePreflightReport = async function () {
         return { totalDuplicateGroups: 0, totalDuplicateRecords: 0, groups: [] };
     }
 
-    // Ensure native collection exists
-    if (this.db && this.db.db) {
-        const collections = await this.db.db.listCollections({ name: collection.name }).toArray();
+    // Strictly read-only: Check if native collection exists without creating it
+    const rawDb = this.db?.db || this.collection?.conn?.db || mongoose.connection?.db;
+    if (rawDb) {
+        const collections = await rawDb.listCollections({ name: collection.name }).toArray();
         if (collections.length === 0) {
-            await this.db.db.createCollection(collection.name);
+            return { totalDuplicateGroups: 0, totalDuplicateRecords: 0, groups: [] };
         }
     }
 
@@ -446,13 +448,138 @@ AuditLogSchema.statics.getDuplicatePreflightReport = async function () {
 };
 
 /**
+ * Canonical deep equality comparison for any two values (scalars, dates, ObjectIds, arrays, nested objects).
+ */
+function areCanonicalValuesEqual(val1, val2) {
+    if (val1 === val2) return true;
+    if (val1 === null || val1 === undefined || val2 === null || val2 === undefined) {
+        return val1 === val2;
+    }
+
+    // Handle NaN
+    if (typeof val1 === 'number' && typeof val2 === 'number') {
+        if (Number.isNaN(val1) && Number.isNaN(val2)) return true;
+        return val1 === val2;
+    }
+
+    // Handle Date objects or ISO date strings
+    if (val1 instanceof Date && val2 instanceof Date) {
+        return val1.getTime() === val2.getTime();
+    }
+    if (val1 instanceof Date && typeof val2 === 'string') {
+        const t2 = new Date(val2).getTime();
+        return !isNaN(t2) && val1.getTime() === t2;
+    }
+    if (typeof val1 === 'string' && val2 instanceof Date) {
+        const t1 = new Date(val1).getTime();
+        return !isNaN(t1) && t1 === val2.getTime();
+    }
+    if (typeof val1 === 'string' && typeof val2 === 'string') {
+        if (val1 === val2) return true;
+        const t1 = new Date(val1).getTime();
+        const t2 = new Date(val2).getTime();
+        if (!isNaN(t1) && !isNaN(t2) && t1 === t2 && val1.includes('T') && val2.includes('T')) {
+            return true;
+        }
+        return false;
+    }
+
+    // Handle MongoDB / Mongoose ObjectId
+    const isOid1 = val1 instanceof mongoose.Types.ObjectId ||
+        (val1 && typeof val1 === 'object' && typeof val1.toHexString === 'function') ||
+        (val1 && val1._bsontype === 'ObjectID');
+    const isOid2 = val2 instanceof mongoose.Types.ObjectId ||
+        (val2 && typeof val2 === 'object' && typeof val2.toHexString === 'function') ||
+        (val2 && val2._bsontype === 'ObjectID');
+
+    if (isOid1 && isOid2) {
+        return String(val1) === String(val2);
+    }
+    if (isOid1 && typeof val2 === 'string') {
+        return String(val1) === val2;
+    }
+    if (typeof val1 === 'string' && isOid2) {
+        return val1 === String(val2);
+    }
+    if (isOid1 !== isOid2) {
+        return false;
+    }
+
+    // Handle Arrays
+    if (Array.isArray(val1) || Array.isArray(val2)) {
+        if (!Array.isArray(val1) || !Array.isArray(val2)) return false;
+        if (val1.length !== val2.length) return false;
+        for (let i = 0; i < val1.length; i++) {
+            if (!areCanonicalValuesEqual(val1[i], val2[i])) return false;
+        }
+        return true;
+    }
+
+    // Handle Plain Objects (e.g. metadata, changes, etc.)
+    if (typeof val1 === 'object' && typeof val2 === 'object') {
+        const keys1 = Object.keys(val1).filter(k => val1[k] !== undefined);
+        const keys2 = Object.keys(val2).filter(k => val2[k] !== undefined);
+        if (keys1.length !== keys2.length) return false;
+        const set2 = new Set(keys2);
+        for (const k of keys1) {
+            if (!set2.has(k)) return false;
+        }
+        for (const k of keys1) {
+            if (!areCanonicalValuesEqual(val1[k], val2[k])) return false;
+        }
+        return true;
+    }
+
+    return val1 === val2;
+}
+
+/**
+ * Canonical full-document comparison between source AuditLog record and archived document:
+ * - Compares every persisted source AuditLog field, including description, metadata, changes,
+ *   user/actor fields, status, timestamps, and error details.
+ * - Excludes ONLY explicitly defined archivalMetadata from comparison.
+ * - Detects missing, modified, or unexpected source fields.
+ */
+function isContentEquivalent(src, archived) {
+    if (!src || !archived || typeof src !== 'object' || typeof archived !== 'object') {
+        return false;
+    }
+
+    // Filter out undefined values and explicitly exclude ONLY archivalMetadata
+    const srcKeys = Object.keys(src).filter(k => k !== 'archivalMetadata' && src[k] !== undefined);
+    const archivedKeys = Object.keys(archived).filter(k => k !== 'archivalMetadata' && archived[k] !== undefined);
+
+    if (srcKeys.length !== archivedKeys.length) {
+        return false;
+    }
+
+    const archivedKeySet = new Set(archivedKeys);
+    for (const key of srcKeys) {
+        if (!archivedKeySet.has(key)) {
+            return false;
+        }
+    }
+
+    for (const key of srcKeys) {
+        if (!areCanonicalValuesEqual(src[key], archived[key])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+AuditLogSchema.statics.isContentEquivalent = isContentEquivalent;
+
+/**
  * Approved reconciliation procedure:
  * 1. Executes read-only preflight to deterministically identify duplicate records.
  * 2. Fetches full original AuditLog documents and preserves them in a verifiable archive collection.
- *    - Crash-resumable: checks existing archive documents against source identity and content.
+ *    - Crash-resumable: checks existing archive documents against source identity and content using canonical full-document comparison.
  *    - Inserts only missing documents; never overwrites conflicting documents.
  * 3. Verifies every duplicate source record is safely archived before deleting anything from AuditLog.
- * 4. Only after verified archival, removes the duplicate records from the primary collection.
+ * 4. Re-fetches and verifies that every source document still matches the exact version that was archived.
+ * 5. Only after verified archival and source re-verification, removes the duplicate records from primary AuditLog.
  */
 AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options = {}) {
     const preflight = await this.getDuplicatePreflightReport();
@@ -477,24 +604,11 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
     const now = new Date();
     const missingDocsToInsert = [];
 
-    // Helper to compare core content fields between source and archived doc
-    function isContentEquivalent(src, archived) {
-        if (!archived) return false;
-        const eventTypeMatches = src.eventType === archived.eventType;
-        const correlationMatches = src.correlationId === archived.correlationId;
-        const targetTypeMatches = src.targetType === archived.targetType;
-        const targetIdMatches = String(src.targetId || '') === String(archived.targetId || '');
-        const statusMatches = (src.status || '') === (archived.status || '');
-        const timeMatches = new Date(src.timestamp).getTime() === new Date(archived.timestamp).getTime();
-
-        return eventTypeMatches && correlationMatches && targetTypeMatches && targetIdMatches && statusMatches && timeMatches;
-    }
-
-    // 2. Check each duplicate document against archive: insert only missing, check content integrity
+    // 2. Check each duplicate document against archive: insert only missing, check canonical content integrity
     for (const doc of docsToArchive) {
         const existingArchiveDoc = await archiveColl.findOne({ _id: doc._id });
         if (existingArchiveDoc) {
-            // Document already in archive (e.g. from prior interrupted run): verify content
+            // Document already in archive (e.g. from prior interrupted run): verify canonical full-document content
             if (!isContentEquivalent(doc, existingArchiveDoc)) {
                 throw new Error(`ARCHIVE_CONTENT_CONFLICT: Conflicting document already exists in archive collection for _id ${doc._id}. Content mismatch detected; refusing to overwrite or discard.`);
             }
@@ -532,7 +646,25 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
         }
     }
 
-    // 5. Verified removal: ONLY executed after all records are verifiably archived
+    // 5. CRITICAL PRE-DELETION VERIFICATION:
+    // Re-fetch and verify that every source document still matches the exact version that was archived.
+    // Abort without deleting any source document if any source/archive mismatch is detected.
+    const refetchedSourceDocs = await this.find({ _id: { $in: allDuplicateIds } }).lean();
+    if (refetchedSourceDocs.length !== allDuplicateIds.length) {
+        throw new Error(`SOURCE_VERIFICATION_FAILED: Expected ${allDuplicateIds.length} source documents upon re-fetch, found ${refetchedSourceDocs.length}`);
+    }
+
+    for (const sourceDoc of refetchedSourceDocs) {
+        const archivedDoc = await archiveColl.findOne({ _id: sourceDoc._id });
+        if (!archivedDoc) {
+            throw new Error(`SOURCE_VERIFICATION_FAILED: Re-fetched source record ${sourceDoc._id} is missing from archive collection`);
+        }
+        if (!isContentEquivalent(sourceDoc, archivedDoc)) {
+            throw new Error(`SOURCE_VERIFICATION_FAILED: Re-fetched source record ${sourceDoc._id} does not match the archived document version`);
+        }
+    }
+
+    // 6. Verified removal: ONLY executed after all records are verifiably archived AND fresh source docs are verified
     const deleteRes = await this.deleteMany({ _id: { $in: allDuplicateIds } });
     const remainingCount = await this.countDocuments({ _id: { $in: allDuplicateIds } });
     if (remainingCount !== 0) {
