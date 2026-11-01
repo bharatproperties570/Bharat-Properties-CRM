@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { parseContent } from './intakeParser.js';
 import { canViewIntake, canClaimIntake } from './intake.authorization.js';
+import { validateZipPreflight, ZipSecurityError } from '../../utils/zipPreflightValidator.js';
 import Intake from '../../../models/Intake.js';
 import IntakeGroupCursor from '../../../models/IntakeGroupCursor.js';
 import AutomatedIntakeSource from '../../../models/AutomatedIntakeSource.js';
@@ -477,6 +478,23 @@ export const processZIP = async (req, res) => {
             return res.status(400).json({ success: false, message: "No ZIP file uploaded" });
         }
 
+        // 🛡️ Gate 2R.12: Binary Preflight Security Validation on Upload Gate
+        try {
+            const fileBuffer = fs.readFileSync(req.file.path);
+            validateZipPreflight(fileBuffer);
+        } catch (secErr) {
+            // Unlink invalid/malicious upload immediately
+            if (fs.existsSync(req.file.path)) {
+                try { fs.unlinkSync(req.file.path); } catch (e) {}
+            }
+            console.error(`[Intake:ZIP Security Rejection] Code: ${secErr.code}, Message: ${secErr.message}`);
+            return res.status(400).json({
+                success: false,
+                code: secErr.code || 'ZIP_VALIDATION_FAILED',
+                message: secErr.message || 'ZIP binary preflight validation failed'
+            });
+        }
+
         const payload = {
             filePath: req.file.path,
             originalName: req.file.originalname,
@@ -497,6 +515,9 @@ export const processZIP = async (req, res) => {
             data: { _id: result.intakeId }
         });
     } catch (error) {
+        if (req.file && fs.existsSync(req.file.path)) {
+            try { fs.unlinkSync(req.file.path); } catch (e) {}
+        }
         console.error("[Intake:ZIP Error]:", error);
         res.status(500).json({ success: false, message: error.message });
     }
