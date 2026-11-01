@@ -574,6 +574,65 @@ function isContentEquivalent(src, archived) {
 AuditLogSchema.statics.isContentEquivalent = isContentEquivalent;
 
 /**
+ * Builds an optimistic concurrency filter matching the exact persisted version of an AuditLog document.
+ * Matches:
+ * - _id
+ * - All persisted fields (either exact value or { $exists: false } if undefined)
+ * - Exact key count via $expr to detect any unexpected injected fields
+ */
+function buildOptimisticFilter(sourceDoc) {
+    if (!sourceDoc || typeof sourceDoc !== 'object') {
+        throw new Error('INVALID_DOCUMENT: sourceDoc must be an object');
+    }
+
+    const PERSISTED_FIELDS = [
+        'eventType',
+        'userId',
+        'userName',
+        'userEmail',
+        'actorId',
+        'actorName',
+        'actorEmail',
+        'targetType',
+        'targetId',
+        'targetName',
+        'description',
+        'ipAddress',
+        'userAgent',
+        'metadata',
+        'changes',
+        'status',
+        'errorMessage',
+        'correlationId',
+        'timestamp'
+    ];
+
+    const filter = { _id: sourceDoc._id };
+
+    for (const field of PERSISTED_FIELDS) {
+        if (sourceDoc[field] === undefined) {
+            filter[field] = { $exists: false };
+        } else {
+            filter[field] = sourceDoc[field];
+        }
+    }
+
+    if (sourceDoc.__v !== undefined) {
+        filter.__v = sourceDoc.__v;
+    }
+
+    // Detect unexpected extra keys injected into the document
+    const knownKeys = Object.keys(sourceDoc).filter(k => sourceDoc[k] !== undefined);
+    filter.$expr = {
+        $eq: [{ $size: { $objectToArray: '$$ROOT' } }, knownKeys.length]
+    };
+
+    return filter;
+}
+
+AuditLogSchema.statics.buildOptimisticFilter = buildOptimisticFilter;
+
+/**
  * Approved reconciliation procedure:
  * 1. Executes read-only preflight to deterministically identify duplicate records.
  * 2. Fetches full original AuditLog documents and preserves them in a verifiable archive collection.
@@ -581,7 +640,11 @@ AuditLogSchema.statics.isContentEquivalent = isContentEquivalent;
  *    - Inserts only missing documents; never overwrites conflicting documents.
  * 3. Verifies every duplicate source record is safely archived before deleting anything from AuditLog.
  * 4. Re-fetches and verifies that every source document still matches the exact version that was archived.
- * 5. Only after verified archival and source re-verification, removes the duplicate records from primary AuditLog.
+ * 5. Uses atomic/optimistic concurrency protection between source verification and deletion:
+ *    - Ensures a source record can be deleted ONLY if the exact version verified against its archived counterpart is still the version being deleted.
+ *    - Prefers transaction-backed atomicity where supported, with safe optimistic fallback for standalone MongoDB deployments.
+ *    - Never falls back to unconditional deletion by _id.
+ *    - Preserves mutated records in primary AuditLog and safely aborts reconciliation on conflict.
  */
 AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options = {}) {
     const preflight = await this.getDuplicatePreflightReport();
@@ -630,11 +693,18 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
         }
     }
 
-    // 3. Insert ONLY missing documents
+    // 3. Insert ONLY missing documents (idempotent, handles concurrent racing workers)
     let newlyArchivedCount = 0;
     if (missingDocsToInsert.length > 0) {
-        const insertRes = await archiveColl.insertMany(missingDocsToInsert, { ordered: true });
-        newlyArchivedCount = insertRes.insertedCount || missingDocsToInsert.length;
+        try {
+            const insertRes = await archiveColl.insertMany(missingDocsToInsert, { ordered: false });
+            newlyArchivedCount = insertRes.insertedCount || missingDocsToInsert.length;
+        } catch (insertErr) {
+            const isDupKey = insertErr.code === 11000 || (insertErr.writeErrors && insertErr.writeErrors.some(e => e.code === 11000));
+            if (!isDupKey) {
+                throw insertErr;
+            }
+        }
     }
 
     // 4. Verify that 100% of duplicate source records are safely and verifiably in archive
@@ -666,8 +736,97 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
         }
     }
 
-    // 6. Verified removal: ONLY executed after all records are verifiably archived AND fresh source docs are verified
-    const deleteRes = await this.deleteMany({ _id: { $in: allDuplicateIds } });
+    // 6. ATOMIC & OPTIMISTIC CONCURRENCY DELETION:
+    // Ensure that a source record can be deleted ONLY if the exact version verified against
+    // its archived counterpart is still the version being deleted.
+    // Prefer transaction-backed atomicity where supported, with safe optimistic fallback for standalone MongoDB.
+    const client = this.db?.client || this.collection?.conn?.client || mongoose.connection?.client;
+    const topologyType = client?.topology?.description?.type;
+    const supportsTransactions = (topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded') &&
+        typeof mongoose.startSession === 'function';
+
+    let removedCount = 0;
+    let session = null;
+
+    try {
+        if (supportsTransactions) {
+            session = await mongoose.startSession();
+            session.startTransaction();
+        }
+
+        for (const sourceDoc of refetchedSourceDocs) {
+            const archivedDoc = await archiveColl.findOne({ _id: sourceDoc._id });
+            if (!archivedDoc) {
+                const err = new Error(`SOURCE_CONFLICT: Re-fetched source record ${sourceDoc._id} missing from archive collection`);
+                err.code = 'SOURCE_CONFLICT';
+                throw err;
+            }
+
+            // In-flight re-check against current DB state
+            let findQuery = this.findOne({ _id: sourceDoc._id });
+            if (session) findQuery = findQuery.session(session);
+            const currentDoc = await findQuery.lean();
+
+            if (!currentDoc) {
+                // Document was already removed by another concurrent worker; safe to proceed
+                continue;
+            }
+
+            if (!isContentEquivalent(currentDoc, archivedDoc)) {
+                const conflictErr = new Error(`SOURCE_CONFLICT: Source document ${sourceDoc._id} does not match the verified archived document version. Aborting reconciliation to preserve primary audit history.`);
+                conflictErr.code = 'SOURCE_CONFLICT';
+                throw conflictErr;
+            }
+
+            // Build exact optimistic filter covering all persisted fields and key count
+            const optimisticFilter = buildOptimisticFilter(currentDoc);
+
+            // Execute conditional delete
+            let delQuery = this.deleteOne(optimisticFilter);
+            if (session) delQuery = delQuery.session(session);
+            const delRes = await delQuery;
+
+            if (delRes.deletedCount === 0) {
+                // Deletion did not match: check if document still exists (i.e. was mutated)
+                let checkSurviving = this.findOne({ _id: sourceDoc._id });
+                if (session) checkSurviving = checkSurviving.session(session);
+                const survivingDoc = await checkSurviving.lean();
+
+                if (survivingDoc) {
+                    const conflictErr = new Error(`SOURCE_CONFLICT: Source document ${sourceDoc._id} was modified concurrently before deletion. Aborting reconciliation to preserve primary audit history.`);
+                    conflictErr.code = 'SOURCE_CONFLICT';
+                    throw conflictErr;
+                }
+                // If not surviving, it was deleted concurrently
+            } else {
+                removedCount++;
+            }
+        }
+
+        if (session && session.inTransaction()) {
+            await session.commitTransaction();
+        }
+    } catch (err) {
+        if (session && session.inTransaction()) {
+            try {
+                await session.abortTransaction();
+            } catch (_) {}
+        }
+        if (err.code === 112 || err.codeName === 'WriteConflict' || err.message?.includes('Write conflict')) {
+            const conflictErr = new Error(`SOURCE_CONFLICT: Write conflict detected during source document deletion. Document was modified concurrently; aborting reconciliation to preserve primary audit history.`);
+            conflictErr.code = 'SOURCE_CONFLICT';
+            conflictErr.cause = err;
+            throw conflictErr;
+        }
+        throw err;
+    } finally {
+        if (session) {
+            try {
+                await session.endSession();
+            } catch (_) {}
+        }
+    }
+
     const remainingCount = await this.countDocuments({ _id: { $in: allDuplicateIds } });
     if (remainingCount !== 0) {
         throw new Error(`DELETION_VERIFICATION_FAILED: ${remainingCount} duplicate record(s) still present in AuditLog collection`);
@@ -677,7 +836,7 @@ AuditLogSchema.statics.archiveAndReconcileDuplicates = async function (options =
         success: true,
         archivedCount: docsToArchive.length,
         newlyArchivedCount,
-        removedCount: deleteRes.deletedCount,
+        removedCount,
         groupsReconciled: preflight.totalDuplicateGroups,
         archiveCollection: archiveCollectionName,
         preflight

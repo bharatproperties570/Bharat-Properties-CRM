@@ -4524,6 +4524,169 @@ describe('Phase 4.1 — Authority Verification Reliability & Authorization Remed
             // 5. Restore AuditLog collection and index for subsequent test suites
             await AuditLog.ensureIdempotencyIndex();
         });
+
+        it('4.42 TOCTOU Concurrency: pre-deletion verification completes, source mutation is injected immediately before deletion operation; mutated record is NOT deleted, archived data remains intact, and reconciliation reports source conflict', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `toctou_mutation_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Original record to archive and delete',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            // Intercept deleteOne on AuditLog to inject mutation immediately before the deletion operation
+            // This guarantees pre-deletion verification (Step 5) has already passed
+            const originalDeleteOne = AuditLog.deleteOne.bind(AuditLog);
+            let mutationInjected = false;
+
+            AuditLog.deleteOne = async function (filter, options) {
+                // Check if this deleteOne call is targeting the duplicate record
+                if (filter && String(filter._id) === String(recDup._id)) {
+                    // Inject source mutation in primary AuditLog immediately before delete executes
+                    await AuditLog.collection.updateOne(
+                        { _id: recDup._id },
+                        { $set: { description: 'MUTATED_AFTER_PRE_DELETION_VERIFICATION_BEFORE_DELETE' } }
+                    );
+                    mutationInjected = true;
+                }
+                return originalDeleteOne(filter, options);
+            };
+
+            let conflictErr = null;
+            try {
+                await AuditLog.archiveAndReconcileDuplicates();
+            } catch (err) {
+                conflictErr = err;
+            } finally {
+                AuditLog.deleteOne = originalDeleteOne;
+            }
+
+            assert.ok(mutationInjected, 'Mutation must have been injected right before deleteOne');
+            assert.ok(conflictErr, 'Reconciliation must report an error on source conflict');
+            assert.ok(
+                conflictErr.message.includes('SOURCE_CONFLICT') || conflictErr.code === 'SOURCE_CONFLICT',
+                `Error message must indicate SOURCE_CONFLICT, got: ${conflictErr.message}`
+            );
+
+            // Verify the mutated record is NOT deleted and still exists in primary AuditLog
+            const survivingDup = await AuditLog.findById(recDup._id);
+            assert.ok(survivingDup, 'Mutated duplicate record must NOT be deleted from primary AuditLog');
+            assert.equal(
+                survivingDup.description,
+                'MUTATED_AFTER_PRE_DELETION_VERIFICATION_BEFORE_DELETE',
+                'Mutated record content must remain preserved in primary collection'
+            );
+
+            // Verify the retained record is also intact
+            const survivingRetained = await AuditLog.findById(recRetained._id);
+            assert.ok(survivingRetained, 'Retained record must remain in primary AuditLog');
+
+            // Verify archived data remains intact in archive collection
+            const archivedRecord = await archiveColl.findOne({ _id: recDup._id });
+            assert.ok(archivedRecord, 'Archived record must remain intact in archive collection');
+            assert.equal(
+                archivedRecord.description,
+                'Original record to archive and delete',
+                'Archived record must preserve original pre-mutation state'
+            );
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
+
+        it('4.43 Concurrent migration attempts: multiple workers reconcile duplicate records in parallel without data loss or duplicate archive corruption', async () => {
+            try { await AuditLog.collection.dropIndex('unique_audit_event_correlation'); } catch (_) {}
+
+            const corrId = `concurrent_migration_test_${Date.now()}`;
+            const targetId = new mongoose.Types.ObjectId();
+            const archiveColl = AuditLog.db.db.collection('auditlogs_archive_duplicates');
+
+            const recRetained = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record to retain concurrent',
+                timestamp: new Date('2026-10-31T01:00:00.000Z')
+            });
+
+            const recDup1 = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record dup 1 to archive concurrent',
+                timestamp: new Date('2026-10-31T02:00:00.000Z')
+            });
+
+            const recDup2 = await AuditLog.create({
+                eventType: 'authority_orphan_snapshot_purged',
+                userId: userA._id,
+                targetType: 'authority_snapshot',
+                targetId,
+                correlationId: corrId,
+                status: 'success',
+                description: 'Record dup 2 to archive concurrent',
+                timestamp: new Date('2026-10-31T03:00:00.000Z')
+            });
+
+            // Run 3 concurrent reconciliation attempts in parallel
+            const p1 = AuditLog.archiveAndReconcileDuplicates();
+            const p2 = AuditLog.archiveAndReconcileDuplicates();
+            const p3 = AuditLog.archiveAndReconcileDuplicates();
+
+            const outcomes = await Promise.allSettled([p1, p2, p3]);
+
+            // At least one worker must succeed fully
+            const succeeded = outcomes.filter(o => o.status === 'fulfilled' && o.value?.success);
+            assert.ok(succeeded.length >= 1, 'At least one concurrent reconciliation worker must succeed');
+
+            // Verify no source records are lost:
+            // 1. Primary collection must retain exactly the earliest record
+            const primaryDocs = await AuditLog.find({ correlationId: corrId }).lean();
+            assert.equal(primaryDocs.length, 1, 'Primary collection must retain exactly 1 record');
+            assert.equal(String(primaryDocs[0]._id), String(recRetained._id), 'Surviving primary record must be the retained earliest record');
+
+            // 2. Both duplicate records must be verifiably preserved in archive collection
+            const archivedDocs = await archiveColl.find({ correlationId: corrId }).toArray();
+            assert.equal(archivedDocs.length, 2, 'Archive collection must have exactly 2 archived records');
+            const archivedIds = new Set(archivedDocs.map(d => String(d._id)));
+            assert.ok(archivedIds.has(String(recDup1._id)), 'Duplicate 1 must be present in archive');
+            assert.ok(archivedIds.has(String(recDup2._id)), 'Duplicate 2 must be present in archive');
+
+            // 3. Ensuring unique index now succeeds cleanly
+            const idxRes = await AuditLog.ensureIdempotencyIndex();
+            assert.equal(idxRes.verified, true);
+
+            // Clean up
+            await AuditLog.deleteMany({ correlationId: corrId });
+            await archiveColl.deleteMany({ correlationId: corrId });
+        });
     });
 
     describe('5. Snapshot Cryptographic Integrity Verification', () => {
