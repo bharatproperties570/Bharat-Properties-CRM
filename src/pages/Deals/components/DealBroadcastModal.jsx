@@ -994,7 +994,7 @@ function DealBroadcastModal({ isOpen, onClose, selectedDeals = [], dealIds = [],
 
             if (res.data?.success) {
                 toast.success(`🎉 Broadcast successfully dispatched to ${res.data.dispatchCount || audienceStats.totalDirectRecipients || totalSelectedTargets} recipients!`);
-                if (onSuccess) onSuccess();
+                if (onSuccess) onSuccess(res.data.campaignId);
                 onClose();
             } else {
                 toast.error(res.data?.error || "Broadcast could not be dispatched");

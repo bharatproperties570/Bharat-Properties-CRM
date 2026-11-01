@@ -40,6 +40,7 @@ import InventoryFilterPanel from './components/InventoryFilterPanel';
 import AddDealModal from '../../components/AddDealModal';
 import SocialPostModal from '../../components/SocialPostModal';
 import BulkUpdateInventoryModal from '../../components/modals/BulkUpdateInventoryModal';
+import BulkAuthorityVerificationModal from './components/BulkAuthorityVerificationModal';
 
 const getCategoryColor = (catName) => {
     const norm = String(catName || '').toLowerCase().trim();
@@ -176,6 +177,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
     const [isBulkUpdateModalOpen, setIsBulkUpdateModalOpen] = useState(false);
+    const [isBulkVerifyModalOpen, setIsBulkVerifyModalOpen] = useState(false);
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
     const [visibleMapItemIds, setVisibleMapItemIds] = useState(null);
@@ -462,6 +464,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 handleDocumentClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsDocumentModalOpen(true); }}
                                 handleFeedbackClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsFeedbackModalOpen(true); }}
                                 handleBulkUpdateClick={() => setIsBulkUpdateModalOpen(true)}
+                                handleBulkVerifyClick={() => setIsBulkVerifyModalOpen(true)}
                                 handleDelete={handleDelete}
                                 sortConfig={sortConfig}
                                 setSortConfig={setSortConfig}
@@ -884,6 +887,16 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 selectedIds={selectedIds}
                 selectedProperties={inventoryItems.filter(item => selectedIds.includes(item._id))}
                 onUpdateSuccess={() => {
+                    setSelectedIds([]);
+                    refresh();
+                }}
+            />
+
+            <BulkAuthorityVerificationModal
+                isOpen={isBulkVerifyModalOpen}
+                onClose={() => setIsBulkVerifyModalOpen(false)}
+                selectedIds={selectedIds}
+                onComplete={() => {
                     setSelectedIds([]);
                     refresh();
                 }}

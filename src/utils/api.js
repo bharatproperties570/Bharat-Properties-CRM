@@ -937,9 +937,31 @@ export const jarvisAPI = {
     saveVoiceConfig: (data) => api.post('/jarvis/voice-config', data).then(res => res.data)
 };
 
+// Authority Property Verification API (Phase 4)
+export const authorityAPI = {
+    getSettings: () => api.get('/authority/settings').then(res => res.data),
+    getSettingByCode: (code) => api.get(`/authority/settings/${code}`).then(res => res.data),
+    updateSettings: (code, data) => api.patch(`/authority/settings/${code}`, data).then(res => res.data),
+    getLinks: (inventoryId) => api.get(`/authority/links/${inventoryId}`).then(res => res.data),
+    saveLink: (data) => api.post('/authority/links', data).then(res => res.data),
+    getRuns: (params) => api.get('/authority/runs', { params }).then(res => res.data),
+    getRunById: (runId) => api.get(`/authority/runs/${runId}`).then(res => res.data),
+    getRunProgress: (runId) => api.get(`/authority/runs/${runId}/progress`).then(res => res.data),
+    createRun: (data) => api.post('/authority/runs', data).then(res => res.data),
+    processRun: (runId, data) => api.post(`/authority/runs/${runId}/process`, data).then(res => res.data),
+    pauseRun: (runId) => api.post(`/authority/runs/${runId}/pause`).then(res => res.data),
+    resumeRun: (runId, data) => api.post(`/authority/runs/${runId}/resume`, data).then(res => res.data),
+    cancelRun: (runId, data) => api.post(`/authority/runs/${runId}/cancel`, data).then(res => res.data),
+    getPendingReviews: () => api.get('/authority/review/pending').then(res => res.data),
+    submitReview: (itemId, data) => api.post(`/authority/review/${itemId}`, data).then(res => res.data),
+    applyApprovedChanges: (itemId) => api.post(`/authority/apply/${itemId}`).then(res => res.data),
+    getHistory: (inventoryId) => api.get(`/authority/history/${inventoryId}`).then(res => res.data)
+};
+
 export default {
     auth: authAPI,
     jarvis: jarvisAPI,
+    authority: authorityAPI,
     aiAgents: aiAgentsAPI,
     users: usersAPI,
     roles: rolesAPI,

@@ -258,5 +258,34 @@ describe('Phase 18 — Marketing OS Attribution & Full-Funnel Analytics Suite', 
             assert.strictEqual(stats.roas, null);
             assert.strictEqual(stats.financialStatus, 'DEFERRED_COST_SOURCE');
         });
+
+        it('ANALYTICS-02: Distinct counting for ACCEPTED, SENT, DELIVERED, READ, UNKNOWN, SUPPRESSED', async () => {
+            const campaign = await MarketingCampaign.create({
+                name: 'Multi-State Metrics Campaign',
+                ownerId: new mongoose.Types.ObjectId(),
+                budget: 50000
+            });
+            const run = await CampaignRun.create({ campaignId: campaign._id, status: 'COMPLETED' });
+
+            // Create distinct deliveries
+            await MarketingDelivery.create({ jobId: 'j-acc', recipientId: 'r-1', channel: 'whatsapp', campaignRunId: run._id, status: 'ACCEPTED' });
+            await MarketingDelivery.create({ jobId: 'j-snt', recipientId: 'r-2', channel: 'whatsapp', campaignRunId: run._id, status: 'SENT' });
+            await MarketingDelivery.create({ jobId: 'j-dlv', recipientId: 'r-3', channel: 'whatsapp', campaignRunId: run._id, status: 'DELIVERED' });
+            await MarketingDelivery.create({ jobId: 'j-red', recipientId: 'r-4', channel: 'whatsapp', campaignRunId: run._id, status: 'READ' });
+            await MarketingDelivery.create({ jobId: 'j-unk', recipientId: 'r-5', channel: 'whatsapp', campaignRunId: run._id, status: 'DELIVERY_UNKNOWN' });
+            await MarketingDelivery.create({ jobId: 'j-sup', recipientId: 'r-6', channel: 'whatsapp', campaignRunId: run._id, status: 'SUPPRESSED_OPTOUT' });
+            await MarketingDelivery.create({ jobId: 'j-fld', recipientId: 'r-7', channel: 'whatsapp', campaignRunId: run._id, status: 'FAILED_FINAL' });
+
+            const stats = await CampaignAnalyticsService.getCampaignRunAnalytics(run._id);
+
+            assert.strictEqual(stats.accepted, 1, 'ACCEPTED must be distinctly counted');
+            assert.strictEqual(stats.sent, 1, 'SENT must be distinctly counted');
+            assert.strictEqual(stats.delivered, 1, 'DELIVERED must be distinctly counted');
+            assert.strictEqual(stats.read, 1, 'READ must be distinctly counted');
+            assert.strictEqual(stats.unknown, 1, 'UNKNOWN must be distinctly counted');
+            assert.strictEqual(stats.suppressed, 1, 'SUPPRESSED must be distinctly counted');
+            assert.strictEqual(stats.failed, 1, 'FAILED must be distinctly counted');
+            assert.strictEqual(stats.totalOutbound, 4, 'totalOutbound must sum accepted + sent + delivered + read');
+        });
     });
 });

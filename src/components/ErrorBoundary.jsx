@@ -13,15 +13,22 @@ class ErrorBoundary extends React.Component {
     componentDidCatch(error, errorInfo) {
         console.error("Uncaught error:", error, errorInfo);
         
-        // Auto-recover from chunk load errors (Vite HMR / Vercel deployments)
+        // Auto-recover from chunk load errors and MIME type mismatches (Vite HMR / Vercel deployments)
         const errString = (error?.message || error?.name || '').toLowerCase();
-        if (errString.includes('chunkloaderror') || errString.includes('dynamically imported module') || errString.includes('importing a module script failed')) {
-            const hasReloaded = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('chunk_reload_2');
-            if (!hasReloaded) {
-                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload_2', 'true');
-                // 🛡️ Enterprise Fix: Do NOT use ?v= query params for ESM chunk errors.
-                // It pollutes the URL and doesn't reliably clear the browser's ESM cache.
-                // Instead, just perform a hard reload. If the URL already has a query param, strip it to start fresh.
+        const isChunkOrMime = errString.includes('chunkloaderror') ||
+            errString.includes('dynamically imported module') ||
+            errString.includes('importing a module script failed') ||
+            errString.includes('text/html') ||
+            errString.includes('not a valid javascript mime type') ||
+            errString.includes('expected a javascript module script') ||
+            errString.includes('mime type') ||
+            errString.includes("unexpected token '<'");
+
+        if (isChunkOrMime) {
+            const lastReload = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('chunk_reload_2') : null;
+            const now = Date.now();
+            if (!lastReload || now - Number(lastReload) > 12000) {
+                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload_2', String(now));
                 if (window.location.search.includes('v=')) {
                     window.location.href = window.location.origin + window.location.pathname;
                 } else {

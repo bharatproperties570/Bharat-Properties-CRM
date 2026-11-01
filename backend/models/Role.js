@@ -114,6 +114,14 @@ const RoleSchema = new mongoose.Schema({
             create: { type: Boolean, default: false },
             edit: { type: Boolean, default: false },
             delete: { type: Boolean, default: false }
+        },
+
+        // Authority Verification Module
+        authorityVerification: {
+            view: { type: Boolean, default: false },
+            create: { type: Boolean, default: false },
+            edit: { type: Boolean, default: false },
+            delete: { type: Boolean, default: false }
         }
     },
 
@@ -142,7 +150,9 @@ const RoleSchema = new mongoose.Schema({
         approveDiscount: { type: Boolean, default: false },
         approveStageChange: { type: Boolean, default: false },
         approveListingPublish: { type: Boolean, default: false },
-        allowHardDelete: { type: Boolean, default: false } // Enterprise Hard Delete Auth
+        allowHardDelete: { type: Boolean, default: false }, // Enterprise Hard Delete Auth
+        manageAuthoritySettings: { type: Boolean, default: false },
+        approveAuthorityChanges: { type: Boolean, default: false }
     },
 
     // ========== Legacy Support ==========

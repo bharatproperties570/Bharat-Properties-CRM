@@ -27,6 +27,7 @@ import MatchedLeadsCard from '../../components/MatchedLeadsCard';
 import InventorySidebar from './components/InventorySidebar';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
+import AuthorityVerificationPanel from './components/AuthorityVerificationPanel';
 
 
 // Modals
@@ -274,6 +275,9 @@ export default function InventoryDetailPage({ onBack, onAddActivity, onAddDeal, 
                         getLookupValue={getLookupValue} 
                         onEdit={() => setIsBuiltupModalOpen(true)}
                     />
+
+                    {/* ── Government Authority Verification ── */}
+                    <AuthorityVerificationPanel inventory={inventory} onRefresh={refresh} />
 
                     {/* ── Price Intelligence Card ── */}
                     <PriceIntelligenceCard inventoryId={inventoryId} />
