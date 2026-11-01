@@ -187,7 +187,12 @@ export default function LiveBroadcastBoard({ dealId, campaignId: propCampaignId,
             return;
         }
 
-        if (!window.confirm(`Initiate safe retry for ${failedCount} failed/timed-out recipients? Already confirmed recipients will NOT receive duplicate messages.`)) return;
+        const unknownCount = liveState?.stats?.unknown || 0;
+        const confirmMsg = unknownCount > 0
+            ? `⚠️ DUPLICATE RISK WARNING: ${unknownCount} recipient(s) have UNKNOWN delivery status (WhatsApp ACK timed out in-flight). Resending may deliver duplicate messages if already accepted by WhatsApp servers.\n\nAre you sure you want to proceed with retry for ${failedCount} recipients?`
+            : `Initiate safe retry for ${failedCount} failed recipient(s)? Already confirmed recipients will NOT receive duplicate messages.`;
+
+        if (!window.confirm(confirmMsg)) return;
 
         setActionLoading(true);
         try {

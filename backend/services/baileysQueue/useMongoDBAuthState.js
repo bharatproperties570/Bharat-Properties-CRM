@@ -1,6 +1,17 @@
 import { BufferJSON, initAuthCreds, proto } from '@whiskeysockets/baileys';
 import BaileysAuth from '../../models/BaileysAuth.js';
 
+export class BaileysAuthDatabaseError extends Error {
+    constructor(message, originalError, sessionDetails = {}) {
+        super(message);
+        this.name = 'BaileysAuthDatabaseError';
+        this.originalError = originalError;
+        this.sessionId = sessionDetails?.sessionId;
+        this.fileId = sessionDetails?.fileId;
+        this.type = sessionDetails?.type;
+    }
+}
+
 export const useMongoDBAuthState = async (sessionId) => {
     const writeData = async (data, fileId) => {
         try {
@@ -10,7 +21,8 @@ export const useMongoDBAuthState = async (sessionId) => {
                 { upsert: true }
             );
         } catch (error) {
-            console.error(`[BaileysAuth] Error writing to MongoDB for session ${sessionId} and file ${fileId}:`, error);
+            console.error(`[BaileysAuth] Error writing to MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
+            throw new BaileysAuthDatabaseError(`Failed to write Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
     };
 
@@ -22,8 +34,8 @@ export const useMongoDBAuthState = async (sessionId) => {
             }
             return null;
         } catch (error) {
-            console.error(`[BaileysAuth] Error reading from MongoDB for session ${sessionId} and file ${fileId}:`, error);
-            return null;
+            console.error(`[BaileysAuth] Error reading from MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
+            throw new BaileysAuthDatabaseError(`Failed to read Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
     };
 
@@ -31,10 +43,13 @@ export const useMongoDBAuthState = async (sessionId) => {
         try {
             await BaileysAuth.deleteOne({ sessionId, fileId });
         } catch (error) {
-            console.error(`[BaileysAuth] Error removing from MongoDB for session ${sessionId} and file ${fileId}:`, error);
+            console.error(`[BaileysAuth] Error removing from MongoDB for session ${sessionId} and file ${fileId}:`, error.message);
+            throw new BaileysAuthDatabaseError(`Failed to remove Baileys auth record for fileId '${fileId}'`, error, { sessionId, fileId });
         }
     };
 
+    // Reads credentials. If readData throws due to a DB/network outage, the error propagates
+    // and initAuthCreds() is NEVER called, protecting existing session state from corruption.
     const credsData = await readData('creds');
     let creds = credsData || initAuthCreds();
 
@@ -72,14 +87,20 @@ export const useMongoDBAuthState = async (sessionId) => {
                                     }
                                 } catch (parseErr) {
                                     console.error(`[BaileysAuth] Parse error for ${doc.fileId}:`, parseErr.message);
+                                    const origId = fileIdMap.get(doc.fileId);
+                                    if (origId) {
+                                        data[origId] = null;
+                                    }
                                 }
                             }
                         }
                     } catch (error) {
-                        console.error(`[BaileysAuth] Batch read error for type ${type}:`, error.message);
+                        console.error(`[BaileysAuth] Database batch read error for type ${type}, session ${sessionId}:`, error.message);
+                        // Explicit failure semantics: A database/network failure must NOT be disguised as missing keys!
+                        throw new BaileysAuthDatabaseError(`Database query failed during keys.get for type '${type}'`, error, { sessionId, type });
                     }
 
-                    // Fill missing keys with null
+                    // Fill genuinely absent keys with null only when the database read was successful
                     for (const id of ids) {
                         if (data[id] === undefined) {
                             data[id] = null;
@@ -117,6 +138,7 @@ export const useMongoDBAuthState = async (sessionId) => {
                             await BaileysAuth.bulkWrite(operations, { ordered: false });
                         } catch (error) {
                             console.error(`[BaileysAuth] Bulk write error for session ${sessionId}:`, error.message);
+                            throw new BaileysAuthDatabaseError(`Failed to persist keys bulkWrite for session '${sessionId}'`, error, { sessionId });
                         }
                     }
                 },

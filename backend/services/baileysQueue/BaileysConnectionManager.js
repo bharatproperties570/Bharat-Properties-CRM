@@ -482,7 +482,7 @@ export const BaileysConnectionManager = {
                             console.log(`[BaileysConnectionManager] Integration ${integrationId} marked as ACTIVE / CONNECTED (Phone: ${phone})`);
 
                             // 👥 Auto-cache all participating group subjects and full metadata
-                            sock.groupFetchAllParticipating().then(groups => {
+                            sock.groupFetchAllParticipating().then(async groups => {
                                 let count = 0;
                                 Object.values(groups || {}).forEach(g => {
                                     if (g.id) {
@@ -494,6 +494,15 @@ export const BaileysConnectionManager = {
                                     }
                                 });
                                 console.log(`[BaileysConnectionManager] Cached metadata and subjects for ${count} groups (Integration: ${integrationId})`);
+
+                                // 🛡️ Phase B Enterprise Group Registry Sync
+                                try {
+                                    const { default: WhatsAppGroupRegistryService } = await import('../WhatsAppGroupRegistryService.js');
+                                    const regRes = await WhatsAppGroupRegistryService.syncAllGroups(integrationId, sock);
+                                    console.log(`[BaileysConnectionManager] Synced ${regRes.count} groups into WhatsAppGroupRegistry (Integration: ${integrationId})`);
+                                } catch (regErr) {
+                                    console.warn('[BaileysConnectionManager] WhatsAppGroupRegistry sync notice:', regErr.message);
+                                }
                             }).catch(err => {
                                 console.warn('[BaileysConnectionManager] Group subject/metadata sync notice:', err.message);
                             });
@@ -505,7 +514,7 @@ export const BaileysConnectionManager = {
 
                 sock.ev.on('creds.update', saveCreds);
 
-                // Real-time group cache invalidation
+                // Real-time group cache invalidation and registry update
                 sock.ev.on('groups.update', (updates) => {
                     for (const u of (updates || [])) {
                         if (u.id) {
@@ -513,13 +522,107 @@ export const BaileysConnectionManager = {
                             if (u.subject) {
                                 BaileysConnectionManager.setGroupSubject(integrationId, u.id, u.subject);
                             }
+                            import('../WhatsAppGroupRegistryService.js').then(({ default: WhatsAppGroupRegistryService }) => {
+                                WhatsAppGroupRegistryService.updateGroupFromEvent(integrationId, u.id, u).catch(() => {});
+                            }).catch(() => {});
                         }
                     }
                 });
 
-                sock.ev.on('group-participants.update', ({ id }) => {
+                sock.ev.on('group-participants.update', ({ id, participants, action }) => {
                     if (id) {
                         BaileysConnectionManager.invalidateCachedGroupMetadata(integrationId, id);
+                        import('../WhatsAppGroupRegistryService.js').then(({ default: WhatsAppGroupRegistryService }) => {
+                            // If socket is available, refresh full metadata for this group
+                            if (sock && typeof sock.groupMetadata === 'function') {
+                                sock.groupMetadata(id).then(meta => {
+                                    if (meta) {
+                                        const { senderPhone, senderLid } = WhatsAppGroupRegistryService.getSenderIdentifiers(sock.user);
+                                        const perm = WhatsAppGroupRegistryService.evaluatePermission(meta, senderPhone, senderLid);
+                                        WhatsAppGroupRegistryService.updateGroupFromEvent(integrationId, id, {
+                                            participantCount: Array.isArray(meta.participants) ? meta.participants.length : 0,
+                                            announce: perm.announce,
+                                            restrict: perm.restrict,
+                                            permissionStatus: perm.permissionStatus,
+                                            status: perm.status
+                                        }).catch(() => {});
+                                    }
+                                }).catch(() => {});
+                            }
+                        }).catch(() => {});
+                    }
+                });
+
+                // 🚀 Phase C Enterprise Reliability: Outbound ACK & Delivery State Reconciliation
+                sock.ev.on('messages.update', async (updates) => {
+                    try {
+                        const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+                        const { default: WhatsAppDispatch } = await import('../../models/WhatsAppDispatch.js');
+                        const { default: WhatsAppCircuitBreaker } = await import('../WhatsAppCircuitBreaker.js');
+
+                        for (const item of (updates || [])) {
+                            const msgId = item.key?.id;
+                            const newStatusNumber = item.update?.status;
+                            if (!msgId || !newStatusNumber) continue;
+
+                            let deliveryStatus = null;
+                            if (newStatusNumber === 2) { // SERVER_ACK
+                                deliveryStatus = 'SERVER_ACKNOWLEDGED';
+                                await WhatsAppCircuitBreaker.recordSuccess(integrationId);
+                            } else if (newStatusNumber === 3) { // DELIVERY_ACK
+                                deliveryStatus = 'DELIVERY_CONFIRMED';
+                            } else if (newStatusNumber === 4) { // READ
+                                deliveryStatus = 'READ';
+                            }
+
+                            if (deliveryStatus) {
+                                const now = new Date();
+                                const updateFields = {
+                                    status: deliveryStatus,
+                                    lastAttemptAt: now
+                                };
+                                if (deliveryStatus === 'SERVER_ACKNOWLEDGED') updateFields.serverAckAt = now;
+                                if (deliveryStatus === 'DELIVERY_CONFIRMED') updateFields.deliveryReceiptAt = now;
+                                if (deliveryStatus === 'READ') updateFields.readAt = now;
+
+                                await MarketingDelivery.updateMany(
+                                    { providerMessageId: msgId },
+                                    { $set: updateFields }
+                                );
+
+                                await WhatsAppDispatch.updateMany(
+                                    { providerMessageId: msgId },
+                                    {
+                                        $set: {
+                                            status: deliveryStatus,
+                                            deliveryStatus: deliveryStatus,
+                                            deliveryStatusAt: now
+                                        }
+                                    }
+                                );
+                            }
+                        }
+                    } catch (ackErr) {
+                        console.warn('[BaileysConnectionManager] messages.update handler error:', ackErr.message);
+                    }
+                });
+
+                sock.ev.on('message-receipt.update', async (receipts) => {
+                    try {
+                        const { default: MarketingDelivery } = await import('../../models/MarketingDelivery.js');
+                        for (const item of (receipts || [])) {
+                            const msgId = item.key?.id;
+                            if (!msgId) continue;
+                            const receipt = item.receipt;
+                            if (receipt && (receipt.readTimestamp || receipt.receiptTimestamp)) {
+                                await MarketingDelivery.updateMany(
+                                    { providerMessageId: msgId },
+                                    { $set: { status: 'READ', readAt: new Date() } }
+                                );
+                            }
+                        }
+                    } catch (rcptErr) {
+                        console.warn('[BaileysConnectionManager] message-receipt.update error:', rcptErr.message);
                     }
                 });
 
@@ -575,10 +678,15 @@ export const BaileysConnectionManager = {
                     const { enqueueBaileysInboundMessage } = await import('./baileysWorker.js');
                     await enqueueBaileysInboundMessage(inboundJobData);
                 } catch (qErr) {
-                    console.error('[BaileysConnectionManager] Queue enqueue error, running fallback:', qErr.message);
-                    const { processInboundMessageCore } = await import('./baileysWorker.js');
-                    processInboundMessageCore(inboundJobData).catch(err => {
-                        console.error('[BaileysConnectionManager] Fallback processing error:', err.message);
+                    console.error('[BaileysConnectionManager] Queue enqueue error, running non-blocking fallback:', qErr.message);
+                    setImmediate(() => {
+                        import('./baileysWorker.js').then(({ processInboundMessageCore }) => {
+                            processInboundMessageCore(inboundJobData).catch(err => {
+                                console.error('[BaileysConnectionManager] Fallback processing error:', err.message);
+                            });
+                        }).catch(impErr => {
+                            console.error('[BaileysConnectionManager] Failed to import worker fallback:', impErr.message);
+                        });
                     });
                 }
             }

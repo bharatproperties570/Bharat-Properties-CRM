@@ -29,7 +29,22 @@ const WhatsAppDispatchSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['CLAIMED', 'DISPATCHED', 'FAILED', 'AMBIGUOUS_TIMEOUT'],
+        enum: [
+            'CLAIMED',
+            'QUEUED',
+            'PREFLIGHT_VALIDATED',
+            'DISPATCHING',
+            'DISPATCHED',
+            'SERVER_ACKNOWLEDGED',
+            'DELIVERY_CONFIRMED',
+            'READ',
+            'FAILED',
+            'FAILED_CONFIRMED',
+            'AMBIGUOUS_TIMEOUT',
+            'DELIVERY_UNKNOWN',
+            'RECONCILIATION_REQUIRED',
+            'MANUAL_REVIEW'
+        ],
         default: 'CLAIMED',
         index: true
     },

@@ -2378,6 +2378,46 @@ class WhatsAppService {
                 }
             }
 
+            // 🛡️ Enterprise Circuit Breaker Check
+            try {
+                const { default: WhatsAppCircuitBreaker } = await import('./WhatsAppCircuitBreaker.js');
+                const cbStatus = await WhatsAppCircuitBreaker.isTripped(config.integrationId);
+                if (cbStatus.tripped) {
+                    return {
+                        success: false,
+                        deliveryStatus: 'FAILED',
+                        isDeliveryUnknown: false,
+                        isAmbiguous: false,
+                        error: `CIRCUIT_BREAKER_TRIPPED: Outbound dispatch paused on WhatsApp line. ${cbStatus.reason}`,
+                        provider: 'baileys',
+                        latencyMs: 0
+                    };
+                }
+            } catch (cbErr) {
+                // Non-fatal if circuit breaker check fails
+            }
+
+            // 🛡️ Enterprise Phase B: Pre-flight Group Permission Validation
+            if (jid.includes('@g.us')) {
+                try {
+                    const { default: WhatsAppGroupRegistryService } = await import('./WhatsAppGroupRegistryService.js');
+                    const permCheck = await WhatsAppGroupRegistryService.validateGroupForDispatch(config.integrationId, jid);
+                    if (!permCheck.allowed) {
+                        return {
+                            success: false,
+                            deliveryStatus: 'FAILED',
+                            isDeliveryUnknown: false,
+                            isAmbiguous: false,
+                            error: `GROUP_PERMISSION_DENIED: ${permCheck.reason}`,
+                            provider: 'baileys',
+                            latencyMs: Date.now() - sendStartTime
+                        };
+                    }
+                } catch (permErr) {
+                    // Non-fatal if registry check throws
+                }
+            }
+
             // 🛡️ Enterprise Anti-Ban: Human Typing Presence Emulation for 1-on-1 chats
             if (!jid.includes('@g.us')) {
                 try {
@@ -2477,6 +2517,10 @@ class WhatsAppService {
                 if (isTimeout && !isSocketDead) {
                     // WhatsApp ACK timed out while socket remains alive.
                     // Enterprise rule: Do NOT blindly retry; mark as DELIVERY_UNKNOWN to prevent duplicate messages in groups.
+                    import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                        WhatsAppCircuitBreaker.recordAckTimeout(config.integrationId, { jid }).catch(() => {});
+                    }).catch(() => {});
+
                     return {
                         success: false,
                         deliveryStatus: 'DELIVERY_UNKNOWN',
@@ -2542,6 +2586,10 @@ class WhatsAppService {
                     throw firstAttemptErr;
                 }
             }
+
+            import('./WhatsAppCircuitBreaker.js').then(({ default: WhatsAppCircuitBreaker }) => {
+                WhatsAppCircuitBreaker.recordSuccess(config.integrationId).catch(() => {});
+            }).catch(() => {});
 
             return { 
                 success: true, 
