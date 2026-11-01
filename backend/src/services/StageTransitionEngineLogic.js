@@ -26,13 +26,13 @@
  *   - The API returns { shouldChange, newStage, requiredFields, missingFields } for the frontend
  */
 
+import mongoose from 'mongoose';
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
 
-import DealSyncEngine from './DealSyncEngine.js';
 import AuditLog from '../../models/AuditLog.js';
 import StageTransitionLog from '../../models/StageTransitionLog.js';
 import { safeRedisCall } from '../config/redis.js';
@@ -495,9 +495,14 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // 🛡️ ATOMIC CONCURRENCY PROTECTION
     // Ensure the lead stage has not been concurrently updated by another process
+    const expectedStage = lead.stage?._id || lead.stage;
+    let stageFilter = expectedStage;
+    if (expectedStage && mongoose.Types.ObjectId.isValid(expectedStage)) {
+        stageFilter = { $in: [new mongoose.Types.ObjectId(String(expectedStage)), String(expectedStage)] };
+    }
     const atomicFilter = {
         _id: leadId,
-        stage: lead.stage?._id || lead.stage
+        stage: stageFilter
     };
 
     const updatedLead = await Lead.findOneAndUpdate(atomicFilter, updatePayload, { new: true, session: options.session });
@@ -545,8 +550,14 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
     
     // 🚀 DEAL SYNC ENGINE (Phase 4)
-    DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser, visitedProperties).catch(err => {
-        console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
+    import('./DealSyncEngine.js').then(({ default: DealSyncEngine }) => {
+        if (DealSyncEngine?.syncLeadToDeal) {
+            DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser, visitedProperties).catch(err => {
+                console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
+            });
+        }
+    }).catch(err => {
+        console.error('[StageTransitionEngine] Dynamic import of DealSyncEngine failed:', err.message);
     });
 
     return { success: true, prevStage: prevStageName, newStage: newStageName, triggerRevivalSync };

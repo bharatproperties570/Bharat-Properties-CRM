@@ -228,41 +228,63 @@ describe('Phase 3 — Lead Lifecycle, Scoring & Qualification Remediation Test S
         assert.ok(revivalAudit, 'AuditLog for lead_revived should be recorded');
     });
 
-    it('4. Atomic Concurrency Protection: Detects and rejects conflicting concurrent stage updates', async () => {
-        const lead = await Lead.create({
-            firstName: 'Suresh',
-            lastName: 'Raina',
-            mobile: '9876543213',
-            stage: stageLookups['prospect']._id
-        });
+    it('4. Real Concurrent Stage-Transition Race: Atomic conditional update permits no stale overwrite across parallel races', async () => {
+        // Run repeated concurrent races across multiple leads to expose nondeterministic race behavior
+        const RACE_ITERATIONS = 10;
+        for (let i = 0; i < RACE_ITERATIONS; i++) {
+            const lead = await Lead.create({
+                firstName: `RaceCandidate_${i}`,
+                lastName: 'Singh',
+                mobile: `98765432${i.toString().padStart(2, '0')}`,
+                stage: stageLookups['prospect']._id
+            });
 
-        // Simulate two racing workers trying to transition the same lead from 'Prospect'
-        // Worker 1 transitions Prospect -> Opportunity
-        const res1 = await executeTransition(lead._id, 'Opportunity', {
-            triggeredBy: 'activity',
-            activityType: 'Meeting',
-            outcome: 'Interested',
-            triggeredByUser: salesUser._id
-        });
-        assert.equal(res1.success, true);
+            // Start two concurrent transition attempts from the exact same expected starting stage 'Prospect'
+            // Worker 1 attempts Prospect -> Opportunity
+            // Worker 2 attempts Prospect -> Working
+            const worker1Promise = executeTransition(lead._id, 'Opportunity', {
+                triggeredBy: 'activity',
+                activityType: 'Meeting',
+                outcome: 'Interested',
+                triggeredByUser: salesUser._id
+            });
 
-        // Worker 2 attempts transition expecting lead to still be at 'Prospect'
-        // When executeTransition runs, lead is now at 'Opportunity'. Regression guard blocks it.
-        const res2 = await executeTransition(lead._id, 'Working', {
-            triggeredBy: 'activity',
-            activityType: 'Call',
-            outcome: 'Interested',
-            triggeredByUser: salesUser._id
-        });
+            const worker2Promise = executeTransition(lead._id, 'Working', {
+                triggeredBy: 'activity',
+                activityType: 'Call',
+                outcome: 'Interested',
+                triggeredByUser: salesUser._id
+            });
 
-        assert.equal(res2.success, false);
-        assert.equal(res2.blocked, true);
+            // Launch both concurrent transition operations simultaneously
+            const [res1, res2] = await Promise.all([worker1Promise, worker2Promise]);
 
-        const finalLead = await Lead.findById(lead._id).populate('stage', 'lookup_value');
-        assert.equal(finalLead.stage.lookup_value, 'Opportunity');
+            // Assert that exactly one valid transition wins and the other is rejected
+            const results = [res1, res2];
+            const winner = results.find(r => r.success === true);
+            const loser = results.find(r => r.success === false);
+
+            assert.ok(winner, `Iteration ${i}: Exactly one concurrent transition must win`);
+            assert.ok(loser, `Iteration ${i}: Competing concurrent transition must be rejected`);
+            assert.equal(loser.success, false, `Iteration ${i}: Competing transition success must be false`);
+            assert.equal(loser.blocked, true, `Iteration ${i}: Competing transition must be blocked`);
+
+            // Verify the atomic conditional update permitted no stale overwrite
+            const finalLead = await Lead.findById(lead._id).populate('stage', 'lookup_value');
+            assert.equal(finalLead.stage.lookup_value, winner.newStage, `Iteration ${i}: DB stage must match winner stage`);
+
+            // Verify stage history contains only the winning transition's entry
+            const stageHistory = finalLead.stageHistory || [];
+            assert.equal(stageHistory.length, 1, `Iteration ${i}: Exactly 1 transition entry should exist in stage history`);
+            assert.equal(stageHistory[0].stage, winner.newStage, `Iteration ${i}: History entry must match winner stage`);
+
+            // Verify AuditLog record matches winning transition
+            const auditLogs = await AuditLog.find({ targetId: lead._id, eventType: 'stage_changed' });
+            assert.equal(auditLogs.length, 1, `Iteration ${i}: Exactly 1 audit record should exist for stage change`);
+        }
     });
 
-    it('5. Lead Scoring Deduplication & Explainable Breakdown: Replay activities do not inflate score', async () => {
+    it('5. Lead Scoring Deduplication & Explainable Breakdown: Deduplicates by _id, handles replays & preserves genuine calls', async () => {
         const lead = await Lead.create({
             firstName: 'Kavita',
             lastName: 'Verma',
@@ -275,39 +297,81 @@ describe('Phase 3 — Lead Lifecycle, Scoring & Qualification Remediation Test S
 
         const actId1 = new mongoose.Types.ObjectId();
         const actId2 = new mongoose.Types.ObjectId();
+        const actId3 = new mongoose.Types.ObjectId();
+
+        const baseTime = Date.now();
 
         const activities = [
+            // Genuine Call 1 at T - 180s (ID: actId1)
             {
                 _id: actId1,
                 type: 'Call',
                 status: 'Completed',
                 details: { purpose: 'Follow Up', outcome: 'Interested' },
-                completedAt: new Date(Date.now() - 60000)
+                completedAt: new Date(baseTime - 180000)
             },
-            // Duplicate activity record with same _id (should be deduplicated)
+            // Duplicate activity record with same _id (should be deduplicated by seenActivityIds)
             {
                 _id: actId1,
                 type: 'Call',
                 status: 'Completed',
                 details: { purpose: 'Follow Up', outcome: 'Interested' },
-                completedAt: new Date(Date.now() - 50000)
+                completedAt: new Date(baseTime - 170000)
             },
-            // Replay activity with identical signature within 5 minutes (should be deduplicated)
+            // Genuine Call 2 at T - 60s (2 minutes later) with distinct _id (must NOT be suppressed)
             {
                 _id: actId2,
                 type: 'Call',
                 status: 'Completed',
                 details: { purpose: 'Follow Up', outcome: 'Interested' },
-                completedAt: new Date(Date.now() - 30000)
+                completedAt: new Date(baseTime - 60000)
+            },
+            // Duplicate webhook insertion: same timestamp down to the second (within 1000ms) with distinct _id
+            {
+                _id: actId3,
+                type: 'Call',
+                status: 'Completed',
+                details: { purpose: 'Follow Up', outcome: 'Interested' },
+                completedAt: new Date(baseTime - 60000)
+            },
+            // Transient unpersisted replay (no _id) within 5 minutes: must be suppressed
+            {
+                type: 'Call',
+                status: 'Completed',
+                details: { purpose: 'Follow Up', outcome: 'Interested' },
+                completedAt: new Date(baseTime - 30000)
+            },
+            // Activity with invalid timestamp: must be handled safely without NaN
+            {
+                _id: new mongoose.Types.ObjectId(),
+                type: 'Meeting',
+                status: 'Completed',
+                details: { purpose: 'Product Presentation', outcome: 'Interested' },
+                completedAt: 'invalid-date-string'
             }
         ];
 
         const scoreResult = computeLeadScore(lead, activities);
 
-        // The activity score should only count the unique, non-replayed call (12 points)
-        assert.equal(scoreResult.activityScore, 12, 'Duplicate and replay activities should be deduplicated to exactly 12 points');
-        assert.equal(scoreResult.breakdown.activityContributions.length, 1, 'Only 1 contribution should be recorded');
-        assert.equal(scoreResult.breakdown.activityContributions[0].points, 12);
+        // Verification:
+        // - Call 1 (actId1) = 12 points
+        // - Duplicate actId1 = 0 points (deduplicated)
+        // - Call 2 (actId2) = 12 points (distinct genuine call, NOT suppressed)
+        // - Duplicate webhook insertion (actId3 at exact same ms) = 0 points (deduplicated)
+        // - Unpersisted replay without _id = 0 points (deduplicated)
+        // - Meeting with invalid date = 15 points (safely scored with valid fallback timestamp)
+        // Total activity score = 12 + 12 + 15 = 39 points
+        assert.equal(scoreResult.activityScore, 39, 'Activity score should accurately reflect unique genuine activities (39 points)');
+        assert.equal(scoreResult.breakdown.activityContributions.length, 3, 'Exactly 3 unique contributions should be recorded');
+
+        // Verify explainable contributions
+        const contribTypes = scoreResult.breakdown.activityContributions.map(c => c.type).sort();
+        assert.deepEqual(contribTypes, ['Call', 'Call', 'Meeting'].sort());
+
+        // Verify invalid date activity has a valid Date object timestamp in contributions
+        const meetingContrib = scoreResult.breakdown.activityContributions.find(c => c.type === 'Meeting');
+        assert.ok(meetingContrib.timestamp instanceof Date && !isNaN(meetingContrib.timestamp.getTime()), 'Invalid date must safely resolve to a valid Date object');
+
         assert.ok(scoreResult.total >= 0 && scoreResult.total <= 100);
     });
 

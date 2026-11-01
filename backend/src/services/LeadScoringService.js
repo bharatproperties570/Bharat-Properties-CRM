@@ -258,6 +258,7 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
     let activityScore = 0;
     const activityContributions = [];
     const seenActivityIds = new Set();
+    const seenExternalIds = new Set();
     const seenSignatures = new Map(); // signature -> timestamp of first scored occurrence
     const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -266,21 +267,38 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
     if (activityBehaviouralEnabled && Array.isArray(activities)) {
         // Sort activities chronologically to evaluate replay order deterministically
         const sortedActivities = [...activities].sort((a, b) => {
-            const timeA = new Date(a.completedAt || a.createdAt || 0).getTime();
-            const timeB = new Date(b.completedAt || b.createdAt || 0).getTime();
+            const rawA = a.completedAt || a.createdAt;
+            const dateA = rawA ? new Date(rawA).getTime() : 0;
+            const timeA = isNaN(dateA) ? 0 : dateA;
+
+            const rawB = b.completedAt || b.createdAt;
+            const dateB = rawB ? new Date(rawB).getTime() : 0;
+            const timeB = isNaN(dateB) ? 0 : dateB;
+
             return timeA - timeB;
         });
 
         sortedActivities.forEach(act => {
-            if (act.status !== 'Completed') return; // Only completed activities score
+            const normalizedStatus = String(act.status || '').trim().toLowerCase();
+            if (normalizedStatus !== 'completed') return; // Only completed activities score
 
-            // Deduplicate by explicit activity _id
+            // 1. Deduplicate by explicit activity _id
             const actIdStr = act._id ? String(act._id) : null;
             if (actIdStr) {
                 if (seenActivityIds.has(actIdStr)) {
                     return; // Skip duplicate activity document
                 }
                 seenActivityIds.add(actIdStr);
+            }
+
+            // 2. Deduplicate by external event / message / call identifier if present
+            const extId = act.externalId || act.details?.callSid || act.details?.messageId || act.details?.idempotencyKey;
+            if (extId) {
+                const extKey = `${(act.type || '').toLowerCase()}:${String(extId).trim()}`;
+                if (seenExternalIds.has(extKey)) {
+                    return; // Skip duplicate external event
+                }
+                seenExternalIds.add(extKey);
             }
 
             const actName = (act.type || '').toLowerCase();
@@ -318,21 +336,36 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
                     .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0] || '';
             }
 
-            // Rapid signature deduplication (prevent accidental replay or double webhook delivery)
+            // 3. Safe timestamp normalization (handles missing, null, and invalid date formats safely)
+            const rawDate = act.completedAt || act.createdAt;
+            let actDate = rawDate ? new Date(rawDate) : null;
+            if (!actDate || isNaN(actDate.getTime())) {
+                actDate = new Date();
+            }
+            const actTimestamp = actDate.getTime();
+
+            // 4. Signature Deduplication:
+            // - If activity lacks an _id (transient/unpersisted payload), suppress identical replays within the 5-minute window.
+            // - If activity has an _id, only suppress exact duplicate insertions (within 1000ms).
+            // This prevents duplicate webhook bursts while preserving distinct legitimate activities with unique _ids.
             const signature = `${actName}:${purpName}:${outcomeLabel}`;
-            const actTimestamp = new Date(act.completedAt || act.createdAt || Date.now()).getTime();
             if (seenSignatures.has(signature)) {
                 const prevTimestamp = seenSignatures.get(signature);
-                if (Math.abs(actTimestamp - prevTimestamp) < DUPLICATE_WINDOW_MS) {
-                    return; // Replay within 5 minutes on same lead ignored
+                const timeDiff = Math.abs(actTimestamp - prevTimestamp);
+                if (!actIdStr && timeDiff < DUPLICATE_WINDOW_MS) {
+                    return; // Unpersisted replay within 5 minutes on same lead ignored
+                }
+                if (actIdStr && timeDiff < 1000) {
+                    return; // Exact duplicate insertion of same physical event ignored
                 }
             }
             seenSignatures.set(signature, actTimestamp);
 
-            const outcomeDef = purpDef.outcomes?.find(o => {
-                const ol = (o.label || '').toLowerCase();
-                return ol === outcomeLabel || outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
-            });
+            const outcomeDef = purpDef.outcomes?.find(o => (o.label || '').toLowerCase() === outcomeLabel)
+                || purpDef.outcomes?.find(o => {
+                    const ol = (o.label || '').toLowerCase();
+                    return outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
+                });
 
             let scoredPoints = 0;
             if (outcomeDef) {
