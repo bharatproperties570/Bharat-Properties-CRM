@@ -268,6 +268,8 @@ describe('Phase 3 — Lead Lifecycle, Scoring & Qualification Remediation Test S
             assert.ok(loser, `Iteration ${i}: Competing concurrent transition must be rejected`);
             assert.equal(loser.success, false, `Iteration ${i}: Competing transition success must be false`);
             assert.equal(loser.blocked, true, `Iteration ${i}: Competing transition must be blocked`);
+            assert.equal(loser.concurrencyConflict, true, `Iteration ${i}: Competing transition must flag concurrency conflict`);
+            assert.ok(loser.reason && loser.reason.includes('CONCURRENCY_CONFLICT'), `Iteration ${i}: Competing transition reason must indicate concurrency conflict`);
 
             // Verify the atomic conditional update permitted no stale overwrite
             const finalLead = await Lead.findById(lead._id).populate('stage', 'lookup_value');
